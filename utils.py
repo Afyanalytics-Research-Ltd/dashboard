@@ -19,6 +19,8 @@ def parse_payload_column(df: pd.DataFrame) -> pd.DataFrame:
 def get_module_dataframe(df: pd.DataFrame, module: str) -> pd.DataFrame:
     return df.loc[module]
 
+def get_modules(df: pd.DataFrame) -> pd.DataFrame:
+    return df.index.get_level_values("MODULE_SOURCE").unique()
 
 def get_module_tables(finance_df: pd.DataFrame) -> pd.Index:
     return finance_df.index.get_level_values("SOURCE_TABLE").unique()

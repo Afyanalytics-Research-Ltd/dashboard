@@ -1,4 +1,5 @@
 import io
+import os
 import warnings
 import streamlit as st
 import pandas as pd
@@ -13,16 +14,36 @@ from scipy import stats
 from scipy.signal import periodogram
 from scipy.cluster.hierarchy import dendrogram, linkage
 from collections import Counter
-
+from utils import (
+    load_events_table,
+    get_module_tables,
+    get_source_table,
+    normalize_first_payload,
+    parse_payload_column
+)
 from data_loader import (
     load_raw_events, load_module_tables_map, load_table,
     num_cols, date_cols, cat_cols,
     best_amount_col, best_date_col, best_id_col, safe_show, ALL_MODULES,
 )
+from snowflake.snowpark import Session
+from dotenv import load_dotenv
+load_dotenv()
+
+connection_parameters = {
+    "account": os.getenv("SNOWFLAKE_ACCOUNT").strip(),
+    "user": os.getenv("SNOWFLAKE_USER").strip(),
+    "password": os.getenv("SNOWFLAKE_PASSWORD").strip(),
+    "role": os.getenv("SNOWFLAKE_ROLE").strip(),
+    "warehouse": os.getenv("SNOWFLAKE_WAREHOUSE").strip(),
+    "database": os.getenv("SNOWFLAKE_DATABASE").strip(),
+    "schema": os.getenv("SNOWFLAKE_SCHEMA").strip()
+}
 
 warnings.filterwarnings("ignore")
 st.set_page_config(page_title="Hospital Intelligence Engine", layout="wide", page_icon="🏥")
-
+session = Session.builder.configs(connection_parameters).create()
+df = load_events_table(session, "HOSPITALS.AFYA_API_AUTH_RAW.EVENTS_RAW")
 ACCENT = "#7c3aed"
 CMAP   = "plasma"
 
@@ -92,7 +113,7 @@ def pick_table(module):
 #  FINANCE  (analyses 1-12)
 # ══════════════════════════════════════════════════════════════════════════════
 
-if module_choice == "Finance":
+if True:
     st.title("💰 Finance — 12 Hardcore Analyses")
     tables = table_map.get("Finance", [])
 
@@ -105,9 +126,14 @@ if module_choice == "Finance":
         fdfs = load_finance()
 
     st.success(f"Tables: {', '.join(tables)}")
-
-    inv = fdfs.get("finance_invoices", pd.DataFrame())
-    wav = fdfs.get("finance_waivers",  pd.DataFrame())
+    finance_invoices = get_source_table(df, "Finance", "finance_invoices")
+    finance_invoices = parse_payload_column(finance_invoices)
+    finance_waivers = get_source_table(df, "Finance", "finance_waivers")
+    finance_waivers = parse_payload_column(finance_waivers)
+    inv = normalize_first_payload(finance_invoices)
+    wav = normalize_first_payload(finance_waivers)
+    st.text(inv.columns)
+    st.text(wav.columns)
 
     for c in ["amount", "balance", "paid", "company_id", "id"]:
         if c in inv.columns: inv[c] = pd.to_numeric(inv[c], errors="coerce")

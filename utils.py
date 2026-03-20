@@ -34,6 +34,10 @@ def normalize_first_payload(df: pd.DataFrame) -> pd.DataFrame:
     payload = next(iter(df["PAYLOAD"]), None)
     return pd.json_normalize(payload)
 
-
+def normalize_all_payloads(df: pd.DataFrame) -> pd.DataFrame:
+    payloads = df["PAYLOAD"].dropna().tolist()
+    if not payloads:
+        return pd.DataFrame()
+    return pd.json_normalize(payloads)
 
 

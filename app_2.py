@@ -15,6 +15,7 @@ from scipy.signal import periodogram
 from scipy.cluster.hierarchy import dendrogram, linkage
 from collections import Counter
 from utils import (
+    get_module_dataframe,
     load_events_table,
     get_module_tables,
     get_source_table,
@@ -43,7 +44,8 @@ connection_parameters = {
 warnings.filterwarnings("ignore")
 st.set_page_config(page_title="Hospital Intelligence Engine", layout="wide", page_icon="🏥")
 session = Session.builder.configs(connection_parameters).create()
-df = load_events_table(session, "HOSPITALS.AFYA_API_AUTH_RAW.EVENTS_RAW")
+schema_name = "XANALIFE_RAW"
+df = load_events_table(session, f"HOSPITALS.{schema_name}.EVENTS_RAW")
 ACCENT = "#7c3aed"
 CMAP   = "plasma"
 
@@ -116,7 +118,7 @@ def pick_table(module):
 if True:
     st.title("💰 Finance — 12 Hardcore Analyses")
     tables = table_map.get("Finance", [])
-
+    
     @st.cache_data(show_spinner=False)
     def load_finance():
         dfs = {t: load_table("Finance", t) for t in tables}
@@ -126,12 +128,101 @@ if True:
         fdfs = load_finance()
 
     st.success(f"Tables: {', '.join(tables)}")
-    finance_invoices = get_source_table(df, "Finance", "finance_invoices")
-    finance_invoices = parse_payload_column(finance_invoices)
-    finance_waivers = get_source_table(df, "Finance", "finance_waivers")
-    finance_waivers = parse_payload_column(finance_waivers)
-    inv = normalize_first_payload(finance_invoices)
-    wav = normalize_first_payload(finance_waivers)
+    
+    # all finance source tables you want to convert
+    table_names = [
+        # "finance_patient_transactions",
+        "finance_invoices",
+        # "finance_payments_cash",
+        # "finance_vouchers",
+        # "finance_invoice_batch_dispatch_emails",
+        # "finance_payments_pesa_pal_mpesa",
+        # "dynamic_item_sents",
+        # "finance_petty_cash_updates",
+        # "finance_payments_mpesa",
+        # "finance_payments_cheque",
+        # "finance_patient_accounts",
+        # "finance_insurance_cheques",
+        "finance_waivers",
+        # "finance_banks",
+        # "finance_invoice_payments",
+        # "finance_evaluation_insurance_payments",
+        # "finance_account_groups",
+        "finance_patient_invoices",
+        # "finance_accounting_api_references",
+        # "finance_banking_cheques",
+        # "finance_gl_accounts",
+        # "finance_transactions",
+        # "finance_account_types",
+        # "finance_copay",
+        # "finance_patient_deposits",
+        # "finance_petty_cash",
+        # "finance_patient_withdrawals",
+        # "finance_dispatch",
+        # "finance_accounting_soln_logs",
+        # "finance_bank_accounts",
+        # "accounting_api_reference_stats",
+        # "invoice_payers",
+        # "finance_payments_card",
+        "finance_evaluation_payments",
+        # "points",
+        # "finance_payments_pesa_pal_card"
+    ]
+
+    # dictionaries to hold each stage
+    source_tables = {}
+    parsed_tables = {}
+    dataframes = {}
+
+    for table_name in table_names:
+        # get raw source table
+        source_df = get_source_table(df, "Finance", table_name)
+        source_tables[table_name] = source_df
+
+        # parse payload column
+        parsed_df = parse_payload_column(source_df)
+        parsed_tables[table_name] = parsed_df
+
+        # normalize payload into dataframe
+        normalized_df = normalize_first_payload(parsed_df)
+        dataframes[table_name] = normalized_df
+    # finance dataframes
+    # finance_patient_transactions_df = dataframes["finance_patient_transactions"]
+    inv = dataframes["finance_invoices"]
+    # finance_payments_cash_df = dataframes["finance_payments_cash"]
+    # finance_vouchers_df = dataframes["finance_vouchers"]
+    # finance_invoice_batch_dispatch_emails_df = dataframes["finance_invoice_batch_dispatch_emails"]
+    # finance_payments_pesa_pal_mpesa_df = dataframes["finance_payments_pesa_pal_mpesa"]
+    # dynamic_item_sents_df = dataframes["dynamic_item_sents"]
+    # finance_petty_cash_updates_df = dataframes["finance_petty_cash_updates"]
+    # finance_payments_mpesa_df = dataframes["finance_payments_mpesa"]
+    # finance_payments_cheque_df = dataframes["finance_payments_cheque"]
+    # finance_patient_accounts_df = dataframes["finance_patient_accounts"]
+    # finance_insurance_cheques_df = dataframes["finance_insurance_cheques"]
+    wav = dataframes["finance_waivers"]
+    # finance_banks_df = dataframes["finance_banks"]
+    # finance_invoice_payments_df = dataframes["finance_invoice_payments"]
+    # finance_evaluation_insurance_payments_df = dataframes["finance_evaluation_insurance_payments"]
+    # finance_account_groups_df = dataframes["finance_account_groups"]
+    # finance_patient_invoices_df = dataframes["finance_patient_invoices"]
+    # finance_accounting_api_references_df = dataframes["finance_accounting_api_references"]
+    # finance_banking_cheques_df = dataframes["finance_banking_cheques"]
+    # finance_gl_accounts_df = dataframes["finance_gl_accounts"]
+    # finance_transactions_df = dataframes["finance_transactions"]
+    # finance_account_types_df = dataframes["finance_account_types"]
+    # finance_copay_df = dataframes["finance_copay"]
+    # finance_patient_deposits_df = dataframes["finance_patient_deposits"]
+    # finance_petty_cash_df = dataframes["finance_petty_cash"]
+    # finance_patient_withdrawals_df = dataframes["finance_patient_withdrawals"]
+    # finance_dispatch_df = dataframes["finance_dispatch"]
+    # finance_accounting_soln_logs_df = dataframes["finance_accounting_soln_logs"]
+    # finance_bank_accounts_df = dataframes["finance_bank_accounts"]
+    # accounting_api_reference_stats_df = dataframes["accounting_api_reference_stats"]
+    # invoice_payers_df = dataframes["invoice_payers"]
+    # finance_payments_card_df = dataframes["finance_payments_card"]
+    finance_evaluation_payments_df = dataframes["finance_evaluation_payments"]
+    # points_df = dataframes["points"]
+    # finance_payments_pesa_pal_card_df = dataframes["finance_payments_pesa_pal_card"]
     st.text(inv.columns)
     st.text(wav.columns)
 

@@ -1,11 +1,13 @@
 import streamlit as st
 import pandas as pd
+import seaborn as sns
 import numpy as np
 import matplotlib.pyplot as plt
 from prophet import Prophet
 from sklearn.ensemble import IsolationForest
 from sqlalchemy import create_engine
 import os
+sns.set_style("whitegrid")
 
 # --- DATABASE CONNECTION ---
 DB_USER = os.getenv('DB_USER').strip()
@@ -16,10 +18,10 @@ DB_NAME = os.getenv('DB_NAME').strip()
 
 db_url = f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 engine = create_engine(db_url, echo=False)
-
+st.image("logo_pharmaplus.png", width=150)
 st.set_page_config(page_title="Enterprise Dashboard", layout="wide")
-st.title("🏥Revenue Analytics & Predictive Dashboard")
-tab1, tab2, tab3, tab4 = st.tabs(["📊 Overview", "Product Health", "Recommendation Engine", "Pricing Engine"])
+st.title("Revenue Analytics & Predictive Dashboard")
+tab1, tab2, tab3, tab4 = st.tabs(["Overview", "Product Health", "Recommendation Engine", "Pricing Engine"])
 # --- Sidebar Filters ---
 st.sidebar.header("Filters")
 
@@ -39,12 +41,12 @@ with tab1:
         selected_store_id = None
 
     # --- Load Inventory Usage Data ---
-    query_usage = "select * from inventory_evaluation_dispensing_details"
+    query_usage = "select ied.*,ip.name as product_name from inventory_evaluation_dispensing_details ied left join inventory_products ip on ied.product=ip.id"
     df = pd.read_sql(query_usage, engine)
 
     # --- Clean Data ---
     expected_cols = ['id','batch','product','prescription_id','quantity','price','discount','status',
-                    'invoiced','deleted_at','created_at','updated_at','previous_quantity','new_quantity','store_id']
+                    'invoiced','deleted_at','created_at','updated_at','previous_quantity','new_quantity','product_name','store_id']
 
     if 'store_id' not in df.columns:
         df['store_id'] = 'All Stores'
@@ -71,19 +73,63 @@ with tab1:
     st.divider()
 
     # --- Fast / Slow Movers ---
-    st.subheader("🔥 Fast Moving Products")
-    fast_moving = df_filtered.groupby('product')['quantity_used'].sum().sort_values(ascending=False).head(10)
-    st.dataframe(fast_moving.reset_index())
+    # Top N
+    fast_moving = df_filtered.groupby(['product'])['quantity_used'].sum().sort_values(ascending=False).head(10)
+    fast_moving = fast_moving.reset_index()
 
-    st.subheader("🐢 Slow Moving Products")
-    last_activity = df_filtered.groupby('product')['created_at'].max().reset_index()
+    TOP_N = 10
+
+    df_top = fast_moving.head(TOP_N).copy()
+
+    # Cumulative %
+    df_top['cum_pct'] = df_top['quantity_used'].cumsum() / df_top['quantity_used'].sum()
+
+    # --- Plot ---
+    fig, ax1 = plt.subplots(figsize=(12, 7))
+
+    # Barplot (Seaborn)
+    sns.barplot(
+        data=df_top,
+        x='product',
+        y='quantity_used',
+        ax=ax1
+    )
+
+    # Rotate labels
+    plt.setp(ax1.get_xticklabels(), rotation=45, ha='right')
+
+    # Titles
+    ax1.set_title("Top Products Driving Pharmacy Demand", fontsize=16, fontweight='bold')
+    ax1.set_ylabel("Quantity Used")
+    ax1.set_xlabel("")
+
+    # --- Cumulative Line ---
+    ax2 = ax1.twinx()
+    ax2.plot(df_top['cum_pct'], marker='o')
+    ax2.set_ylabel("Cumulative %")
+
+    # Add % labels
+    for i, v in enumerate(df_top['cum_pct']):
+        ax2.text(i, v, f"{v:.0%}", ha='center', fontsize=9)
+
+    # Clean spines
+    sns.despine(left=False, bottom=False)
+
+    plt.tight_layout()
+
+    # Streamlit
+    st.pyplot(fig)
+    st.subheader("Fast Moving Products")
+    st.dataframe(fast_moving.reset_index())
+    st.subheader("Slow Moving Products")
+    last_activity = df_filtered.groupby(['product'])['created_at'].max().reset_index()
     last_activity['days_since_last_use'] = (pd.Timestamp.now() - last_activity['created_at']).dt.days
     slow_moving = last_activity.sort_values(by='days_since_last_use', ascending=False).head(10)
     st.dataframe(slow_moving)
 
 with tab2:
     # --- Senior-Level Forecasting ---
-    st.subheader("🔮 Demand Forecasting (Prophet)")
+    st.subheader("Demand Forecasting (Prophet)")
     forecast_products = st.multiselect(
         "Select Products to Forecast", options=df_filtered['product'].unique(), default=df_filtered['product'].unique()[:1]
     )
@@ -114,7 +160,7 @@ with tab2:
         st.dataframe(forecast[['ds','yhat','yhat_lower','yhat_upper']].tail(forecast_horizon))
 
     # --- Anomaly Detection ---
-    st.subheader("⚠️ Anomaly Detection")
+    st.subheader("Anomaly Detection")
     daily_usage = df_filtered.groupby(['product','created_at'])['quantity_used'].sum().reset_index()
     daily_usage['quantity_filled'] = daily_usage['quantity_used'].fillna(0)
 
@@ -129,7 +175,7 @@ with tab2:
 
 with tab3:
     # --- Suggested Products based on other stores ---
-    st.subheader("💡 Suggested Products (Based on Similar Stores)")
+    st.subheader("Suggested Products (Based on Similar Stores)")
 
     if selected_store_id:
         query_suggested =  f"""
@@ -295,9 +341,11 @@ with tab4:
 
     model = RandomForestRegressor(n_estimators=100, random_state=42)
     model.fit(X_train, y_train)
-    def predict_price(product_name, df, model):
+    def predict_price(product, df, model):
         # safe filtering
-        product = df[df['name'].fillna("").str.lower().str.contains(product_name.lower())]
+        type(product)
+        print(df.info())
+        product = df[df['product_id'] == int(product)]
 
         if product.empty:
             return None
@@ -313,14 +361,13 @@ with tab4:
         predicted_price = model.predict(X_input)[0]
 
         return {
-            "name": row['name'],
             "predicted_price": round(predicted_price, 2),
             "cost": row['avg_cost'],
             "velocity": row['daily_velocity'],
             "competitor_price": row['effective_competitor_price']
         }
 
-    st.title("💊 Dynamic Pharmacy Pricing")
+    st.title("Dynamic Pharmacy Pricing Model")
 
     product_input = st.text_input("Enter product name")
 
@@ -328,8 +375,7 @@ with tab4:
         result = predict_price(product_input, pricing_df, model)
 
         if result:
-            st.success(f"Product: {result['name']}")
-            st.metric("💰 Predicted Price", result['predicted_price'])
+            st.metric("Predicted Price", result['predicted_price'])
             st.write(f"Cost: {result['cost']}")
             st.write(f"Demand (velocity): {result['velocity']}")
             st.write(f"Competitor Price: {result['competitor_price']}")

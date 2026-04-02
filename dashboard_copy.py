@@ -217,141 +217,169 @@ with tab3:
         st.dataframe(suggested_df)
 
 with tab4:
-    import optuna
-    import warnings
-    from xgboost import XGBRegressor
-    from sklearn.model_selection import train_test_split, cross_val_score
-    from sklearn.metrics import mean_absolute_error, r2_score
+    # cost_df = pd.read_csv('cost.csv')
 
-    optuna.logging.set_verbosity(optuna.logging.WARNING)
-    warnings.filterwarnings('ignore')
+    # demand_df = pd.read_sql("""
+    # SELECT 
+    #     product as product_id,
+    #     SUM(quantity) AS total_qty,
+    #     SUM(quantity) / COUNT(DISTINCT DATE(created_at)) AS daily_velocity
+    # FROM (
+    #     SELECT product, quantity, created_at FROM inventory_evaluation_dispensing_details
+    #     UNION ALL
+    #     SELECT store_product_id , quantity, created_at FROM evaluation_pos_sale_details
+    #     UNION ALL
+    #     SELECT item_id, units, created_at FROM finance_invoice_items
+    # ) t
+    # GROUP BY product_id
+    # LIMIT 18446744073709551615 OFFSET 1
+    # """,engine)
 
-    @st.cache_resource
-    def load_and_train(n_trials=30):
-        pricing_df = pd.read_csv('pricing.csv')
+    # products_df = pd.read_sql("""
+    # SELECT p.id as product_id, p.name, p.category, s.selling_price as current_price, s.insurance_price as original_price
+    # FROM inventory_products p
+    # left join inventory_store_products s on s.product_id  = p.id
+    # """, engine))
+    # comp_df = pd.read_csv("competitors.csv")
 
-        # --- Feature Engineering ---
-        if 'current_price' in pricing_df.columns:
-            pricing_df['margin_pct'] = (
-                (pricing_df['current_price'] - pricing_df['avg_cost'])
-                / pricing_df['avg_cost'].replace(0, np.nan)
-            )
-            pricing_df['price_to_comp_ratio'] = (
-                pricing_df['current_price']
-                / pricing_df['effective_competitor_price'].replace(0, np.nan)
-            )
+    # def simple_match(product_name, comp_df):
+    #     for _, row in comp_df.iterrows():
+    #         if row['name'].lower() in product_name.lower() or product_name.lower() in row['name'].lower():
+    #             return row['current_price'], row['original_price']
+        
+    #     return None, None
+    # products_df[['competitor_price', 'competitor_original_price']] = products_df['name'].apply(
+    #     lambda x: pd.Series(simple_match(x, comp_df))
+    # )
+    # def get_effective_competitor_price(row):
+    #     # if not pd.isna(row['competitor_price']):
+    #     #     return row['competitor_price']
+        
+    #     # fallback → use your own pricing logic
+    #     if not pd.isna(row.get('current_price')):
+    #         return (row['current_price'] + row['original_price'])/2
+        
+    #     if not pd.isna(row.get('original_price')):
+    #         return row['original_price']
+        
+    #     return None
+    # products_df['effective_competitor_price'] = products_df.apply(get_effective_competitor_price, axis=1)
+    # df = products_df.merge(cost_df, on='product_id', how='left')
+    # df = df.merge(demand_df, on='product_id', how='left')
+    # df = df[['product_id', 'name', 'avg_cost', 'daily_velocity', 'effective_competitor_price']]
+    pricing_df = pd.read_csv('pricing.csv')
+    
+    def compute_target_price(row):
+        # --- 1. Get inputs ---
+        cost = row['avg_cost']
+        current_price = row.get('current_price', np.nan)
+        comp_price = row.get('effective_competitor_price', np.nan)
+        velocity = row.get('daily_velocity', 0)
 
-        base_features = ['avg_cost', 'daily_velocity', 'effective_competitor_price']
-        extra_features = ['margin_pct', 'price_to_comp_ratio']
-        features = base_features + [f for f in extra_features if f in pricing_df.columns]
+        # --- 2. FIX COST (auto unit correction) ---
+        # If cost is too small vs price → scale it up
+        if not pd.isna(current_price) and not pd.isna(cost):
+            if cost < current_price * 0.2:
+                cost = current_price * 0.4   # assume 40% cost baseline
 
-        ml_df = pricing_df.dropna(subset=features + ['target_price']).copy()
-        X = ml_df[features]
-        y = ml_df['target_price']
+        # fallback if cost missing
+        if pd.isna(cost):
+            if not pd.isna(current_price):
+                cost = current_price * 0.4
+            else:
+                return None
 
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+        # --- 3. DEMAND ADJUSTMENT ---
+        if pd.isna(velocity):
+            velocity = 0
 
-        # --- Optuna Hyperparameter Tuning ---
-        def objective(trial):
-            params = {
-                'n_estimators': trial.suggest_int('n_estimators', 100, 600),
-                'max_depth': trial.suggest_int('max_depth', 3, 8),
-                'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.3),
-                'subsample': trial.suggest_float('subsample', 0.6, 1.0),
-                'colsample_bytree': trial.suggest_float('colsample_bytree', 0.6, 1.0),
-                'min_child_weight': trial.suggest_int('min_child_weight', 1, 10),
-                'random_state': 42,
-                'n_jobs': -1,
-            }
-            mdl = XGBRegressor(**params)
-            score = cross_val_score(mdl, X_train, y_train, cv=5, scoring='neg_mean_absolute_error').mean()
-            return score
+        if velocity > 20:
+            demand_factor = 1.2
+        elif velocity < 5:
+            demand_factor = 0.9
+        else:
+            demand_factor = 1.0
 
-        study = optuna.create_study(direction='maximize')
-        study.optimize(objective, n_trials=n_trials)
+        # --- 4. BASE PRICE ---
+        base_price = cost * 1.3 * demand_factor
 
-        best_model = XGBRegressor(**study.best_params, random_state=42, n_jobs=-1)
-        best_model.fit(X_train, y_train)
+        # --- 5. COMPETITOR CONSTRAINT ---
+        if not pd.isna(comp_price):
 
-        y_pred = best_model.predict(X_test)
-        metrics = {
-            'mae': mean_absolute_error(y_test, y_pred),
-            'r2': r2_score(y_test, y_pred),
-            'cv_mae': -cross_val_score(best_model, X, y, cv=5, scoring='neg_mean_absolute_error').mean(),
+            lower_bound = cost * 1.1           # protect margin
+            upper_bound = comp_price * 1.05    # stay competitive
+
+            final_price = np.clip(base_price, lower_bound, upper_bound)
+
+        else:
+            # --- 6. SELF-COMPETE (fallback) ---
+            if not pd.isna(current_price):
+                lower_bound = cost * 1.1
+                upper_bound = current_price * 1.1
+
+                final_price = np.clip(base_price, lower_bound, upper_bound)
+            else:
+                final_price = base_price
+
+        return round(final_price, 2)
+    # pricing_df['target_price'] = pricing_df.apply(compute_target_price, axis=1)
+    
+    from sklearn.model_selection import train_test_split
+    from sklearn.ensemble import RandomForestRegressor
+
+    features = ['avg_cost', 'daily_velocity', 'effective_competitor_price']
+    
+    # keep rows where ALL features and target are valid
+    ml_df = pricing_df.dropna(subset=features + ['target_price'])
+    ml_df.shape
+    X = ml_df[features]
+    y = ml_df['target_price']
+    # X = pricing_df[features].fillna(0)
+    # y = pricing_df['target_price']
+
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
+
+    model = RandomForestRegressor(n_estimators=100, random_state=42)
+    model.fit(X_train, y_train)
+    def predict_price(product, df, model):
+        # safe filtering
+        type(product)
+        print(df.info())
+        product = df[df['product_id'] == int(product)]
+
+        if product.empty:
+            return None
+
+        row = product.iloc[0]
+
+        X_input = pd.DataFrame([{
+            'avg_cost': row['avg_cost'] or 0,
+            'daily_velocity': row['daily_velocity'] or 0,
+            'effective_competitor_price': row['effective_competitor_price'] or 0
+        }])
+
+        predicted_price = model.predict(X_input)[0]
+
+        return {
+            "predicted_price": round(predicted_price, 2),
+            "cost": row['avg_cost'],
+            "velocity": row['daily_velocity'],
+            "competitor_price": row['effective_competitor_price']
         }
-
-        importances = pd.Series(best_model.feature_importances_, index=features).sort_values(ascending=False)
-
-        return best_model, pricing_df, features, metrics, importances, study.best_params
 
     st.title("Dynamic Pharmacy Pricing Model")
 
-    n_trials = st.sidebar.slider("Optuna tuning trials", min_value=10, max_value=100, value=30, step=10)
-
-    with st.spinner("Training model with hyperparameter tuning..."):
-        model, pricing_df, features, metrics, importances, best_params = load_and_train(n_trials)
-
-    # --- Model Performance ---
-    st.subheader("Model Performance")
-    m1, m2, m3 = st.columns(3)
-    m1.metric("MAE (test)", f"{metrics['mae']:.2f}")
-    m2.metric("R² (test)", f"{metrics['r2']:.3f}")
-    m3.metric("CV MAE (5-fold)", f"{metrics['cv_mae']:.2f}")
-
-    with st.expander("Best hyperparameters"):
-        st.json(best_params)
-
-    # --- Feature Importance ---
-    st.subheader("Feature Importance")
-    fig_imp, ax_imp = plt.subplots(figsize=(8, 4))
-    sns.barplot(x=importances.values, y=importances.index, ax=ax_imp)
-    ax_imp.set_xlabel("Importance")
-    ax_imp.set_title("XGBoost Feature Importances")
-    plt.tight_layout()
-    st.pyplot(fig_imp)
-
-    st.divider()
-
-    # --- Price Prediction ---
-    def predict_price(query, df, mdl, feature_cols):
-        # Search by name (partial, case-insensitive) or product_id
-        if 'name' in df.columns:
-            match = df[df['name'].str.contains(query, case=False, na=False)]
-        else:
-            try:
-                match = df[df['product_id'] == int(query)]
-            except ValueError:
-                return None
-
-        if match.empty:
-            return None
-
-        row = match.iloc[0]
-        X_input = pd.DataFrame([{f: row.get(f, 0) or 0 for f in feature_cols}])
-        predicted_price = mdl.predict(X_input)[0]
-
-        return {
-            "product": row.get('name', row.get('product_id', 'N/A')),
-            "predicted_price": round(float(predicted_price), 2),
-            "cost": row.get('avg_cost'),
-            "velocity": row.get('daily_velocity'),
-            "competitor_price": row.get('effective_competitor_price'),
-        }
-
-    product_input = st.text_input("Search product by name or ID")
+    product_input = st.text_input("Enter product name")
 
     if product_input:
-        result = predict_price(product_input, pricing_df, model, features)
+        result = predict_price(product_input, pricing_df, model)
+
         if result:
-            st.success(f"Results for: **{result['product']}**")
-            r1, r2, r3, r4 = st.columns(4)
-            r1.metric("Predicted Price", f"{result['predicted_price']}")
-            r2.metric("Avg Cost", f"{result['cost']}")
-            r3.metric("Daily Velocity", f"{result['velocity']}")
-            r4.metric("Competitor Price", f"{result['competitor_price']}")
+            st.metric("Predicted Price", result['predicted_price'])
+            st.write(f"Cost: {result['cost']}")
+            st.write(f"Demand (velocity): {result['velocity']}")
+            st.write(f"Competitor Price: {result['competitor_price']}")
         else:
             st.error("Product not found")
-
-    st.subheader("Pricing Data Preview")
     st.dataframe(pricing_df.head())
 

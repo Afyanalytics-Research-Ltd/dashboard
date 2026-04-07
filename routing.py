@@ -5,6 +5,7 @@ def page_2():
 
 pg = st.navigation(
     [ 
+        
         "dashboard_st_2.py",
         "dashboard_st_3.py",
         "dashboard.py",

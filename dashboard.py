@@ -25,6 +25,13 @@ tab1, tab2, tab3, tab4 = st.tabs(["Overview", "Product Health", "Recommendation 
 # --- Sidebar Filters ---
 st.sidebar.header("Filters")
 
+
+
+
+# detecting a struggling store
+pass
+
+
 with tab1:
     # Get stores matching 'pharm'
     stores_df = pd.read_sql(

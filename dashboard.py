@@ -270,6 +270,11 @@ with tab4:
         pricing_df = pd.read_csv('pricing.csv')
 
         # --- Feature Engineering ---
+        # Simulate is_imported: 80% imported, 20% domestic (fixed seed for reproducibility)
+        if 'is_imported' not in pricing_df.columns:
+            rng = np.random.default_rng(42)
+            pricing_df['is_imported'] = rng.choice([1, 0], size=len(pricing_df), p=[0.8, 0.2])
+
         if 'current_price' in pricing_df.columns:
             pricing_df['margin_pct'] = (
                 (pricing_df['current_price'] - pricing_df['avg_cost'])
@@ -281,7 +286,7 @@ with tab4:
             )
 
         base_features = ['avg_cost', 'daily_velocity', 'effective_competitor_price']
-        extra_features = ['margin_pct', 'price_to_comp_ratio']
+        extra_features = ['margin_pct', 'price_to_comp_ratio', 'is_imported']
         features = base_features + [f for f in extra_features if f in pricing_df.columns]
 
         ml_df = pricing_df.dropna(subset=features + ['target_price']).copy()
@@ -457,41 +462,70 @@ with tab4:
         )
         sim_horizon = st.number_input("Simulation horizon (days)", min_value=7, max_value=90, value=30)
 
+        import_overhead = st.slider(
+            "Import Overhead %", min_value=0, max_value=40, value=15,
+            help="Duties + shipping + forex buffer added on top of avg_cost for imported products."
+        )
+
         sim = pricing_df.dropna(subset=sim_required).copy()
 
-        # Predict adjusted price for every product using the trained XGBoost model
+        # Effective cost: imported products carry the overhead
+        sim['effective_cost'] = sim['avg_cost'] * (
+            1 + (import_overhead / 100) * sim['is_imported']
+        )
+
+        # Predict price for every product using the trained XGBoost model
         X_all = sim[features].fillna(0)
         sim['predicted_price'] = model.predict(X_all)
-        sim['adjusted_price'] = (sim['predicted_price'] * adjustment_factor).round(2)
+
+        # Imported products get a tighter discount floor (less margin to give away)
+        sim['adj_factor'] = np.where(
+            sim['is_imported'] == 1,
+            np.maximum(0.90, adjustment_factor),  # max 10% off for imported
+            np.maximum(0.80, adjustment_factor),  # max 20% off for domestic
+        )
+        sim['adjusted_price'] = (sim['predicted_price'] * sim['adj_factor']).round(2)
 
         # Price change %
         sim['price_chg_pct'] = (sim['adjusted_price'] - sim['current_price']) / sim['current_price'].replace(0, np.nan)
 
         # Volume uplift: lower price → higher demand (elasticity is negative)
         sim['volume_uplift'] = 1 + (elasticity * sim['price_chg_pct'])
-        sim['volume_uplift'] = sim['volume_uplift'].clip(lower=0.5)  # floor: never below 50% of baseline
+        sim['volume_uplift'] = sim['volume_uplift'].clip(lower=0.5)
 
         # Units over sim horizon
         sim['baseline_units'] = sim['daily_velocity'] * sim_horizon
         sim['adjusted_units'] = sim['daily_velocity'] * sim['volume_uplift'] * sim_horizon
 
-        # Revenue & profit
+        # Revenue & profit using effective_cost
         sim['baseline_revenue'] = sim['current_price']  * sim['baseline_units']
         sim['adjusted_revenue'] = sim['adjusted_price'] * sim['adjusted_units']
 
-        sim['baseline_profit']  = (sim['current_price']  - sim['avg_cost']) * sim['baseline_units']
-        sim['adjusted_profit']  = (sim['adjusted_price'] - sim['avg_cost']) * sim['adjusted_units']
+        sim['baseline_profit'] = (sim['current_price']  - sim['effective_cost']) * sim['baseline_units']
+        sim['adjusted_profit'] = (sim['adjusted_price'] - sim['effective_cost']) * sim['adjusted_units']
 
         sim['incremental_profit']  = sim['adjusted_profit']  - sim['baseline_profit']
         sim['incremental_revenue'] = sim['adjusted_revenue'] - sim['baseline_revenue']
 
-        # --- KPIs ---
+        # --- KPIs: Overall ---
         k1, k2, k3, k4 = st.columns(4)
         k1.metric("Baseline Profit",   f"{sim['baseline_profit'].sum():,.0f}")
         k2.metric("Projected Profit",  f"{sim['adjusted_profit'].sum():,.0f}",
                   delta=f"{sim['incremental_profit'].sum():+,.0f}")
         k3.metric("Revenue Change",    f"{sim['incremental_revenue'].sum():+,.0f}")
         k4.metric("Avg Volume Uplift", f"{(sim['volume_uplift'].mean() - 1):+.1%}")
+
+        # --- KPIs: Imported vs Domestic split ---
+        imp = sim[sim['is_imported'] == 1]
+        dom = sim[sim['is_imported'] == 0]
+        st.caption(f"Imported: **{len(imp)}** ({len(imp)/len(sim):.0%})  |  Domestic: **{len(dom)}** ({len(dom)/len(sim):.0%})")
+        i1, i2, i3, i4 = st.columns(4)
+        i1.metric("Imported Baseline Profit",  f"{imp['baseline_profit'].sum():,.0f}")
+        i2.metric("Imported Projected Profit", f"{imp['adjusted_profit'].sum():,.0f}",
+                  delta=f"{(imp['adjusted_profit'] - imp['baseline_profit']).sum():+,.0f}")
+        i3.metric("Domestic Baseline Profit",  f"{dom['baseline_profit'].sum():,.0f}")
+        i4.metric("Domestic Projected Profit", f"{dom['adjusted_profit'].sum():,.0f}",
+                  delta=f"{(dom['adjusted_profit'] - dom['baseline_profit']).sum():+,.0f}")
 
         # --- Charts ---
         label_col = 'name' if 'name' in sim.columns else 'product_id'

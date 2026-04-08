@@ -437,3 +437,94 @@ with tab4:
     st.subheader("Pricing Data Preview")
     st.dataframe(pricing_df.head())
 
+    st.divider()
+
+    # --- Profit Simulation: Dynamic Pricing for Struggling Stores ---
+    st.subheader("Profit Simulation: Dynamic Pricing Impact")
+    st.caption(
+        "Estimates 30-day profit change if adjusted prices are applied across all products. "
+        "Volume uplift is modelled via price elasticity of demand."
+    )
+
+    sim_required = ['avg_cost', 'daily_velocity', 'current_price']
+    if not all(c in pricing_df.columns for c in sim_required):
+        st.warning(f"Simulation requires columns: {sim_required}. Not all found in pricing.csv.")
+    else:
+        elasticity = st.slider(
+            "Price Elasticity of Demand",
+            min_value=-3.0, max_value=-0.1, value=-1.5, step=0.1,
+            help="How much % volume rises when price drops 1%. Pharmacy typically -1.0 to -2.0."
+        )
+        sim_horizon = st.number_input("Simulation horizon (days)", min_value=7, max_value=90, value=30)
+
+        sim = pricing_df.dropna(subset=sim_required).copy()
+
+        # Predict adjusted price for every product using the trained XGBoost model
+        X_all = sim[features].fillna(0)
+        sim['predicted_price'] = model.predict(X_all)
+        sim['adjusted_price'] = (sim['predicted_price'] * adjustment_factor).round(2)
+
+        # Price change %
+        sim['price_chg_pct'] = (sim['adjusted_price'] - sim['current_price']) / sim['current_price'].replace(0, np.nan)
+
+        # Volume uplift: lower price → higher demand (elasticity is negative)
+        sim['volume_uplift'] = 1 + (elasticity * sim['price_chg_pct'])
+        sim['volume_uplift'] = sim['volume_uplift'].clip(lower=0.5)  # floor: never below 50% of baseline
+
+        # Units over sim horizon
+        sim['baseline_units'] = sim['daily_velocity'] * sim_horizon
+        sim['adjusted_units'] = sim['daily_velocity'] * sim['volume_uplift'] * sim_horizon
+
+        # Revenue & profit
+        sim['baseline_revenue'] = sim['current_price']  * sim['baseline_units']
+        sim['adjusted_revenue'] = sim['adjusted_price'] * sim['adjusted_units']
+
+        sim['baseline_profit']  = (sim['current_price']  - sim['avg_cost']) * sim['baseline_units']
+        sim['adjusted_profit']  = (sim['adjusted_price'] - sim['avg_cost']) * sim['adjusted_units']
+
+        sim['incremental_profit']  = sim['adjusted_profit']  - sim['baseline_profit']
+        sim['incremental_revenue'] = sim['adjusted_revenue'] - sim['baseline_revenue']
+
+        # --- KPIs ---
+        k1, k2, k3, k4 = st.columns(4)
+        k1.metric("Baseline Profit",   f"{sim['baseline_profit'].sum():,.0f}")
+        k2.metric("Projected Profit",  f"{sim['adjusted_profit'].sum():,.0f}",
+                  delta=f"{sim['incremental_profit'].sum():+,.0f}")
+        k3.metric("Revenue Change",    f"{sim['incremental_revenue'].sum():+,.0f}")
+        k4.metric("Avg Volume Uplift", f"{(sim['volume_uplift'].mean() - 1):+.1%}")
+
+        # --- Charts ---
+        label_col = 'name' if 'name' in sim.columns else 'product_id'
+        top_sim = sim.nlargest(15, 'incremental_profit').copy()
+        top_sim[label_col] = top_sim[label_col].astype(str).str[:20]
+
+        fig_sim, axes = plt.subplots(1, 2, figsize=(14, 5))
+
+        # Incremental profit bar
+        colors = ['#2ecc71' if v >= 0 else '#e74c3c' for v in top_sim['incremental_profit']]
+        axes[0].barh(top_sim[label_col], top_sim['incremental_profit'], color=colors)
+        axes[0].axvline(0, color='black', linewidth=0.8)
+        axes[0].set_title(f"Incremental Profit – Top 15 Products ({sim_horizon}d)")
+        axes[0].set_xlabel("Profit Change")
+
+        # Baseline vs adjusted profit scatter
+        axes[1].scatter(top_sim['baseline_profit'], top_sim['adjusted_profit'],
+                        c=top_sim['incremental_profit'], cmap='RdYlGn', s=80,
+                        edgecolors='k', linewidths=0.5)
+        lim = max(top_sim['baseline_profit'].max(), top_sim['adjusted_profit'].max()) * 1.05
+        axes[1].plot([0, lim], [0, lim], 'k--', linewidth=0.8, label='Break-even line')
+        axes[1].set_xlabel("Baseline Profit")
+        axes[1].set_ylabel("Adjusted Profit")
+        axes[1].set_title("Baseline vs Adjusted Profit per Product")
+        axes[1].legend()
+
+        plt.tight_layout()
+        st.pyplot(fig_sim)
+
+        with st.expander("Full Simulation Table"):
+            st.dataframe(
+                sim[[label_col, 'current_price', 'adjusted_price', 'price_chg_pct',
+                     'volume_uplift', 'baseline_profit', 'adjusted_profit', 'incremental_profit']]
+                .sort_values('incremental_profit', ascending=False)
+            )
+

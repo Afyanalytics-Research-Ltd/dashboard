@@ -29,7 +29,7 @@ st.sidebar.header("Filters")
 
 
 # detecting a struggling store
-pass
+
 
 
 with tab1:
@@ -64,7 +64,38 @@ with tab1:
     df['new_quantity'] = pd.to_numeric(df['new_quantity'], errors='coerce')
     df['quantity_used'] = df['previous_quantity'] - df['new_quantity']
     df = df[df['quantity_used'] >= 0]
+    # detecting a struggling store
+    now = pd.Timestamp.now()
+    recent = df[df['created_at'] >= now - pd.Timedelta(days=30)]
+    prior  = df[(df['created_at'] >= now - pd.Timedelta(days=60)) &
+                (df['created_at'] <  now - pd.Timedelta(days=30))]
 
+    recent_sales = recent.groupby('store_id')['quantity_used'].sum().rename('recent_units')
+    prior_sales  = prior.groupby('store_id')['quantity_used'].sum().rename('prior_units')
+
+    store_health = df.groupby('store_id').agg(
+        total_units=('quantity_used', 'sum'),
+        transactions=('id', 'count'),
+        last_activity=('created_at', 'max'),
+    ).reset_index()
+
+    store_health = store_health.merge(recent_sales, on='store_id', how='left')
+    store_health = store_health.merge(prior_sales,  on='store_id', how='left')
+    store_health['trend_pct'] = (
+        (store_health['recent_units'] - store_health['prior_units'])
+        / store_health['prior_units'].replace(0, np.nan)
+    )
+    store_health['days_inactive'] = (now - store_health['last_activity']).dt.days
+    store_health['struggling'] = (
+        (store_health['trend_pct'] < -0.20) |   # >20% decline
+        (store_health['days_inactive'] > 14)     # no activity in 2 weeks
+    )
+    struggling_stores = store_health[store_health['struggling']]
+    if not struggling_stores.empty:
+        st.warning(f"{len(struggling_stores)} store(s) flagged as struggling")
+        st.dataframe(struggling_stores[['store_id','trend_pct','days_inactive','transactions']])
+    else:
+        st.warning("No struggling stores at the moment")
     # Apply store filter
     if selected_store_id:
         df_filtered = df[df['store_id'] == selected_store_id]
@@ -221,6 +252,7 @@ with tab3:
             LIMIT 20;
             """
         suggested_df = pd.read_sql(query_suggested, engine)
+        
         st.dataframe(suggested_df)
 
 with tab4:
@@ -234,7 +266,7 @@ with tab4:
     warnings.filterwarnings('ignore')
 
     @st.cache_resource
-    def load_and_train(n_trials=30):
+    def load_and_train(n_trials=5):
         pricing_df = pd.read_csv('pricing.csv')
 
         # --- Feature Engineering ---
@@ -318,6 +350,45 @@ with tab4:
     st.pyplot(fig_imp)
 
     st.divider()
+    # --- Store-Aware Dynamic Pricing ---
+    st.subheader("Store Health & Price Adjustment")
+
+    adjustment_factor = 1.0
+    store_msg = None
+
+    if selected_store_id is not None:
+        now = pd.Timestamp.now()
+        recent = df[df['created_at'] >= now - pd.Timedelta(days=30)]
+        prior  = df[(df['created_at'] >= now - pd.Timedelta(days=60)) &
+                    (df['created_at'] <  now - pd.Timedelta(days=30))]
+
+        recent_units = recent[recent['store_id'] == selected_store_id]['quantity_used'].sum()
+        prior_units  = prior[prior['store_id'] == selected_store_id]['quantity_used'].sum()
+
+        if prior_units > 0:
+            trend_pct = (recent_units - prior_units) / prior_units
+            if trend_pct < -0.20:
+                # Scale discount proportionally to decline, cap at 20% off
+                adjustment_factor = max(0.80, 1 + trend_pct * 0.5)
+                store_msg = (
+                    f"Store is **struggling** (sales {trend_pct:+.0%} vs prior 30 days). "
+                    f"Applying a **{(1 - adjustment_factor):.0%} price reduction** to drive volume."
+                )
+            else:
+                store_msg = f"Store is **healthy** (sales {trend_pct:+.0%} vs prior 30 days). No adjustment applied."
+        else:
+            store_msg = "Insufficient prior-period data to assess store health."
+    else:
+        store_msg = "Select a specific store to enable dynamic price adjustment."
+
+    if adjustment_factor < 1.0:
+        st.warning(store_msg)
+    else:
+        st.info(store_msg)
+
+    st.caption(f"Active adjustment factor: **{adjustment_factor:.2f}x**")
+
+    st.divider()
 
     # --- Price Prediction ---
     def predict_price(query, df, mdl, feature_cols):
@@ -350,14 +421,18 @@ with tab4:
     if product_input:
         result = predict_price(product_input, pricing_df, model, features)
         if result:
+            adjusted_price = round(result['predicted_price'] * adjustment_factor, 2)
             st.success(f"Results for: **{result['product']}**")
-            r1, r2, r3, r4 = st.columns(4)
-            r1.metric("Predicted Price", f"{result['predicted_price']}")
-            r2.metric("Avg Cost", f"{result['cost']}")
-            r3.metric("Daily Velocity", f"{result['velocity']}")
-            r4.metric("Competitor Price", f"{result['competitor_price']}")
+            r1, r2, r3, r4, r5 = st.columns(5)
+            r1.metric("Base Predicted Price", f"{result['predicted_price']}")
+            r2.metric("Adjusted Price", f"{adjusted_price}",
+                    delta=f"{adjusted_price - result['predicted_price']:.2f}")
+            r3.metric("Avg Cost", f"{result['cost']}")
+            r4.metric("Daily Velocity", f"{result['velocity']}")
+            r5.metric("Competitor Price", f"{result['competitor_price']}")
         else:
             st.error("Product not found")
+
 
     st.subheader("Pricing Data Preview")
     st.dataframe(pricing_df.head())

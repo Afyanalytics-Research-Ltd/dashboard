@@ -7,6 +7,8 @@ from prophet import Prophet
 from sklearn.ensemble import IsolationForest
 from sqlalchemy import create_engine
 import os
+import hashlib
+import joblib
 sns.set_style("whitegrid")
 
 # --- DATABASE CONNECTION ---
@@ -18,10 +20,21 @@ DB_NAME = os.getenv('DB_NAME').strip()
 
 db_url = f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 engine = create_engine(db_url, echo=False)
+
+# --- Model Persistence ---
+MODEL_DIR = "models"
+os.makedirs(MODEL_DIR, exist_ok=True)
+
+def _data_hash(df):
+    try:
+        return hashlib.md5(pd.util.hash_pandas_object(df, index=True).values.tobytes()).hexdigest()[:10]
+    except Exception:
+        return hashlib.md5(str(len(df)).encode()).hexdigest()[:10]
+
 st.image("logo_pharmaplus.png", width=150)
 st.set_page_config(page_title="Enterprise Dashboard", layout="wide")
 st.title("Revenue Analytics & Predictive Dashboard")
-tab1, tab2, tab3, tab4 = st.tabs(["Overview", "Product Health", "Recommendation Engine", "Pricing Engine"])
+tab1, tab2, tab3, tab4 = st.tabs(["Overview", "Product Health", "Pricing Engine", "Recommendation Engine"])
 # --- Sidebar Filters ---
 st.sidebar.header("Filters")
 
@@ -166,36 +179,123 @@ with tab1:
     st.dataframe(slow_moving)
 
 with tab2:
-    # --- Senior-Level Forecasting ---
-    st.subheader("Demand Forecasting (Prophet)")
+    # --- Multivariate Demand Forecasting ---
+    st.subheader("Demand Forecasting — Multivariate Model (Prophet)")
+
     forecast_products = st.multiselect(
-        "Select Products to Forecast", options=df_filtered['product'].unique(), default=df_filtered['product'].unique()[:1]
+        "Select Products to Forecast",
+        options=df_filtered['product'].unique(),
+        default=df_filtered['product'].unique()[:1]
     )
     forecast_horizon = st.number_input("Forecast Horizon (days)", min_value=1, max_value=90, value=14)
 
+    st.markdown("#### Demand Drivers")
+    st.caption("Select which factors should influence the forecast model.")
+    col_r1, col_r2, col_r3 = st.columns(3)
+    use_price    = col_r1.checkbox("Price",                   value=True)
+    use_discount = col_r2.checkbox("Discount",                value=True)
+    use_dow      = col_r3.checkbox("Day of Week",             value=True)
+    use_stock    = col_r1.checkbox("Stock Level",             value=True)
+    use_rolling  = col_r2.checkbox("7-Day Rolling Avg Demand",value=True)
+
     for product in forecast_products:
-        prod_df = df_filtered[df_filtered['product'] == product]
-        ts = prod_df.groupby('created_at')['quantity_used'].sum().reset_index()
-        ts = ts.rename(columns={'created_at':'ds','quantity_used':'y'})
+        st.markdown(f"---\n### {product}")
+        prod_df = df_filtered[df_filtered['product'] == product].copy()
+
+        # Aggregate to daily level
+        ts = (
+            prod_df.groupby('created_at')
+            .agg(
+                y           =('quantity_used', 'sum'),
+                price       =('price',         'mean'),
+                discount    =('discount',      'mean'),
+                stock_level =('new_quantity',  'mean'),
+            )
+            .reset_index()
+            .rename(columns={'created_at': 'ds'})
+        )
+        ts['ds'] = pd.to_datetime(ts['ds'])
+        ts = ts.sort_values('ds').reset_index(drop=True)
+
         if len(ts) < 10:
             st.warning(f"Not enough data to forecast {product}")
             continue
 
-        m = Prophet(interval_width=0.95, daily_seasonality=True)
-        m.fit(ts)
+        # Clean and derive features
+        ts['price']          = pd.to_numeric(ts['price'],       errors='coerce').fillna(ts['price'].mean())
+        ts['discount']       = pd.to_numeric(ts['discount'],    errors='coerce').fillna(0)
+        ts['stock_level']    = pd.to_numeric(ts['stock_level'], errors='coerce').fillna(ts['stock_level'].mean())
+        ts['day_of_week']    = ts['ds'].dt.dayofweek
+        ts['rolling_avg_7d'] = ts['y'].rolling(7, min_periods=1).mean()
+
+        # Build active regressor list from user selections
+        active_regressors = []
+        if use_price:    active_regressors.append('price')
+        if use_discount: active_regressors.append('discount')
+        if use_dow:      active_regressors.append('day_of_week')
+        if use_stock:    active_regressors.append('stock_level')
+        if use_rolling:  active_regressors.append('rolling_avg_7d')
+
+        # Correlation table — shows how each driver relates to demand
+        if active_regressors:
+            corr = (
+                ts[['y'] + active_regressors]
+                .corr()[['y']]
+                .drop('y')
+                .rename(columns={'y': 'Correlation with Demand'})
+                .sort_values('Correlation with Demand', ascending=False)
+            )
+            st.markdown("**Parameter Correlation with Demand**")
+            st.dataframe(corr.style.background_gradient(cmap='RdYlGn', axis=None).format("{:.3f}"))
+
+        # Fit multivariate Prophet model (load from disk if available)
+        store_key  = str(selected_store_id) if selected_store_id else "all"
+        reg_key    = "_".join(sorted(active_regressors)) or "none"
+        model_path = os.path.join(MODEL_DIR, f"prophet_{product}_{store_key}_{_data_hash(ts)}_{reg_key}.pkl")
+
+        if os.path.exists(model_path):
+            m = joblib.load(model_path)
+        else:
+            m = Prophet(interval_width=0.95, daily_seasonality=True)
+            for r in active_regressors:
+                m.add_regressor(r)
+            m.fit(ts[['ds', 'y'] + active_regressors])
+            joblib.dump(m, model_path)
+
+        # Future dataframe — forward-fill regressors with sensible assumptions
         future = m.make_future_dataframe(periods=forecast_horizon)
+        if 'price' in active_regressors:
+            future['price'] = ts['price'].iloc[-1]           # carry forward last known price
+        if 'discount' in active_regressors:
+            future['discount'] = ts['discount'].mean()        # assume average promotional activity
+        if 'day_of_week' in active_regressors:
+            future['day_of_week'] = future['ds'].dt.dayofweek
+        if 'stock_level' in active_regressors:
+            future['stock_level'] = ts['stock_level'].mean() # assume normal stock maintained
+        if 'rolling_avg_7d' in active_regressors:
+            future['rolling_avg_7d'] = ts['rolling_avg_7d'].iloc[-1]
+
         forecast = m.predict(future)
 
-        fig, ax = plt.subplots()
-        ax.plot(ts['ds'], ts['y'], label='Actual')
-        ax.plot(forecast['ds'], forecast['yhat'], label='Forecast')
-        ax.fill_between(forecast['ds'], forecast['yhat_lower'], forecast['yhat_upper'], color='orange', alpha=0.3)
-        ax.set_title(f"Forecast for {product}")
-        ax.set_xticklabels(ts['ds'], rotation=45, ha='right')  # ha='right' aligns text nicely
-        ax.set_ylabel("Quantity Used")
+        # Plot
+        fig, ax = plt.subplots(figsize=(12, 5))
+        ax.plot(ts['ds'], ts['y'], label='Actual', color='steelblue', linewidth=2)
+        ax.plot(forecast['ds'], forecast['yhat'], label='Forecast', color='darkorange', linewidth=2)
+        ax.fill_between(
+            forecast['ds'], forecast['yhat_lower'], forecast['yhat_upper'],
+            color='orange', alpha=0.25, label='95% Confidence Interval'
+        )
+        ax.axvline(x=ts['ds'].max(), color='gray', linestyle='--', alpha=0.6, label='Forecast Start')
+        drivers_label = ", ".join(active_regressors) if active_regressors else "historical sales only"
+        ax.set_title(f"Demand Forecast — {product}\nDrivers: {drivers_label}", fontsize=13)
+        ax.set_ylabel("Quantity Dispensed")
         ax.legend()
+        plt.xticks(rotation=45)
+        plt.tight_layout()
         st.pyplot(fig)
-        st.dataframe(forecast[['ds','yhat','yhat_lower','yhat_upper']].tail(forecast_horizon))
+
+        st.markdown("**Forecast Table**")
+        st.dataframe(forecast[['ds', 'yhat', 'yhat_lower', 'yhat_upper']].tail(forecast_horizon))
 
     # --- Anomaly Detection ---
     st.subheader("Anomaly Detection")
@@ -203,18 +303,153 @@ with tab2:
     daily_usage['quantity_filled'] = daily_usage['quantity_used'].fillna(0)
 
     if len(daily_usage) > 20:
-        iso = IsolationForest(contamination=0.05, random_state=42)
-        daily_usage['anomaly'] = iso.fit_predict(daily_usage[['quantity_filled']])
+        iso_path = os.path.join(MODEL_DIR, f"isoforest_{str(selected_store_id) if selected_store_id else 'all'}_{_data_hash(daily_usage)}.pkl")
+        if os.path.exists(iso_path):
+            iso = joblib.load(iso_path)
+        else:
+            iso = IsolationForest(contamination=0.05, random_state=42)
+            iso.fit(daily_usage[['quantity_filled']])
+            joblib.dump(iso, iso_path)
+        daily_usage['anomaly'] = iso.predict(daily_usage[['quantity_filled']])
         anomalies = daily_usage[daily_usage['anomaly'] == -1]
         st.write(f"Detected {len(anomalies)} anomalies")
         st.dataframe(anomalies[['product','created_at','quantity_used']])
     else:
         st.warning("Not enough data for anomaly detection")
 
-with tab3:
+with tab4:
+    # --- User-Based Collaborative Filtering ---
+    st.subheader("User-Based Recommendations (Collaborative Filtering)")
+    st.caption("Finds customers with similar dispensing histories and recommends products they received that the selected customer has not yet been prescribed.")
+
+    from sklearn.metrics.pairwise import cosine_similarity
+
+    rec_df = df_filtered[
+        df_filtered['product_name'].notna() &
+        df_filtered['prescription_id'].notna()
+    ].copy()
+    rec_df['prescription_id'] = rec_df['prescription_id'].astype(str)
+
+    # Reduce matrix size: keep only customers with multiple distinct products
+    MIN_PRODUCTS = 2
+    MAX_USERS    = 1000
+    user_product_counts = rec_df.groupby('prescription_id')['product_name'].nunique()
+    active_users = user_product_counts[user_product_counts >= MIN_PRODUCTS].index
+    if len(active_users) > MAX_USERS:
+        active_users = user_product_counts.loc[active_users].nlargest(MAX_USERS).index
+    rec_df = rec_df[rec_df['prescription_id'].isin(active_users)]
+
+    if rec_df['prescription_id'].nunique() >= 5 and rec_df['product_name'].nunique() >= 2:
+        user_item = (
+            rec_df.groupby(['prescription_id', 'product_name'])['quantity_used']
+            .sum()
+            .unstack(fill_value=0)
+        )
+
+        user_sim_matrix = cosine_similarity(user_item)
+        user_sim_df = pd.DataFrame(user_sim_matrix, index=user_item.index, columns=user_item.index)
+
+        selected_user = st.selectbox("Select a Customer (Prescription ID)", options=user_item.index.tolist())
+        n_max = max(1, min(20, len(user_item) - 1))
+        n_similar = st.slider(
+            "Number of similar customers to consider",
+            min_value=1,
+            max_value=n_max,
+            value=min(5, n_max)
+        )
+
+        sim_scores = user_sim_df[selected_user].drop(selected_user).sort_values(ascending=False)
+        top_similar = sim_scores.head(n_similar)
+
+        col_sim, col_rec = st.columns(2)
+
+        with col_sim:
+            st.markdown("**Most Similar Customers**")
+            sim_display = top_similar.reset_index()
+            sim_display.columns = ['Customer (Prescription ID)', 'Similarity Score']
+            st.dataframe(sim_display)
+
+        with col_rec:
+            st.markdown("**Recommended Products**")
+            # Weighted sum of similar users' purchase quantities, weighted by similarity score
+            similar_purchases = user_item.loc[top_similar.index]
+            weights = top_similar.values.reshape(-1, 1)
+            weighted_scores = (similar_purchases * weights).sum(axis=0)
+
+            already_purchased = user_item.loc[selected_user]
+            already_purchased = already_purchased[already_purchased > 0].index.tolist()
+
+            recommendations = (
+                weighted_scores
+                .drop(labels=already_purchased, errors='ignore')
+                .pipe(lambda s: s[s > 0])
+                .sort_values(ascending=False)
+                .head(10)
+            )
+
+            if recommendations.empty:
+                st.info("No new recommendations — this customer has received everything similar customers have.")
+            else:
+                rec_display = recommendations.reset_index()
+                rec_display.columns = ['Product', 'Recommendation Score']
+                st.dataframe(rec_display)
+    else:
+        st.info("Not enough unique customers or products in the current filter to compute user-based recommendations.")
+
+    st.divider()
+
+    # --- Item-Based Bundle Recommendations ("Also Dispensed With") ---
+    st.subheader("Product Bundling — Frequently Dispensed Together")
+    st.caption("Products co-dispensed more often than chance (lift > 1). Use this to identify natural bundles and cross-sell opportunities.")
+
+    try:
+        binary = (user_item > 0).astype(np.float32)          # users × products (0/1)
+        co_occ = binary.T @ binary                            # products × products co-occurrence
+        np.fill_diagonal(co_occ.values, 0)                   # remove self-pairs
+
+        item_counts = (binary > 0).sum(axis=0)               # how many users bought each product
+        n_cf_users  = len(binary)
+
+        # Confidence: P(B | A) = co_occ(A,B) / count(A)
+        confidence = co_occ.div(item_counts, axis=0)
+
+        # Lift: P(B | A) / P(B)  — values > 1 mean bought together more than by chance
+        support = item_counts / n_cf_users
+        lift    = confidence.div(support, axis=1)
+
+        bundle_product = st.selectbox(
+            "Select a product to find bundle recommendations",
+            options=co_occ.columns.tolist(),
+            key="bundle_product_select"
+        )
+
+        product_lift = (
+            lift[bundle_product]
+            .drop(bundle_product, errors='ignore')
+            .pipe(lambda s: s[s > 1])          # only meaningful associations
+            .sort_values(ascending=False)
+            .head(10)
+        )
+
+        if product_lift.empty:
+            st.info("No strong co-dispensing associations found for this product.")
+        else:
+            bundle_table = pd.DataFrame({
+                'Co-dispensed Product':    product_lift.index,
+                'Lift':                    product_lift.values.round(2),
+                'Confidence (% of Rx)':   (confidence.loc[bundle_product, product_lift.index].values * 100).round(1),
+                'Shared Customers':        co_occ.loc[bundle_product, product_lift.index].astype(int).values,
+            }).reset_index(drop=True)
+            st.markdown(f"**Customers who received *{bundle_product}* also frequently received:**")
+            st.dataframe(bundle_table)
+
+    except NameError:
+        st.info("User-item matrix not available — ensure there are enough customers with multiple products above.")
+
+    st.divider()
+
     # --- Suggested Products based on other stores ---
     st.subheader("Suggested Products (Based on Similar Stores)")
-
     if selected_store_id:
         query_suggested =  f"""
             WITH ranking_table AS (
@@ -255,7 +490,7 @@ with tab3:
         
         st.dataframe(suggested_df)
 
-with tab4:
+with tab3:
     import optuna
     import warnings
     from xgboost import XGBRegressor
@@ -265,8 +500,14 @@ with tab4:
     optuna.logging.set_verbosity(optuna.logging.WARNING)
     warnings.filterwarnings('ignore')
 
+    XGB_MODEL_PATH = os.path.join(MODEL_DIR, "xgb_pricing.pkl")
+
     @st.cache_resource
-    def load_and_train(n_trials=5):
+    def load_and_train(n_trials=5, _force=False):
+        # Load from disk if available and not forcing retrain
+        if not _force and os.path.exists(XGB_MODEL_PATH):
+            return joblib.load(XGB_MODEL_PATH)
+
         pricing_df = pd.read_csv('pricing.csv')
 
         # --- Feature Engineering ---
@@ -326,13 +567,22 @@ with tab4:
 
         importances = pd.Series(best_model.feature_importances_, index=features).sort_values(ascending=False)
 
-        return best_model, pricing_df, features, metrics, importances, study.best_params
+        result = (best_model, pricing_df, features, metrics, importances, study.best_params)
+        joblib.dump(result, XGB_MODEL_PATH)
+        return result
 
     st.title("Dynamic Pharmacy Pricing Model")
 
     n_trials = st.sidebar.slider("Optuna tuning trials", min_value=10, max_value=100, value=30, step=10)
 
-    with st.spinner("Training model with hyperparameter tuning..."):
+    col_retrain, _ = st.columns([1, 4])
+    if col_retrain.button("Force Retrain Model"):
+        if os.path.exists(XGB_MODEL_PATH):
+            os.remove(XGB_MODEL_PATH)
+        load_and_train.clear()
+
+    spinner_msg = "Loading saved model..." if os.path.exists(XGB_MODEL_PATH) else "Training model with hyperparameter tuning..."
+    with st.spinner(spinner_msg):
         model, pricing_df, features, metrics, importances, best_params = load_and_train(n_trials)
 
     # --- Model Performance ---

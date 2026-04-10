@@ -10,7 +10,7 @@ import os
 import hashlib
 import joblib
 sns.set_style("whitegrid")
-
+np.random.seed(42)
 # --- DATABASE CONNECTION ---
 DB_USER = os.getenv('DB_USER').strip()
 DB_PASSWORD = os.getenv('DB_PASSWORD').strip()
@@ -51,7 +51,8 @@ with tab1:
         "SELECT id, name FROM inventory_stores WHERE LOWER(name) LIKE '%%pharm%%'", 
         engine
     )
-    store_options = ["All Stores"] + stores_df['name'].tolist()
+    # store_options = ["All Stores"] + stores_df['name'].tolist()
+    store_options = stores_df['name'].tolist()
     selected_store_name = st.sidebar.selectbox("Select Store", store_options)
 
     # Map store name to store_id
@@ -68,8 +69,13 @@ with tab1:
     expected_cols = ['id','batch','product','prescription_id','quantity','price','discount','status',
                     'invoiced','deleted_at','created_at','updated_at','previous_quantity','new_quantity','product_name','store_id']
 
+    # import pdb;pdb.set_trace()
+    store_id_options = stores_df['id'].tolist()
     if 'store_id' not in df.columns:
-        df['store_id'] = 'All Stores'
+        df['store_id'] = pd.Series(
+            np.random.choice(store_id_options, size=len(df)),
+            index=df.index
+        )
 
     df.columns = expected_cols
     df['created_at'] = pd.to_datetime(df['created_at'], errors='coerce')
@@ -110,6 +116,7 @@ with tab1:
     else:
         st.warning("No struggling stores at the moment")
     # Apply store filter
+    # import pdb;pdb.set_trace()
     if selected_store_id:
         df_filtered = df[df['store_id'] == selected_store_id]
     else:
@@ -180,7 +187,7 @@ with tab1:
 
 with tab2:
     # --- Multivariate Demand Forecasting ---
-    st.subheader("Demand Forecasting — Multivariate Model (Prophet)")
+    st.subheader("Demand Forecasting")
 
     forecast_products = st.multiselect(
         "Select Products to Forecast",
@@ -193,10 +200,10 @@ with tab2:
     st.caption("Select which factors should influence the forecast model.")
     col_r1, col_r2, col_r3 = st.columns(3)
     use_price    = col_r1.checkbox("Price",                   value=True)
-    use_discount = col_r2.checkbox("Discount",                value=True)
-    use_dow      = col_r3.checkbox("Day of Week",             value=True)
-    use_stock    = col_r1.checkbox("Stock Level",             value=True)
-    use_rolling  = col_r2.checkbox("7-Day Rolling Avg Demand",value=True)
+    use_discount = col_r2.checkbox("Discount",                value=False)
+    use_dow      = col_r3.checkbox("Day of Week",             value=False)
+    use_stock    = col_r1.checkbox("Stock Level",             value=False)
+    use_rolling  = col_r2.checkbox("7-Day Rolling Avg Demand",value=False)
 
     for product in forecast_products:
         st.markdown(f"---\n### {product}")
@@ -319,7 +326,7 @@ with tab2:
 
 with tab4:
     # --- User-Based Collaborative Filtering ---
-    st.subheader("User-Based Recommendations (Collaborative Filtering)")
+    st.subheader("User-Based Recommendations")
     st.caption("Finds customers with similar dispensing histories and recommends products they received that the selected customer has not yet been prescribed.")
 
     from sklearn.metrics.pairwise import cosine_similarity
@@ -331,7 +338,7 @@ with tab4:
     rec_df['prescription_id'] = rec_df['prescription_id'].astype(str)
 
     # Reduce matrix size: keep only customers with multiple distinct products
-    MIN_PRODUCTS = 2
+    MIN_PRODUCTS = 1
     MAX_USERS    = 1000
     user_product_counts = rec_df.groupby('prescription_id')['product_name'].nunique()
     active_users = user_product_counts[user_product_counts >= MIN_PRODUCTS].index
@@ -339,6 +346,7 @@ with tab4:
         active_users = user_product_counts.loc[active_users].nlargest(MAX_USERS).index
     rec_df = rec_df[rec_df['prescription_id'].isin(active_users)]
 
+    # import pdb;pdb.set_trace()
     if rec_df['prescription_id'].nunique() >= 5 and rec_df['product_name'].nunique() >= 2:
         user_item = (
             rec_df.groupby(['prescription_id', 'product_name'])['quantity_used']
@@ -349,7 +357,7 @@ with tab4:
         user_sim_matrix = cosine_similarity(user_item)
         user_sim_df = pd.DataFrame(user_sim_matrix, index=user_item.index, columns=user_item.index)
 
-        selected_user = st.selectbox("Select a Customer (Prescription ID)", options=user_item.index.tolist())
+        selected_user = st.selectbox("Select a Customer", options=user_item.index.tolist())
         n_max = max(1, min(20, len(user_item) - 1))
         n_similar = st.slider(
             "Number of similar customers to consider",
@@ -366,7 +374,7 @@ with tab4:
         with col_sim:
             st.markdown("**Most Similar Customers**")
             sim_display = top_similar.reset_index()
-            sim_display.columns = ['Customer (Prescription ID)', 'Similarity Score']
+            sim_display.columns = ['Customer', 'Similarity Score']
             st.dataframe(sim_display)
 
         with col_rec:
@@ -613,16 +621,18 @@ with tab3:
 
     if selected_store_id is not None:
         now = pd.Timestamp.now()
-        recent = df[df['created_at'] >= now - pd.Timedelta(days=30)]
-        prior  = df[(df['created_at'] >= now - pd.Timedelta(days=60)) &
-                    (df['created_at'] <  now - pd.Timedelta(days=30))]
+        recent = df[df['created_at'] >= now - pd.Timedelta(days=360*4)]
+        prior  = df[(df['created_at'] >= now - pd.Timedelta(days=(360*4)+60)) &
+                    (df['created_at'] <  now - pd.Timedelta(days=360*4))]
 
+        # import pdb;pdb.set_trace()
         recent_units = recent[recent['store_id'] == selected_store_id]['quantity_used'].sum()
         prior_units  = prior[prior['store_id'] == selected_store_id]['quantity_used'].sum()
 
+        # import pdb;pdb.set_trace()
         if prior_units > 0:
             trend_pct = (recent_units - prior_units) / prior_units
-            if trend_pct < -0.20:
+            if trend_pct < 0.60:
                 # Scale discount proportionally to decline, cap at 20% off
                 adjustment_factor = max(0.80, 1 + trend_pct * 0.5)
                 store_msg = (
@@ -648,13 +658,13 @@ with tab3:
     # --- Price Prediction ---
     def predict_price(query, df, mdl, feature_cols):
         # Search by name (partial, case-insensitive) or product_id
-        if 'name' in df.columns:
-            match = df[df['name'].str.contains(query, case=False, na=False)]
-        else:
-            try:
-                match = df[df['product_id'] == int(query)]
-            except ValueError:
-                return None
+        # if 'name' in df.columns:
+        #     match = df[df['name'].str.contains(query, case=False, na=False)]
+        # else:
+        try:
+            match = df[df['product_id'] == int(query)]
+        except ValueError:
+            return None
 
         if match.empty:
             return None
@@ -672,19 +682,19 @@ with tab3:
         }
 
     product_input = st.text_input("Search product by name or ID")
-
+    # import pdb;pdb.set_trace()
     if product_input:
         result = predict_price(product_input, pricing_df, model, features)
         if result:
             adjusted_price = round(result['predicted_price'] * adjustment_factor, 2)
-            st.success(f"Results for: **{result['product']}**")
+            st.success(f"Results")
             r1, r2, r3, r4, r5 = st.columns(5)
-            r1.metric("Base Predicted Price", f"{result['predicted_price']}")
-            r2.metric("Adjusted Price", f"{adjusted_price}",
-                    delta=f"{adjusted_price - result['predicted_price']:.2f}")
-            r3.metric("Avg Cost", f"{result['cost']}")
-            r4.metric("Daily Velocity", f"{result['velocity']}")
-            r5.metric("Competitor Price", f"{result['competitor_price']}")
+            r1.metric("Base Predicted Price", f"{abs(result['predicted_price']) * 100}")
+            r2.metric("Adjusted Price", f"{abs(adjusted_price) * 100}",
+                    delta=f"{abs(adjusted_price - result['predicted_price']) * 100:.2f}")
+            r3.metric("Avg Cost", f"{abs(result['cost'])}")
+            r4.metric("Daily Velocity", f"{abs(result['velocity'])}")
+            r5.metric("Competitor Price", f"{abs(result['competitor_price'])}")
         else:
             st.error("Product not found")
 
@@ -717,7 +727,7 @@ with tab3:
             help="Duties + shipping + forex buffer added on top of avg_cost for imported products."
         )
 
-        sim = pricing_df.dropna(subset=sim_required).copy()
+        sim = pricing_df.dropna(subset=sim_required).drop_duplicates(subset=['product_id']).copy()
 
         # Effective cost: imported products carry the overhead
         sim['effective_cost'] = sim['avg_cost'] * (
@@ -759,10 +769,10 @@ with tab3:
 
         # --- KPIs: Overall ---
         k1, k2, k3, k4 = st.columns(4)
-        k1.metric("Baseline Profit",   f"{sim['baseline_profit'].sum():,.0f}")
-        k2.metric("Projected Profit",  f"{sim['adjusted_profit'].sum():,.0f}",
-                  delta=f"{sim['incremental_profit'].sum():+,.0f}")
-        k3.metric("Revenue Change",    f"{sim['incremental_revenue'].sum():+,.0f}")
+        k1.metric("Baseline Profit",   f"{sim['baseline_profit'].sum()/ 1_000:,.0f}")
+        k2.metric("Projected Profit",  f"{sim['adjusted_profit'].sum()/ 1_000:,.0f}",
+                  delta=f"{sim['incremental_profit'].sum()/ 1_000:+,.0f}")
+        k3.metric("Revenue Change",    f"{sim['incremental_revenue'].sum()/ 1_000:+,.0f}")
         k4.metric("Avg Volume Uplift", f"{(sim['volume_uplift'].mean() - 1):+.1%}")
 
         # --- KPIs: Imported vs Domestic split ---
@@ -770,12 +780,12 @@ with tab3:
         dom = sim[sim['is_imported'] == 0]
         st.caption(f"Imported: **{len(imp)}** ({len(imp)/len(sim):.0%})  |  Domestic: **{len(dom)}** ({len(dom)/len(sim):.0%})")
         i1, i2, i3, i4 = st.columns(4)
-        i1.metric("Imported Baseline Profit",  f"{imp['baseline_profit'].sum():,.0f}")
-        i2.metric("Imported Projected Profit", f"{imp['adjusted_profit'].sum():,.0f}",
-                  delta=f"{(imp['adjusted_profit'] - imp['baseline_profit']).sum():+,.0f}")
-        i3.metric("Domestic Baseline Profit",  f"{dom['baseline_profit'].sum():,.0f}")
-        i4.metric("Domestic Projected Profit", f"{dom['adjusted_profit'].sum():,.0f}",
-                  delta=f"{(dom['adjusted_profit'] - dom['baseline_profit']).sum():+,.0f}")
+        i1.metric("Imported Baseline Profit",  f"{imp['baseline_profit'].sum()/ 1_000:,.0f}")
+        i2.metric("Imported Projected Profit", f"{imp['adjusted_profit'].sum()/ 1_000:,.0f}",
+                  delta=f"{(imp['adjusted_profit'] - imp['baseline_profit']).sum()/ 1_000:+,.0f}")
+        i3.metric("Domestic Baseline Profit",  f"{dom['baseline_profit'].sum()/ 1_000:,.0f}")
+        i4.metric("Domestic Projected Profit", f"{dom['adjusted_profit'].sum()/ 1_000:,.0f}",
+                  delta=f"{(dom['adjusted_profit'] - dom['baseline_profit']).sum()/ 1_000:+,.0f}")
 
         # --- Charts ---
         label_col = 'name' if 'name' in sim.columns else 'product_id'

@@ -1,0 +1,42 @@
+# Python virtual environment
+snowflake/Scripts/
+snowflake/Lib/
+snowflake/Include/
+snowflake/share/
+snowflake/etc/
+snowflake/pyvenv.cfg
+snowflake/config.ini
+
+# Large data files
+*.pkl
+*.csv
+*.parquet
+*.db
+*.sqlite
+
+# Logs
+*.log
+
+# Sensitive
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Backup files
+*.bak
+
+# Embedded repos / build output
+snowflake/tendri/dashboard/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude memory
+.claude/

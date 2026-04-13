@@ -1,0 +1,9 @@
+# Large / sensitive files — exclude these everywhere under snowflake/
+*.pkl
+*.csv
+*.parquet
+.env
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+Lib/

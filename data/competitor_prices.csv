@@ -1,0 +1,21 @@
+product_id,product_name,pharmaplus_price,goodlife,lintons,mydawa,market_low,price_gap_pct,price_position,match_score,competitor_match_count
+E0785,Earth'S Creation Magnesium Glycinate 360Mg 90'S,4410.0,,,,,,,0.0,0
+B2483,Berrycee Cranberry Extract Satchets 10'S,1000.0,,,,,,,0.0,0
+A1139,Aptamil 1 800G(Uk),3520.0,,,,,,,0.0,0
+K0040,Kly Jelly 42Gm,400.0,,,,,,,0.0,0
+D0351,Durex Fetherlite 3S,650.0,540.0,,,540.0,0.2037,ABOVE,81.8,1
+U0201,Usn Pure Creatine Monohydrate Powder 410Gm,3000.0,,,,,,,0.0,0
+S1540,Swift Pregnancy Kit Cassette,300.0,,,,,,,0.0,0
+E0771,Earth'S Creation Melatonin Sleep Gummy 5Mg 60'S,1995.0,,,,,,,0.0,0
+D1589,Durex Pleasuremax 12S,1500.0,,,,,,,0.0,0
+U0167,Usn Pure Creatine Monohydrate Powder 200Gm,2000.0,2001.0,,,2001.0,-0.0005,MATCH,81.7,1
+T0367,The Ordinary Niacinamide 10 & + Zinc 1 % 30Ml,2216.0,,,,,,,0.0,0
+T0784,Tretvin Gel 20Gm,350.0,,,,,,,0.0,0
+S1541,Swift Hiv Kit Cassette,300.0,,,,,,,0.0,0
+C1702,Cosrx Advanced Snail 96 Mucin Power Essence 100Ml,2600.0,3498.0,,3547,3498.0,-0.2567,BELOW,100.0,2
+D1750,Differin  Adapalne Gel 0.1% 15Gm,3000.0,,,,,,,0.0,0
+S1472,Sure Test Hiv Cassette 1S,200.0,,,,,,,0.0,0
+M0766,Malibu Spf50 Lotion 100Ml,1388.0,,,,,,,0.0,0
+P0827,Panoxyl Acne Foaming Wash 10% 156G,3100.0,,,,,,,0.0,0
+M0441,Malibu Spf50 Kids Lotion 200Ml,1511.0,2845.0,,,2845.0,-0.4689,BELOW,86.2,1
+E0855,Earth'S Creation Vitamin D3+K2 Softgels 60'S,2310.0,,,,,,,0.0,0

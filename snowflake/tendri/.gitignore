@@ -1,0 +1,10 @@
+# Large / sensitive files
+*.pkl
+*.csv
+*.parquet
+.env
+__pycache__/
+*.pyc
+
+# Jupyter checkpoints
+.ipynb_checkpoints/

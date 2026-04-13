@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 from prophet import Prophet
 from sklearn.ensemble import IsolationForest
 from sqlalchemy import create_engine
+from components.components import *
 import os
 import hashlib
 import joblib
@@ -31,9 +32,32 @@ def _data_hash(df):
     except Exception:
         return hashlib.md5(str(len(df)).encode()).hexdigest()[:10]
 
-st.image("logo_pharmaplus.png", width=150)
-st.set_page_config(page_title="Enterprise Dashboard", layout="wide")
-st.title("Revenue Analytics & Predictive Dashboard")
+import streamlit as st
+
+# MUST BE FIRST STREAMLIT CALL
+st.set_page_config(
+    page_title="Enterprise Dashboard",
+    layout="wide",
+    page_icon="🏥"
+)
+
+# --- HEADER SECTION (SaaS STYLE) ---
+st.image("logo_pharmaplus.png")
+st.markdown(
+        """
+        <div style="
+            padding-top: 10px;
+        ">
+            <h2 style="margin-bottom:0; color:#1f3b64;">
+                PharmaPlus Enterprise Dashboard
+            </h2>
+            <p style="margin-top:4px; color:#6b7c93; font-size:14px;">
+                Pricing Intelligence • Volume Pricing • Liquidation
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 tab1, tab2, tab3, tab4 = st.tabs(["Overview", "Product Health", "Pricing Engine", "Recommendation Engine"])
 # --- Sidebar Filters ---
 st.sidebar.header("Filters")
@@ -590,15 +614,60 @@ with tab3:
         joblib.dump(result, XGB_MODEL_PATH)
         return result
 
-    st.title("Dynamic Pharmacy Pricing Model")
+    
+    # --- HERO HEADER ---
+    
+    st.markdown("""
+    <div style="
+        padding: 18px 20px;
+        border-radius: 16px;
+        background: linear-gradient(135deg, #ffffff 0%, #f8fbff 100%);
+        border: 1px solid #e6eef7;
+        box-shadow: 0 4px 14px rgba(31, 59, 100, 0.06);
+        margin-bottom: 18px;
+    ">
+        <div style="
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            flex-wrap: wrap;
+        ">
+            <div>
+                <div style="
+                    font-size: 24px;
+                    font-weight: 800;
+                    color: #1f3b64;
+                    line-height: 1.2;
+                    margin-bottom: 4px;
+                ">
+                    💊 Dynamic Pharmacy Pricing Model
+                </div>
+                <div style="
+                    font-size: 13px;
+                    color: #6b7c93;
+                    line-height: 1.5;
+                ">
+                    AI-powered pricing optimization • Elasticity simulation • Profit maximization engine
+                </div>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
-    n_trials = st.sidebar.slider("Optuna tuning trials", min_value=10, max_value=100, value=30, step=10)
+    col1, col2 = st.columns([5, 1])
 
-    col_retrain, _ = st.columns([1, 4])
-    if col_retrain.button("Force Retrain Model"):
-        if os.path.exists(XGB_MODEL_PATH):
-            os.remove(XGB_MODEL_PATH)
-        load_and_train.clear()
+    with col1:
+        st.markdown("")
+
+    with col2:
+        if st.button("🚀 Force Retrain", type="primary", use_container_width=True):
+            if os.path.exists(XGB_MODEL_PATH):
+                os.remove(XGB_MODEL_PATH)
+            load_and_train.clear()
+            st.success("Model retraining triggered successfully!")
+    
+    n_trials = st.sidebar.slider("Number of trials precision", min_value=10, max_value=100, value=30, step=10)
 
     spinner_msg = "Loading saved model..." if os.path.exists(XGB_MODEL_PATH) else "Training model with hyperparameter tuning..."
     with st.spinner(spinner_msg):
@@ -606,66 +675,176 @@ with tab3:
 
     # --- Model Performance ---
     st.subheader("Model Performance")
-    m1, m2, m3 = st.columns(3)
-    m1.metric("MAE (test)", f"{metrics['mae']:.2f}")
-    m2.metric("R² (test)", f"{metrics['r2']:.3f}")
-    m3.metric("CV MAE (5-fold)", f"{metrics['cv_mae']:.2f}")
+    k1, k2, k3 = st.columns(3)
+
+    with k1:
+        kpi_card(
+            "Average Error",
+            f"{metrics['mae']:.2f}",
+            "How far off the predictions are (lower is better)",
+            "#0072CE"
+        )
+
+    with k2:
+        kpi_card(
+            "Model Accuracy",
+            f"{metrics['r2']:.3f}",
+            "How well the model fits the data (closer to 1 is better)",
+            "#28A745"
+        )
+
+    with k3:
+        kpi_card(
+            "Consistency",
+            f"{metrics['cv_mae']:.2f}",
+            "How reliable the model is across different tests",
+            "#FF8C00"
+        )
+
+    st.markdown("<div style='margin-bottom:20px'></div>", unsafe_allow_html=True)
 
     with st.expander("Best hyperparameters"):
         st.json(best_params)
 
     # --- Feature Importance ---
-    st.subheader("Feature Importance")
-    fig_imp, ax_imp = plt.subplots(figsize=(8, 4))
-    sns.barplot(x=importances.values, y=importances.index, ax=ax_imp)
-    ax_imp.set_xlabel("Importance")
-    ax_imp.set_title("XGBoost Feature Importances")
-    plt.tight_layout()
-    st.pyplot(fig_imp)
+    import plotly.express as px
 
+    st.markdown("## 🔥 Feature Importance")
+
+    importances_sorted = importances.sort_values()
+
+    df_imp = importances_sorted.reset_index()
+    df_imp.columns = ["feature", "importance"]
+
+    fig = px.bar(
+        df_imp,
+        x="importance",
+        y="feature",
+        orientation="h",
+        text="importance",
+        color="importance",
+        color_continuous_scale=[
+            "#d0e1ff",  # light blue
+            "#4a90e2",  # strong blue
+            "#1f4e79"   # deep navy (high importance)
+        ],
+        title="Top Drivers of the Model"
+    )
+
+    fig.update_layout(
+        plot_bgcolor="#ffffff",
+        paper_bgcolor="#ffffff",
+        font=dict(color="#2c3e50"),
+        title_font=dict(size=18, color="#1f3b64"),
+        margin=dict(l=20, r=20, t=60, b=20),
+        xaxis_title="Impact on Prediction",
+        yaxis_title=""
+    )
+
+    fig.update_traces(
+        texttemplate="%{text:.3f}",
+        textposition="outside",
+        marker_line_width=0
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
     st.divider()
     # --- Store-Aware Dynamic Pricing ---
-    st.subheader("Store Health & Price Adjustment")
+    # --- Header Section ---
+    st.markdown("""
+        <div style="
+            padding: 18px 22px;
+            border-radius: 14px;
+            background: linear-gradient(90deg, #f8fbff, #eef6ff);
+            border: 1px solid #e3ecf7;
+            margin-bottom: 12px;
+        ">
+            <h3 style="margin:0; color:#1f3b64;">🏪 Store Health & Smart Pricing</h3>
+            <p style="margin:4px 0 0; font-size:13px; color:#6b7c93;">
+                Real-time performance insights with adaptive pricing intelligence
+            </p>
+        </div>
+    """, unsafe_allow_html=True)
 
     adjustment_factor = 1.0
     store_msg = None
+    status_color = "#2ecc71"  # default green
+    status_bg = "#ecfdf5"
 
     if selected_store_id is not None:
         now = pd.Timestamp.now()
-        recent = df[df['created_at'] >= now - pd.Timedelta(days=360*4)]
-        prior  = df[(df['created_at'] >= now - pd.Timedelta(days=(360*4)+60)) &
-                    (df['created_at'] <  now - pd.Timedelta(days=360*4))]
 
-        # import pdb;pdb.set_trace()
+        recent = df[df['created_at'] >= now - pd.Timedelta(days=360*4)]
+        prior  = df[
+            (df['created_at'] >= now - pd.Timedelta(days=(360*4)+60)) &
+            (df['created_at'] <  now - pd.Timedelta(days=360*4))
+        ]
+
         recent_units = recent[recent['store_id'] == selected_store_id]['quantity_used'].sum()
         prior_units  = prior[prior['store_id'] == selected_store_id]['quantity_used'].sum()
 
-        # import pdb;pdb.set_trace()
-        if prior_units > 0:
-            trend_pct = (recent_units - prior_units) / prior_units
-            if trend_pct < 0.60:
-                # Scale discount proportionally to decline, cap at 20% off
-                adjustment_factor = max(0.80, 1 + trend_pct * 0.5)
-                store_msg = (
-                    f"Store **margins** below  target (sales {trend_pct:+.0%} vs prior 30 days). "
-                    f"Applying a **{(1 - adjustment_factor):.0%} price reduction** to drive volume."
-                )
+        message = ""
+
+        if selected_store_id is not None:
+            if prior_units > 0:
+                trend_pct = (recent_units - prior_units) / prior_units
+
+                if trend_pct < 0.60:
+                    adjustment_factor = max(0.80, 1 + trend_pct * 0.5)
+                    message = (
+                        f"⚠️ Performance Alert: Sales are trending {trend_pct:+.0%} vs prior period. "
+                        f"Applying a {(1 - adjustment_factor):.0%} price reduction to stimulate demand and recover volume."
+                    )
+                    st.warning(message)
+
+                else:
+                    message = (
+                        f"📈 Healthy Growth: Sales are strong at {trend_pct:+.0%} vs prior period. "
+                        "No pricing adjustment needed. Store is operating optimally."
+                    )
+                    st.success(message)
+
             else:
-                store_msg = f"Store **margins** on track (sales {trend_pct:+.0%} vs prior 30 days). No adjustment applied."
+                message = (
+                    "📊 Data Insight: Not enough historical data available yet. "
+                    "Continue collecting sales data to enable intelligent pricing adjustments."
+                )
+                st.info(message)
+
         else:
-            store_msg = "Insufficient prior-period data to assess store health."
-    else:
-        store_msg = "Select a specific store to enable dynamic price adjustment."
+            message = (
+                "🚀 Get Started: Select a store to unlock real-time health insights "
+                "and dynamic pricing recommendations."
+            )
+            st.info(message)
+        
+    # --- Adjustment Factor Badge ---
+    st.markdown(f"""
+        <div style="
+            display:inline-block;
+            padding: 10px 16px;
+            border-radius: 999px;
+            background: linear-gradient(90deg, #e8f4ff, #d6ecff);
+            color:#1f3b64;
+            font-weight:600;
+            font-size:14px;
+            border:1px solid #cfe3ff;
+            margin-top:5px;
+        ">
+            ⚙️ Active Adjustment Factor: {adjustment_factor:.2f}x
+        </div>
+    """, unsafe_allow_html=True)
 
-    if adjustment_factor < 1.0:
-        st.warning(store_msg)
-    else:
-        st.info(store_msg)
-
-    st.caption(f"Active adjustment factor: **{adjustment_factor:.2f}x**")
-
-    st.divider()
-
+    # --- Soft Divider ---
+    st.markdown("""
+        <hr style="
+            margin-top: 20px;
+            margin-bottom: 10px;
+            border: none;
+            height: 1px;
+            background: linear-gradient(to right, #ffffff, #dfe6ee, #ffffff);
+        ">
+    """, unsafe_allow_html=True)
     # --- Price Prediction ---
     def predict_price(query, df, mdl, feature_cols):
         # Search by name (partial, case-insensitive) or product_id
@@ -710,9 +889,7 @@ with tab3:
             st.error("Product not found")
 
 
-    st.subheader("Pricing Data Preview")
-    st.dataframe(pricing_df.head())
-
+    
     st.divider()
 
     # --- Profit Simulation: Dynamic Pricing for Struggling Stores ---
@@ -726,18 +903,34 @@ with tab3:
     if not all(c in pricing_df.columns for c in sim_required):
         st.warning(f"Simulation requires columns: {sim_required}. Not all found in pricing.csv.")
     else:
-        elasticity = st.slider(
-            "Price Elasticity of Demand",
-            min_value=-3.0, max_value=-0.1, value=-1.5, step=0.1,
-            help="How much % volume rises when price drops 1%. Pharmacy typically -1.0 to -2.0."
-        )
-        sim_horizon = st.number_input("Simulation horizon (days)", min_value=7, max_value=90, value=30)
+        # --- Sidebar Controls ---
+        with st.sidebar:
+            st.subheader("⚙️ Simulation Controls")
 
-        import_overhead = st.slider(
-            "Import Overhead %", min_value=0, max_value=40, value=15,
-            help="Duties + shipping + forex buffer added on top of avg_cost for imported products."
-        )
+            elasticity = st.slider(
+                "Price Elasticity of Demand",
+                min_value=-3.0,
+                max_value=-0.1,
+                value=-1.5,
+                step=0.1,
+                help="How much % volume rises when price drops 1%. Pharmacy typically -1.0 to -2.0."
+            )
 
+            sim_horizon = st.number_input(
+                "Simulation horizon (days)",
+                min_value=7,
+                max_value=90,
+                value=30
+            )
+
+            import_overhead = st.slider(
+                "Import Overhead %",
+                min_value=0,
+                max_value=40,
+                value=15,
+                help="Duties + shipping + forex buffer added on top of avg_cost for imported products."
+            )
+        
         sim = pricing_df.dropna(subset=sim_required).drop_duplicates(subset=['product_id']).copy()
 
         # Effective cost: imported products carry the overhead
@@ -779,52 +972,145 @@ with tab3:
         sim['incremental_revenue'] = sim['adjusted_revenue'] - sim['baseline_revenue']
 
         # --- KPIs: Overall ---
-        k1, k2, k3, k4 = st.columns(4)
-        k1.metric("Baseline Profit",   f"{sim['baseline_profit'].sum()/ 1_000:,.0f}")
-        k2.metric("Projected Profit",  f"{sim['adjusted_profit'].sum()/ 1_000:,.0f}",
-                  delta=f"{sim['incremental_profit'].sum()/ 1_000:+,.0f}")
-        k3.metric("Revenue Change",    f"{sim['incremental_revenue'].sum()/ 1_000:+,.0f}")
-        k4.metric("Avg Volume Uplift", f"{(sim['volume_uplift'].mean() - 1):+.1%}")
+        # --- KPI HEADER ---
+        st.markdown("### 📊 Pricing Intelligence Dashboard")
+
+        col1, col2, col3, col4 = st.columns(4)
+
+        with col1:
+            kpi_card(
+                "Baseline Profit",
+                f"{sim['baseline_profit'].sum()/1_000:,.0f}",
+                sub="Unoptimized profit baseline",
+                color="#0072CE"
+            )
+
+        with col2:
+            kpi_card(
+                "Projected Profit",
+                f"{sim['adjusted_profit'].sum()/1_000:,.0f}",
+                sub=f"Delta: {sim['incremental_profit'].sum()/1_000:+,.0f}",
+                color="#0BB99F"
+            )
+
+        with col3:
+            kpi_card(
+                "Revenue Change",
+                f"{sim['incremental_revenue'].sum()/1_000:+,.0f}",
+                sub="Total pricing uplift impact",
+                color="#F59E0B"
+            )
+
+        with col4:
+            kpi_card(
+                "Avg Volume Uplift",
+                f"{(sim['volume_uplift'].mean() - 1):+.1%}",
+                sub="Demand elasticity response",
+                color="#E11D48"
+            )
 
         # --- KPIs: Imported vs Domestic split ---
         imp = sim[sim['is_imported'] == 1]
         dom = sim[sim['is_imported'] == 0]
         st.caption(f"Imported: **{len(imp)}** ({len(imp)/len(sim):.0%})  |  Domestic: **{len(dom)}** ({len(dom)/len(sim):.0%})")
-        i1, i2, i3, i4 = st.columns(4)
-        i1.metric("Imported Baseline Profit",  f"{imp['baseline_profit'].sum()/ 1_000:,.0f}")
-        i2.metric("Imported Projected Profit", f"{imp['adjusted_profit'].sum()/ 1_000:,.0f}",
-                  delta=f"{(imp['adjusted_profit'] - imp['baseline_profit']).sum()/ 1_000:+,.0f}")
-        i3.metric("Domestic Baseline Profit",  f"{dom['baseline_profit'].sum()/ 1_000:,.0f}")
-        i4.metric("Domestic Projected Profit", f"{dom['adjusted_profit'].sum()/ 1_000:,.0f}",
-                  delta=f"{(dom['adjusted_profit'] - dom['baseline_profit']).sum()/ 1_000:+,.0f}")
+        st.markdown("### 🌍 Import vs Domestic Profit Intelligence")
 
+        col1, col2 = st.columns(2)
+
+        with col1:
+            info_card(
+                f"""
+                📦 <b>Imported Portfolio</b><br><br>
+                <b>Baseline Profit:</b> {imp['baseline_profit'].sum()/1_000:,.0f}K<br>
+                <b>Projected Profit:</b> {imp['adjusted_profit'].sum()/1_000:,.0f}K<br>
+                <b>Change:</b> {(imp['adjusted_profit'] - imp['baseline_profit']).sum()/1_000:+,.0f}K
+                """,
+                border_color="#0072CE"
+            )
+
+        with col2:
+            info_card(
+                f"""
+                🏭 <b>Domestic Portfolio</b><br><br>
+                <b>Baseline Profit:</b> {dom['baseline_profit'].sum()/1_000:,.0f}K<br>
+                <b>Projected Profit:</b> {dom['adjusted_profit'].sum()/1_000:,.0f}K<br>
+                <b>Change:</b> {(dom['adjusted_profit'] - dom['baseline_profit']).sum()/1_000:+,.0f}K
+                """,
+                border_color="#0BB99F"
+            )
         # --- Charts ---
+        import plotly.express as px
+        import plotly.graph_objects as go
+
         label_col = 'name' if 'name' in sim.columns else 'product_id'
         top_sim = sim.nlargest(15, 'incremental_profit').copy()
-        top_sim[label_col] = top_sim[label_col].astype(str).str[:20]
+        top_sim[label_col] = top_sim[label_col].astype(str).str[:25]
 
-        fig_sim, axes = plt.subplots(1, 2, figsize=(14, 5))
+        # =========================
+        # 1. BAR CHART (CLEAN + MODERN)
+        # =========================
+        fig_bar = px.bar(
+            top_sim.sort_values("incremental_profit"),
+            x="incremental_profit",
+            y=label_col,
+            orientation="h",
+            color="incremental_profit",
+            color_continuous_scale=["#ffb3b3", "#ffffff", "#b7f7c1"],  # soft red → white → green
+            title=f"📊 Incremental Profit – Top 15 Products ({sim_horizon}d)"
+        )
 
-        # Incremental profit bar
-        colors = ['#2ecc71' if v >= 0 else '#e74c3c' for v in top_sim['incremental_profit']]
-        axes[0].barh(top_sim[label_col], top_sim['incremental_profit'], color=colors)
-        axes[0].axvline(0, color='black', linewidth=0.8)
-        axes[0].set_title(f"Incremental Profit – Top 15 Products ({sim_horizon}d)")
-        axes[0].set_xlabel("Profit Change")
+        fig_bar.update_layout(
+            plot_bgcolor="#ffffff",
+            paper_bgcolor="#ffffff",
+            font=dict(color="#2c3e50"),
+            title_font_size=16,
+            margin=dict(l=20, r=20, t=60, b=20),
+        )
 
-        # Baseline vs adjusted profit scatter
-        axes[1].scatter(top_sim['baseline_profit'], top_sim['adjusted_profit'],
-                        c=top_sim['incremental_profit'], cmap='RdYlGn', s=80,
-                        edgecolors='k', linewidths=0.5)
-        lim = max(top_sim['baseline_profit'].max(), top_sim['adjusted_profit'].max()) * 1.05
-        axes[1].plot([0, lim], [0, lim], 'k--', linewidth=0.8, label='Break-even line')
-        axes[1].set_xlabel("Baseline Profit")
-        axes[1].set_ylabel("Adjusted Profit")
-        axes[1].set_title("Baseline vs Adjusted Profit per Product")
-        axes[1].legend()
+        fig_bar.update_traces(
+            marker_line_color="#eaeef3",
+            marker_line_width=1.2
+        )
 
-        plt.tight_layout()
-        st.pyplot(fig_sim)
+        # =========================
+        # 2. SCATTER (CLEAN + PREMIUM)
+        # =========================
+        fig_scatter = px.scatter(
+            top_sim,
+            x="baseline_profit",
+            y="adjusted_profit",
+            color="incremental_profit",
+            color_continuous_scale=["#ffb3b3", "#ffffff", "#7bed9f"],
+            size="incremental_profit",
+            hover_name=label_col,
+            title="📈 Baseline vs Adjusted Profit per Product"
+        )
+
+        # Break-even line
+        max_val = max(
+            top_sim["baseline_profit"].max(),
+            top_sim["adjusted_profit"].max()
+        )
+
+        fig_scatter.add_shape(
+            type="line",
+            x0=0, y0=0,
+            x1=max_val, y1=max_val,
+            line=dict(color="#b0b8c1", dash="dash")
+        )
+
+        fig_scatter.update_layout(
+            plot_bgcolor="#ffffff",
+            paper_bgcolor="#ffffff",
+            font=dict(color="#2c3e50"),
+            margin=dict(l=20, r=20, t=60, b=20)
+        )
+
+        # =========================
+        # RENDER IN STREAMLIT
+        # =========================
+        st.plotly_chart(fig_bar, use_container_width=True)
+        st.plotly_chart(fig_scatter, use_container_width=True)
 
         with st.expander("Full Simulation Table"):
             st.dataframe(

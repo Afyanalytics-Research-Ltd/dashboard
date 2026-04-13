@@ -647,11 +647,11 @@ with tab3:
                 # Scale discount proportionally to decline, cap at 20% off
                 adjustment_factor = max(0.80, 1 + trend_pct * 0.5)
                 store_msg = (
-                    f"Store is **struggling** (sales {trend_pct:+.0%} vs prior 30 days). "
+                    f"Store **margins** below  target (sales {trend_pct:+.0%} vs prior 30 days). "
                     f"Applying a **{(1 - adjustment_factor):.0%} price reduction** to drive volume."
                 )
             else:
-                store_msg = f"Store is **healthy** (sales {trend_pct:+.0%} vs prior 30 days). No adjustment applied."
+                store_msg = f"Store **margins** on track (sales {trend_pct:+.0%} vs prior 30 days). No adjustment applied."
         else:
             store_msg = "Insufficient prior-period data to assess store health."
     else:

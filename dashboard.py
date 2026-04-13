@@ -53,7 +53,18 @@ with tab1:
     )
     # store_options = ["All Stores"] + stores_df['name'].tolist()
     store_options = stores_df['name'].tolist()
-    selected_store_name = st.sidebar.selectbox("Select Store", store_options)
+    display_map = {
+        store_options[0]: "pharmaplus branch joska",
+        store_options[1]: "pharmaplus branch nyali",
+        store_options[2]: "pharmaplus branch ukunda",
+        store_options[3]: "pharmaplus branch westlands",
+    }
+    selected_store_name = st.sidebar.selectbox(
+        "Select Store",
+        store_options,
+        format_func=lambda x: display_map[x]
+    )
+    # selected_store_name = st.sidebar.selectbox("Select Store", store_options)
 
     # Map store name to store_id
     if selected_store_name != "All Stores":

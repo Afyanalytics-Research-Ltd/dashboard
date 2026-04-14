@@ -112,14 +112,14 @@ def _cat_html(cat):
 
 # ─── SIDEBAR ─────────────────────────────────────────────────────────────────
 
-PHARMAPLUS_CSV = "Pricing and Product Listings/pharmaplus_product_list.csv"
-MYDAWA_CSV     = "Pricing and Product Listings/mydawa_product_list.csv"
-GOODLIFE_CSV   = "Pricing and Product Listings/goodlife_price_list.csv"
-LINTON_CSV     = "Pricing and Product Listings/linton.csv"
+PHARMAPLUS_CSV = "pharmaplus_ibr/Pricing and Product Listings/pharmaplus_product_list.csv"
+MYDAWA_CSV     = "pharmaplus_ibr/Pricing and Product Listings/mydawa_product_list.csv"
+GOODLIFE_CSV   = "pharmaplus_ibr/Pricing and Product Listings/goodlife_price_list.csv"
+LINTON_CSV     = "pharmaplus_ibr/Pricing and Product Listings/linton.csv"
 
 with st.sidebar:
     try:
-        st.image("assets/pharmaplus_logo.png", width=160)
+        st.image("pharmaplus_ibr/assets/pharmaplus_logo.png", width=160)
     except:
         st.markdown(
             '<div style="font-size:16px;font-weight:800;color:#0072CE;padding:8px 0 16px">PharmaPlus</div>',
@@ -315,6 +315,7 @@ tab1, tab2, tab3 = st.tabs([
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 1 — ACTIONS
+# One recommended action per frozen SKU, ranked by estimated recovery KSh
 # ══════════════════════════════════════════════════════════════════════════════
 
 with tab1:

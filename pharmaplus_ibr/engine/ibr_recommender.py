@@ -26,8 +26,27 @@ from itertools import groupby
 from data.loader import BRANCH_NAMES
 from engine.price_signal import _is_benchmark_unreliable
 
-BASE_TRANSIT_KSH = 1500
-COST_PER_KM      = 8.0
+# ---------------------------------------------------------------------------
+# Logistics cost model — step-function (flat "Box Rate" tiers)
+#
+# Reality: Pharmaplus transfers move via Milk Runs (company van circuits) or
+# flat-rate couriers (G4S, Fargo).  Cost is NOT per-KM; it is a bracket rate
+# based on route distance.  Tiers below approximate actual G4S/Fargo tariffs;
+# update the table when contract rates change — no other code needs touching.
+#
+# Format: (max_distance_km, flat_rate_ksh, human_label)
+# ---------------------------------------------------------------------------
+LOGISTICS_TIERS = [
+    (  50,   350, "Local / same-city run"),          # e.g. Nyali ↔ Mombasa CBD
+    ( 200,   800, "Regional Milk Run"),               # e.g. Mombasa island ↔ Diani
+    ( 500, 1_800, "G4S / Fargo Tier 1"),              # e.g. Mombasa ↔ Voi
+    (1_000, 3_200, "G4S / Fargo Tier 2 (long-haul)"), # e.g. Mombasa ↔ Nairobi
+    (float("inf"), 5_500, "Long-haul / upcountry"),   # Kisumu, Eldoret, etc.
+]
+
+# Transfers below this quantity are flagged as margin-negative:
+# the flat logistics cost typically exceeds the margin recovered on ≤2 units.
+MIN_VIABLE_UNITS = 3
 
 BRANCH_DISTANCES = {
     (1, 2): 15,  (1, 3): 12,  (1, 4): 490, (1, 5): 25,
@@ -67,9 +86,31 @@ PRICE_DRIVEN_PCT_SKU_MATCH  = 15.0   # >15% above market on direct SKU match
 PRICE_DRIVEN_PCT_BENCHMARK  = 25.0   # >25% above market on category benchmark
 
 
-def _transit_cost(src: int, dest: int) -> float:
-    dist = BRANCH_DISTANCES.get((src, dest), 150)
-    return BASE_TRANSIT_KSH + dist * COST_PER_KM
+def _transit_cost(src: int, dest: int, qty: int = 0) -> dict:
+    """
+    Return a flat logistics cost based on route distance brackets (step-function).
+
+    Args:
+        src:  source branch ID
+        dest: destination branch ID
+        qty:  units being transferred (used for margin-viability check)
+
+    Returns dict with keys:
+        cost_ksh       – flat rate for this route bracket
+        tier_label     – human description of the rate tier applied
+        viable         – False when qty < MIN_VIABLE_UNITS (cost likely kills margin)
+    """
+    dist = BRANCH_DISTANCES.get((src, dest), 500)   # default: assume long-haul
+    for max_dist, rate, label in LOGISTICS_TIERS:
+        if dist <= max_dist:
+            return {
+                "cost_ksh":   rate,
+                "tier_label": label,
+                "viable":     qty >= MIN_VIABLE_UNITS,
+            }
+    # Fallback — should never be reached given float("inf") sentinel tier
+    last_rate, last_label = LOGISTICS_TIERS[-1][1], LOGISTICS_TIERS[-1][2]
+    return {"cost_ksh": last_rate, "tier_label": last_label, "viable": qty >= MIN_VIABLE_UNITS}
 
 
 def _transit_days(src: int, dest: int) -> int:
@@ -209,6 +250,8 @@ def build_recommendations(
                 "dest_store_id":        src,
                 "dest_branch_name":     "Same branch",
                 "transit_cost_ksh":     0.0,
+                "logistics_tier":       "—",
+                "transfer_viable":      True,
                 "transit_days":         0,
                 "shelf_viability":      "safe",
                 "dest_velocity_score":  0.0,
@@ -247,9 +290,10 @@ def build_recommendations(
             if t_label == "decelerating":
                 continue
 
-            t_cost    = _transit_cost(src, dest)
-            t_days    = _transit_days(src, dest)
-            viability = _shelf_viable(frozen_days, shelf_life, t_days)
+            logistics  = _transit_cost(src, dest, qty=int(qty))
+            t_cost     = logistics["cost_ksh"]
+            t_days     = _transit_days(src, dest)
+            viability  = _shelf_viable(frozen_days, shelf_life, t_days)
 
             if viability == "do_not_move":
                 continue
@@ -262,6 +306,8 @@ def build_recommendations(
                 "dest_store_id":        dest,
                 "dest_branch_name":     BRANCH_NAMES.get(dest, f"Branch {dest}"),
                 "transit_cost_ksh":     round(t_cost, 2),
+                "logistics_tier":       logistics["tier_label"],
+                "transfer_viable":      logistics["viable"],
                 "transit_days":         t_days,
                 "shelf_viability":      viability,
                 "dest_velocity_score":  round(v_score, 1),
@@ -281,19 +327,32 @@ def build_recommendations(
 
             best = candidates[0]
             recovery = round(ksh * RECOVERY_RATE["TRANSFER"], 2)
+            # Mark as low_roi if: margin thin (<30%) OR qty too small to justify flat logistics fee
+            is_low_roi = (best["net_saving_ksh"] < (ksh * 0.3)) or (not best["transfer_viable"])
+            if not best["transfer_viable"]:
+                rationale = (
+                    f"Transfer {int(qty)} units to {best['dest_branch_name']} "
+                    f"· {best['dest_trend_label']} demand · clears in "
+                    f"{best['days_to_clear_at_dest'] or '?'}d "
+                    f"· ⚠ Only {int(qty)} unit(s) — flat {best['logistics_tier']} "
+                    f"(KSh {best['transit_cost_ksh']:,.0f}) likely exceeds recovered margin"
+                )
+            else:
+                rationale = (
+                    f"Transfer {int(qty)} units to {best['dest_branch_name']} "
+                    f"· {best['dest_trend_label']} demand · clears in "
+                    f"{best['days_to_clear_at_dest'] or '?'}d "
+                    # f"· {best['logistics_tier']} @ KSh {best['transit_cost_ksh']:,.0f} flat"
+                )
             rows.append({
                 **base_row,
                 "recommendation_type":  "TRANSFER",
                 **best,
                 "markdown_target_price": np.nan,
                 "estimated_recovery_ksh": recovery,
-                "recovery_rationale":   (
-                    f"Transfer {int(qty)} units to {best['dest_branch_name']} "
-                    f"· {best['dest_trend_label']} demand · clears in "
-                    f"{best['days_to_clear_at_dest'] or '?'}d"
-                ),
-                "low_roi":  best["net_saving_ksh"] < (ksh * 0.3),
-                "rank":     1,
+                "recovery_rationale":   rationale,
+                "low_roi":              is_low_roi,
+                "rank":                 1,
             })
             continue
 
@@ -322,15 +381,20 @@ def build_recommendations(
 
         if len(bundle_branches) >= 2:
             bundle_branches.sort(key=lambda x: -x[1])
-            top_two   = bundle_branches[:2]
+            top_two    = bundle_branches[:2]
             dest_names = " + ".join(BRANCH_NAMES.get(b[0], str(b[0])).replace("PharmaPlus ", "") for b in top_two)
+            # Bundle logistics: primary leg flat rate × 1.5 to cover the split-run overhead
+            primary_logistics = _transit_cost(src, top_two[0][0], qty=int(qty))
+            bundle_cost       = round(primary_logistics["cost_ksh"] * 1.5, 2)
             recovery  = round(ksh * RECOVERY_RATE["BUNDLE"], 2)
             rows.append({
                 **base_row,
                 "recommendation_type":  "BUNDLE",
                 "dest_store_id":        top_two[0][0],
                 "dest_branch_name":     dest_names,
-                "transit_cost_ksh":     round(_transit_cost(src, top_two[0][0]) * 1.5, 2),
+                "transit_cost_ksh":     bundle_cost,
+                "logistics_tier":       f"{primary_logistics['tier_label']} (split-run ×1.5)",
+                "transfer_viable":      primary_logistics["viable"],
                 "transit_days":         max(_transit_days(src, b[0]) for b in top_two),
                 "shelf_viability":      "safe",
                 "dest_velocity_score":  round(sum(b[1] for b in top_two) / 2, 1),
@@ -353,6 +417,8 @@ def build_recommendations(
             "dest_store_id":        src,
             "dest_branch_name":     "—",
             "transit_cost_ksh":     0.0,
+            "logistics_tier":       "—",
+            "transfer_viable":      True,
             "transit_days":         0,
             "shelf_viability":      "—",
             "dest_velocity_score":  0.0,

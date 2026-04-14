@@ -7,3 +7,6 @@ __pycache__/
 *.pyc
 .ipynb_checkpoints/
 Lib/
+
+# Force-track this file even if a broader pattern would ignore it
+!/snowflake/tendri/templates/my_plotlyio_template.py

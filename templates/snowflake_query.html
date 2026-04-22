@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<div class="row">
+
+    <!-- LEFT: QUERY INPUT -->
+    <div class="col-md-5">
+
+        <div class="card p-3 shadow-sm">
+
+            <h4 class="mb-3">Snowflake Query Console</h4>
+
+            <form method="post">
+                {% csrf_token %}
+
+                <label class="form-label fw-semibold">SQL Query</label>
+
+                <textarea name="query"
+                          class="form-control"
+                          rows="10"
+                          placeholder="SELECT * FROM SALES LIMIT 10">{{ query }}</textarea>
+
+                <button class="btn btn-primary mt-3 w-100">
+                    Run Query
+                </button>
+            </form>
+
+            {% if error %}
+            <div class="alert alert-danger mt-3">
+                {{ error }}
+            </div>
+            {% endif %}
+
+        </div>
+
+    </div>
+
+    <!-- RIGHT: RESULTS -->
+    <div class="col-md-7">
+
+        <div class="card p-3 shadow-sm">
+
+            <h5 class="mb-3">Results</h5>
+
+            {% if df %}
+                <div class="table-responsive">
+                    {{ df|safe }}
+                </div>
+            {% else %}
+                <div class="text-muted text-center py-5">
+                    Run a query to see results here
+                </div>
+            {% endif %}
+
+        </div>
+
+    </div>
+
+</div>
+
+{% endblock %}

@@ -1,0 +1,67 @@
+version: "3"
+
+services:
+  web:
+    restart: always
+    build: .
+    expose:
+      - "8000"
+    links:
+      - redis:redis
+    volumes:
+      - web-django:/usr/src/app
+      - web-static:/usr/src/app/static
+    env_file: .env
+    environment:
+      DEBUG: "true"
+    entrypoint: ["/bin/bash", "+x", "/entrypoint.sh"]
+  
+  postgres:
+    image: postgres:latest
+    container_name: postgres-container
+    env_file:
+      - .env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USERNAME}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DBNAME}
+    volumes:
+      - /opt/postgres-data:/var/lib/postgresql
+    ports:
+      - "5432:5432"
+
+  nginx:
+    restart: always
+    build: ./nginx/
+    ports:
+      - "80:80"
+      - "443:443" # Added to expose port 443 for SSL
+    volumes:
+      - web-static:/www/static
+      - letsencrypt:/etc/letsencrypt # Mount LetsEncrypt certificates
+    links:
+      - web:web
+    # command: ["/bin/sh", "-c", "while :; do sleep 6h & wait $${!}; nginx -s reload; done & nginx -g 'daemon off;'"] # Renew SSL certificates every 6 hours
+
+  certbot:
+    image: certbot/certbot
+    volumes:
+      - letsencrypt:/etc/letsencrypt
+      - web-static:/static/
+    command: certonly --non-interactive --agree-tos --nginx -m "lutherlunyamwi@gmail.com" -d "datahub.afya.ai"
+
+  redis:
+    restart: always
+    image: redis:latest
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+
+  
+
+volumes:
+  web-django:
+  web-static:
+  redisdata:
+  letsencrypt:

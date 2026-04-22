@@ -1,0 +1,48 @@
+version: "3"
+
+services:
+  web:
+    restart: always
+    build: .
+    expose:
+      - "8000"
+    links:
+      - redis:redis
+    volumes:
+      - web-django:/usr/src/app
+      - web-static:/usr/src/app/static
+    env_file: .env
+    environment:
+      DEBUG: "true"
+    entrypoint: ["/bin/bash", "+x", "/entrypoint.sh"]
+  
+  postgres:
+    image: postgres:latest
+    container_name: postgres-container
+    env_file:
+      - .env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USERNAME}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DBNAME}
+    volumes:
+      - /opt/postgres-data:/var/lib/postgresql
+    ports:
+      - "5432:5432"
+
+  
+  
+  redis:
+    restart: always
+    image: redis:latest
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+
+  
+
+volumes:
+  web-django:
+  web-static:
+  redisdata:

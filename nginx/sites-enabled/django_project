@@ -1,0 +1,74 @@
+# without ssl
+server {
+    listen 80;
+    listen [::]:80;
+    location ~ /.well-known  {
+        allow all;
+    }
+
+    location /static/ {
+        alias /www/static/;
+    }
+
+    location / {
+        proxy_pass http://web:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+
+    location /analytics/ {
+        proxy_pass http://streamlit:8501;
+    }
+}
+
+
+# with ssl
+# server {
+#     listen 80;
+#     listen [::]:80;
+#     server_name medwema.com;
+#     location / {
+#         rewrite ^ https://$host$request_uri? permanent;
+#     }
+# }
+
+
+# server {
+#     listen 80;
+#     listen [::]:80;
+#     listen 443 ssl;
+#     listen [::]:443 ssl;
+#     server_name medwema.com;
+#     charset utf-8;
+#     client_max_body_size 100M;
+
+#     ssl_certificate /etc/letsencrypt/live/medwema.com/fullchain.pem;
+#     ssl_certificate_key /etc/letsencrypt/live/medwema.com/privkey.pem;
+    
+#     location ~ /.well-known  {
+#         allow all;
+#     }
+
+#     location /static/ {
+#         alias /www/static/;
+#     }
+#     location /ws/ {
+#         proxy_pass http://web:8000;
+#         proxy_http_version 1.1;
+#         proxy_set_header Upgrade $http_upgrade;
+#         proxy_set_header Connection "upgrade";
+#         proxy_set_header Host $host;
+#         proxy_read_timeout 86400s;
+#         proxy_redirect off;
+#     }
+
+
+#     location / {
+#         proxy_pass http://web:8000;
+#         proxy_set_header Host $host;
+#         proxy_set_header X-Real-IP $remote_addr;
+#         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+#     }
+
+# }

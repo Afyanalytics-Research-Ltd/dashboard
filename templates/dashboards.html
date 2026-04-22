@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<div class="container-fluid">
+
+    <!-- HEADER -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h2 class="fw-bold mb-1">📊 Dashboards</h2>
+            <p class="text-muted mb-0">
+                Access and manage your analytics dashboards
+            </p>
+        </div>
+
+        <span class="badge bg-primary fs-6 px-3 py-2">
+            {{ dashboards|length }} Active
+        </span>
+    </div>
+
+    <!-- TABLE CARD -->
+    <div class="card shadow-sm border-0">
+
+        <div class="card-body p-0">
+
+            <div class="table-responsive">
+
+                <table class="table table-hover align-middle mb-0">
+
+                    <!-- TABLE HEADER -->
+                    <thead class="table-light">
+                        <tr class="text-uppercase small text-muted">
+                            <th scope="col" class="ps-4">Dashboard</th>
+                            <th scope="col">Category</th>
+                            <th scope="col">Status</th>
+                            <th scope="col" class="text-end pe-4">Action</th>
+                        </tr>
+                    </thead>
+
+                    <!-- TABLE BODY -->
+                    <tbody>
+
+                        {% for d in dashboards %}
+                        <tr>
+
+                            <!-- NAME -->
+                            <td class="ps-4">
+                                <div class="d-flex align-items-center">
+
+                                    <div class="me-3 fs-4">
+                                        📊
+                                    </div>
+
+                                    <div>
+                                        <div class="fw-semibold">
+                                            {{ d.name }}
+                                        </div>
+                                        <div class="text-muted small">
+                                            {{ d.slug }}
+                                        </div>
+                                    </div>
+
+                                </div>
+                            </td>
+
+                            <!-- CATEGORY -->
+                            <td>
+                                <span class="badge bg-light text-dark border">
+                                    Analytics
+                                </span>
+                            </td>
+
+                            <!-- STATUS -->
+                            <td>
+                                <span class="badge bg-success">
+                                    Active
+                                </span>
+                            </td>
+
+                            <!-- ACTION -->
+                            <td class="text-end pe-4">
+                                <a href="{{ d.streamlit_url }}"
+                                   target="_blank"
+                                   class="btn btn-primary btn-sm">
+                                    Open →
+                                </a>
+                            </td>
+
+                        </tr>
+                        {% empty %}
+
+                        <!-- EMPTY STATE -->
+                        <tr>
+                            <td colspan="4" class="text-center py-5">
+
+                                <div class="fs-1 mb-3">📉</div>
+
+                                <h5 class="fw-semibold">No Dashboards Found</h5>
+
+                                <p class="text-muted mb-0">
+                                    Create or sync dashboards to get started
+                                </p>
+
+                            </td>
+                        </tr>
+
+                        {% endfor %}
+
+                    </tbody>
+
+                </table>
+
+            </div>
+
+        </div>
+
+    </div>
+
+</div>
+
+{% endblock %}

@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+
+{% block header %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h2 class="fw-semibold mb-1">Run: {{ run_id }}</h2>
+        <p class="text-muted mb-0">Task-level execution details</p>
+    </div>
+
+    <div>
+        <a href="javascript:history.back()" class="btn btn-outline-secondary btn-sm">
+            ← Back
+        </a>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+
+<!-- SUMMARY CARDS -->
+<div class="row g-3 mb-4">
+    <div class="col-md-3">
+        <div class="card p-3">
+            <small class="text-muted">Total Tasks</small>
+            <h5 class="fw-bold mb-0">{{ tasks|length }}</h5>
+        </div>
+    </div>
+
+    <div class="col-md-3">
+        <div class="card p-3">
+            <small class="text-muted">Successful</small>
+            <h5 class="fw-bold text-success mb-0">
+                {{ tasks|dictsort:"state"|length }}
+            </h5>
+        </div>
+    </div>
+
+    <div class="col-md-3">
+        <div class="card p-3">
+            <small class="text-muted">Failed</small>
+            <h5 class="fw-bold text-danger mb-0">
+                —
+            </h5>
+        </div>
+    </div>
+
+    <div class="col-md-3">
+        <div class="card p-3">
+            <small class="text-muted">Running</small>
+            <h5 class="fw-bold text-warning mb-0">
+                —
+            </h5>
+        </div>
+    </div>
+</div>
+
+<!-- TASK TABLE -->
+<div class="card p-3">
+
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h5 class="mb-0">Tasks</h5>
+
+        <input type="text" class="form-control form-control-sm w-auto"
+               placeholder="🔍 Filter tasks...">
+    </div>
+
+    {% if tasks %}
+    <div class="table-responsive">
+        <table class="table table-hover align-middle">
+
+            <thead class="table-light">
+                <tr>
+                    <th>Task ID</th>
+                    <th>Status</th>
+                    <th>Duration</th>
+                    <th class="text-end">Actions</th>
+                </tr>
+            </thead>
+
+            <tbody>
+                {% for t in tasks %}
+                <tr>
+
+                    <!-- TASK ID -->
+                    <td>
+                        <span class="fw-medium">{{ t.task_id }}</span>
+                    </td>
+
+                    <!-- STATUS -->
+                    <td>
+                        {% if t.state == "success" %}
+                            <span class="badge bg-success-subtle text-success">Success</span>
+                        {% elif t.state == "failed" %}
+                            <span class="badge bg-danger-subtle text-danger">Failed</span>
+                        {% elif t.state == "running" %}
+                            <span class="badge bg-warning-subtle text-warning">Running</span>
+                        {% else %}
+                            <span class="badge bg-secondary-subtle text-secondary">
+                                {{ t.state }}
+                            </span>
+                        {% endif %}
+                    </td>
+
+                    <!-- DURATION -->
+                    <td class="text-muted">
+                        —
+                    </td>
+
+                    <!-- ACTIONS -->
+                    <td class="text-end">
+                        <button class="btn btn-sm btn-outline-secondary">
+                            Logs
+                        </button>
+                    </td>
+
+                </tr>
+                {% endfor %}
+            </tbody>
+
+        </table>
+    </div>
+
+    {% else %}
+    <!-- EMPTY STATE -->
+    <div class="text-center py-5">
+        <div style="font-size: 40px;">📭</div>
+        <h5 class="mt-3">No Tasks Found</h5>
+        <p class="text-muted">Tasks will appear once the DAG runs</p>
+    </div>
+    {% endif %}
+
+</div>
+
+{% endblock %}

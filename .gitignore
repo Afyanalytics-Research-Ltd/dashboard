@@ -1,6 +1,3 @@
-# Ignore everything
-*
-
 # Allow only the 4 project folders under snowflake/tendri
 !snowflake/
 !snowflake/tendri/

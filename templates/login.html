@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<div class="row justify-content-center align-items-center" style="min-height: 80vh;">
+
+    <div class="col-lg-8">
+        <div class="row shadow-lg rounded-4 overflow-hidden">
+
+            <!-- LEFT PANEL (BRANDING) -->
+            <div class="col-md-6 d-none d-md-flex flex-column justify-content-center p-5 text-white"
+                 style="background: linear-gradient(135deg, #0d6efd, #4e73df);">
+
+                <h2 class="fw-bold mb-3">Afyanalytics</h2>
+                <p class="mb-4">
+                    Your intelligent data platform for analytics, workflows, and insights.
+                </p>
+
+                <ul class="list-unstyled small">
+                    <li class="mb-2">✔ Monitor DAGs in real-time</li>
+                    <li class="mb-2">✔ Trigger and track workflows</li>
+                    <li class="mb-2">✔ Gain deep execution insights</li>
+                </ul>
+
+                <div class="mt-4 small opacity-75">
+                    © {{ year|default:2026 }}
+                </div>
+            </div>
+
+            <!-- RIGHT PANEL (FORM) -->
+            <div class="col-md-6 bg-white p-5">
+
+                <div class="text-center mb-4">
+                    <h3 class="fw-semibold">Welcome Back</h3>
+                    <p class="text-muted small">Login to your dashboard</p>
+                </div>
+
+                <!-- ERROR HANDLING -->
+                {% if form.errors %}
+                <div class="alert alert-danger py-2">
+                    Invalid username or password
+                </div>
+                {% endif %}
+
+                <form method="post">
+                    {% csrf_token %}
+
+                    <div class="mb-3">
+                        <label for="id_username" class="form-label small">Username</label>
+                        <input type="text"
+                               name="username"
+                               id="id_username"
+                               class="form-control form-control-lg"
+                               placeholder="Enter your username"
+                               required autofocus>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="id_password" class="form-label small">Password</label>
+                        <input type="password"
+                               name="password"
+                               id="id_password"
+                               class="form-control form-control-lg"
+                               placeholder="Enter your password"
+                               required>
+                    </div>
+
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <div class="form-check small">
+                            <input class="form-check-input" type="checkbox" id="remember">
+                            <label class="form-check-label" for="remember">
+                                Remember me
+                            </label>
+                        </div>
+
+                        <a href="#" class="small text-decoration-none">
+                            Forgot password?
+                        </a>
+                    </div>
+
+                    <button class="btn btn-primary w-100 btn-lg">
+                        Login
+                    </button>
+
+                </form>
+
+                <div class="text-center mt-4 small text-muted">
+                    Secure access to your data platform
+                </div>
+
+            </div>
+
+        </div>
+    </div>
+
+</div>
+
+{% endblock %}

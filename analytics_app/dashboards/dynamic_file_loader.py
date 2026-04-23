@@ -1,7 +1,7 @@
 import streamlit as st
 import os
 import glob
-
+import traceback
 # get dashboard from URL
 params = st.query_params
 dashboard = params.get("dashboard")
@@ -23,8 +23,12 @@ else:
     if os.path.exists(file_path):
         with open(file_path) as f:
             code = f.read()
-
-        # 🔥 dynamically run the dashboard
-        exec(code, {"st": st, "__name__": "__main__"})
+        
+        try:
+            compiled_code = compile(code, file_path, "exec")
+            exec(compiled_code, {"st": st, "__name__": "__main__"})
+        except Exception as e:
+            st.error(f"Error: {e}")
+            st.code(traceback.format_exc())
     else:
         st.error("Dashboard not found")

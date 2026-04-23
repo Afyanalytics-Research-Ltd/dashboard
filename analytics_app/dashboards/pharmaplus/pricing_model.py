@@ -498,9 +498,10 @@ with tab4:
 
     try:
         binary = (user_item > 0).astype(np.float32)          # users × products (0/1)
-        co_occ = binary.T @ binary                            # products × products co-occurrence
-        np.fill_diagonal(co_occ.values, 0)                   # remove self-pairs
-
+        co_occ = binary.T @ binary    
+        co_occ_array = co_occ.to_numpy().copy()
+        np.fill_diagonal(co_occ_array, 0)
+        co_occ = pd.DataFrame(co_occ_array, index=co_occ.index, columns=co_occ.columns)
         item_counts = (binary > 0).sum(axis=0)               # how many users bought each product
         n_cf_users  = len(binary)
 

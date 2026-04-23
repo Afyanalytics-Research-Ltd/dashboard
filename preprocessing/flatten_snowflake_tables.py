@@ -153,8 +153,8 @@ def connect_with_mfa_push():
     When no passcode is provided, Snowflake sends a push notification
     to your registered device. You need to approve it to complete login.
     """
-    print("Connecting with MFA push notification...")
-    print("Please approve the push notification on your device.")
+    #print("Connecting with MFA push notification...")
+    #print("Please approve the push notification on your device.")
 
     try: 
         return _snowflake_connect() 

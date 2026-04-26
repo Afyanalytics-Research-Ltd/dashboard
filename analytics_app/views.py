@@ -6,7 +6,7 @@ from .models import Dashboard
 EXCLUDED_FILES = {"__init__.py", "dynamic_file_loader.py"}
 
 def dashboard_list(request):
-    folder = os.path.join(settings.BASE_DIR, "analytics_app", "dashboards","pharmaplus")
+    folder = os.path.join(settings.BASE_DIR, "analytics_app", "dashboards","xanalife")
 
     # 🔄 Sync filesystem → DB
     for file in os.listdir(folder):

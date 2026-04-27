@@ -14,16 +14,17 @@ from authentication.roles import DEFAULT_ROLE
 
 # --- LOGIN ------------------------------------------------------------
 
+
 def login_view(request):
     if request.user.is_authenticated:
-        return redirect("dashboard")
+        return redirect("home")
 
     form = AuthenticationForm(request, data=request.POST or None)
 
     if request.method == "POST" and form.is_valid():
         user = form.get_user()
         login(request, user)
-        return redirect("dashboard")
+        return redirect("home")
 
     return render(request, "accounts/login.html", {"form": form})
 
@@ -88,7 +89,7 @@ def signup_view(request):
 
         messages.success(request, "Account created successfully")
 
-        return redirect("dashboard")
+        return redirect("home")
 
     return render(request, "accounts/signup.html")
 

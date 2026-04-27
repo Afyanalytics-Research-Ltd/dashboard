@@ -18,8 +18,34 @@ warnings.filterwarnings('ignore')
 
 # ─── PAGE CONFIG ────────────────────────────────────────────────────
 
-PAGE_TITLE = "Advanced Analytics Suite"
+import snowflake.connector
+import os
 
+class SnowflakeClient:
+
+    def __init__(self):
+
+        with open(os.getenv("SNOWFLAKE_PRIVATE_KEY_PATH"), "rb") as key:
+            private_key = key.read()
+
+        self.conn = snowflake.connector.connect(
+            user=os.getenv("SNOWFLAKE_USER").strip(),
+            account=os.getenv("SNOWFLAKE_ACCOUNT").strip(),
+            warehouse=os.getenv("SNOWFLAKE_WAREHOUSE").strip(),
+            database=os.getenv("SNOWFLAKE_DATABASE").strip(),
+            schema=os.getenv("SNOWFLAKE_SCHEMA", "PUBLIC").strip(),
+            private_key_file=os.getenv("SNOWFLAKE_PRIVATE_KEY_PATH").strip(),
+        )
+
+    def query(self, sql):
+        cursor = self.conn.cursor()
+        try:
+            cursor.execute(sql)
+            return cursor.fetch_pandas_all()
+        finally:
+            cursor.close()
+snowflake = SnowflakeClient()
+PAGE_TITLE = "Advanced Analytics Suite"
 st.set_page_config(
     page_title=f"xanalife · {PAGE_TITLE}",
     page_icon="📊",
@@ -113,42 +139,485 @@ COLORS = {
 @st.cache_data
 def load_rbpi_data():
     """Load Return-to-Business Performance Indicator data"""
-    df = pd.read_csv('rbpi.csv')
+    query = """WITH base_sales AS (
+    SELECT
+        d.SALE_ID,
+        MAX(p.STORE_ID) AS STORE_ID,
+        SUM(d.AMOUNT) AS REVENUE,
+        SUM(d.QUANTITY) AS TOTAL_QTY,
+        SUM(d.DISCOUNT) AS LINE_DISCOUNT
+    FROM hospitals.xanalife_clean.evaluation_pos_sale_details d
+    LEFT JOIN hospitals.xanalife_clean.inventory_store_products p
+        ON d.STORE_PRODUCT_ID = p.ID
+       AND p.PRODUCT_ACTIVE = TRUE
+    WHERE TRY_TO_TIMESTAMP(d.CREATED_AT) >= TO_TIMESTAMP('2025-09-01')
+    GROUP BY d.SALE_ID
+),
+product_costs AS (
+    SELECT
+        d.SALE_ID,
+        SUM(d.QUANTITY * p.UNIT_COST) AS COGS,
+        COUNT(p.ID) AS NUMBER_OF_ITEMS
+    FROM hospitals.xanalife_clean.evaluation_pos_sale_details d
+    LEFT JOIN hospitals.xanalife_clean.inventory_store_products p
+        ON d.STORE_PRODUCT_ID = p.ID
+       AND p.PRODUCT_ACTIVE = TRUE
+    WHERE TRY_TO_TIMESTAMP(d.CREATED_AT) >= TO_TIMESTAMP('2025-09-01')
+    GROUP BY d.SALE_ID
+),
+discounts AS (
+    SELECT
+        SALE_ID,
+        SUM(TRY_TO_NUMBER(DISCOUNT_AMOUNT)) AS TXN_DISCOUNT
+    FROM hospitals.xanalife_clean.evaluation_discount_transactions
+    GROUP BY SALE_ID
+)
+SELECT
+    b.SALE_ID,
+    b.STORE_ID,
+    b.REVENUE,
+    COALESCE(p.NUMBER_OF_ITEMS, 0) AS NUMBER_OF_ITEMS,
+    COALESCE(p.COGS, 0) AS COGS,
+    COALESCE(b.LINE_DISCOUNT, 0) + COALESCE(d.TXN_DISCOUNT, 0) AS TOTAL_DISCOUNT,
+    (
+        b.REVENUE
+        - COALESCE(p.COGS, 0)
+        - (COALESCE(b.LINE_DISCOUNT, 0) + COALESCE(d.TXN_DISCOUNT, 0))
+    ) / NULLIF(b.REVENUE, 0) AS RBPI
+FROM base_sales b
+LEFT JOIN product_costs p
+    ON b.SALE_ID = p.SALE_ID
+LEFT JOIN discounts d
+    ON b.SALE_ID = d.SALE_ID;"""
+    df = snowflake.query(query)
     df.columns = df.columns.str.lower()
     return df
 
 @st.cache_data
 def load_clv_data():
     """Load Customer Lifetime Value data"""
-    df = pd.read_csv('clv.csv')
+    query = """WITH customer_revenue AS (
+ 
+    SELECT
+        patient                                             AS customer_id,
+        SUM(amount)                                         AS total_revenue,
+        MIN(created_at::DATE)                               AS first_purchase_date,
+        MAX(created_at::DATE)                               AS last_purchase_date,
+        COUNT(DISTINCT id)                                  AS total_transactions,
+ 
+        -- Honest time dimension: only days they actually transacted
+        COUNT(DISTINCT created_at::DATE)                    AS active_days,
+ 
+        -- Span between first and last purchase (kept for reference only)
+        DATEDIFF(
+            'day',
+            MIN(created_at::DATE),
+            MAX(created_at::DATE)
+        )+1                                                   AS lifespan_days
+ 
+    FROM HOSPITALS.XANALIFE_CLEAN.inventory_inventory_batch_product_sales
+    WHERE created_at::DATE >= '2025-09-01'
+      AND patient NOT IN (273017, 276430)
+      AND status != 'canceled'
+    GROUP BY patient
+ 
+),
+ 
+clv_velocity AS (
+ 
+    SELECT
+        customer_id,
+        total_revenue,
+        total_transactions,
+        active_days,
+        lifespan_days,
+        first_purchase_date,
+        last_purchase_date,
+ 
+        -- Revenue per transaction (most honest velocity measure)
+        ROUND(
+            total_revenue / NULLIF(total_transactions, 0),
+        2)                                                  AS revenue_per_transaction,
+ 
+        -- Revenue per active day (honest — only days they showed up)
+        ROUND(
+            total_revenue / NULLIF(active_days, 0),
+        2)                                                  AS revenue_per_active_day,
+ 
+        -- Visit frequency: transactions per lifespan day
+        -- Only meaningful for customers with > 1 visit
+        -- NULL for one-time customers (lifespan = 0)
+        ROUND(
+            total_transactions / NULLIF(lifespan_days, 0),
+        4)                                                  AS visit_frequency_per_day,
+ 
+        -- Combined velocity score: frequency × spend per visit
+        -- High score = comes often AND spends a lot each time
+        ROUND(
+            (total_transactions / NULLIF(lifespan_days, 0))
+            * (total_revenue / NULLIF(total_transactions, 0)),
+        2)                                                  AS clv_velocity_score,
+ 
+        -- Tier based on revenue per transaction (most stable signal)
+        CASE
+            WHEN total_transactions = 1              THEN '0 - One Time'
+            WHEN ROUND(total_revenue / NULLIF(total_transactions, 0), 2) >= 10000 THEN '1 - Elite'
+            WHEN ROUND(total_revenue / NULLIF(total_transactions, 0), 2) >= 5000  THEN '2 - High'
+            WHEN ROUND(total_revenue / NULLIF(total_transactions, 0), 2) >= 1000  THEN '3 - Medium'
+            WHEN ROUND(total_revenue / NULLIF(total_transactions, 0), 2) >= 100   THEN '4 - Low'
+            ELSE                                          '5 - Minimal'
+        END                                                 AS velocity_tier
+ 
+    FROM customer_revenue
+ 
+)
+ 
+SELECT *
+FROM clv_velocity
+ORDER BY clv_velocity_score DESC NULLS LAST;"""
+    df = snowflake.query(query)
     df.columns = df.columns.str.lower()
     return df
 
 @st.cache_data
 def load_stockout_data():
     """Load Stockout revenue leakage data"""
-    df = pd.read_csv('stockout.csv')
+    query="""WITH demand_per_product AS (
+    -- Every stock movement counted as demand using ABS, filtered to the window
+    SELECT
+        PRODUCT            AS product_id,
+        SUM(ABS(QUANTITY)) AS demand_units
+    FROM inventory_inventory_stocks
+    WHERE TRY_TO_TIMESTAMP(CREATED_AT) >= '2025-09-01'
+      AND QUANTITY < 0          -- outflows only; drop this line to count ALL movements as demand
+    GROUP BY PRODUCT
+),
+available_per_product AS (
+    -- Current on-hand at store-product level, rolled up to product
+    SELECT
+        sp.PRODUCT_ID                                           AS product_id,
+        SUM(ABS(TRY_TO_NUMBER(sp.QUANTITY)))                    AS available_units,
+        AVG(NULLIF(TRY_TO_NUMBER(sp.SELLING_PRICE), 0))         AS avg_selling_price,
+        AVG(NULLIF(sp.PRODUCT_SELLING_PRICE, 0))                AS avg_product_selling_price
+    FROM inventory_store_products sp
+    WHERE sp.DELETED_AT IS NULL
+    GROUP BY sp.PRODUCT_ID
+),
+srl AS (
+    SELECT
+        COALESCE(d.product_id, a.product_id)                                   AS product_id,
+        ip.NAME                                                                AS product_name,
+        ip.CODE                                                                AS product_code,
+        ip.DEPARTMENT                                                          AS department,
+        COALESCE(d.demand_units, 0)                                            AS demand_units,
+        COALESCE(a.available_units, 0)                                         AS available_units,
+        -- Shortage: clip negatives to zero so "surplus" doesn't create fake leakage
+        GREATEST(COALESCE(d.demand_units, 0) - COALESCE(a.available_units, 0), 0) AS shortage_units,
+        -- Unit price priority: store-level selling price, else product catalog price
+        COALESCE(a.avg_selling_price, a.avg_product_selling_price, ip.SELLING_PRICE) AS unit_price
+    FROM demand_per_product d
+    FULL OUTER JOIN available_per_product a ON a.product_id = d.product_id
+    LEFT JOIN inventory_inventory_products ip ON ip.ID = COALESCE(d.product_id, a.product_id)
+)
+SELECT
+    product_id,
+    product_name,
+    product_code,
+    department,
+    demand_units,
+    available_units,
+    shortage_units,
+    unit_price,
+    ROUND(shortage_units * unit_price, 2) AS srl_amount,
+
+    -- Leakage severity bucket
+    CASE
+        WHEN shortage_units = 0                                    THEN 'NO LEAKAGE'
+        WHEN shortage_units * unit_price >= 100000                 THEN 'CRITICAL · Expedite Reorder'
+        WHEN shortage_units * unit_price >=  25000                 THEN 'HIGH · Restock Priority'
+        WHEN shortage_units * unit_price >=   5000                 THEN 'MODERATE · Monitor'
+        ELSE                                                            'MINOR'
+    END AS leakage_tier
+FROM srl
+WHERE shortage_units > 0
+ORDER BY srl_amount DESC NULLS LAST;"""
+    df = snowflake.query(query)
     df.columns = df.columns.str.lower()
     return df
 
 @st.cache_data
 def load_promo_data():
     """Load Promotion efficiency data"""
-    df = pd.read_csv('promo.csv')
+    query = """WITH db_bounds AS (
+    SELECT MAX(TRY_TO_TIMESTAMP(CREATED_AT)) AS max_sale_ts
+    FROM inventory_inventory_batch_product_sales
+),
+sale_discounts AS (
+    -- Source of truth for discounts: sale-level, not line-level
+    SELECT
+        SALE_ID,
+        SUM(ABS(TRY_TO_NUMBER(DISCOUNT_AMOUNT)))   AS discount_cost,
+        SUM(ABS(TRY_TO_NUMBER(TOTAL_AMOUNT_WAS)))  AS pre_discount_total
+    FROM evaluation_discount_transactions
+    WHERE TRY_TO_TIMESTAMP(CREATED_AT) >= '2025-09-01'
+      AND ABS(COALESCE(TRY_TO_NUMBER(DISCOUNT_AMOUNT), 0)) > 0
+    GROUP BY SALE_ID
+),
+discounted_sale_lines AS (
+    -- Line-level revenue + COGS for discounted sales only
+    SELECT
+        psd.SALE_ID,
+        sp.PRODUCT_ID,
+        sp.STORE_ID,
+        SUM(psd.QUANTITY)                                             AS units,
+        SUM(psd.AMOUNT)                                               AS net_revenue,
+        SUM(psd.QUANTITY * COALESCE(sp.UNIT_COST, 0))                 AS cogs,
+        SUM(psd.AMOUNT - psd.QUANTITY * COALESCE(sp.UNIT_COST, 0))    AS profit_after_discount
+    FROM EVALUATION_POS_SALE_DETAILS psd
+    LEFT JOIN inventory_store_products sp ON sp.ID = psd.STORE_PRODUCT_ID
+    WHERE (psd.STATUS IS NULL OR UPPER(psd.STATUS) NOT IN ('CANCELED','VOID','DELETED'))
+      AND psd.SALE_ID IN (SELECT SALE_ID FROM sale_discounts)
+    GROUP BY psd.SALE_ID, sp.PRODUCT_ID, sp.STORE_ID
+),
+baseline_margin AS (
+    -- Counterfactual: average unit margin on non-discounted sales, per product
+    SELECT
+        sp.PRODUCT_ID,
+        AVG((psd.AMOUNT - psd.QUANTITY * COALESCE(sp.UNIT_COST, 0))
+            / NULLIF(psd.QUANTITY, 0))  AS avg_unit_margin_baseline
+    FROM EVALUATION_POS_SALE_DETAILS psd
+    LEFT JOIN inventory_store_products sp ON sp.ID = psd.STORE_PRODUCT_ID
+    WHERE (psd.STATUS IS NULL OR UPPER(psd.STATUS) NOT IN ('CANCELED','VOID','DELETED'))
+      AND TRY_TO_TIMESTAMP(psd.CREATED_AT) >= '2025-09-01'
+      AND psd.SALE_ID NOT IN (SELECT SALE_ID FROM sale_discounts)
+    GROUP BY sp.PRODUCT_ID
+),
+line_allocated AS (
+    -- Spread the sale-level discount across product lines proportional to each line's revenue
+    SELECT
+        dsl.PRODUCT_ID,
+        dsl.STORE_ID,
+        dsl.SALE_ID,
+        dsl.units,
+        dsl.net_revenue,
+        dsl.cogs,
+        dsl.profit_after_discount,
+        sd.discount_cost
+          * (dsl.net_revenue / NULLIF(SUM(dsl.net_revenue) OVER (PARTITION BY dsl.SALE_ID), 0))
+                                         AS allocated_discount
+    FROM discounted_sale_lines dsl
+    JOIN sale_discounts sd ON sd.SALE_ID = dsl.SALE_ID
+),
+promo_rollup AS (
+    SELECT
+        la.PRODUCT_ID,
+        la.STORE_ID,
+        COUNT(DISTINCT la.SALE_ID)                                        AS promo_transactions,
+        SUM(la.units)                                                     AS promo_units,
+        SUM(la.net_revenue)                                               AS promo_revenue,
+        SUM(la.cogs)                                                      AS promo_cogs,
+        SUM(la.allocated_discount)                                        AS total_discount_cost,
+        SUM(la.profit_after_discount)                                     AS gross_profit_after_discount,
+        SUM(la.profit_after_discount)
+          - SUM(la.units * COALESCE(bm.avg_unit_margin_baseline, 0))      AS incremental_profit
+    FROM line_allocated la
+    LEFT JOIN baseline_margin bm ON bm.PRODUCT_ID = la.PRODUCT_ID
+    GROUP BY la.PRODUCT_ID, la.STORE_ID
+)
+SELECT
+    pr.PRODUCT_ID,
+    ip.NAME                                                               AS product_name,
+    ip.CODE                                                               AS product_code,
+    ip.DEPARTMENT                                                         AS department,
+    pr.STORE_ID,
+    pr.promo_transactions,
+    pr.promo_units,
+    ROUND(pr.promo_revenue, 2)                                            AS promo_revenue,
+    ROUND(pr.promo_cogs, 2)                                               AS promo_cogs,
+    ROUND(pr.total_discount_cost, 2)                                      AS discount_cost,
+    ROUND(pr.gross_profit_after_discount, 2)                              AS gross_profit_after_discount,
+    ROUND(pr.incremental_profit, 2)                                       AS incremental_profit,
+
+    -- Primary PER: uplift-aware (profit created by the promo / discount given)
+    ROUND(pr.incremental_profit / NULLIF(pr.total_discount_cost, 0), 3)        AS per_ratio,
+
+    -- Simpler PER: profit-after-discount / discount given
+    ROUND(pr.gross_profit_after_discount / NULLIF(pr.total_discount_cost, 0), 3) AS per_ratio_simple,
+
+    CASE
+        WHEN pr.total_discount_cost = 0                                                THEN 'NO DISCOUNT'
+        WHEN pr.incremental_profit / NULLIF(pr.total_discount_cost, 0) >= 3            THEN 'STAR · Scale Up'
+        WHEN pr.incremental_profit / NULLIF(pr.total_discount_cost, 0) >= 1            THEN 'EFFICIENT · Keep Running'
+        WHEN pr.incremental_profit / NULLIF(pr.total_discount_cost, 0) >= 0            THEN 'BREAK-EVEN · Review Mechanics'
+        ELSE                                                                                'MARGIN KILLER · Kill Promo'
+    END                                                                   AS promotion_verdict
+FROM promo_rollup pr
+LEFT JOIN inventory_inventory_products ip ON ip.ID = pr.PRODUCT_ID
+WHERE pr.total_discount_cost > 0 AND ip.name is not NULL
+ORDER BY per_ratio DESC NULLS LAST;
+"""
+    df = snowflake.query(query)
     df.columns = df.columns.str.lower()
     return df
 
 @st.cache_data
 def load_freshness_data():
     """Load Freshness decay data"""
-    df = pd.read_csv('freshness.csv')
+    query = """WITH db_bounds AS (
+    SELECT MAX(TRY_TO_TIMESTAMP(CREATED_AT)) AS max_sale_ts
+    FROM inventory_inventory_batch_product_sales
+),
+perishable_stock AS (
+    -- Only rows with a parseable expiry and real on-hand units
+    SELECT
+        sp.ID                                  AS store_product_id,
+        sp.PRODUCT_ID,
+        sp.STORE_ID,
+        sp.LOT_NO,
+        ABS(TRY_TO_NUMBER(sp.QUANTITY))        AS on_hand_units,
+        TRY_TO_NUMBER(sp.SELLING_PRICE)        AS selling_price,
+        sp.UNIT_COST                           AS unit_cost,
+        TRY_TO_DATE(sp.EXPIRY_DATE)            AS expiry_date,
+        TRY_TO_TIMESTAMP(sp.CREATED_AT)        AS received_at,
+        ip.NAME                                AS product_name,
+        ip.CODE                                AS product_code,
+        ip.DEPARTMENT                          AS department,
+        ip.FORMULATION                         AS formulation
+    FROM inventory_store_products sp
+    LEFT JOIN inventory_inventory_products ip ON ip.ID = sp.PRODUCT_ID
+    WHERE sp.DELETED_AT IS NULL
+      AND TRY_TO_DATE(sp.EXPIRY_DATE) IS NOT NULL
+      AND ABS(COALESCE(TRY_TO_NUMBER(sp.QUANTITY), 0)) > 0
+),
+velocity AS (
+    -- Units sold per day per product since Sept 2025 — proxy for sell-through rate
+    SELECT
+        sp.PRODUCT_ID,
+        SUM(ABS(psd.QUANTITY)) /
+            NULLIF(DATEDIFF('day',
+                MIN(TRY_TO_TIMESTAMP(psd.CREATED_AT)),
+                MAX(TRY_TO_TIMESTAMP(psd.CREATED_AT))), 0)  AS daily_velocity
+    FROM EVALUATION_POS_SALE_DETAILS psd
+    LEFT JOIN inventory_store_products sp ON sp.ID = psd.STORE_PRODUCT_ID
+    WHERE (psd.STATUS IS NULL OR UPPER(psd.STATUS) NOT IN ('CANCELED','VOID','DELETED')) AND sp.product_active = TRUE
+      AND TRY_TO_TIMESTAMP(psd.CREATED_AT) >= '2025-09-01'
+    GROUP BY sp.PRODUCT_ID
+),
+decay_calc AS (
+    SELECT
+        ps.*,
+        v.daily_velocity,
+        db.max_sale_ts,
+        DATEDIFF('day', CAST(db.max_sale_ts AS DATE), ps.expiry_date)                 AS days_to_expiry,
+        DATEDIFF('day', CAST(ps.received_at AS DATE), ps.expiry_date)                 AS shelf_life_days,
+        -- Freshness ratio: 1 = just received, 0 = expired (clipped)
+        GREATEST(
+            DATEDIFF('day', CAST(db.max_sale_ts AS DATE), ps.expiry_date)::FLOAT
+              / NULLIF(DATEDIFF('day', CAST(ps.received_at AS DATE), ps.expiry_date), 0),
+            0
+        )                                                                             AS freshness_ratio,
+        ps.on_hand_units * COALESCE(ps.unit_cost, 0)                                  AS book_value_at_cost,
+        ps.on_hand_units * COALESCE(ps.selling_price, 0)                              AS potential_revenue,
+        -- Expected probability we sell through before expiry, given historical velocity
+        LEAST(
+            GREATEST(
+                COALESCE(v.daily_velocity, 0)
+                  * DATEDIFF('day', CAST(db.max_sale_ts AS DATE), ps.expiry_date)
+                  / NULLIF(ps.on_hand_units, 0),
+                0
+            ),
+            1
+        )                                                                             AS sell_through_probability
+    FROM perishable_stock ps
+    LEFT JOIN velocity v ON v.PRODUCT_ID = ps.PRODUCT_ID
+    CROSS JOIN db_bounds db
+),
+decay_model AS (
+    SELECT
+        *,
+        -- Model A: smooth exponential decay  V(t) = V0 · e^(-λ·(1-freshness))
+        -- λ = 2.0  →  ~37% retained at half-life, ~13% at expiry
+        potential_revenue * EXP(-2.0 * (1 - freshness_ratio))                         AS retained_value_exponential,
+        -- Model B: practical markdown-bucket schedule
+        CASE
+            WHEN days_to_expiry < 0   THEN 0.00
+            WHEN days_to_expiry <= 7  THEN 0.15
+            WHEN days_to_expiry <= 14 THEN 0.40
+            WHEN days_to_expiry <= 30 THEN 0.65
+            WHEN days_to_expiry <= 60 THEN 0.85
+            WHEN days_to_expiry <= 90 THEN 0.95
+            ELSE                           1.00
+        END                                                                           AS bucket_retained_ratio,
+        CASE
+            WHEN days_to_expiry < 0   THEN 1.00
+            WHEN days_to_expiry <= 7  THEN 0.85
+            WHEN days_to_expiry <= 14 THEN 0.60
+            WHEN days_to_expiry <= 30 THEN 0.35
+            WHEN days_to_expiry <= 60 THEN 0.15
+            WHEN days_to_expiry <= 90 THEN 0.05
+            ELSE                           0.00
+        END                                                                           AS recommended_markdown_pct,
+        -- Projected loss at cost if no action is taken
+        CASE
+            WHEN days_to_expiry < 0
+                THEN on_hand_units * COALESCE(unit_cost, 0)                           -- full write-off
+            ELSE on_hand_units * COALESCE(unit_cost, 0)
+                    * (1 - LEAST(sell_through_probability, 1))
+        END                                                                           AS projected_loss_no_action
+    FROM decay_calc
+)
+SELECT
+    PRODUCT_ID,
+    product_name,
+    product_code,
+    department,
+    formulation,
+    STORE_ID,
+    LOT_NO,
+    on_hand_units,
+    selling_price,
+    unit_cost,
+    expiry_date,
+    days_to_expiry,
+    shelf_life_days,
+    ROUND(freshness_ratio, 3)                                  AS freshness_ratio,
+    ROUND(COALESCE(daily_velocity, 0), 3)                      AS daily_velocity,
+    ROUND(sell_through_probability, 3)                         AS sell_through_probability,
+    ROUND(book_value_at_cost, 2)                               AS book_value_at_cost,
+    ROUND(potential_revenue, 2)                                AS potential_revenue_full_price,
+
+    -- Decay curve outputs
+    ROUND(retained_value_exponential, 2)                       AS retained_value_exponential,
+    ROUND(potential_revenue - retained_value_exponential, 2)   AS decay_cost_curve_value,   -- FDCC core number
+    ROUND(bucket_retained_ratio * potential_revenue, 2)        AS retained_value_bucket,
+
+    -- Action recommendation
+    ROUND(recommended_markdown_pct * 100, 0)                   AS recommended_markdown_pct,
+    ROUND(projected_loss_no_action, 2)                         AS projected_loss_no_action,
+
+    CASE
+        WHEN days_to_expiry < 0                                          THEN 'EXPIRED · Write Off Immediately'
+        WHEN days_to_expiry <= 7  AND sell_through_probability < 0.8     THEN 'URGENT · Deep Markdown (≥80%)'
+        WHEN days_to_expiry <= 14 AND sell_through_probability < 0.7     THEN 'HIGH · Discount 60%+'
+        WHEN days_to_expiry <= 30 AND sell_through_probability < 0.6     THEN 'MODERATE · Discount 30–40%'
+        WHEN days_to_expiry <= 60 AND sell_through_probability < 0.5     THEN 'EARLY · Soft Markdown 10–15%'
+        WHEN expiry_date is null                                         THEN 'Lacking expiry date'  
+        WHEN days_to_expiry <= 90                                        THEN 'MONITOR · Watch Velocity'
+        ELSE                                                                  'HEALTHY · No Action'
+    END AS markdown_action
+FROM decay_model
+WHERE product_name IS NOT NULL AND expiry_date > '0001-01-01' 
+ORDER BY projected_loss_no_action DESC, days_to_expiry ASC
+NULLS LAST;"""
+    df = snowflake.query(query)
     df.columns = df.columns.str.lower()
     return df
 
 @st.cache_data
 def load_stores():
     """Load stores data and ensure unique store IDs"""
-    df = pd.read_csv('stores.csv')
+    query = """select * from inventory_stores;"""
+    df = snowflake.query(query)
     df.columns = df.columns.str.lower()
     # ⭐ Drop duplicate store IDs — keep the first occurrence
     df = df.drop_duplicates(subset=['id'], keep='first').reset_index(drop=True)
@@ -340,12 +809,18 @@ if analysis_type == "RBPI Analysis":
 
         with col2:
             section_header("RBPI vs Revenue")
+            rbpi_data = rbpi_data.dropna(subset=['rbpi', 'revenue'])
             fig = go.Figure()
             fig.add_trace(go.Scatter(
                 x=rbpi_data['revenue'],
                 y=rbpi_data['rbpi'],
                 mode='markers',
-                marker=dict(size=8, color=rbpi_data['rbpi'], colorscale='Viridis', showscale=True),
+                marker=dict(
+                    size=8,
+                    color=rbpi_data['rbpi'],
+                    colorscale='Viridis',
+                    showscale=True
+                ),
                 text=rbpi_data['sale_id'],
                 hovertemplate='Revenue: %{x:,.0f}<br>RBPI: %{y:.1%}<extra></extra>'
             ))
@@ -362,6 +837,8 @@ if analysis_type == "RBPI Analysis":
             predictions = rbpi_model.predict(X_pred)
 
             # Add predictions to dataframe
+            rbpi_data['rbpi'] = rbpi_data['rbpi'].astype(float)
+            predictions = predictions.astype(float)
             rbpi_data['predicted_rbpi'] = predictions
             rbpi_data['prediction_error'] = abs(rbpi_data['rbpi'] - predictions)
 
@@ -558,6 +1035,10 @@ elif analysis_type == "Stockout Leakage":
             st.dataframe(stockout_data, use_container_width=True)
         # Top problematic products
         section_header("🚨 Top Critical Stockout Items")
+        stockout_data['srl_amount'] = pd.to_numeric(
+            stockout_data['srl_amount'],
+            errors='coerce'
+        )
         top_critical = stockout_data.nlargest(10, 'srl_amount')[['product_name', 'department', 'shortage_units', 'srl_amount', 'leakage_tier']]
 
         fig = go.Figure(data=[go.Bar(
@@ -585,7 +1066,10 @@ elif analysis_type == "Stockout Leakage":
             )
 
             dedup['risk_score'] = dedup['shortage_units'] / dedup['shortage_units'].max()
-
+            dedup['risk_score'] = pd.to_numeric(
+                dedup['risk_score'],
+                errors='coerce'
+            )
             high_risk = dedup.nlargest(10, 'risk_score')
 
             for _, row in high_risk.iterrows():
@@ -697,6 +1181,10 @@ elif analysis_type == "Promotion Efficiency":
         if show_predictions:
             section_header("🤖 Promotion Performance Prediction")
 
+            promo_data['per_ratio'] = pd.to_numeric(
+                promo_data['per_ratio'],
+                errors='coerce'
+            ).astype(float)
             promo_data['predicted_per'] = promo_data['per_ratio'] * np.random.uniform(0.9, 1.1, len(promo_data))
 
             potential_stars = promo_data.nlargest(5, 'predicted_per')
@@ -784,9 +1272,9 @@ elif analysis_type == "Freshness Decay":
         dept_matrix = dept_matrix.loc[
             dept_matrix.sum(axis=1).sort_values(ascending=False).head(15).index
         ]
-
+        dept_matrix = dept_matrix.astype(float)
         fig = go.Figure(data=go.Heatmap(
-            z=dept_matrix.values,
+            z = np.round(dept_matrix.values / 1000, 1),
             x=dept_matrix.columns,
             y=dept_matrix.index,
             colorscale='RdYlGn_r',
@@ -808,9 +1296,14 @@ elif analysis_type == "Freshness Decay":
 
         # Detailed inventory aging
         section_header("📦 Inventory Aging Analysis")
-
-        urgent_items = freshness_data[freshness_data['days_to_expiry'].between(0, 30)].nlargest(10, 'book_value_at_cost')
-
+        freshness_data['book_value_at_cost'] = pd.to_numeric(
+            freshness_data['book_value_at_cost'],
+            errors='coerce'
+        ).astype(float)
+        urgent_items = (
+            freshness_data[freshness_data['days_to_expiry'].between(0, 30)]
+            .nlargest(10, 'book_value_at_cost')
+        )
         if len(urgent_items) > 0:
             fig = go.Figure(data=[go.Bar(
                 x=urgent_items['product_name'],

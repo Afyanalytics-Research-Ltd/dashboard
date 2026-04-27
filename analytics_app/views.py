@@ -5,6 +5,16 @@ from .models import Dashboard
 
 EXCLUDED_FILES = {"__init__.py", "dynamic_file_loader.py"}
 
+# views.py
+
+def dashboard_view(request, slug):
+    dashboard = Dashboard.objects.get(slug=slug, is_active=True)
+
+    return render(request, "dashboard_iframe.html", {
+        "dashboard": dashboard
+    })
+
+
 def dashboard_list(request):
     folder = os.path.join(settings.BASE_DIR, "analytics_app", "dashboards","xanalife")
 

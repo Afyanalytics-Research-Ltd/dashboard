@@ -79,11 +79,10 @@
 
                             <!-- ACTION -->
                             <td class="text-end pe-4">
-                                <a href="{{ d.streamlit_url }}"
-                                   target="_blank"
-                                   class="btn btn-primary btn-sm">
+                                <a href="{% url 'dashboard_view' d.slug %}" class="btn btn-primary btn-sm">
                                     Open →
                                 </a>
+
                             </td>
 
                         </tr>

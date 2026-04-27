@@ -17,7 +17,8 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'airflow_ui',
     'analytics_app',
-    'warehouse'
+    'warehouse',
+    'authentication',
 ]
 
 MIDDLEWARE = [

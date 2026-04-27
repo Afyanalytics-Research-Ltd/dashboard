@@ -1,0 +1,290 @@
+
+{% extends "base.html" %}
+{% load role_tags %}
+
+{% block content %}
+
+<style>
+    .profile-page { max-width: 1100px; margin: 0 auto; }
+
+    .profile-hero {
+        position: relative;
+        border-radius: 18px;
+        overflow: hidden;
+        background: linear-gradient(135deg, #0d6efd 0%, #4e73df 60%, #6f42c1 100%);
+        color: #fff;
+        padding: 36px 40px 32px;
+        box-shadow: 0 12px 32px rgba(13, 110, 253, 0.18);
+    }
+    .profile-hero::before {
+        content: "";
+        position: absolute; inset: 0;
+        background-image:
+            radial-gradient(circle at 85% -10%, rgba(255,255,255,0.18), transparent 40%),
+            radial-gradient(circle at 10% 110%, rgba(255,255,255,0.10), transparent 35%);
+        pointer-events: none;
+    }
+    .profile-hero .hero-inner {
+        position: relative;
+        display: flex; align-items: center; gap: 22px; flex-wrap: wrap;
+    }
+    .avatar-wrap {
+        width: 96px; height: 96px;
+        border-radius: 50%;
+        background: rgba(255,255,255,0.18);
+        border: 3px solid rgba(255,255,255,0.35);
+        display: flex; align-items: center; justify-content: center;
+        overflow: hidden; flex-shrink: 0;
+        font-size: 34px; font-weight: 600; letter-spacing: 1px;
+        backdrop-filter: blur(2px);
+    }
+    .avatar-wrap img { width: 100%; height: 100%; object-fit: cover; }
+    .hero-name { font-size: 26px; font-weight: 600; margin: 0 0 4px; }
+    .hero-meta { opacity: 0.85; font-size: 14px; margin: 0; }
+    .hero-role-badge {
+        display: inline-block; margin-top: 10px;
+        padding: 5px 12px; font-size: 12px; font-weight: 500;
+        background: rgba(255,255,255,0.22); border-radius: 99px;
+        backdrop-filter: blur(2px);
+    }
+
+    .section-card {
+        background: #fff;
+        border: none; border-radius: 14px;
+        box-shadow: 0 4px 18px rgba(15, 23, 42, 0.05);
+        padding: 28px 30px;
+    }
+    .section-title {
+        font-size: 13px; font-weight: 600;
+        text-transform: uppercase; letter-spacing: 0.6px;
+        color: #6c757d; margin-bottom: 4px;
+    }
+    .section-subtitle {
+        font-size: 14px; color: #94a3b8; margin-bottom: 22px;
+    }
+
+    .field-group { margin-bottom: 18px; }
+    .field-group label {
+        display: block; font-size: 13px; font-weight: 500;
+        color: #334155; margin-bottom: 6px;
+    }
+    .field-group .form-control,
+    .field-group .form-select {
+        border-radius: 10px;
+        border: 1px solid #e2e8f0;
+        padding: 10px 14px;
+        background: #f8fafc;
+        transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+    }
+    .field-group .form-control:focus,
+    .field-group .form-select:focus {
+        background: #fff;
+        border-color: #93c5fd;
+        box-shadow: 0 0 0 4px rgba(13, 110, 253, 0.12);
+    }
+    .field-group .form-control[readonly] {
+        background: #f1f5f9; color: #64748b; cursor: not-allowed;
+    }
+    .field-hint { font-size: 12px; color: #94a3b8; margin-top: 4px; }
+
+    .avatar-upload {
+        display: flex; align-items: center; gap: 18px;
+        padding: 18px; border-radius: 12px;
+        background: #f8fafc; border: 1px dashed #cbd5e1;
+    }
+    .avatar-upload .preview {
+        width: 64px; height: 64px; border-radius: 50%;
+        background: linear-gradient(135deg, #dbeafe, #ede9fe);
+        display: flex; align-items: center; justify-content: center;
+        color: #4338ca; font-weight: 600; overflow: hidden;
+        flex-shrink: 0;
+    }
+    .avatar-upload .preview img { width: 100%; height: 100%; object-fit: cover; }
+    .avatar-upload input[type="file"] { font-size: 13px; }
+
+    .save-bar {
+        position: sticky; bottom: 16px; z-index: 5;
+        background: rgba(255,255,255,0.85);
+        backdrop-filter: blur(8px);
+        border: 1px solid #e2e8f0; border-radius: 14px;
+        padding: 14px 22px; margin-top: 26px;
+        display: flex; justify-content: space-between; align-items: center;
+        box-shadow: 0 6px 22px rgba(15, 23, 42, 0.08);
+    }
+    .save-bar .hint { font-size: 13px; color: #64748b; }
+    .btn-save {
+        background: linear-gradient(90deg, #0d6efd, #4e73df);
+        border: none; color: #fff;
+        padding: 10px 24px; border-radius: 10px; font-weight: 500;
+        transition: transform 0.1s ease, box-shadow 0.15s ease;
+    }
+    .btn-save:hover {
+        transform: translateY(-1px); color: #fff;
+        box-shadow: 0 6px 16px rgba(13, 110, 253, 0.32);
+    }
+    .btn-cancel {
+        background: transparent; color: #64748b;
+        border: 1px solid #e2e8f0; border-radius: 10px;
+        padding: 10px 18px;
+    }
+    .btn-cancel:hover { background: #f1f5f9; color: #1e293b; }
+
+    .alert-stack .alert { border-radius: 12px; border: none; }
+</style>
+
+<div class="profile-page">
+
+    {% if messages %}
+    <div class="alert-stack mb-3">
+        {% for message in messages %}
+        <div class="alert alert-{{ message.tags|default:'info' }} d-flex align-items-center" role="alert">
+            <span class="me-2">●</span>{{ message }}
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- HERO -->
+    <div class="profile-hero mb-4">
+        <div class="hero-inner">
+            <div class="avatar-wrap">
+                {% if profile.avatar %}
+                    <img src="{{ profile.avatar.url }}" alt="{{ user.username }}">
+                {% else %}
+                    {{ user.first_name|slice:":1"|upper }}{{ user.last_name|slice:":1"|upper|default:user.username|slice:":1"|upper }}
+                {% endif %}
+            </div>
+
+            <div class="flex-grow-1">
+                <h1 class="hero-name">
+                    {% if user.get_full_name %}{{ user.get_full_name }}{% else %}{{ user.username }}{% endif %}
+                </h1>
+                <p class="hero-meta">
+                    {{ user.email|default:"No email on file" }}
+                    {% if profile.job_title %} &nbsp;·&nbsp; {{ profile.job_title }}{% endif %}
+                </p>
+                {% if user|is_client_admin %}
+                    <span class="hero-role-badge">Client Admin</span>
+                {% elif user|is_facilities_admin %}
+                    <span class="hero-role-badge">Facilities Admin</span>
+                {% elif user|is_facility_admin %}
+                    <span class="hero-role-badge">Facility Admin</span>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- FORM -->
+    <form method="post" enctype="multipart/form-data" novalidate>
+        {% csrf_token %}
+
+        <div class="row g-4">
+
+            <!-- LEFT: Personal info -->
+            <div class="col-lg-7">
+                <div class="section-card">
+                    <div class="section-title">Personal information</div>
+                    <p class="section-subtitle">How you appear across the platform.</p>
+
+                    <div class="row g-3">
+                        <div class="col-md-6 field-group">
+                            <label for="id_first_name">First name</label>
+                            <input type="text" id="id_first_name" name="first_name"
+                                   value="{{ user.first_name }}" class="form-control">
+                        </div>
+
+                        <div class="col-md-6 field-group">
+                            <label for="id_last_name">Last name</label>
+                            <input type="text" id="id_last_name" name="last_name"
+                                   value="{{ user.last_name }}" class="form-control">
+                        </div>
+
+                        <div class="col-md-6 field-group">
+                            <label for="id_username">Username</label>
+                            <input type="text" id="id_username"
+                                   value="{{ user.username }}" class="form-control" readonly>
+                            <div class="field-hint">Usernames can't be changed here.</div>
+                        </div>
+
+                        <div class="col-md-6 field-group">
+                            <label for="id_email">Email</label>
+                            <input type="email" id="id_email" name="email"
+                                   value="{{ user.email }}" class="form-control"
+                                   placeholder="you@example.com">
+                        </div>
+
+                        <div class="col-md-6 field-group">
+                            <label for="id_phone_number">Phone</label>
+                            <input type="tel" id="id_phone_number" name="phone_number"
+                                   value="{{ profile.phone_number }}" class="form-control"
+                                   placeholder="+254 700 000 000">
+                        </div>
+
+                        <div class="col-md-6 field-group">
+                            <label for="id_job_title">Job title</label>
+                            <input type="text" id="id_job_title" name="job_title"
+                                   value="{{ profile.job_title }}" class="form-control"
+                                   placeholder="e.g. County Health Officer">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- RIGHT: Avatar + organization -->
+            <div class="col-lg-5">
+
+                <div class="section-card mb-4">
+                    <div class="section-title">Profile picture</div>
+                    <p class="section-subtitle">PNG or JPG, square images work best.</p>
+
+                    <div class="avatar-upload">
+                        <div class="preview">
+                            {% if profile.avatar %}
+                                <img src="{{ profile.avatar.url }}" alt="">
+                            {% else %}
+                                {{ user.first_name|slice:":1"|upper|default:user.username|slice:":1"|upper }}
+                            {% endif %}
+                        </div>
+                        <div class="flex-grow-1">
+                            <input type="file" name="avatar" accept="image/*" class="form-control form-control-sm">
+                            <div class="field-hint mt-1">Max 2 MB.</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section-card">
+                    <div class="section-title">Organization</div>
+                    <p class="section-subtitle">Where you sit in the hierarchy.</p>
+
+                    <div class="field-group">
+                        <label for="id_client">Client</label>
+                        <input type="text" id="id_client" name="client"
+                               value="{{ profile.client }}" class="form-control"
+                               placeholder="e.g. Ministry of Health">
+                    </div>
+
+                    <div class="field-group">
+                        <label for="id_facility">Facility</label>
+                        <input type="text" id="id_facility" name="facility"
+                               value="{{ profile.facility }}" class="form-control"
+                               placeholder="e.g. Kenyatta National Hospital">
+                        <div class="field-hint">Facility Admins must have this set.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- SAVE BAR -->
+        <div class="save-bar">
+            <div class="hint">Changes are saved to your profile only.</div>
+            <div class="d-flex gap-2">
+                <a href="/" class="btn btn-cancel">Cancel</a>
+                <button type="submit" class="btn btn-save">Save changes</button>
+            </div>
+        </div>
+
+    </form>
+
+</div>
+
+{% endblock %}

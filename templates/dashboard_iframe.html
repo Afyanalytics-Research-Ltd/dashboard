@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+<div class="container-fluid p-0">
+
+    <!-- Header -->
+    <div class="d-flex justify-content-between align-items-center p-3 border-bottom">
+        <h5 class="mb-0">{{ dashboard.name }}</h5>
+
+        <a href="{% url 'dashboard_home' %}" class="btn btn-outline-secondary btn-sm">
+            ← Back
+        </a>
+    </div>
+
+    <!-- IFRAME -->
+    <iframe
+        src="{{ dashboard.streamlit_url }}"
+        style="width:100%; height:90vh; border:none;"
+        allowfullscreen>
+    </iframe>
+
+</div>
+
+{% endblock %}

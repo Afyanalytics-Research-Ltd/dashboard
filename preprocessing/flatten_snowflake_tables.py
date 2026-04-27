@@ -368,3 +368,14 @@ def test_expand_objects():
 if __name__ == "__main__":
     main()
     #test_expand_objects()
+
+
+# test_fields = [
+#         ("id", "INTEGER"),
+#         ("amount", "DECIMAL"),
+#         ("invoice_no", "VARCHAR"),
+#         ("admission_request", "OBJECT"),  # tests the VARIANT branch
+#     ]
+
+#     sql = build_flatten_sql("KISUMU_RAW", "KISUMU_CLEAN", "finance_invoices", test_fields)
+#     print(sql)

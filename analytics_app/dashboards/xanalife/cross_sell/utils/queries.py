@@ -17,6 +17,19 @@ product_avg_price AS (
     GROUP BY UPPER(TRIM(NAME))
 ),
 
+product_margin AS (
+    SELECT
+        UPPER(TRIM(sp.PRODUCT_NAME))                             AS product_name,
+        AVG(CASE
+            WHEN sp.SELLING_PRICE > 0 AND sp.UNIT_COST > 0
+            THEN (sp.SELLING_PRICE - sp.UNIT_COST) / sp.SELLING_PRICE * 100
+            ELSE NULL
+        END)                                                     AS margin_pct
+    FROM inventory_store_products sp
+    WHERE sp.PRODUCT_ACTIVE = TRUE
+    GROUP BY UPPER(TRIM(sp.PRODUCT_NAME))
+),
+
 clean_items AS (
     -- Join path: sale_detail -> inventory_store_products (STORE_PRODUCT_ID = isp.ID)
     --                        -> inventory_stores          (isp.STORE_ID     = s.ID)
@@ -49,7 +62,7 @@ baseline AS (
 ),
 
 cooccurrence AS (
-    -- Co-occurrence is per store so the filter works correctly
+    -- Co-occurrence is per store 
     SELECT
         a.product_name  AS product_a_name,
         b.product_name  AS product_b_name,
@@ -100,9 +113,11 @@ SELECT
         WHEN baskets_with_both >= 20 THEN 'Medium'
         ELSE 'Low'
     END AS "Signal strength",
-    ROUND(COALESCE(pb.avg_unit_price, 0), 2)  AS "Avg Price B (KES)"
+    ROUND(COALESCE(pb.avg_unit_price, 0), 2)  AS "Avg Price B (KES)",
+    ROUND(COALESCE(pm.margin_pct, 0), 1)      AS "Margin B %"
 FROM scored
 LEFT JOIN product_avg_price pb ON scored.product_b_name = pb.product_name
+LEFT JOIN product_margin pm    ON scored.product_b_name = pm.product_name
 WHERE product_b_name NOT LIKE '%CARRIER BAG%'
   AND product_a_name NOT LIKE '%CARRIER BAG%'
   AND NOT (
@@ -450,4 +465,54 @@ SELECT
 
 FROM final
 ORDER BY urgency_rank ASC, revenue_at_risk_7d DESC;
+"""
+
+HOME_TREND_QUERY = """
+SELECT
+    DATE_TRUNC('month', epsd.CREATED_AT::DATE)  AS month,
+    ROUND(SUM(epsd.AMOUNT), 0)                  AS revenue,
+    COUNT(DISTINCT epsd.SALE_ID)                AS transactions
+FROM evaluation_pos_sale_details epsd
+WHERE epsd.STATUS = 'Paid'
+  AND epsd.AMOUNT > 0
+  AND epsd.CREATED_AT::DATE >= '2025-09-01'
+GROUP BY 1
+ORDER BY 1
+"""
+
+HOME_PERIOD_QUERY = """
+SELECT
+    SUM(CASE
+        WHEN CREATED_AT::DATE >= DATEADD('day', -30, '2026-03-18')
+        THEN AMOUNT ELSE 0 END)                                     AS rev_last_30d,
+    SUM(CASE
+        WHEN CREATED_AT::DATE >= DATEADD('day', -60, '2026-03-18')
+         AND CREATED_AT::DATE <  DATEADD('day', -30, '2026-03-18')
+        THEN AMOUNT ELSE 0 END)                                     AS rev_prior_30d,
+    COUNT(DISTINCT CASE
+        WHEN CREATED_AT::DATE >= DATEADD('day', -30, '2026-03-18')
+        THEN SALE_ID END)                                           AS txns_last_30d
+FROM evaluation_pos_sale_details
+WHERE STATUS = 'Paid'
+  AND AMOUNT > 0
+  AND CREATED_AT::DATE >= DATEADD('day', -60, '2026-03-18')
+"""
+
+STORE_TREND_QUERY = """
+SELECT
+    DATE_TRUNC('month', e.CREATED_AT::DATE)                                          AS month,
+    s.NAME                                                                            AS store_name,
+    ROUND(SUM(CASE WHEN e.STATUS = 'Paid' AND e.AMOUNT > 0
+                   THEN e.AMOUNT ELSE 0 END), 0)                                     AS revenue,
+    COUNT(DISTINCT CASE WHEN e.STATUS = 'Paid' THEN e.SALE_ID END)                   AS transactions,
+    ROUND(SUM(CASE WHEN e.STATUS = 'Paid' AND e.AMOUNT > 0 THEN e.AMOUNT ELSE 0 END) /
+          NULLIF(COUNT(DISTINCT CASE WHEN e.STATUS = 'Paid'
+                                     THEN e.SALE_ID END), 0), 0)                     AS avg_basket_kes
+FROM inventory_stores s
+JOIN inventory_store_products isp ON s.ID = isp.STORE_ID
+JOIN evaluation_pos_sale_details e
+    ON e.STORE_PRODUCT_ID = isp.ID
+    AND e.CREATED_AT::DATE >= '2025-09-01'
+GROUP BY DATE_TRUNC('month', e.CREATED_AT::DATE), s.NAME
+ORDER BY s.NAME, month
 """

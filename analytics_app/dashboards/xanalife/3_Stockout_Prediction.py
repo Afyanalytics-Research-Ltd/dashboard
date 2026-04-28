@@ -7,9 +7,9 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from utils.snowflake_conn import run_query
-from utils.queries import STOCKOUT_PREDICTION_QUERY, STORES_QUERY
-from utils.theme import (
+from xanalife.cross_sell.utils.snowflake_conn import run_query
+from xanalife.cross_sell.utils.queries import STOCKOUT_PREDICTION_QUERY, STORES_QUERY
+from xanalife.cross_sell.utils.theme import (
     inject_css, COLORS, CHART_LAYOUT, STATUS_COLORS,
     kpi_card, section_header, page_banner, sidebar_nav, fmt_kes, info_card,
 )

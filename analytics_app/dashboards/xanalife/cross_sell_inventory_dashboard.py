@@ -1,3 +1,9 @@
+try:
+    import pyarrow  # noqa: F401
+except Exception:
+    pass
+
+import os
 import os
 import sys
 
@@ -11,14 +17,29 @@ sys.path.insert(
         "cross_sell"
     )
 )
-
 import streamlit as st
 import plotly.express as px
 import pandas as pd
 from xanalife.cross_sell.utils.snowflake_conn import run_query
-from xanalife.cross_sell.utils.queries import HOME_STATS_QUERY, TOP_PRODUCTS_QUERY, STOCKOUT_PREDICTION_QUERY, STORE_PULSE_QUERY
-from xanalife.cross_sell.utils.theme import inject_css, COLORS, CHART_LAYOUT, fmt_kes, sidebar_nav, section_header
+from xanalife.cross_sell.utils.queries import (
+    HOME_STATS_QUERY, HOME_PERIOD_QUERY, HOME_TREND_QUERY,
+    TOP_PRODUCTS_QUERY, STOCKOUT_PREDICTION_QUERY, STORE_TREND_QUERY,
+)
+from xanalife.cross_sell.utils.theme import (
+    inject_css, COLORS, CHART_LAYOUT, fmt_kes,
+    sidebar_nav, section_header, page_banner, kpi_card, info_card,
+)
 
+PAGES = {
+    "home":     st.Page("xanalife/cross_sell_inventory_dashboard.py",
+                        title="Home", icon="🏠", default=True),
+    "csuc":     st.Page("xanalife/1_CSUC.py",
+                        title="Cross-Sell Intelligence", icon="📊"),
+    "stockout": st.Page("xanalife/3_Stockout_Prediction.py",
+                        title="Inventory Risk", icon="📦"),
+}
+nav = st.navigation(list(PAGES.values()))
+# nav.run()
 st.set_page_config(
     page_title="XanaLife Analytics",
     page_icon="Logo.png" if os.path.exists("Logo.png") else "📊",
@@ -42,24 +63,63 @@ with st.sidebar:
 
 # ── Load data ─────────────────────────────────────────────────────────────────
 with st.spinner(""):
+    # import pdb;pdb.set_trace()
     try:
-        stats       = run_query(HOME_STATS_QUERY)
-        products    = run_query(TOP_PRODUCTS_QUERY)
-        stockout_df = run_query(STOCKOUT_PREDICTION_QUERY)   # same query + cache as Inventory Risk page
-        pulse_df    = run_query(STORE_PULSE_QUERY)
+        # import pdb;pdb.set_trace()
+        stats          = run_query(HOME_STATS_QUERY)
+        period         = run_query(HOME_PERIOD_QUERY)
+        trend_df       = run_query(HOME_TREND_QUERY)
+        products       = run_query(TOP_PRODUCTS_QUERY)
+        stockout_df    = run_query(STOCKOUT_PREDICTION_QUERY)
+        store_trend_df = run_query(STORE_TREND_QUERY)
 
-        products.columns    = [c.strip() for c in products.columns]
-        stockout_df.columns = [c.strip() for c in stockout_df.columns]
-        pulse_df.columns    = [c.strip() for c in pulse_df.columns]
+        # Normalise column names
+        stats.columns          = [c.strip() for c in stats.columns]
+        period.columns         = [c.strip() for c in period.columns]
+        trend_df.columns       = [c.strip() for c in trend_df.columns]
+        products.columns       = [c.strip() for c in products.columns]
+        stockout_df.columns    = [c.strip() for c in stockout_df.columns]
+        store_trend_df.columns = [c.strip() for c in store_trend_df.columns]
 
-        products["TOTAL_REVENUE"]                      = pd.to_numeric(products["TOTAL_REVENUE"],                      errors="coerce")
-        products["TOTAL_UNITS"]                        = pd.to_numeric(products["TOTAL_UNITS"],                        errors="coerce")
-        stockout_df["7-Day Revenue at Risk (KES)"]     = pd.to_numeric(stockout_df["7-Day Revenue at Risk (KES)"],     errors="coerce")
-        pulse_df["TOTAL_REVENUE"]                      = pd.to_numeric(pulse_df["TOTAL_REVENUE"],                      errors="coerce")
-        pulse_df["TRANSACTIONS"]                       = pd.to_numeric(pulse_df["TRANSACTIONS"],                       errors="coerce")
-        pulse_df["AVG_BASKET_KES"]                     = pd.to_numeric(pulse_df["AVG_BASKET_KES"],                     errors="coerce")
+        # Snowflake returns unquoted aliases as uppercase
+        def _col(df, *candidates):
+            """Return first matching column name (case-insensitive)."""
+            mapping = {c.upper(): c for c in df.columns}
+            for name in candidates:
+                if name.upper() in mapping:
+                    return mapping[name.upper()]
+            return candidates[0]
 
-        # Alerts — derived from the exact same dataset the Inventory Risk page uses
+        # Numeric casts — stats
+        total_stores  = int(pd.to_numeric(stats[_col(stats, "TOTAL_STORES")].iloc[0],  errors="coerce") or 0)
+        active_skus   = int(pd.to_numeric(stats[_col(stats, "ACTIVE_SKUS")].iloc[0],   errors="coerce") or 0)
+
+        # Numeric casts — period (30-day rolling)
+        rev_30d       = float(pd.to_numeric(period[_col(period, "REV_LAST_30D")].iloc[0],  errors="coerce") or 0)
+        rev_prior_30d = float(pd.to_numeric(period[_col(period, "REV_PRIOR_30D")].iloc[0], errors="coerce") or 0)
+        txns_30d      = int(pd.to_numeric(period[_col(period, "TXNS_LAST_30D")].iloc[0],   errors="coerce") or 0)
+
+        # Numeric casts — trend
+        trend_df["REVENUE"]       = pd.to_numeric(trend_df[_col(trend_df, "REVENUE")],       errors="coerce")
+        trend_df["TRANSACTIONS"]  = pd.to_numeric(trend_df[_col(trend_df, "TRANSACTIONS")],  errors="coerce")
+        trend_df["MONTH"]         = pd.to_datetime(trend_df[_col(trend_df, "MONTH")])
+
+        # Numeric casts — products
+        products["TOTAL_REVENUE"] = pd.to_numeric(products[_col(products, "TOTAL_REVENUE")], errors="coerce")
+
+        # Numeric casts — stockout
+        stockout_df["7-Day Revenue at Risk (KES)"] = pd.to_numeric(stockout_df["7-Day Revenue at Risk (KES)"], errors="coerce")
+        stockout_df["Margin %"]                    = pd.to_numeric(stockout_df["Margin %"],                    errors="coerce")
+        stockout_df["Total Revenue (KES)"]         = pd.to_numeric(stockout_df["Total Revenue (KES)"],         errors="coerce")
+        stockout_df["Stock Value (KES)"]           = pd.to_numeric(stockout_df["Stock Value (KES)"],           errors="coerce")
+
+        # Numeric casts — store trend
+        store_trend_df["REVENUE"]       = pd.to_numeric(store_trend_df[_col(store_trend_df, "REVENUE")],       errors="coerce")
+        store_trend_df["TRANSACTIONS"]  = pd.to_numeric(store_trend_df[_col(store_trend_df, "TRANSACTIONS")],  errors="coerce")
+        store_trend_df["AVG_BASKET_KES"]= pd.to_numeric(store_trend_df[_col(store_trend_df, "AVG_BASKET_KES")],errors="coerce")
+        store_trend_df["MONTH"]         = pd.to_datetime(store_trend_df[_col(store_trend_df, "MONTH")])
+
+        # Alerts
         n_stockouts = int((stockout_df["Stock Status"] == "Stockout").sum())
         n_critical  = int((stockout_df["Stock Status"] == "Critical").sum())
         rev_at_risk = float(
@@ -69,281 +129,216 @@ with st.spinner(""):
         )
 
         data_loaded = True
+
     except Exception as e:
         data_loaded = False
-        products = pulse_df = stockout_df = pd.DataFrame()
+        products = stockout_df = trend_df = store_trend_df = pd.DataFrame()
+        rev_30d = rev_prior_30d = txns_30d = total_stores = active_skus = 0
         n_stockouts = n_critical = 0
         rev_at_risk = 0.0
-        st.error(f"⚠ Data load failed: {e}")
+        st.error(f"Data load failed: {e}")
 
-# ══ HERO ══════════════════════════════════════════════════════════════════════
-col_logo, col_text = st.columns([1, 3], gap="large")
-with col_logo:
-    st.markdown("<div style='margin-top:8px'>", unsafe_allow_html=True)
-    if os.path.exists("Logo.png"):
-        st.image("Logo.png", width=200)
-    st.markdown("</div>", unsafe_allow_html=True)
-
-with col_text:
-    st.markdown(
-        '<div style="padding-top:12px">'
-        '<div style="font-size:11px;font-weight:700;text-transform:uppercase;'
-        'letter-spacing:2px;color:#0072CE;margin-bottom:8px">Analytics Dashboard</div>'
-        '<h1 style="font-size:32px;font-weight:800;color:#003467;margin:0 0 10px;line-height:1.15">'
-        'Decision Intelligence<br>for XanaLife</h1>'
-        '<p style="font-size:14px;color:#6B8CAE;margin:0;line-height:1.7;max-width:560px">'
-        'Live analytics built on your POS and inventory data — giving management '
-        'the insight to grow revenue, eliminate stockouts, and act with confidence.'
-        '</p></div>',
-        unsafe_allow_html=True,
-    )
-
-st.markdown(
-    '<div style="display:flex;gap:10px;margin:20px 0 28px;flex-wrap:wrap">'
-    '<span style="background:#EBF3FB;color:#0072CE;font-size:11px;font-weight:600;'
-    'padding:4px 12px;border-radius:20px">📅 Sep 2025 – Mar 2026</span>'
-    '<span style="background:#F0FDF9;color:#0BB99F;font-size:11px;font-weight:600;'
-    'padding:4px 12px;border-radius:20px">🔄 Refreshes every hour</span>'
-    '<span style="background:#FFF7ED;color:#D97706;font-size:11px;font-weight:600;'
-    'padding:4px 12px;border-radius:20px">📍 XanaLife POS + Inventory</span>'
-    '</div>',
-    unsafe_allow_html=True,
+# ══ PAGE HEADER ═══════════════════════════════════════════════════════════════
+page_banner(
+    title    = "Executive Overview",
+    subtitle = "How the business is performing — and where to look first.",
 )
 
-# ══ ACTION REQUIRED ═══════════════════════════════════════════════════════════
+# ── Headline strip ─────────────────────────────────────────────────────────────
 if data_loaded:
-    has_alerts = n_stockouts > 0 or n_critical > 0
+    pct_vs_prior = ((rev_30d - rev_prior_30d) / rev_prior_30d * 100) if rev_prior_30d > 0 else 0
+    arrow        = "▲" if pct_vs_prior >= 0 else "▼"
+    headline_txt = (
+        f'Revenue last 30d: <b>{fmt_kes(rev_30d)}</b> '
+        f'({arrow} {abs(pct_vs_prior):.1f}% vs prior 30d) &nbsp;·&nbsp; '
+        f'<b>{n_stockouts}</b> stockouts, <b>{fmt_kes(rev_at_risk)}</b> at risk this week.'
+    )
+    info_card(headline_txt, border_color=COLORS["primary"])
 
-    if has_alerts:
+# ── KPI cards ─────────────────────────────────────────────────────────────────
+if data_loaded:
+    c1, c2, c3, c4 = st.columns(4)
+    with c1: kpi_card("Revenue — Last 30d",    fmt_kes(rev_30d),       "rolling 30 days",           COLORS["primary"])
+    with c2: kpi_card("Active Stores",         f"{total_stores:,}",    "all locations",             COLORS["success"])
+    with c3: kpi_card("Active SKUs",           f"{active_skus:,}",     "products tracked",          COLORS["muted"])
+    with c4: kpi_card("Transactions — 30d",    f"{txns_30d:,}",        "paid transactions",         COLORS["warning"])
+
+st.markdown("<div style='margin-top:36px'></div>", unsafe_allow_html=True)
+
+# ── Revenue trend chart ────────────────────────────────────────────────────────
+if data_loaded and not trend_df.empty:
+    section_header("Revenue Trend — Monthly")
+
+    trend_sorted = trend_df.sort_values("MONTH")
+    fig_trend = px.line(
+        trend_sorted, x="MONTH", y="REVENUE",
+        markers=True, height=260,
+    )
+    fig_trend.update_traces(
+        line_color=COLORS["primary"], marker_color=COLORS["primary"],
+        line_width=2.5, marker_size=6,
+    )
+    fig_trend.update_layout(
+        **{**CHART_LAYOUT, "margin": dict(l=0, r=0, t=16, b=8)},
+        height=260,
+        xaxis_title=None, yaxis_title="Revenue (KES)",
+    )
+    fig_trend.update_xaxes(dtick="M1", tickformat="%b '%y")
+    fig_trend.update_yaxes(tickformat=",.0f")
+    st.plotly_chart(fig_trend, use_container_width=True)
+
+    # Caption: MoM comparison
+    if len(trend_sorted) >= 2:
+        last_r  = trend_sorted.iloc[-1]
+        prior_r = trend_sorted.iloc[-2]
+        mom_pct = ((last_r["REVENUE"] - prior_r["REVENUE"]) / prior_r["REVENUE"] * 100) if prior_r["REVENUE"] > 0 else 0
+        mom_arrow = "▲" if mom_pct >= 0 else "▼"
+        last_name  = last_r["MONTH"].strftime("%B")
+        prior_name = prior_r["MONTH"].strftime("%B")
         st.markdown(
-            '<div style="background:#FFF5F7;border:1px solid #FEC5CF;border-left:4px solid #E11D48;'
-            'border-radius:8px;padding:16px 20px;margin-bottom:28px">'
-            '<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:2px;'
-            'color:#E11D48;margin-bottom:14px">⚡ Action Required</div>',
+            f'<p style="font-size:11px;color:#8AABCC;margin:-8px 0 0">'
+            f'{last_name} vs {prior_name}: {mom_arrow} {abs(mom_pct):.1f}%</p>',
             unsafe_allow_html=True,
         )
-        a1, a2, a3, a4 = st.columns([1, 1, 1, 1])
-        with a1:
-            st.markdown(
-                f'<div style="padding:4px 0">'
-                f'<div style="font-size:10px;font-weight:700;color:#E11D48;text-transform:uppercase;'
-                f'letter-spacing:1px;margin-bottom:6px">🔴 Out of Stock</div>'
-                f'<div style="font-size:28px;font-weight:800;color:#E11D48;line-height:1">{n_stockouts}</div>'
-                f'<div style="font-size:11px;color:#8AABCC;margin-top:4px">products — no stock left</div>'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
-        with a2:
-            st.markdown(
-                f'<div style="padding:4px 0">'
-                f'<div style="font-size:10px;font-weight:700;color:#f97316;text-transform:uppercase;'
-                f'letter-spacing:1px;margin-bottom:6px">🟠 Order Today</div>'
-                f'<div style="font-size:28px;font-weight:800;color:#f97316;line-height:1">{n_critical}</div>'
-                f'<div style="font-size:11px;color:#8AABCC;margin-top:4px">products — less than 7 days left</div>'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
-        with a3:
-            st.markdown(
-                f'<div style="padding:4px 0">'
-                f'<div style="font-size:10px;font-weight:700;color:#003467;text-transform:uppercase;'
-                f'letter-spacing:1px;margin-bottom:6px">💰 Revenue at Risk</div>'
-                f'<div style="font-size:28px;font-weight:800;color:#003467;line-height:1">{fmt_kes(rev_at_risk)}</div>'
-                f'<div style="font-size:11px;color:#8AABCC;margin-top:4px">if no action in 7 days</div>'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
-        with a4:
-            st.markdown(
-                '<div style="display:flex;align-items:center;height:100%;padding:4px 0">'
-                '<div>'
-                '<div style="font-size:12px;color:#003467;font-weight:600;margin-bottom:8px">'
-                'Reorder list is ready.</div>'
-                '<div style="font-size:11px;color:#8AABCC;line-height:1.6">'
-                'Go to <b>Inventory Risk → Order Now</b><br>to download the prioritised list.</div>'
-                '</div></div>',
-                unsafe_allow_html=True,
-            )
-        st.markdown('</div>', unsafe_allow_html=True)
+
+st.markdown("<div style='margin-top:36px'></div>", unsafe_allow_html=True)
+
+# ── Store growth table ─────────────────────────────────────────────────────────
+if data_loaded and not store_trend_df.empty:
+    section_header("Store Performance — Last vs Prior Month")
+
+    store_trend_s = store_trend_df.sort_values("MONTH")
+    months = sorted(store_trend_s["MONTH"].unique())
+
+    if len(months) >= 2:
+        last_m  = months[-1]
+        prior_m = months[-2]
+
+        last_rev  = (
+            store_trend_s[store_trend_s["MONTH"] == last_m]
+            .set_index(_col(store_trend_s, "STORE_NAME"))
+        )
+        prior_rev = (
+            store_trend_s[store_trend_s["MONTH"] == prior_m]
+            .set_index(_col(store_trend_s, "STORE_NAME"))["REVENUE"]
+        )
+
+        store_growth = last_rev[["REVENUE", "AVG_BASKET_KES"]].copy()
+        store_growth = store_growth.join(prior_rev.rename("REVENUE_PRIOR"), how="left")
+        store_growth["delta_pct"] = (
+            (store_growth["REVENUE"] - store_growth["REVENUE_PRIOR"])
+            / store_growth["REVENUE_PRIOR"] * 100
+        ).round(1)
+        store_growth = store_growth.reset_index().rename(
+            columns={store_growth.index.name or "index": "STORE_NAME"}
+        )
+        store_growth = store_growth.sort_values("REVENUE", ascending=False)
+
+        store_display = pd.DataFrame({
+            "Store":          store_growth["STORE_NAME"],
+            "Revenue (KES)":  store_growth["REVENUE"].round(0),
+            "Δ vs Prior (%)": store_growth["delta_pct"],
+            "Avg Basket (KES)": store_growth["AVG_BASKET_KES"].round(0),
+        }).reset_index(drop=True)
+
+        def _style_delta(series):
+            return [
+                "color: #0BB99F; font-weight: 700" if pd.notna(v) and v >= 5
+                else "color: #E11D48; font-weight: 700" if pd.notna(v) and v <= -5
+                else "color: #D97706; font-weight: 700" if pd.notna(v)
+                else ""
+                for v in series
+            ]
+
+        styled_stores = store_display.style.apply(_style_delta, subset=["Δ vs Prior (%)"])
+        st.dataframe(
+            styled_stores,
+            use_container_width=True,
+            hide_index=True,
+            height=min(len(store_display) * 38 + 48, 340),
+            column_config={
+                "Revenue (KES)":    st.column_config.NumberColumn(format="KES %,.0f"),
+                "Δ vs Prior (%)":   st.column_config.NumberColumn("Δ vs Prior", format="%.1f%%"),
+                "Avg Basket (KES)": st.column_config.NumberColumn(format="KES %,.0f"),
+            },
+        )
     else:
-        st.markdown(
-            '<div style="background:#F0FDF9;border:1px solid #6EE7D4;border-radius:8px;'
-            'padding:14px 20px;margin-bottom:28px;font-size:13px;color:#0BB99F;font-weight:600">'
-            '✅ &nbsp; Stock health looks good — no products are currently out of stock or critical.'
-            '</div>',
-            unsafe_allow_html=True,
-        )
+        st.info("Not enough monthly data to compute store Δ.")
 
-# ══ MODULE CARDS ══════════════════════════════════════════════════════════════
-st.markdown(
-    '<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:2px;'
-    'color:#0072CE;margin-bottom:16px">Analytics Modules</div>',
-    unsafe_allow_html=True,
-)
+st.markdown("<div style='margin-top:36px'></div>", unsafe_allow_html=True)
 
-card_l, card_r = st.columns(2, gap="large")
+# ── Top 10 profit drivers ──────────────────────────────────────────────────────
+if data_loaded and not products.empty and not stockout_df.empty:
+    section_header("Top Profit Drivers — Last 6 Months")
 
-with card_l:
-    st.markdown(
-        '<div style="border:1px solid #D6E4F0;border-radius:12px;overflow:hidden">'
-        '<div style="background:linear-gradient(135deg,#0072CE,#005fad);padding:22px 24px 18px">'
-        '<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:2px;'
-        'color:rgba(255,255,255,0.6);margin-bottom:6px">Module 01</div>'
-        '<div style="font-size:20px;font-weight:800;color:#ffffff;margin-bottom:4px">'
-        'Cross-Sell Intelligence</div>'
-        '<div style="font-size:12px;color:rgba(255,255,255,0.75)">What do your customers buy together?</div>'
-        '</div>'
-        '<div style="padding:20px 24px">'
-        '<div style="font-size:12px;color:#6B8CAE;line-height:2.2">'
-        '<span style="color:#0BB99F;font-weight:700">✓</span>&nbsp; Statistically validated buying patterns<br>'
-        '<span style="color:#0BB99F;font-weight:700">✓</span>&nbsp; Point-of-sale recommendation scripts<br>'
-        '<span style="color:#0BB99F;font-weight:700">✓</span>&nbsp; Revenue opportunity sizing per product pair<br>'
-        '<span style="color:#0BB99F;font-weight:700">✓</span>&nbsp; Filter by store, confidence, or product'
-        '</div>'
-        '<div style="margin-top:16px;padding-top:14px;border-top:1px solid #EBF3FB">'
-        '<span style="font-size:11px;color:#0072CE;font-weight:700">→ Select in sidebar menu</span>'
-        '</div></div></div>',
-        unsafe_allow_html=True,
+    # Average margin per product (across stores) from the inventory dataset
+    margin_by_product = (
+        stockout_df[stockout_df["Margin %"].notna()]
+        .groupby("Product")["Margin %"]
+        .mean()
+        .reset_index()
+        .rename(columns={"Product": "PRODUCT_NAME"})
     )
 
-with card_r:
-    st.markdown(
-        '<div style="border:1px solid #D6E4F0;border-radius:12px;overflow:hidden">'
-        '<div style="background:linear-gradient(135deg,#003467,#1a4f8a);padding:22px 24px 18px">'
-        '<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:2px;'
-        'color:rgba(255,255,255,0.6);margin-bottom:6px">Module 02</div>'
-        '<div style="font-size:20px;font-weight:800;color:#ffffff;margin-bottom:4px">'
-        'Inventory Risk Monitor</div>'
-        '<div style="font-size:12px;color:rgba(255,255,255,0.75)">Which products are about to run out?</div>'
-        '</div>'
-        '<div style="padding:20px 24px">'
-        '<div style="font-size:12px;color:#6B8CAE;line-height:2.2">'
-        '<span style="color:#0BB99F;font-weight:700">✓</span>&nbsp; 30-day stockout calendar<br>'
-        '<span style="color:#0BB99F;font-weight:700">✓</span>&nbsp; Revenue at risk in KES (7-day)<br>'
-        '<span style="color:#0BB99F;font-weight:700">✓</span>&nbsp; Smart reorder quantities from demand data<br>'
-        '<span style="color:#0BB99F;font-weight:700">✓</span>&nbsp; ABC product classification'
-        '</div>'
-        '<div style="margin-top:16px;padding-top:14px;border-top:1px solid #EBF3FB">'
-        '<span style="font-size:11px;color:#0072CE;font-weight:700">→ Select in sidebar menu</span>'
-        '</div></div></div>',
-        unsafe_allow_html=True,
+    top50 = products.sort_values("TOTAL_REVENUE", ascending=False).head(50).copy()
+    top50["PRODUCT_NAME_UPPER"] = top50[_col(products, "PRODUCT_NAME")].str.upper().str.strip()
+    margin_by_product["PRODUCT_NAME_UPPER"] = margin_by_product["PRODUCT_NAME"].str.upper().str.strip()
+
+    top50 = top50.merge(
+        margin_by_product[["PRODUCT_NAME_UPPER", "Margin %"]],
+        on="PRODUCT_NAME_UPPER", how="left",
     )
+    top50["Margin %"] = top50["Margin %"].fillna(0)
+    top50["Gross Profit"] = (top50["TOTAL_REVENUE"] * top50["Margin %"] / 100).round(0)
+    top10 = top50[top50["Gross Profit"] > 0].sort_values("Gross Profit", ascending=False).head(10)
 
-# ══ PERFORMANCE SNAPSHOT ══════════════════════════════════════════════════════
-st.markdown("<div style='margin-top:44px'></div>", unsafe_allow_html=True)
-st.markdown('<div style="border-bottom:1px solid #EBF3FB;margin-bottom:28px"></div>', unsafe_allow_html=True)
-st.markdown(
-    '<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:2px;'
-    'color:#0072CE;margin-bottom:4px">Performance Snapshot</div>'
-    '<div style="font-size:22px;font-weight:800;color:#003467;margin-bottom:6px">Top 10 Products</div>'
-    '<div style="font-size:13px;color:#8AABCC;margin-bottom:24px">'
-    'Sep 2025 – Mar 2026 &nbsp;·&nbsp; All stores combined</div>',
-    unsafe_allow_html=True,
-)
-
-if data_loaded and not products.empty:
-    ch_l, ch_r = st.columns(2, gap="large")
-
-    with ch_l:
-        top_rev = (
-            products.sort_values("TOTAL_REVENUE", ascending=False).head(10)
-            .sort_values("TOTAL_REVENUE", ascending=True).copy()
-        )
-        top_rev["Label"]    = top_rev["PRODUCT_NAME"].str.title()
-        top_rev["RevLabel"] = top_rev["TOTAL_REVENUE"].apply(
+    if not top10.empty:
+        top10 = top10.sort_values("Gross Profit", ascending=True).copy()
+        top10["Label"] = top10[_col(top10, "PRODUCT_NAME")].str.title()
+        top10["ProfitLabel"] = top10["Gross Profit"].apply(
             lambda v: f"KES {v/1_000:.0f}K" if v >= 1_000 else f"KES {v:.0f}"
         )
-        fig_rev = px.bar(
-            top_rev, x="TOTAL_REVENUE", y="Label", orientation="h",
-            text="RevLabel",
-            color="TOTAL_REVENUE",
-            color_continuous_scale=[[0, "#B0D4F1"], [1, "#0072CE"]],
-            height=380,
+        fig_gp = px.bar(
+            top10, x="Gross Profit", y="Label", orientation="h",
+            text="ProfitLabel",
+            color="Gross Profit",
+            color_continuous_scale=[[0, "#A8E6DC"], [1, COLORS["success"]]],
+            height=360,
         )
-        fig_rev.update_traces(textposition="outside", textfont=dict(size=10, color="#003467"), marker_line_width=0)
-        fig_rev.update_layout(**{**CHART_LAYOUT, "margin": dict(l=0, r=60, t=10, b=10)}, height=380, coloraxis_showscale=False)
-        fig_rev.update_xaxes(title=None, showticklabels=False, showgrid=False, zeroline=False)
-        fig_rev.update_yaxes(title=None, tickfont=dict(size=11, color="#003467"))
-        st.markdown('<div style="font-size:12px;font-weight:700;color:#003467;margin-bottom:10px">By Revenue (KES)</div>', unsafe_allow_html=True)
-        st.plotly_chart(fig_rev, use_container_width=True)
+        fig_gp.update_traces(
+            textposition="outside",
+            textfont=dict(size=10, color="#003467"),
+            marker_line_width=0,
+        )
+        fig_gp.update_layout(
+            **{**CHART_LAYOUT, "margin": dict(l=0, r=70, t=10, b=8)},
+            height=360, coloraxis_showscale=False,
+        )
+        fig_gp.update_xaxes(title=None, showticklabels=False, showgrid=False, zeroline=False)
+        fig_gp.update_yaxes(title=None, tickfont=dict(size=11))
+        st.plotly_chart(fig_gp, use_container_width=True)
 
-    with ch_r:
-        top_vol = (
-            products.sort_values("TOTAL_UNITS", ascending=False).head(10)
-            .sort_values("TOTAL_UNITS", ascending=True).copy()
-        )
-        top_vol["Label"]    = top_vol["PRODUCT_NAME"].str.title()
-        top_vol["VolLabel"] = top_vol["TOTAL_UNITS"].apply(
-            lambda v: f"{v/1_000:.1f}K units" if v >= 1_000 else f"{v:.0f} units"
-        )
-        fig_vol = px.bar(
-            top_vol, x="TOTAL_UNITS", y="Label", orientation="h",
-            text="VolLabel",
-            color="TOTAL_UNITS",
-            color_continuous_scale=[[0, "#A8E6DC"], [1, "#0BB99F"]],
-            height=380,
-        )
-        fig_vol.update_traces(textposition="outside", textfont=dict(size=10, color="#003467"), marker_line_width=0)
-        fig_vol.update_layout(**{**CHART_LAYOUT, "margin": dict(l=0, r=80, t=10, b=10)}, height=380, coloraxis_showscale=False)
-        fig_vol.update_xaxes(title=None, showticklabels=False, showgrid=False, zeroline=False)
-        fig_vol.update_yaxes(title=None, tickfont=dict(size=11, color="#003467"))
-        st.markdown('<div style="font-size:12px;font-weight:700;color:#003467;margin-bottom:10px">By Volume (units sold)</div>', unsafe_allow_html=True)
-        st.plotly_chart(fig_vol, use_container_width=True)
+st.markdown("<div style='margin-top:36px'></div>", unsafe_allow_html=True)
 
-    top_by_rev = products.sort_values("TOTAL_REVENUE", ascending=False).iloc[0]
-    top_by_vol = products.sort_values("TOTAL_UNITS",   ascending=False).iloc[0]
-    if top_by_rev["PRODUCT_NAME"] != top_by_vol["PRODUCT_NAME"]:
+# ── Live alert CTA ─────────────────────────────────────────────────────────────
+if data_loaded:
+    has_alerts = n_stockouts > 0 or n_critical > 0
+    if has_alerts:
         st.markdown(
-            f'<div style="background:#F4F8FC;border-left:3px solid #0072CE;border-radius:4px;'
-            f'padding:12px 16px;margin-top:4px;font-size:12px;color:#003467">'
-            f'<b>Insight:</b> Your highest-revenue product (<b>{top_by_rev["PRODUCT_NAME"].title()}</b>) '
-            f'is not your highest-volume product (<b>{top_by_vol["PRODUCT_NAME"].title()}</b>). '
-            f'The volume leader sells more units but generates less revenue per unit — worth reviewing its margin.'
+            f'<div style="background:#FFF5F7;border:1px solid #FEC5CF;'
+            f'border-left:4px solid #E11D48;border-radius:8px;'
+            f'padding:14px 20px;margin-bottom:8px">'
+            f'<span style="font-size:10px;font-weight:700;text-transform:uppercase;'
+            f'letter-spacing:1.5px;color:#E11D48">⚡ Action Required &nbsp;—&nbsp; </span>'
+            f'<span style="font-size:13px;color:#003467;font-weight:600">'
+            f'{n_stockouts} stockouts + {n_critical} critical = '
+            f'{fmt_kes(rev_at_risk)} at risk over 7 days.</span>'
             f'</div>',
             unsafe_allow_html=True,
         )
-
-# ══ STORE PULSE ═══════════════════════════════════════════════════════════════
-if data_loaded and not pulse_df.empty:
-    st.markdown("<div style='margin-top:44px'></div>", unsafe_allow_html=True)
-    st.markdown('<div style="border-bottom:1px solid #EBF3FB;margin-bottom:28px"></div>', unsafe_allow_html=True)
-    st.markdown(
-        '<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:2px;'
-        'color:#0072CE;margin-bottom:4px">Store Performance</div>'
-        '<div style="font-size:22px;font-weight:800;color:#003467;margin-bottom:6px">'
-        'How is each store performing?</div>'
-        '<div style="font-size:13px;color:#8AABCC;margin-bottom:24px">'
-        'Ranked by total revenue · Sep 2025 – Mar 2026</div>',
-        unsafe_allow_html=True,
-    )
-
-    grand_total = pulse_df["TOTAL_REVENUE"].sum()
-    n_stores    = min(len(pulse_df), 6)
-    store_cols  = st.columns(n_stores, gap="medium")
-
-    for i, (_, row) in enumerate(pulse_df.head(n_stores).iterrows()):
-        pct      = (row["TOTAL_REVENUE"] / grand_total * 100) if grand_total > 0 else 0
-        bar_w    = int(pct)
-        is_top   = i == 0
-        border   = "border-top:3px solid #0072CE;" if is_top else "border-top:3px solid #D6E4F0;"
-
-        with store_cols[i]:
-            st.markdown(
-                f'<div style="background:#F4F8FC;border:1px solid #D6E4F0;{border}'
-                f'border-radius:8px;padding:16px 14px">'
-                f'<div style="font-size:10px;font-weight:700;color:#6B8CAE;text-transform:uppercase;'
-                f'letter-spacing:0.8px;margin-bottom:10px;white-space:nowrap;overflow:hidden;'
-                f'text-overflow:ellipsis">{row["STORE_NAME"]}</div>'
-                f'<div style="font-size:20px;font-weight:800;color:#003467;line-height:1;margin-bottom:4px">'
-                f'{fmt_kes(row["TOTAL_REVENUE"])}</div>'
-                f'<div style="font-size:10px;color:#8AABCC;margin-bottom:12px">'
-                f'{int(row["TRANSACTIONS"]):,} transactions &nbsp;·&nbsp; '
-                f'{fmt_kes(row["AVG_BASKET_KES"])} avg basket</div>'
-                f'<div style="background:#D6E4F0;border-radius:4px;height:4px;margin-bottom:6px">'
-                f'<div style="background:#0072CE;height:4px;border-radius:4px;width:{bar_w}%"></div></div>'
-                f'<div style="font-size:10px;color:#6B8CAE">{pct:.1f}% of total revenue</div>'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
+        st.page_link("xanalife/3_Stockout_Prediction.py",
+                 label="Inventory Risk", icon="📦")
+    else:
+        info_card("✅ Stock health looks good — no products are currently out of stock or critical.", border_color=COLORS["success"])
 
 st.markdown("<div style='margin-top:40px'></div>", unsafe_allow_html=True)

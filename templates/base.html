@@ -72,10 +72,11 @@
 
         <div class="collapse navbar-collapse justify-content-end" id="navbarNav">
             <ul class="navbar-nav align-items-center">
-
+                {% if request.user.is_superuser %}
                 <li class="nav-item">
-                    <a class="nav-link" href="/">Home</a>
+                    <a class="nav-link" href="{% url 'datapipelines' %}">Data Sources</a>
                 </li>
+                {% endif %}
 
                 <li class="nav-item">
                     <a class="nav-link" href="{% url 'dashboard_home' %}">
@@ -95,18 +96,19 @@
                 <!-- AUTHENTICATED USER -->
                 <li class="nav-item dropdown ms-3">
                     <a class="nav-link dropdown-toggle d-flex align-items-center"
-                    href="#" role="button" data-bs-toggle="dropdown">
+                    href="{% url 'profile' %}" role="button" data-bs-toggle="dropdown">
 
                         👤 {{ user.username }}
                     </a>
 
                     <ul class="dropdown-menu dropdown-menu-end shadow-sm">
-
-                        <li>
-                            <span class="dropdown-item-text small text-muted">
-                                Signed in as <strong>{{ user.username }}</strong>
-                            </span>
-                        </li>
+                        <a href="{% url 'profile' %}" >
+                            <li>
+                                <span class="dropdown-item-text small text-muted">
+                                    Signed in as <strong>{{ user.username }}</strong>
+                                </span>
+                            </li>
+                        </a>
 
                         <li><hr class="dropdown-divider"></li>
 

@@ -47,7 +47,7 @@ def _normalize_df(df: pd.DataFrame) -> pd.DataFrame:
 def run_query(sql: str) -> pd.DataFrame:
     def _fetch(client):
         df = client.query(sql)
-        df.columns = [c.lower() for c in df.columns]
+        df.columns = [c.upper() for c in df.columns]
         return df
     try:
         df = _fetch(get_connection())

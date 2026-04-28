@@ -1,17 +1,25 @@
 """
 Xanalife Analytics — Executive Dashboard
-Run: streamlit run app.py
+Run: streamlit run revenue_dashboard.py
 """
 
-import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "scripts"))
+import sys
 
+sys.path.insert(
+    0,
+    os.path.join(
+        os.path.dirname(os.path.abspath('__file__')),
+        "analytics_app",
+        "dashboards",
+        "xanalife",
+        "scripts"
+    )
+)
 import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-import connection as conn
 import cash_integrity_analysis as ci
 import scr_analysis as scr
 import sales_analysis as sa
@@ -101,9 +109,23 @@ KE_SCHOOL_TERMS = [
 
 # ── Session state ──────────────────────────────────────────────────────────────
 
-for key in ("conn", "ci_data", "scr_data", "sa_data", "ma_data", "ov_data", "stores_df"):
+for key in ("ci_data", "scr_data", "sa_data", "ma_data", "ov_data", "stores_df"):
     if key not in st.session_state:
-        st.session_state[key] = None if key in ("conn", "stores_df") else {}
+        st.session_state[key] = None if key == "stores_df" else {}
+
+# ── Load stores on first run ───────────────────────────────────────────────────
+
+if st.session_state.stores_df is None:
+    # import pdb;pdb.set_trace()
+    stores_raw = ov.run_query(
+        "SELECT id AS STORE_ID, MIN(name) AS STORE_NAME, MIN(code) AS STORE_CODE "
+        "FROM hospitals.xanalife_clean.inventory_stores GROUP BY id ORDER BY MIN(name)")
+    # stores_raw.columns = stores_raw.columns.str.upper()
+    stores_raw["LOCATION"] = stores_raw["STORE_ID"].apply(
+        lambda x: "Syokimau" if x in {399, 400, 401, 402, 403, 404} else "Katani"
+    )
+    st.session_state.stores_df = stores_raw
+    st.rerun()
 
 # ── Sidebar ────────────────────────────────────────────────────────────────────
 
@@ -111,19 +133,11 @@ with st.sidebar:
     try:
         st.image("download.png", width=150)
     except Exception:
-        try:
-            st.image("../download.png", width=150)
-        except Exception:
-            st.markdown(
-                '<div style="font-size:16px;font-weight:800;color:#0072CE;padding:8px 0 16px">Xanalife</div>',
-                unsafe_allow_html=True)
+        st.markdown(
+            '<div style="font-size:16px;font-weight:800;color:#0072CE;padding:8px 0 16px">Xanalife</div>',
+            unsafe_allow_html=True)
 
-    section_header("Connection")
-    passcode = st.text_input("TOTP Passcode", type="password", max_chars=6, placeholder="6-digit code")
-    connect_btn = st.button("Connect", type="primary")
-
-    st.markdown("<div style='margin-bottom:8px'></div>", unsafe_allow_html=True)
-    section_header("Module", margin_top=8)
+    section_header("Module")
     page = st.radio("", ["Overview", "Revenue Intelligence", "Cash Integrity", "SCR", "Margin Intelligence"],
                     label_visibility="collapsed")
 
@@ -132,18 +146,17 @@ with st.sidebar:
 
     _PHARMACY_CODES = ["PHARMACY", "KP"]
 
-    if st.session_state.stores_df is not None:
-        location = st.radio("Location", ["All", "Syokimau", "Katani"], horizontal=True)
-        division = st.radio("Division", ["All", "Supermarket", "Pharmacy"], horizontal=True)
+    location = st.radio("Location", ["All", "Syokimau", "Katani"], horizontal=True)
+    division = st.radio("Division", ["All", "Supermarket", "Pharmacy"], horizontal=True)
 
-        _pool = st.session_state.stores_df.copy()
+    _pool = st.session_state.stores_df.copy() if st.session_state.stores_df is not None else None
+    if _pool is not None:
         if location != "All":
             _pool = _pool[_pool["LOCATION"] == location]
         if division == "Pharmacy":
             _pool = _pool[_pool["STORE_CODE"].isin(_PHARMACY_CODES)]
         elif division == "Supermarket":
             _pool = _pool[~_pool["STORE_CODE"].isin(_PHARMACY_CODES)]
-
         _store_pool = _pool["STORE_NAME"].tolist()
         selected_stores = st.multiselect("Stores", _store_pool, default=_store_pool)
         st.caption(
@@ -152,37 +165,6 @@ with st.sidebar:
         )
     else:
         selected_stores = []
-        st.caption("Connect to enable filters.")
-
-# ── Connection ─────────────────────────────────────────────────────────────────
-
-@st.cache_resource
-def get_conn(p: str):
-    return conn.connect(p)
-
-if connect_btn and passcode:
-    try:
-        st.session_state.conn = get_conn(passcode)
-        stores_raw = ov.run_query(
-            "SELECT id AS STORE_ID, MIN(name) AS STORE_NAME, MIN(code) AS STORE_CODE FROM hospitals.xanalife_clean.inventory_stores GROUP BY id ORDER BY MIN(name)",
-            st.session_state.conn)
-        stores_raw["LOCATION"] = stores_raw["STORE_ID"].apply(
-            lambda x: "Syokimau" if x in {399, 400, 401, 402, 403, 404} else "Katani"
-        )
-        st.session_state.stores_df = stores_raw
-        st.sidebar.success("Connected")
-        st.rerun()
-    except Exception as e:
-        st.sidebar.error(str(e))
-        st.stop()
-
-if st.session_state.conn is None:
-    st.markdown(
-        '<p style="font-size:11px;font-weight:800;letter-spacing:3px;text-transform:uppercase;'
-        'color:#0072CE;margin-bottom:16px">Xanalife · Analytics</p>',
-        unsafe_allow_html=True)
-    info_card("Enter your TOTP passcode in the sidebar and click Connect to load the dashboard.", COLORS["muted"])
-    st.stop()
 
 # ── Store filter — resolve defaults and compute cache key ─────────────────────
 
@@ -211,7 +193,7 @@ if page == "Overview":
         with st.spinner("Loading overview…"):
             st.session_state.ov_data = {"_filter_key": filter_key}
             for label, sql in ov.get_analyses(effective_stores):
-                st.session_state.ov_data[label] = ov.run_query(sql, st.session_state.conn)
+                st.session_state.ov_data[label] = ov.run_query(sql)
 
     O = st.session_state.ov_data
 
@@ -346,7 +328,7 @@ if page == "Cash Integrity":
         with st.spinner("Loading…"):
             st.session_state.ci_data = {}
             for label, sql in ci.ANALYSES:
-                st.session_state.ci_data[label] = ci.run_query(sql, st.session_state.conn)
+                st.session_state.ci_data[label] = ci.run_query(sql)
 
     D        = st.session_state.ci_data
     pareto   = D["Analysis 1 — Pareto by Station"].copy()
@@ -526,7 +508,7 @@ if page == "SCR":
         with st.spinner("Loading…"):
             st.session_state.scr_data = {"_filter_key": filter_key}
             for label, sql in scr.get_analyses(effective_stores):
-                st.session_state.scr_data[label] = scr.run_query(sql, st.session_state.conn)
+                st.session_state.scr_data[label] = scr.run_query(sql)
 
     S         = st.session_state.scr_data
     summary   = S["SCR Summary — Stockouts + Top Substitute"].copy()
@@ -681,7 +663,7 @@ if page == "Revenue Intelligence":
         with st.spinner("Loading…"):
             st.session_state.sa_data = {"_filter_key": filter_key}
             for label, sql in sa.get_analyses(effective_stores):
-                st.session_state.sa_data[label] = sa.run_query(sql, st.session_state.conn)
+                st.session_state.sa_data[label] = sa.run_query(sql)
 
     A              = st.session_state.sa_data
     daily_df       = A["Daily Revenue"].copy()
@@ -1066,7 +1048,7 @@ if page == "Margin Intelligence":
         with st.spinner("Loading…"):
             st.session_state.ma_data = {"_filter_key": filter_key}
             for label, sql in ma.get_analyses(effective_stores):
-                st.session_state.ma_data[label] = ma.run_query(sql, st.session_state.conn)
+                st.session_state.ma_data[label] = ma.run_query(sql)
 
     M        = st.session_state.ma_data
     overall  = M["MVaR — Overall"].copy()

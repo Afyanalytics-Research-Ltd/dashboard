@@ -5,7 +5,7 @@ class SnowflakeClient:
 
     def __init__(self):
 
-        with open(os.getenv("SNOWFLAKE_PRIVATE_KEY_PATH"), "rb") as key:
+        with open(os.getenv("SNOWFLAKE_PRIVATE_KEY_PATH").strip(), "rb") as key:
             private_key = key.read()
 
         self.conn = snowflake.connector.connect(

@@ -1,19 +1,9 @@
 """
 Substitution Capture Rate (SCR) — Analysis Module
-Run standalone: python scripts/scr_analysis.py <passcode>
 """
 
-import sys
 import pandas as pd
-from connection import connect
-
-
-def run_query(sql: str, conn) -> pd.DataFrame:
-    cur = conn.cursor()
-    cur.execute(sql)
-    df = cur.fetch_pandas_all()
-    cur.close()
-    return df
+from connect_to_snowflake import run_query
 
 
 def _store_clause(store_names, dis_col="d.store_product_id"):
@@ -272,26 +262,21 @@ def get_analyses(store_names=None):
 ANALYSES = get_analyses()
 
 
-def run_all(passcode: str) -> dict:
-    conn = connect(passcode)
+def run_all() -> dict:
     results = {}
     for label, sql in ANALYSES:
         print(f"Running: {label}…")
-        results[label] = run_query(sql, conn)
-    conn.close()
+        results[label] = run_query(sql)
     return results
 
 
 if __name__ == "__main__":
-    passcode = sys.argv[1] if len(sys.argv) > 1 else input("TOTP passcode: ")
-
-    if len(sys.argv) > 2 and sys.argv[2] == "nulls":
-        conn = connect(passcode)
+    import sys
+    if len(sys.argv) > 1 and sys.argv[1] == "nulls":
         print("\n=== NULL product_name investigation ===")
-        print(run_query(SQL_NULL_PRODUCTS_INVESTIGATION, conn).to_string(index=False))
-        conn.close()
+        print(run_query(SQL_NULL_PRODUCTS_INVESTIGATION).to_string(index=False))
     else:
-        data = run_all(passcode)
+        data = run_all()
         for label, df in data.items():
             print(f"\n=== {label} ===")
             print(df.to_string(index=False))

@@ -14,12 +14,19 @@ Changes from v3:
 """
 
 import io
+import os
 import sys
-from pathlib import Path
-_here = str(Path(__file__).parent)
-if _here not in sys.path:
-    sys.path.insert(0, _here)
-sys.modules.pop("connect_to_snowflake", None)
+
+sys.path.insert(
+    0,
+    os.path.join(
+        os.path.dirname(os.path.abspath('__file__')),
+        "analytics_app",
+        "dashboards",
+        "xanalife",
+        "customers"
+    )
+)
 
 import numpy as np
 import pandas as pd

@@ -1,22 +1,11 @@
 """
 Revenue Intelligence — Sales Analysis Module
-Run standalone: python scripts/sales_analysis.py <passcode>
 """
 
-import sys
 from datetime import timedelta
 import pandas as pd
 import numpy as np
-from snowflake_service.snowflake_client import SnowflakeClient
-connection =  SnowflakeClient().conn
-
-
-def run_query(sql: str, conn) -> pd.DataFrame:
-    cur = conn.cursor()
-    cur.execute(sql)
-    df = cur.fetch_pandas_all()
-    cur.close()
-    return df
+from connect_to_snowflake import run_query
 
 
 # ── Store filter helpers ───────────────────────────────────────────────────────
@@ -362,19 +351,16 @@ def build_forecast(daily_df: pd.DataFrame, days_forward: int = 30):
 
 # ── CLI ────────────────────────────────────────────────────────────────────────
 
-def run_all(passcode: str) -> dict:
-    conn = connection
+def run_all() -> dict:
     results = {}
     for label, sql in ANALYSES:
         print(f"Running: {label}…")
-        results[label] = run_query(sql, conn)
-    conn.close()
+        results[label] = run_query(sql)
     return results
 
 
 if __name__ == "__main__":
-    passcode = sys.argv[1] if len(sys.argv) > 1 else input("TOTP passcode: ")
-    data = run_all(passcode)
+    data = run_all()
     for label, df in data.items():
         print(f"\n=== {label} ===")
         print(df.to_string(index=False))

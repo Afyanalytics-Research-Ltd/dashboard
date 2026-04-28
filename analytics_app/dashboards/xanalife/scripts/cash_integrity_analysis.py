@@ -1,26 +1,9 @@
 """
 Cash Integrity & Forensics — all 9 analyses.
-
-Local run:  python scripts/cash_integrity_analysis.py
-Streamlit:  streamlit run scripts/streamlit_cash_integrity.py
-
-To move to Streamlit in Snowflake, replace run_query() with:
-    from snowflake.snowpark.context import get_active_session
-    return get_active_session().sql(sql).to_pandas()
 """
 
 import pandas as pd
-from snowflake_service.snowflake_client import SnowflakeClient
-connection = SnowflakeClient().conn
-
-
-
-def run_query(sql: str, conn) -> pd.DataFrame:
-    cur = conn.cursor()
-    cur.execute(sql)
-    df = cur.fetch_pandas_all()
-    cur.close()
-    return df
+from connect_to_snowflake import run_query
 
 
 # ── Config ─────────────────────────────────────────────────────────────────────
@@ -226,20 +209,17 @@ ANALYSES = [
 ]
 
 
-def run_all(passcode: str) -> dict:
-    conn = connection
+def run_all() -> dict:
     results = {}
     for label, sql in ANALYSES:
         print(f"\n{'='*60}\n  {label}\n{'='*60}")
-        df = run_query(sql, conn)
+        df = run_query(sql)
         print(df.to_string(index=False))
         results[label] = df
-    conn.close()
     print("\n\nAll 9 analyses complete.")
     return results
 
 
 if __name__ == "__main__":
     import sys
-    passcode = sys.argv[1] if len(sys.argv) > 1 else input("Enter TOTP passcode: ")
-    run_all(passcode)
+    run_all()

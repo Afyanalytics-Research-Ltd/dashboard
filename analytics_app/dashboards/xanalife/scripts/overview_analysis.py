@@ -1,23 +1,9 @@
 """
 Overview — Executive Summary Module
-Run standalone: python scripts/overview_analysis.py <passcode>
 """
 
-import sys
 import pandas as pd
-from snowflake_service.snowflake_client import SnowflakeClient
-
-connection = SnowflakeClient().conn
-
-
-
-
-def run_query(sql: str, conn) -> pd.DataFrame:
-    cur = conn.cursor()
-    cur.execute(sql)
-    df = cur.fetch_pandas_all()
-    cur.close()
-    return df
+from connect_to_snowflake import run_query
 
 
 def _store_clause(store_names, pos_col="pos.store_product_id"):
@@ -168,19 +154,16 @@ def get_analyses(store_names=None):
 ANALYSES = get_analyses()
 
 
-def run_all(passcode: str) -> dict:
-    conn = connection
+def run_all() -> dict:
     results = {}
     for label, sql in ANALYSES:
         print(f"Running: {label}…")
-        results[label] = run_query(sql, conn)
-    conn.close()
+        results[label] = run_query(sql)
     return results
 
 
 if __name__ == "__main__":
-    passcode = sys.argv[1] if len(sys.argv) > 1 else input("TOTP passcode: ")
-    data = run_all(passcode)
+    data = run_all()
     for label, df in data.items():
         print(f"\n=== {label} ===")
         print(df.to_string(index=False))

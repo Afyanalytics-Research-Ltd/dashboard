@@ -25,7 +25,7 @@ class SnowflakeClient:
 
     def __init__(self):
 
-        with open(os.getenv("SNOWFLAKE_PRIVATE_KEY_PATH"), "rb") as key:
+        with open(os.getenv("SNOWFLAKE_PRIVATE_KEY_PATH").strip(), "rb") as key:
             private_key = key.read()
 
         self.conn = snowflake.connector.connect(
@@ -44,7 +44,7 @@ class SnowflakeClient:
             return cursor.fetch_pandas_all()
         finally:
             cursor.close()
-snowflake = SnowflakeClient()
+snowflakes = SnowflakeClient()
 PAGE_TITLE = "Advanced Analytics Suite"
 st.set_page_config(
     page_title=f"xanalife · {PAGE_TITLE}",
@@ -189,7 +189,7 @@ LEFT JOIN product_costs p
     ON b.SALE_ID = p.SALE_ID
 LEFT JOIN discounts d
     ON b.SALE_ID = d.SALE_ID;"""
-    df = snowflake.query(query)
+    df = snowflakes.query(query)
     df.columns = df.columns.str.lower()
     return df
 
@@ -275,7 +275,7 @@ clv_velocity AS (
 SELECT *
 FROM clv_velocity
 ORDER BY clv_velocity_score DESC NULLS LAST;"""
-    df = snowflake.query(query)
+    df = snowflakes.query(query)
     df.columns = df.columns.str.lower()
     return df
 
@@ -341,7 +341,7 @@ SELECT
 FROM srl
 WHERE shortage_units > 0
 ORDER BY srl_amount DESC NULLS LAST;"""
-    df = snowflake.query(query)
+    df = snowflakes.query(query)
     df.columns = df.columns.str.lower()
     return df
 
@@ -456,7 +456,7 @@ LEFT JOIN inventory_inventory_products ip ON ip.ID = pr.PRODUCT_ID
 WHERE pr.total_discount_cost > 0 AND ip.name is not NULL
 ORDER BY per_ratio DESC NULLS LAST;
 """
-    df = snowflake.query(query)
+    df = snowflakes.query(query)
     df.columns = df.columns.str.lower()
     return df
 
@@ -609,7 +609,7 @@ FROM decay_model
 WHERE product_name IS NOT NULL AND expiry_date > '0001-01-01' 
 ORDER BY projected_loss_no_action DESC, days_to_expiry ASC
 NULLS LAST;"""
-    df = snowflake.query(query)
+    df = snowflakes.query(query)
     df.columns = df.columns.str.lower()
     return df
 
@@ -617,7 +617,7 @@ NULLS LAST;"""
 def load_stores():
     """Load stores data and ensure unique store IDs"""
     query = """select * from inventory_stores;"""
-    df = snowflake.query(query)
+    df = snowflakes.query(query)
     df.columns = df.columns.str.lower()
     # ⭐ Drop duplicate store IDs — keep the first occurrence
     df = df.drop_duplicates(subset=['id'], keep='first').reset_index(drop=True)

@@ -5,7 +5,7 @@ Run standalone: python scripts/margin_analysis.py <passcode>
 
 import sys
 import pandas as pd
-from snowflake.snowflake_client import SnowflakeClient
+from snowflake_service.snowflake_client import SnowflakeClient
 
 connection = SnowflakeClient().conn
 

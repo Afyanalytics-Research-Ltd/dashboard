@@ -1,10 +1,23 @@
 import os
+import sys
+
+sys.path.insert(
+    0,
+    os.path.join(
+        os.path.dirname(os.path.abspath('__file__')),
+        "analytics_app",
+        "dashboards",
+        "xanalife",
+        "cross_sell"
+    )
+)
+
 import streamlit as st
 import plotly.express as px
 import pandas as pd
-from utils.snowflake_conn import run_query
-from utils.queries import HOME_STATS_QUERY, TOP_PRODUCTS_QUERY, STOCKOUT_PREDICTION_QUERY, STORE_PULSE_QUERY
-from utils.theme import inject_css, COLORS, CHART_LAYOUT, fmt_kes, sidebar_nav, section_header
+from xanalife.cross_sell.utils.snowflake_conn import run_query
+from xanalife.cross_sell.utils.queries import HOME_STATS_QUERY, TOP_PRODUCTS_QUERY, STOCKOUT_PREDICTION_QUERY, STORE_PULSE_QUERY
+from xanalife.cross_sell.utils.theme import inject_css, COLORS, CHART_LAYOUT, fmt_kes, sidebar_nav, section_header
 
 st.set_page_config(
     page_title="XanaLife Analytics",

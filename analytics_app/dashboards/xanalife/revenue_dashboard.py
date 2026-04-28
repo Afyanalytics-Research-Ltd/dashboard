@@ -27,7 +27,7 @@ import scr_analysis as scr
 import sales_analysis as sa
 import margin_analysis as ma
 import overview_analysis as ov
-from snowflake.snowflake_client import SnowflakeClient
+from snowflake_service.snowflake_client import SnowflakeClient
 
 conn = SnowflakeClient().conn
 

@@ -7,7 +7,7 @@ import sys
 from datetime import timedelta
 import pandas as pd
 import numpy as np
-from snowflake.snowflake_client import SnowflakeClient
+from snowflake_service.snowflake_client import SnowflakeClient
 connection =  SnowflakeClient().conn
 
 

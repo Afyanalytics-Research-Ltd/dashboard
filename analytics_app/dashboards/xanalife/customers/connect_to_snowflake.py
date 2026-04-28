@@ -16,49 +16,18 @@ import os
 from pathlib import Path
 import streamlit as st
 import pandas as pd
-import snowflake.connector
-from dotenv import load_dotenv
-
-load_dotenv(Path(__file__).parent.parent.parent.parent / ".env")
-
-SF_ACCOUNT       = os.getenv("SF_ACCOUNT")
-SF_USER          = os.getenv("SF_USER")
-SF_PASSWORD      = os.getenv("SF_PASSWORD")
-SF_AUTHENTICATOR = os.getenv("SF_AUTHENTICATOR", "username_password_mfa")
-SF_ROLE          = os.getenv("SF_ROLE")
-SF_WAREHOUSE     = os.getenv("SF_WAREHOUSE")
-SF_DATABASE      = os.getenv("SF_DATABASE", "HOSPITALS")
-SF_SCHEMA        = os.getenv("SF_SCHEMA",   "XANALIFE_CLEAN")
+from snowflake_service.snowflake_client import SnowflakeClient
 MIN_DATE         = "2025-09-01"
 
 
 # ─── CONNECTION ───────────────────────────────────────────────────────────────
 
-def _snowflake_connect(**kwargs):
-    return snowflake.connector.connect(
-        account=SF_ACCOUNT, user=SF_USER, password=SF_PASSWORD,
-        role=SF_ROLE, warehouse=SF_WAREHOUSE,
-        database=SF_DATABASE, schema=SF_SCHEMA,
-        authenticator=SF_AUTHENTICATOR,client_request_mfa_token=True, **kwargs,
-    )
-
-def connect_with_mfa_push():
-    try:
-        return _snowflake_connect()
-    except Exception as e:
-        if "MFA" in str(e) or "passcode" in str(e).lower():
-            print("MFA push timed out. Falling back to passcode.")
-            passcode = input("Enter MFA passcode: ").strip()
-            return _snowflake_connect(passcode=passcode)
-        raise
-
-
-def get_connection():
-    if "sf_conn" not in st.session_state:
-        with st.spinner("Connecting to Snowflake — please approve the MFA push…"):
-            st.session_state["sf_conn"] = connect_with_mfa_push()
-    return st.session_state["sf_conn"]
-
+def get_connection() -> SnowflakeClient:
+    if "sf_client" not in st.session_state:
+        with st.spinner("Connecting to Snowflake…"):
+            st.session_state["sf_client"] = SnowflakeClient()
+    return st.session_state["sf_client"]
+ 
 def _normalize_df(df: pd.DataFrame) -> pd.DataFrame:
     """Lowercase columns, cast Decimal→float, date strings→datetime."""
     for col in df.columns:
@@ -73,24 +42,23 @@ def _normalize_df(df: pd.DataFrame) -> pd.DataFrame:
             except (ValueError, TypeError):
                 pass
     return df
-
+ 
 @st.cache_data(ttl=3600, show_spinner="Loading data…")
 def run_query(sql: str) -> pd.DataFrame:
-    def _fetch(conn):
-        cur = conn.cursor()
-        cur.execute(sql)
-        cols = [d[0].lower() for d in cur.description]
-        return pd.DataFrame(cur.fetchall(), columns=cols)
+    def _fetch(client):
+        df = client.query(sql)
+        df.columns = [c.lower() for c in df.columns]
+        return df
     try:
         df = _fetch(get_connection())
     except Exception as e:
-        if "connection" in str(e).lower() or "session" in str(e).lower():
-            st.session_state.pop("sf_conn", None)
+        err = str(e).lower()
+        if "connect" in err or "session" in err or "250001" in str(e):
+            st.session_state.pop("sf_client", None)
             df = _fetch(get_connection())
         else:
             raise
     return _normalize_df(df)
-
 
 # ─── STORE CLASSIFICATION ─────────────────────────────────────────────────────
 # Both helpers use alias `st` — call them inside a query that already has

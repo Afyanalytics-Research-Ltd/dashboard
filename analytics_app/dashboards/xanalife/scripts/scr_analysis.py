@@ -5,7 +5,9 @@ Run standalone: python scripts/scr_analysis.py <passcode>
 
 import sys
 import pandas as pd
-from connection import connect
+from snowflake.snowflake_client import SnowflakeClient
+
+connection = SnowflakeClient().conn
 
 
 def run_query(sql: str, conn) -> pd.DataFrame:
@@ -273,7 +275,7 @@ ANALYSES = get_analyses()
 
 
 def run_all(passcode: str) -> dict:
-    conn = connect(passcode)
+    conn = connection
     results = {}
     for label, sql in ANALYSES:
         print(f"Running: {label}…")

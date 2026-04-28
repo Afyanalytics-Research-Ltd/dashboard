@@ -3,6 +3,9 @@ import pandas as pd
 import snowflake.connector
 
 
+
+
+
 @st.cache_resource
 def get_connection():
     cfg = st.secrets["snowflake"]

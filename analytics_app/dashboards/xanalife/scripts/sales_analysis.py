@@ -7,7 +7,8 @@ import sys
 from datetime import timedelta
 import pandas as pd
 import numpy as np
-from connection import connect
+from snowflake.snowflake_client import SnowflakeClient
+connection =  SnowflakeClient().conn
 
 
 def run_query(sql: str, conn) -> pd.DataFrame:
@@ -362,7 +363,7 @@ def build_forecast(daily_df: pd.DataFrame, days_forward: int = 30):
 # ── CLI ────────────────────────────────────────────────────────────────────────
 
 def run_all(passcode: str) -> dict:
-    conn = connect(passcode)
+    conn = connection
     results = {}
     for label, sql in ANALYSES:
         print(f"Running: {label}…")

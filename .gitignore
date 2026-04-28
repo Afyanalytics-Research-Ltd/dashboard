@@ -248,3 +248,4 @@ marimo/_lsp/
 __marimo__/
 *.csv
 rsa_key*
+service_account.json

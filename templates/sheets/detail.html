@@ -1,0 +1,374 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title|default:spreadsheet_id }} — Sheets Manager{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+  <div>
+    <h3 class="mb-1">
+      <i class="bi bi-file-earmark-spreadsheet text-success"></i>
+      {{ title|default:"(untitled)" }}
+    </h3>
+    <div class="text-muted small">
+      ID: <code>{{ spreadsheet_id }}</code>
+      {% if web_view_link %}
+        · <a href="{{ web_view_link }}" target="_blank" rel="noopener">Open in Google Sheets <i class="bi bi-box-arrow-up-right"></i></a>
+      {% endif %}
+    </div>
+  </div>
+  <a href="{% url 'sheets:index' %}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-arrow-left"></i> Back
+  </a>
+</div>
+
+{% if meta.error %}
+  <div class="alert alert-danger">
+    <strong>Couldn't load this spreadsheet.</strong> {{ meta.error }}
+    <hr>
+    Make sure it has been shared with the service account email (Viewer/Editor).
+  </div>
+{% endif %}
+
+<ul class="nav nav-pills mb-3" id="ops-tabs" role="tablist">
+  <li class="nav-item"><button class="nav-link {% if active_tab == 'values' %}active{% endif %}" data-bs-toggle="pill" data-bs-target="#tab-values" type="button">Values</button></li>
+  <li class="nav-item"><button class="nav-link {% if active_tab == 'batch' %}active{% endif %}" data-bs-toggle="pill" data-bs-target="#tab-batch" type="button">Batch update</button></li>
+  <li class="nav-item"><button class="nav-link {% if active_tab == 'tabs' %}active{% endif %}" data-bs-toggle="pill" data-bs-target="#tab-tabs" type="button">Tabs</button></li>
+  <li class="nav-item"><button class="nav-link {% if active_tab == 'rows' %}active{% endif %}" data-bs-toggle="pill" data-bs-target="#tab-rows" type="button">Rows</button></li>
+  <li class="nav-item"><button class="nav-link {% if active_tab == 'format' %}active{% endif %}" data-bs-toggle="pill" data-bs-target="#tab-format" type="button">Formatting</button></li>
+  <li class="nav-item"><button class="nav-link {% if active_tab == 'share' %}active{% endif %}" data-bs-toggle="pill" data-bs-target="#tab-share" type="button">Share</button></li>
+  <li class="nav-item"><button class="nav-link {% if active_tab == 'danger' %}active{% endif %}" data-bs-toggle="pill" data-bs-target="#tab-danger" type="button">Danger zone</button></li>
+</ul>
+
+<div class="tab-content">
+
+  {# ===================== VALUES ===================== #}
+  <div class="tab-pane fade {% if active_tab == 'values' %}show active{% endif %}" id="tab-values">
+    <div class="row g-3">
+      <div class="col-lg-6">
+        <div class="card shadow-sm">
+          <div class="card-header"><i class="bi bi-eye"></i> Read values</div>
+          <div class="card-body">
+            <form method="post" action="{% url 'sheets:read-values' spreadsheet_id %}" novalidate>
+              {% csrf_token %}
+              {% include "sheets/_field.html" with field=read_form.range %}
+              <button class="btn btn-primary"><i class="bi bi-search"></i> Read</button>
+            </form>
+
+            {% if read_result %}
+              <hr>
+              <div class="small text-muted mb-2">Range: <code>{{ read_result.range }}</code> · {{ read_result.values|length }} row(s)</div>
+              {% if read_result.values %}
+                <div class="table-responsive" style="max-height: 360px;">
+                  <table class="table table-sm table-bordered table-preview">
+                    <tbody>
+                    {% for row in read_result.values %}
+                      <tr>{% for cell in row %}<td>{{ cell }}</td>{% endfor %}</tr>
+                    {% endfor %}
+                    </tbody>
+                  </table>
+                </div>
+              {% else %}
+                <p class="text-muted small mb-0">Range is empty.</p>
+              {% endif %}
+            {% endif %}
+          </div>
+        </div>
+      </div>
+
+      <div class="col-lg-6">
+        <div class="card shadow-sm">
+          <div class="card-header"><i class="bi bi-pencil-square"></i> Update values</div>
+          <div class="card-body">
+            <form method="post" action="{% url 'sheets:update-values' spreadsheet_id %}" novalidate>
+              {% csrf_token %}
+              {% include "sheets/_field.html" with field=update_form.range %}
+              {% include "sheets/_field.html" with field=update_form.values %}
+              {% include "sheets/_field.html" with field=update_form.value_input_option %}
+              <button class="btn btn-success"><i class="bi bi-cloud-upload"></i> Update</button>
+            </form>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-lg-6">
+        <div class="card shadow-sm">
+          <div class="card-header"><i class="bi bi-plus-circle"></i> Append rows</div>
+          <div class="card-body">
+            <form method="post" action="{% url 'sheets:append-values' spreadsheet_id %}" novalidate>
+              {% csrf_token %}
+              {% include "sheets/_field.html" with field=append_form.range %}
+              {% include "sheets/_field.html" with field=append_form.values %}
+              <div class="row">
+                <div class="col-md-6">{% include "sheets/_field.html" with field=append_form.value_input_option %}</div>
+                <div class="col-md-6">{% include "sheets/_field.html" with field=append_form.insert_data_option %}</div>
+              </div>
+              <button class="btn btn-success"><i class="bi bi-plus-lg"></i> Append</button>
+            </form>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-lg-6">
+        <div class="card shadow-sm">
+          <div class="card-header"><i class="bi bi-eraser"></i> Clear range</div>
+          <div class="card-body">
+            <form method="post" action="{% url 'sheets:clear-range' spreadsheet_id %}" novalidate>
+              {% csrf_token %}
+              {% include "sheets/_field.html" with field=clear_form.range %}
+              <button class="btn btn-warning"><i class="bi bi-trash3"></i> Clear</button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# ===================== BATCH ===================== #}
+  <div class="tab-pane fade {% if active_tab == 'batch' %}show active{% endif %}" id="tab-batch">
+    <div class="card shadow-sm">
+      <div class="card-header"><i class="bi bi-stack"></i> Batch update many ranges</div>
+      <div class="card-body">
+        <form method="post" action="{% url 'sheets:batch-update' spreadsheet_id %}" novalidate>
+          {% csrf_token %}
+          {% include "sheets/_field.html" with field=batch_form.blocks %}
+          {% include "sheets/_field.html" with field=batch_form.value_input_option %}
+          <button class="btn btn-success"><i class="bi bi-lightning-charge"></i> Run batch</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  {# ===================== TABS ===================== #}
+  <div class="tab-pane fade {% if active_tab == 'tabs' %}show active{% endif %}" id="tab-tabs">
+    <div class="row g-3">
+      <div class="col-lg-6">
+        <div class="card shadow-sm">
+          <div class="card-header"><i class="bi bi-list-ul"></i> Existing tabs</div>
+          <div class="card-body p-0">
+            {% if tabs %}
+              <table class="table table-sm mb-0 align-middle">
+                <thead class="table-light"><tr><th>Title</th><th>sheetId</th><th>Index</th><th></th></tr></thead>
+                <tbody>
+                  {% for t in tabs %}
+                    <tr>
+                      <td>{{ t.title }}</td>
+                      <td><code class="small">{{ t.sheetId }}</code></td>
+                      <td>{{ t.index }}</td>
+                      <td class="text-end">
+                        <form method="post" action="{% url 'sheets:delete-tab' spreadsheet_id %}" class="d-inline"
+                              onsubmit="return confirm('Delete tab “{{ t.title|escapejs }}”?');">
+                          {% csrf_token %}
+                          <input type="hidden" name="sheet_id" value="{{ t.sheetId }}">
+                          <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
+                        </form>
+                      </td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            {% else %}
+              <p class="text-muted m-3">No tabs visible.</p>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+
+      <div class="col-lg-3">
+        <div class="card shadow-sm">
+          <div class="card-header"><i class="bi bi-plus-square"></i> Add tab</div>
+          <div class="card-body">
+            <form method="post" action="{% url 'sheets:add-tab' spreadsheet_id %}" novalidate>
+              {% csrf_token %}
+              {% include "sheets/_field.html" with field=add_tab_form.title %}
+              <button class="btn btn-success btn-sm"><i class="bi bi-plus-lg"></i> Add</button>
+            </form>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-lg-3">
+        <div class="card shadow-sm">
+          <div class="card-header"><i class="bi bi-input-cursor-text"></i> Rename tab</div>
+          <div class="card-body">
+            <form method="post" action="{% url 'sheets:rename-tab' spreadsheet_id %}" novalidate>
+              {% csrf_token %}
+              <div class="mb-3">
+                <label class="form-label small fw-semibold">Tab</label>
+                <select name="sheet_id" class="form-select">
+                  {% for t in tabs %}<option value="{{ t.sheetId }}">{{ t.title }}</option>{% endfor %}
+                </select>
+              </div>
+              {% include "sheets/_field.html" with field=rename_tab_form.new_title %}
+              <button class="btn btn-primary btn-sm">Rename</button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# ===================== ROWS ===================== #}
+  <div class="tab-pane fade {% if active_tab == 'rows' %}show active{% endif %}" id="tab-rows">
+    <div class="row g-3">
+      <div class="col-lg-6">
+        <div class="card shadow-sm">
+          <div class="card-header"><i class="bi bi-plus-square-dotted"></i> Insert rows</div>
+          <div class="card-body">
+            <form method="post" action="{% url 'sheets:insert-rows' spreadsheet_id %}" novalidate>
+              {% csrf_token %}
+              {% include "sheets/_field.html" with field=insert_rows_form.sheet_id %}
+              <div class="row">
+                <div class="col">{% include "sheets/_field.html" with field=insert_rows_form.start_row %}</div>
+                <div class="col">{% include "sheets/_field.html" with field=insert_rows_form.count %}</div>
+              </div>
+              <button class="btn btn-success">Insert</button>
+            </form>
+            <p class="form-text">Indices are 0-based.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-lg-6">
+        <div class="card shadow-sm">
+          <div class="card-header"><i class="bi bi-dash-square-dotted"></i> Delete rows</div>
+          <div class="card-body">
+            <form method="post" action="{% url 'sheets:delete-rows' spreadsheet_id %}" novalidate>
+              {% csrf_token %}
+              {% include "sheets/_field.html" with field=delete_rows_form.sheet_id %}
+              <div class="row">
+                <div class="col">{% include "sheets/_field.html" with field=delete_rows_form.start_row %}</div>
+                <div class="col">{% include "sheets/_field.html" with field=delete_rows_form.end_row %}</div>
+              </div>
+              <button class="btn btn-danger">Delete</button>
+            </form>
+            <p class="form-text">Range is half-open: rows [start, end).</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# ===================== FORMAT ===================== #}
+  <div class="tab-pane fade {% if active_tab == 'format' %}show active{% endif %}" id="tab-format">
+    <div class="row g-3">
+      <div class="col-lg-7">
+        <div class="card shadow-sm">
+          <div class="card-header"><i class="bi bi-palette"></i> Format cells</div>
+          <div class="card-body">
+            <form method="post" action="{% url 'sheets:format-cells' spreadsheet_id %}" novalidate>
+              {% csrf_token %}
+              {% include "sheets/_field.html" with field=format_form.sheet_id %}
+              <div class="row">
+                <div class="col">{% include "sheets/_field.html" with field=format_form.start_row %}</div>
+                <div class="col">{% include "sheets/_field.html" with field=format_form.end_row %}</div>
+                <div class="col">{% include "sheets/_field.html" with field=format_form.start_col %}</div>
+                <div class="col">{% include "sheets/_field.html" with field=format_form.end_col %}</div>
+              </div>
+              <div class="row">
+                <div class="col-md-3">{% include "sheets/_field.html" with field=format_form.bold %}</div>
+                <div class="col-md-3">{% include "sheets/_field.html" with field=format_form.italic %}</div>
+                <div class="col-md-3">{% include "sheets/_field.html" with field=format_form.font_size %}</div>
+                <div class="col-md-3">{% include "sheets/_field.html" with field=format_form.horizontal_alignment %}</div>
+              </div>
+              <div class="row">
+                <div class="col-md-6">{% include "sheets/_field.html" with field=format_form.background_hex %}</div>
+                <div class="col-md-6">{% include "sheets/_field.html" with field=format_form.foreground_hex %}</div>
+              </div>
+              <div class="row">
+                <div class="col-md-6">{% include "sheets/_field.html" with field=format_form.number_format_type %}</div>
+                <div class="col-md-6">{% include "sheets/_field.html" with field=format_form.number_format_pattern %}</div>
+              </div>
+              <button class="btn btn-primary"><i class="bi bi-check-lg"></i> Apply formatting</button>
+            </form>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-lg-5">
+        <div class="card shadow-sm">
+          <div class="card-header"><i class="bi bi-pin-angle"></i> Freeze rows</div>
+          <div class="card-body">
+            <form method="post" action="{% url 'sheets:freeze-rows' spreadsheet_id %}" novalidate>
+              {% csrf_token %}
+              {% include "sheets/_field.html" with field=freeze_form.sheet_id %}
+              {% include "sheets/_field.html" with field=freeze_form.row_count %}
+              <button class="btn btn-primary">Freeze</button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# ===================== SHARE ===================== #}
+  <div class="tab-pane fade {% if active_tab == 'share' %}show active{% endif %}" id="tab-share">
+    <div class="row g-3">
+      <div class="col-lg-5">
+        <div class="card shadow-sm">
+          <div class="card-header"><i class="bi bi-person-plus"></i> Share with…</div>
+          <div class="card-body">
+            <form method="post" action="{% url 'sheets:share' spreadsheet_id %}" novalidate>
+              {% csrf_token %}
+              {% include "sheets/_field.html" with field=share_form.email %}
+              {% include "sheets/_field.html" with field=share_form.role %}
+              {% include "sheets/_field.html" with field=share_form.notify %}
+              <button class="btn btn-success"><i class="bi bi-share"></i> Share</button>
+            </form>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-lg-7">
+        <div class="card shadow-sm">
+          <div class="card-header"><i class="bi bi-people"></i> Current permissions</div>
+          <div class="card-body p-0">
+            {% if permissions %}
+              <table class="table table-sm mb-0 align-middle">
+                <thead class="table-light"><tr><th>Email / Name</th><th>Role</th><th>Type</th><th></th></tr></thead>
+                <tbody>
+                  {% for p in permissions %}
+                    <tr>
+                      <td>{{ p.emailAddress|default:p.displayName|default:p.id }}</td>
+                      <td><span class="badge bg-secondary">{{ p.role }}</span></td>
+                      <td>{{ p.type }}</td>
+                      <td class="text-end">
+                        {% if p.role != "owner" %}
+                          <form method="post" action="{% url 'sheets:remove-permission' spreadsheet_id %}" class="d-inline"
+                                onsubmit="return confirm('Remove this permission?');">
+                            {% csrf_token %}
+                            <input type="hidden" name="permission_id" value="{{ p.id }}">
+                            <button class="btn btn-sm btn-outline-danger"><i class="bi bi-x-lg"></i></button>
+                          </form>
+                        {% endif %}
+                      </td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            {% else %}
+              <p class="text-muted m-3 mb-0">No permissions returned (or insufficient access to list them).</p>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# ===================== DANGER ===================== #}
+  <div class="tab-pane fade {% if active_tab == 'danger' %}show active{% endif %}" id="tab-danger">
+    <div class="card shadow-sm border-danger">
+      <div class="card-header text-danger"><i class="bi bi-exclamation-triangle"></i> Delete this spreadsheet</div>
+      <div class="card-body">
+        <p class="text-muted">This permanently deletes the spreadsheet from Drive. There is no undo.</p>
+        <form method="post" action="{% url 'sheets:delete-spreadsheet' spreadsheet_id %}" novalidate
+              onsubmit="return confirm('Permanently delete this spreadsheet? This cannot be undone.');">
+          {% csrf_token %}
+          {% include "sheets/_field.html" with field=delete_spreadsheet_form.confirm %}
+          <button class="btn btn-danger"><i class="bi bi-trash3"></i> Delete forever</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

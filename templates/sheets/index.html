@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+
+{% block title %}Warehouse Manager — Home{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+  <div class="col-md-6">
+    <div class="card shadow-sm">
+      <div class="card-header"><i class="bi bi-plus-square text-success"></i> Create a new spreadsheet</div>
+      <div class="card-body">
+        <form method="post" novalidate>
+          {% csrf_token %}
+          <input type="hidden" name="action" value="create">
+          {% include "sheets/_field.html" with field=create_form.title %}
+          {% include "sheets/_field.html" with field=create_form.sheet_titles %}
+          <button type="submit" class="btn btn-success">
+            <i class="bi bi-plus-lg"></i> Create
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-6">
+    <div class="card shadow-sm">
+      <div class="card-header"><i class="bi bi-folder2-open text-primary"></i> Open existing spreadsheet</div>
+      <div class="card-body">
+        <form method="post" novalidate>
+          {% csrf_token %}
+          <input type="hidden" name="action" value="open">
+          {% include "sheets/_field.html" with field=open_form.id_or_url %}
+          <button type="submit" class="btn btn-primary">
+            <i class="bi bi-box-arrow-in-right"></i> Open
+          </button>
+        </form>
+        <p class="text-muted small mt-3 mb-0">
+          Tip: paste the full URL — we'll extract the ID for you.
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card shadow-sm mt-4">
+  <div class="card-header"><i class="bi bi-clock-history text-secondary"></i> Recent spreadsheets</div>
+  <div class="card-body p-0">
+    {% if recent %}
+      <div class="table-responsive">
+        <table class="table table-hover mb-0 align-middle">
+          <thead class="table-light">
+            <tr><th>Title</th><th>ID</th><th>Last touched</th><th></th></tr>
+          </thead>
+          <tbody>
+            {% for r in recent %}
+              <tr>
+                <td>{{ r.title|default:"(untitled)" }}</td>
+                <td><code class="small">{{ r.spreadsheet_id }}</code></td>
+                <td>{{ r.updated_at|date:"Y-m-d H:i" }}</td>
+                <td class="text-end">
+                  <a href="{% url 'sheets:detail' r.spreadsheet_id %}" class="btn btn-sm btn-outline-primary">Open</a>
+                  {% if r.web_view_link %}
+                    <a href="{{ r.web_view_link }}" target="_blank" rel="noopener" class="btn btn-sm btn-outline-secondary">
+                      <i class="bi bi-box-arrow-up-right"></i> Google
+                    </a>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="text-muted m-3 mb-0">No sheets yet. Create one or open an existing one above.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

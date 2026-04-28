@@ -214,6 +214,7 @@ def run_all() -> dict:
     for label, sql in ANALYSES:
         print(f"\n{'='*60}\n  {label}\n{'='*60}")
         df = run_query(sql)
+        df.columns = df.columns.str.upper()
         print(df.to_string(index=False))
         results[label] = df
     print("\n\nAll 9 analyses complete.")

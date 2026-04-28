@@ -3,10 +3,19 @@ Xanalife Analytics — Executive Dashboard
 Run: streamlit run revenue_dashboard.py
 """
 
-import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "scripts"))
+import sys
 
+sys.path.insert(
+    0,
+    os.path.join(
+        os.path.dirname(os.path.abspath('__file__')),
+        "analytics_app",
+        "dashboards",
+        "xanalife",
+        "scripts"
+    )
+)
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -107,9 +116,11 @@ for key in ("ci_data", "scr_data", "sa_data", "ma_data", "ov_data", "stores_df")
 # ── Load stores on first run ───────────────────────────────────────────────────
 
 if st.session_state.stores_df is None:
+    # import pdb;pdb.set_trace()
     stores_raw = ov.run_query(
         "SELECT id AS STORE_ID, MIN(name) AS STORE_NAME, MIN(code) AS STORE_CODE "
         "FROM hospitals.xanalife_clean.inventory_stores GROUP BY id ORDER BY MIN(name)")
+    # stores_raw.columns = stores_raw.columns.str.upper()
     stores_raw["LOCATION"] = stores_raw["STORE_ID"].apply(
         lambda x: "Syokimau" if x in {399, 400, 401, 402, 403, 404} else "Katani"
     )

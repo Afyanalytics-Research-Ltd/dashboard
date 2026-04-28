@@ -1,0 +1,10 @@
+snowflake-connector-python
+snowflake-sqlalchemy
+pandas
+notebook
+matplotlib
+seaborn
+scikit-learn    
+pyarrow
+plotly
+Streamlit

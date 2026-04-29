@@ -9,10 +9,12 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = 'django-secret-key'
 DEBUG = os.getenv('DEBUG',True).strip()
-ALLOWED_HOSTS = ['datahub.afyaanalytics.com']
+ALLOWED_HOSTS = ['datahub.afyaanalytics.com', 'localhost', '127.0.0.1']
 
 CSRF_TRUSTED_ORIGINS = [
     'https://datahub.afyaanalytics.com',
+    'http://localhost:8000',
+    'http://127.0.0.1:8000',
 ]
 INSTALLED_APPS = [
     'django.contrib.admin',

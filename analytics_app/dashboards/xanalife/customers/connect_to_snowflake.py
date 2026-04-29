@@ -16,9 +16,9 @@ import sys
 from pathlib import Path
 import streamlit as st
 import pandas as pd
-from dotenv import load_dotenv
+# from dotenv import load_dotenv
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+# sys.path.insert(0, str(Path('__file__').parent.parent.parent))
 from snowflake_service.snowflake_client import SnowflakeClient
 
 

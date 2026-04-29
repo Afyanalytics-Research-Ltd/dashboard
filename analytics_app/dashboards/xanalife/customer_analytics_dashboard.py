@@ -557,6 +557,7 @@ with tab1:
         f'<li><b style="color:{AFYA_BLUE}">Standard Retail</b> — All other stores (supermarkets, general grocery). The core volume driver; growth comes from everyday basket expansion or more frequent visits.</li>'
         f'</ul>',
         unsafe_allow_html=True)
+    # import pdb;pdb.set_trace()
     rgs_df = D.load_retail_growth_segments()
     seg_palette = {"Healthcare": TEAL, "Specialty / High Margin": PURPLE, "Standard Retail": AFYA_BLUE}
     c1, c2 = st.columns(2, gap="large")

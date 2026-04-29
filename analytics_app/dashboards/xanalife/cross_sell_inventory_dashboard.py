@@ -30,15 +30,15 @@ from xanalife.cross_sell.utils.theme import (
     sidebar_nav, section_header, page_banner, kpi_card, info_card,
 )
 
-PAGES = {
-    "home":     st.Page("xanalife/cross_sell_inventory_dashboard.py",
-                        title="Home", icon="🏠", default=True),
-    "csuc":     st.Page("xanalife/1_CSUC.py",
-                        title="Cross-Sell Intelligence", icon="📊"),
-    "stockout": st.Page("xanalife/3_Stockout_Prediction.py",
-                        title="Inventory Risk", icon="📦"),
-}
-nav = st.navigation(list(PAGES.values()))
+# PAGES = {
+#     "home":     st.Page("xanalife/cross_sell_inventory_dashboard.py",
+#                         title="Home", icon="🏠", default=True),
+#     "csuc":     st.Page("xanalife/1_CSUC.py",
+#                         title="Cross-Sell Intelligence", icon="📊"),
+#     "stockout": st.Page("xanalife/3_Stockout_Prediction.py",
+#                         title="Inventory Risk", icon="📦"),
+# }
+# nav = st.navigation(list(PAGES.values()))
 # nav.run()
 st.set_page_config(
     page_title="XanaLife Analytics",
@@ -336,8 +336,8 @@ if data_loaded:
             f'</div>',
             unsafe_allow_html=True,
         )
-        st.page_link("xanalife/3_Stockout_Prediction.py",
-                 label="Inventory Risk", icon="📦")
+        # st.page_link("xanalife/3_Stockout_Prediction.py",
+        #          label="Inventory Risk", icon="📦")
     else:
         info_card("✅ Stock health looks good — no products are currently out of stock or critical.", border_color=COLORS["success"])
 

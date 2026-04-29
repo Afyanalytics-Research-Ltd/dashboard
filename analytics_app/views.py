@@ -7,6 +7,17 @@ EXCLUDED_FILES = {"__init__.py", "dynamic_file_loader.py"}
 
 # views.py
 
+
+
+def dashboard_main(request, slug='main'):
+    user = request.user
+    client = user.profile.client or "default"
+    dashboard = Dashboard.objects.filter(slug=slug, client=client, is_active=True).latest('created_at')
+
+    return render(request, "dashboard_iframe.html", {
+        "dashboard": dashboard
+    })
+
 def dashboard_view(request, slug):
     dashboard = Dashboard.objects.filter(slug=slug, is_active=True).latest('created_at')
 

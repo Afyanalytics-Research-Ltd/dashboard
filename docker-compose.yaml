@@ -40,6 +40,7 @@ services:
       --server.headless=true
       --server.enableCORS=false
       --server.enableXsrfProtection=false
+      --server.baseUrlPath=/streamlitdashboard
 
   postgres:
     image: postgres:latest

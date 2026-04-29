@@ -52,8 +52,10 @@ def dashboard_list(request):
         if file.endswith(".py") and file not in EXCLUDED_FILES:
             slug = file.replace(".py", "")
             name = slug.replace("_", " ").title()
-            # url = f"http://streamlit/?dashboard={slug}"
-            url = f"http://localhost:8501/?dashboard={slug}"
+            url = f"{settings.STREAMLIT_BASE_URL}/?dashboard={slug}"
+
+            # url = f"https://datahub.afyaanalytics.com/dashboard/?dashboard={slug}" # routes online
+            # url = f"http://localhost:8501/?dashboard={slug}"
 
             Dashboard.objects.update_or_create(
                 client=client,

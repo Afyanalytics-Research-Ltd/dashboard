@@ -90,3 +90,7 @@ LOGIN_URL = '/login/'
 LOGIN_REDIRECT_URL = '/'
 LOGOUT_REDIRECT_URL = '/login/'
 GOOGLE_SERVICE_ACCOUNT_FILE = os.getenv('GOOGLE_SERVICE_ACCOUNT_FILE',"").strip()
+STREAMLIT_BASE_URL = os.getenv(
+    "STREAMLIT_BASE_URL",
+    "http://localhost:8501"
+).rstrip("/")

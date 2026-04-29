@@ -74,7 +74,7 @@ server {
     }
 
     # Streamlit dashboard
-    location /dashboard/ {
+    location /dashboard {
         resolver 127.0.0.11 valid=30s;
         set $streamlit_upstream http://streamlit:8501;
         proxy_pass $streamlit_upstream;

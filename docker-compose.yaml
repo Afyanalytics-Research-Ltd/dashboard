@@ -14,9 +14,7 @@ services:
     volumes:
       - web-django:/usr/src/app
       - web-static:/usr/src/app/static
-    env_file: .env
-    environment:
-      DEBUG: "true"
+    env_file: .env  
     entrypoint: ["/bin/bash", "+x", "/entrypoint.sh"]
   
 

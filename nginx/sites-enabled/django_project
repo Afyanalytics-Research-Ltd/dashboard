@@ -52,7 +52,7 @@ server {
 server {
     listen 443 ssl;
     listen [::]:443 ssl;
-    http2 on;
+    # http2 on;
     server_name datahub.afyaanalytics.com;
     charset utf-8;
     client_max_body_size 100M;

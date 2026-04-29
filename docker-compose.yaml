@@ -1,6 +1,9 @@
 version: "3"
 
 services:
+
+
+
   web:
     restart: always
     build: .
@@ -16,6 +19,30 @@ services:
       DEBUG: "true"
     entrypoint: ["/bin/bash", "+x", "/entrypoint.sh"]
   
+
+  streamlit:
+    restart: always
+    build: .
+    container_name: streamlit-container
+    expose:
+      - "8501"
+    ports:
+      - "8501:8501"
+    volumes:
+      - web-django:/usr/src/app
+    env_file: .env
+    working_dir: /usr/src/app
+    depends_on:
+      - postgres
+      - redis
+    command: >
+      streamlit run analytics_app/dashboards/dynamic_file_loader.py
+      --server.port=8501
+      --server.address=0.0.0.0
+      --server.headless=true
+      --server.enableCORS=false
+      --server.enableXsrfProtection=false
+      
   postgres:
     image: postgres:latest
     container_name: postgres-container

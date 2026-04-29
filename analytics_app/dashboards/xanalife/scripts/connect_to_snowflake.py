@@ -43,15 +43,29 @@ def _normalize_df(df: pd.DataFrame) -> pd.DataFrame:
                 pass
     return df
  
-# @st.cache_data(ttl=3600, show_spinner="Loading data…")
+@st.cache_data(ttl=3600, show_spinner="Loading data…")
 def run_query(sql: str) -> pd.DataFrame:
-    conn = get_connection()
-    try:
-        df = pd.read_sql(sql, conn)
-       # df.columns = [c.lower() for c in df.columns]
+    def _fetch(client):
+        df = client.query(sql)
+        df.columns = [c.upper() for c in df.columns]
         return df
-    finally:
-        conn.close()
+    def _fetch(client):
+        df = client.query(sql)
+        df.columns = [c.upper() for c in df.columns]
+        return df
+    try:
+        df = _fetch(get_connection())
+    except Exception as e:
+        err = str(e).lower()
+        if "connect" in err or "session" in err or "250001" in str(e):
+            st.session_state.pop("sf_client", None)
+        err = str(e).lower()
+        if "connect" in err or "session" in err or "250001" in str(e):
+            st.session_state.pop("sf_client", None)
+            df = _fetch(get_connection())
+        else:
+            raise
+    return _normalize_df(df)
     
 # ─── STORE CLASSIFICATION ─────────────────────────────────────────────────────
 # Both helpers use alias `st` — call them inside a query that already has

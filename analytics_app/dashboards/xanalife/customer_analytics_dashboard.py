@@ -16,6 +16,7 @@ Changes from v3:
 import io
 import os
 import sys
+from pathlib import Path
 
 sys.path.insert(
     0,
@@ -27,6 +28,7 @@ sys.path.insert(
         "customers"
     )
 )
+
 
 import numpy as np
 import pandas as pd
@@ -72,7 +74,7 @@ html,body,[class*="css"]{font-family:'Montserrat',sans-serif;background:#fff;col
 </style>
 """, unsafe_allow_html=True)
 
-_CL = {**CHART_LAYOUT, "margin": {"t": 60, "b": 10, "l": 0, "r": 80}}
+_CL = {**CHART_LAYOUT, "margin": {"t": 10, "b": 10, "l": 0, "r": 80}}
 
 
 # ─── HELPERS ──────────────────────────────────────────────────────────────────
@@ -224,13 +226,6 @@ kpi_df = D.load_kpis()
 bsk_df = D.load_avg_basket()
 rl_df  = D.load_regular_loyal()
 
-_active   = kpi_df["active_customers"].iloc[0]
-_repeat   = kpi_df["repeat_customers"].iloc[0]
-_onetime  = kpi_df["one_time_customers"].iloc[0]
-_new30    = kpi_df["new_last_30d"].iloc[0]
-_ot_pct   = round(_onetime / _active * 100, 1) if _active else 0
-_rep_pct  = round(_repeat  / _active * 100, 1) if _active else 0
-
 def _kpi_metric(label, value, definition, color):
     return (
         f'<div style="flex:1;min-width:0;padding:0 12px">'
@@ -251,27 +246,24 @@ def _kpi_tile(title, metrics_html):
         f'</div>'
     )
 
-_k1, _k2, _k3 = st.columns(3, gap="large")
-
-with _k1:
-    st.markdown(_kpi_tile("Customer Base",
-        _kpi_metric("Active",    fmt_num(_active),  "unique customers with ≥1 purchase", AFYA_BLUE) +
-        _kpi_metric("Repeat",    fmt_num(_repeat),  f"{_rep_pct}% of active — returned at least once", TEAL) +
-        _kpi_metric("One-Time",  fmt_num(_onetime), f"{_ot_pct}% of active — single visit only", CORAL)
-    ), unsafe_allow_html=True)
-
-with _k2:
-    st.markdown(_kpi_tile("Loyalty & Retention — Customers",
-        _kpi_metric("Regular",   fmt_num(rl_df["regular_customers"].iloc[0]), "6+ visits in the last 90 days", PURPLE) +
-        _kpi_metric("Loyal",     fmt_num(rl_df["loyal_customers"].iloc[0]),   "12+ visits, active within 21 days", COOL_BLUE) +
-        _kpi_metric("New (30d)", fmt_num(_new30), "first-ever purchase in the last 30 days", ORANGE)
-    ), unsafe_allow_html=True)
-
-with _k3:
-    st.markdown(_kpi_tile("Basket",
-        _kpi_metric("Avg Value", fmt_ksh(bsk_df["avg_basket_value"].iloc[0]),      "average spend per transaction", TEAL) +
-        _kpi_metric("Avg Items", fmt_num(bsk_df["avg_items_per_basket"].iloc[0]),   "average products per basket", AFYA_BLUE)
-    ), unsafe_allow_html=True)
+_t1, _t2, _t3 = st.columns(3, gap="large")
+with _t1:
+    st.markdown(_kpi_tile("Customer Base", (
+        _kpi_metric("Active",   fmt_num(kpi_df["active_customers"].iloc[0]),   "total customers (lifetime)", AFYA_BLUE) +
+        _kpi_metric("Repeat",   fmt_num(kpi_df["repeat_customers"].iloc[0]),   "visited more than once",     TEAL) +
+        _kpi_metric("One-Time", fmt_num(kpi_df["one_time_customers"].iloc[0]), "never returned",             CORAL)
+    )), unsafe_allow_html=True)
+with _t2:
+    st.markdown(_kpi_tile("Loyalty & Retention — Customers", (
+        _kpi_metric("Regular",  fmt_num(rl_df["regular_customers"].iloc[0]),  "6+ visits in 90 days",    PURPLE) +
+        _kpi_metric("Loyal",    fmt_num(rl_df["loyal_customers"].iloc[0]),    "12+ visits, seen in 21d", COOL_BLUE) +
+        _kpi_metric("New (30d)",fmt_num(kpi_df["new_last_30d"].iloc[0]),      "first purchase",          ORANGE)
+    )), unsafe_allow_html=True)
+with _t3:
+    st.markdown(_kpi_tile("Basket", (
+        _kpi_metric("Avg Value", fmt_ksh(bsk_df["avg_basket_value"].iloc[0]),    "KES per transaction", TEAL) +
+        _kpi_metric("Avg Items", fmt_num(bsk_df["avg_items_per_basket"].iloc[0]),"per transaction",     GRAY)
+    )), unsafe_allow_html=True)
 
 gap(16)
 
@@ -346,7 +338,7 @@ with tab1:
         fig_gs.update_layout(
             legend=dict(orientation="h", yanchor="top", y=-0.18,
                         xanchor="left", x=0, font=dict(size=9)),
-            margin=dict(t=10, b=80, l=0, r=10))
+            margin=dict(t=0, b=80, l=0, r=10))
         fig_gs.update_xaxes(**AXIS, tickformat="%b %Y")
         fig_gs.update_yaxes(**AXIS, title_text="New customers")
         st.markdown('<div style="font-size:15px;font-weight:600;color:#003467;margin-bottom:4px">New Customer Acquisition — Per Store</div>', unsafe_allow_html=True)
@@ -439,7 +431,7 @@ with tab1:
         fig_xs.update_layout(**_CL, height=240)
         fig_xs.update_xaxes(**AXIS, tickformat="%b")
         fig_xs.update_yaxes(**AXIS, ticksuffix="%")
-        st.markdown('<div style="font-size:15px;font-weight:600;color:#003467;margin-bottom:4px">Pharmacy & Supermarket Cross-Shopping Rate (%)</div>', unsafe_allow_html=True)
+        st.markdown('<div style="font-size:15px;font-weight:600;color:#003467;margin-bottom:4px">Pharmacy &amp; Supermarket Cross-Shopping Rate (%)</div>', unsafe_allow_html=True)
         pc(fig_xs)
         note("% of registered customers who visited both pharmacy and grocery in the same month.")
 
@@ -471,7 +463,6 @@ with tab1:
         if excl_ws: bst_df = excl_wholesale(bst_df)
         bst_df = apply_filters(bst_df)
         _txn_max = bst_df["transactions"].fillna(0).max()
-        _bubble_size = [max(12, v / _txn_max * 60) for v in bst_df["transactions"].fillna(0)]
         palette = [AFYA_BLUE, TEAL, PURPLE, ORANGE, CORAL, GRAY, "#185FA5", COOL_BLUE]
         fig_bst = go.Figure()
         for i, row in bst_df.iterrows():
@@ -503,77 +494,6 @@ with tab1:
         note("Bubble size = number of transactions. Top-right = high-value, high-volume baskets.")
         st.markdown('<div style="font-size:15px;font-weight:600;color:#003467;margin-bottom:4px">Basket Profile by Store</div>', unsafe_allow_html=True)
         pc(fig_bst)
-
-    gap(8)
-    sh("Where Is Retail Growth Coming From?", mt=4)
-    st.markdown(
-        f'<ul style="font-size:12px;color:#4A5568;line-height:2;margin-bottom:10px;padding-left:18px">'
-        f'<li><b style="color:{TEAL}">Healthcare</b> — Pharmacy stores. Growth is need-driven: customers coming for medicine, potentially cross-shopping for groceries.</li>'
-        f'<li><b style="color:{PURPLE}">Specialty / High Margin</b> — Wine and Deli stores. Growth signals premiumisation — customers buying higher-margin, discretionary items.</li>'
-        f'<li><b style="color:{AFYA_BLUE}">Standard Retail</b> — All other stores (supermarkets, general grocery). The core volume driver; growth comes from everyday basket expansion or more frequent visits.</li>'
-        f'</ul>',
-        unsafe_allow_html=True)
-    rgs_df = D.load_retail_growth_segments()
-    seg_palette = {"Healthcare": TEAL, "Specialty / High Margin": PURPLE, "Standard Retail": AFYA_BLUE}
-    c1, c2 = st.columns(2, gap="large")
-
-    with c1:
-        fig_rg = go.Figure()
-        for seg, grp in rgs_df.groupby("retail_segment"):
-            grp = grp.sort_values("month")
-            fig_rg.add_trace(go.Scatter(
-                x=grp["month"], y=grp["revenue"],
-                name=seg, mode="lines+markers",
-                line=dict(color=seg_palette.get(seg, GRAY), width=2),
-                marker=dict(size=5),
-                fill="tozeroy", fillcolor=_rgba(seg_palette.get(seg, GRAY), 0.07),
-                hovertemplate=f"<b>{seg}</b><br>%{{x|%b %Y}}<br>Revenue: KSh %{{y:,.0f}}<extra></extra>",
-            ))
-        fig_rg.update_layout(**_CL, height=300)
-        fig_rg.update_layout(
-            legend=dict(orientation="h", yanchor="top", y=-0.18, xanchor="left", x=0, font=dict(size=9)),
-            margin=dict(t=10, b=70, l=0, r=10))
-        fig_rg.update_xaxes(**_ax(tickformat="%b %Y"))
-        fig_rg.update_yaxes(**_ax(title_text="Revenue (KSh)", tickformat=",.0f"))
-        st.markdown('<div style="font-size:15px;font-weight:600;color:#003467;margin-bottom:4px">Monthly Revenue by Retail Segment</div>', unsafe_allow_html=True)
-        pc(fig_rg)
-
-    with c2:
-        rgs_recent = rgs_df.copy()
-        rgs_recent["month"] = pd.to_datetime(rgs_recent["month"], errors="coerce")
-        last_6 = sorted(rgs_recent["month"].dropna().unique())[-6:]
-        rgs_recent = rgs_recent[rgs_recent["month"].isin(last_6)]
-        fig_rg2 = go.Figure()
-        for seg, clr in seg_palette.items():
-            d = rgs_recent[rgs_recent["retail_segment"] == seg].sort_values("month")
-            if d.empty:
-                continue
-            fig_rg2.add_trace(go.Bar(
-                name=seg,
-                x=d["month"].dt.strftime("%b %Y"),
-                y=d["revenue"].fillna(0),
-                marker_color=clr,
-                customdata=d[["rev_change_kes", "avg_basket_value", "transaction_count"]].fillna(0).values,
-                hovertemplate=(
-                    f"<b>{seg}</b><br>"
-                    "%{x}<br>"
-                    "Revenue: KSh %{y:,.0f}<br>"
-                    "MoM: KSh %{customdata[0]:,.0f}<br>"
-                    "Avg basket: KSh %{customdata[1]:,.0f}<br>"
-                    "Transactions: %{customdata[2]:,.0f}"
-                    "<extra></extra>"
-                ),
-            ))
-        fig_rg2.update_layout(**_CL, height=300, barmode="group")
-        fig_rg2.update_layout(
-            legend=dict(orientation="h", yanchor="top", y=-0.18,
-                        xanchor="left", x=0, font=dict(size=9)),
-            margin=dict(t=10, b=70, l=0, r=10))
-        fig_rg2.update_xaxes(**_ax(showgrid=False, tickfont=dict(size=9)))
-        fig_rg2.update_yaxes(**_ax(title_text="Revenue (KSh)", tickformat=",.0f"))
-        st.markdown('<div style="font-size:15px;font-weight:600;color:#003467;margin-bottom:4px">Revenue by Segment — Last 6 Months</div>', unsafe_allow_html=True)
-        pc(fig_rg2)
-        note("Grouped by month — hover for MoM change, avg basket, and transaction count.")
 
     gap(8)
     sh("When Do Customers Shop? — Day of Week by Cluster", mt=4)
@@ -627,6 +547,71 @@ with tab1:
         pc(fig_dow2)
     note("Busiest day per cluster = highest-ROI window for marketing. "
          "Low-traffic days = opportunities for targeted incentives.")
+
+    gap(8)
+    sh("Where Is Retail Growth Coming From?", mt=4)
+    st.markdown(
+        f'<ul style="font-size:12px;color:#4A5568;line-height:2;margin-bottom:10px;padding-left:18px">'
+        f'<li><b style="color:{TEAL}">Healthcare</b> — Pharmacy stores. Growth is need-driven: customers coming for medicine, potentially cross-shopping for groceries.</li>'
+        f'<li><b style="color:{PURPLE}">Specialty / High Margin</b> — Wine and Deli stores. Growth signals premiumisation — customers buying higher-margin, discretionary items.</li>'
+        f'<li><b style="color:{AFYA_BLUE}">Standard Retail</b> — All other stores (supermarkets, general grocery). The core volume driver; growth comes from everyday basket expansion or more frequent visits.</li>'
+        f'</ul>',
+        unsafe_allow_html=True)
+    rgs_df = D.load_retail_growth_segments()
+    seg_palette = {"Healthcare": TEAL, "Specialty / High Margin": PURPLE, "Standard Retail": AFYA_BLUE}
+    c1, c2 = st.columns(2, gap="large")
+
+    with c1:
+        fig_rg = go.Figure()
+        for seg, grp in rgs_df.groupby("retail_segment"):
+            grp = grp.sort_values("month")
+            fig_rg.add_trace(go.Scatter(
+                x=grp["month"], y=grp["revenue"],
+                name=seg, mode="lines+markers",
+                line=dict(color=seg_palette.get(seg, GRAY), width=2),
+                marker=dict(size=5),
+                fill="tozeroy", fillcolor=_rgba(seg_palette.get(seg, GRAY), 0.07),
+                hovertemplate=f"<b>{seg}</b><br>%{{x|%b %Y}}<br>Revenue: KSh %{{y:,.0f}}<extra></extra>",
+            ))
+        fig_rg.update_layout(**_CL, height=300)
+        fig_rg.update_layout(
+            legend=dict(orientation="h", yanchor="top", y=-0.18, xanchor="left", x=0, font=dict(size=9)),
+            margin=dict(t=10, b=70, l=0, r=10))
+        fig_rg.update_xaxes(**_ax(tickformat="%b %Y"))
+        fig_rg.update_yaxes(**_ax(title_text="Revenue (KSh)", tickformat=",.0f"))
+        st.markdown('<div style="font-size:15px;font-weight:600;color:#003467;margin-bottom:4px">Monthly Revenue by Retail Segment</div>', unsafe_allow_html=True)
+        pc(fig_rg)
+
+    with c2:
+        rgs_recent = rgs_df.copy()
+        rgs_recent["month"] = pd.to_datetime(rgs_recent["month"], errors="coerce")
+        last_6 = sorted(rgs_recent["month"].dropna().unique())[-6:]
+        rgs_recent = rgs_recent[rgs_recent["month"].isin(last_6)]
+        fig_mom = go.Figure()
+        for seg, clr in seg_palette.items():
+            d = rgs_recent[rgs_recent["retail_segment"] == seg].sort_values("month")
+            if d.empty:
+                continue
+            fig_mom.add_trace(go.Bar(
+                name=seg, x=d["month"].dt.strftime("%b %Y"), y=d["revenue"].fillna(0),
+                marker_color=clr,
+                customdata=d[["rev_change_kes", "avg_basket_value", "transaction_count"]].fillna(0).values,
+                hovertemplate=(
+                    f"<b>{seg}</b><br>%{{x}}<br>Revenue: KSh %{{y:,.0f}}<br>"
+                    "MoM: KSh %{customdata[0]:,.0f}<br>"
+                    "Avg basket: KSh %{customdata[1]:,.0f}<br>"
+                    "Transactions: %{customdata[2]:,.0f}<extra></extra>"
+                ),
+            ))
+        fig_mom.update_layout(**_CL, height=300, barmode="group")
+        fig_mom.update_layout(
+            legend=dict(orientation="h", yanchor="top", y=-0.18, xanchor="left", x=0, font=dict(size=9)),
+            margin=dict(t=10, b=70, l=0, r=10))
+        fig_mom.update_xaxes(**_ax(showgrid=False, tickfont=dict(size=9)))
+        fig_mom.update_yaxes(**_ax(title_text="Revenue (KSh)", tickformat=",.0f"))
+        st.markdown('<div style="font-size:15px;font-weight:600;color:#003467;margin-bottom:4px">MoM Revenue Change by Segment — Last 6 Months</div>', unsafe_allow_html=True)
+        pc(fig_mom)
+        note("Grouped by retail segment. Hover for MoM change, avg basket, and transaction count.")
 
     gap(8); sh("Insights")
     ic1, ic2, ic3 = st.columns(3, gap="large")
@@ -855,11 +840,10 @@ with tab2:
             text=[fmt_ksh(v) for v in tp_filt["total_spend"].fillna(0)],
             textposition="outside", cliponaxis=False,
         ))
-        fig_tp.update_layout(**_CL, height=300,
-            title=dict(text=f"Top 5 Products — {sel_tier}",
-                       font=dict(size=11, family="Montserrat"), x=0))
+        fig_tp.update_layout(**_CL, height=300)
         fig_tp.update_xaxes(**_ax(showgrid=False, showticklabels=False))
         fig_tp.update_yaxes(**_ax(showgrid=False, tickfont=dict(size=9)))
+        st.markdown(f'<div style="font-size:15px;font-weight:600;color:#003467;margin-bottom:4px">Top 5 Products — {sel_tier}</div>', unsafe_allow_html=True)
         pc(fig_tp)
 
     gap(8); sh("First Purchase Category — What Brought Them to XanaLife?", mt=4)
@@ -868,7 +852,6 @@ with tab2:
     fevo_df = D.load_first_cat_evolution()
     fevo_df = fevo_df.fillna(0)
 
-    # ── 1. Horizontal bar chart — top 10 by customer count ───────────────────
     fcat_top10 = fcat_df.nlargest(10, "customer_count").copy()
     fcat_top10["first_category"] = fcat_top10["first_category"].replace(0, "Unknown")
     _pal10 = (SEQ * 3)[:len(fcat_top10)]
@@ -889,7 +872,6 @@ with tab2:
     fig_fc.update_yaxes(**_ax(showgrid=False, tickfont=dict(size=10)),
         categoryorder="total ascending")
 
-    # ── Row 1: bar chart (left) + retention table (right) ────────────────────
     col_fc, col_ret = st.columns(2, gap="large")
     with col_fc:
         st.markdown('<div style="font-size:15px;font-weight:600;color:#003467;margin-bottom:4px">1. What Product Brought Them to XanaLife for the First Time?</div>', unsafe_allow_html=True)
@@ -947,22 +929,11 @@ with tab2:
     with col_ret:
         st.dataframe(ret_display.style.apply(_style_ret_df, axis=None), width='stretch', hide_index=True)
 
-    # ── Row 2: basket evolution table (full width) ────────────────────────────
     if not fevo_df.empty:
-        gap(4); st.markdown('<div style="font-size:15px;font-weight:600;color:#003467;margin-bottom:4px">3. Did Their Basket Grow? — Basket Evolution for Returning Customers</div>', unsafe_allow_html=True)
+        gap(4)
+        st.markdown('<div style="font-size:15px;font-weight:600;color:#003467;margin-bottom:4px">3. Did Their Basket Grow? — Basket Evolution for Returning Customers</div>', unsafe_allow_html=True)
         _ev = fevo_df.copy()
         _ev["first_category"] = _ev["first_category"].replace(0, "Unknown")
-
-        def _sig_color(sig):
-            if sig == "Exploring — primary store": return TEAL
-            if sig == "Growing basket":            return AFYA_BLUE
-            if sig == "Slight growth":             return ORANGE
-            return CORAL
-
-        def _chg_fill(v):
-            if v > 10:  return "#e8f5e9"
-            if v >= 0:  return "#fff8e1"
-            return "#fdecea"
 
         _sig_bg = {
             "Exploring — primary store": "#d4f5f1",
@@ -1140,7 +1111,6 @@ with tab3:
 """, unsafe_allow_html=True)
         churn_df = D.load_churn_by_segment()
         churn_df = churn_df.fillna(0)
-        # Color each status cell: green=active, amber=at_risk, orange=lapsed, red=lost
         _n = len(churn_df)
         _active_fill  = [_rgba("#276749", 0.15)] * _n
         _atrisk_fill  = [_rgba("#D97706", 0.15)] * _n
@@ -1173,7 +1143,6 @@ with tab3:
         pc(fig_churn)
 
     gap(8)
-    sh("Second Purchase — How Quickly Do Customers Return?", mt=4)
     sp_df = D.load_second_purchase()
     sp_df = sp_df.fillna(0)
     sp_ret = sp_df[~sp_df["refined_tier"].astype(str).str.startswith("0 -")].copy()
@@ -1273,6 +1242,8 @@ with tab3:
     c1, c2, c3, c4 = st.columns(4, gap="large")
 
     with c1:
+        st.markdown(f'<div style="font-size:10px;font-weight:600;color:{AFYA_BLUE};'
+                    f'margin-bottom:6px">What did they buy?</div>', unsafe_allow_html=True)
         ot_basket = D.load_onetimer_basket_type().fillna(0)
         ot_basket["label"] = ot_basket["shop_type"].str.replace(r'^\d\. ', '', regex=True)
         fig_otb = go.Figure(go.Bar(
@@ -1291,6 +1262,8 @@ with tab3:
         note("If >60% Top-Up: first visit was low-engagement — offer a welcome bundle at checkout to drive a second trip.", warn=True)
 
     with c2:
+        st.markdown(f'<div style="font-size:10px;font-weight:600;color:{AFYA_BLUE};'
+                    f'margin-bottom:6px">Where did they enter?</div>', unsafe_allow_html=True)
         ot_pharm = D.load_onetimer_pharmacy_split().fillna(0)
         fig_otp = go.Figure(go.Bar(
             x=ot_pharm["entry_type"], y=ot_pharm["pct_of_one_timers"],
@@ -1307,6 +1280,8 @@ with tab3:
         note("Pharmacy-only entry = high-conversion target. A grocery discount on the receipt gives them a reason to explore the rest of the store.", warn=True)
 
     with c3:
+        st.markdown(f'<div style="font-size:10px;font-weight:600;color:{AFYA_BLUE};'
+                    f'margin-bottom:6px">14-Day Golden Window</div>', unsafe_allow_html=True)
         ot_urg = D.load_onetimer_urgency().fillna(0)
         ot_urg["label"] = ot_urg["urgency_bucket"].str.replace(r'^\d\. ', '', regex=True)
         fig_otu = go.Figure(go.Bar(
@@ -1319,11 +1294,13 @@ with tab3:
         fig_otu.update_layout(**_CL, height=240)
         fig_otu.update_xaxes(**_ax(showgrid=False, tickfont=dict(size=7)))
         fig_otu.update_yaxes(**_ax(ticksuffix="%"), range=[0, 100])
-        st.markdown('<div style="font-size:15px;font-weight:600;color:#003467;margin-bottom:4px">14-Day Golden Window</div>', unsafe_allow_html=True)
+        st.markdown('<div style="font-size:15px;font-weight:600;color:#003467;margin-bottom:4px">14-Day Golden Window — Urgency Buckets</div>', unsafe_allow_html=True)
         pc(fig_otu)
         note("'Window open' = contact within 7 days with an offer tied to their first purchase category.", warn=True)
 
     with c4:
+        st.markdown(f'<div style="font-size:10px;font-weight:600;color:{AFYA_BLUE};'
+                    f'margin-bottom:6px">Shopper profile</div>', unsafe_allow_html=True)
         ot_ps = D.load_onetimer_price_sensitive().fillna(0)
         fig_otps = go.Figure(go.Bar(
             x=ot_ps["customer_profile"], y=ot_ps["pct"],
@@ -1487,6 +1464,7 @@ with tab4:
                     tickfont=dict(size=9, color=TEAL, family="Montserrat")))
     fig_lt.update_xaxes(**AXIS, tickformat="%b %Y")
     fig_lt.update_yaxes(**AXIS, title_text="New members / month")
+    st.markdown('<div style="font-size:15px;font-weight:600;color:#003467;margin-bottom:4px">Loyalty Sign-Up Growth</div>', unsafe_allow_html=True)
     pc(fig_lt)
 
     gap(8); sh("Insights")

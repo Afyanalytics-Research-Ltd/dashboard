@@ -75,9 +75,15 @@ else:
         }
     }
 
-STATIC_URL = '/static/'
-MEDIA_URL = '/media/'
-MEDIA_ROOT = BASE_DIR / 'media'
+
+STATIC_URL = 'static/'
+STATIC_ROOT = '/usr/src/app/static'
+MEDIA_URL = "/media/"
+MEDIA_ROOT ='/usr/src/app/media'
+STATICFILES_DIRS = [
+    BASE_DIR / "static",
+]
+
 
 # Authentication settings
 LOGIN_URL = '/login/'

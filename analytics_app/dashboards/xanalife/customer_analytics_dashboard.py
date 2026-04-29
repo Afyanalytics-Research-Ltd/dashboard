@@ -16,6 +16,7 @@ Changes from v3:
 import io
 import os
 import sys
+from pathlib import Path
 
 sys.path.insert(
     0,
@@ -28,6 +29,7 @@ sys.path.insert(
     )
 )
 
+
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -36,7 +38,7 @@ from datetime import date
 
 from ui_template import (
     AFYA_BLUE, TEAL, COOL_BLUE, ORANGE, CORAL, PURPLE, GRAY,
-    CHART_LAYOUT, AXIS, BG_LIGHT, BORDER, SEG_COLORS,
+    CHART_LAYOUT, AXIS, BG_LIGHT, BORDER, SEG_COLORS, SEQ,
 )
 import connect_to_snowflake as D
 
@@ -50,29 +52,29 @@ html,body,[class*="css"]{font-family:'Montserrat',sans-serif;background:#fff;col
 .stApp{background:#fff}
 [data-testid="stSidebar"]{background:#F4F8FC;border-right:1px solid #D6E4F0}
 [data-testid="stSidebar"] *{color:#003467!important;font-family:'Montserrat',sans-serif!important}
-.sh{font-size:10px;font-weight:800;color:#0072CE;text-transform:uppercase;
+.sh{font-size:12px;font-weight:800;color:#0072CE;text-transform:uppercase;
     letter-spacing:2.5px;padding:8px 0;border-bottom:2px solid #EBF3FB;margin-bottom:12px}
 [data-baseweb="tab"]{font-family:'Montserrat',sans-serif!important;font-weight:600!important;
-  color:#6B8CAE!important;font-size:12px!important}
+  color:#6B8CAE!important;font-size:14px!important}
 [aria-selected="true"]{color:#0072CE!important;border-bottom-color:#0072CE!important}
 ::-webkit-scrollbar{width:6px}::-webkit-scrollbar-thumb{background:#B0C8E0;border-radius:10px}
 .warn{background:#FFF8E7;border-left:4px solid #D97706;border-radius:4px;
-  padding:10px 14px;font-size:11px;color:#92400E;margin-bottom:10px;font-weight:600}
+  padding:10px 14px;font-size:13px;color:#92400E;margin-bottom:10px;font-weight:600}
 .is  {background:#F4F8FC;border:1px solid #D6E4F0;border-radius:8px;padding:11px 13px;margin-top:6px}
 .is-r{background:#FFF5F5;border:1px solid #FEB2B2;border-radius:8px;padding:11px 13px;margin-top:6px}
 .is-a{background:#FFFBEB;border:1px solid #FCD34D;border-radius:8px;padding:11px 13px;margin-top:6px}
 .is-g{background:#F0FFF4;border:1px solid #9AE6B4;border-radius:8px;padding:11px 13px;margin-top:6px}
-.il{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:3px}
-.iv{font-size:14px;font-weight:700;margin-bottom:2px}
-.ia{font-size:11px;color:#4A5568}
+.il{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:3px}
+.iv{font-size:16px;font-weight:700;margin-bottom:2px}
+.ia{font-size:13px;color:#4A5568}
 .nb{background:#F4F8FC;border-left:3px solid #0072CE;padding:7px 11px;
-  font-size:10px;color:#003467;margin-top:5px;border-radius:0 4px 4px 0;font-style:italic}
+  font-size:14px;color:#003467;margin-top:5px;border-radius:0 4px 4px 0;font-style:italic}
 .nw{background:#FFFBEB;border-left:3px solid #D97706;padding:7px 11px;
-  font-size:10px;color:#92400E;margin-top:5px;border-radius:0 4px 4px 0}
+  font-size:14px;color:#92400E;margin-top:5px;border-radius:0 4px 4px 0}
 </style>
 """, unsafe_allow_html=True)
 
-_CL = {**CHART_LAYOUT, "margin": {"t": 48, "b": 10, "l": 0, "r": 80}}
+_CL = {**CHART_LAYOUT, "margin": {"t": 10, "b": 10, "l": 0, "r": 80}}
 
 
 # ─── HELPERS ──────────────────────────────────────────────────────────────────
@@ -224,16 +226,44 @@ kpi_df = D.load_kpis()
 bsk_df = D.load_avg_basket()
 rl_df  = D.load_regular_loyal()
 
-c1,c2,c3,c4,c5,c6,c7,c8,c9 = st.columns(9)
-with c1: kpi_card("Active",     fmt_num(kpi_df["active_customers"].iloc[0]),   "made ≥1 transaction",     AFYA_BLUE)
-with c2: kpi_card("One-Time",   fmt_num(kpi_df["one_time_customers"].iloc[0]), "never returned",           CORAL)
-with c3: kpi_card("Repeat",     fmt_num(kpi_df["repeat_customers"].iloc[0]),   ">1 transaction",           TEAL)
-with c4: kpi_card("Regular",    fmt_num(rl_df["regular_customers"].iloc[0]),   "6+ visits in 90 days",    PURPLE)
-with c5: kpi_card("Loyal",      fmt_num(rl_df["loyal_customers"].iloc[0]),     "12+ visits, seen in 21d", COOL_BLUE)
-with c6: kpi_card("New (30d)",  fmt_num(kpi_df["new_last_30d"].iloc[0]),       "first purchase",           ORANGE)
-with c7: kpi_card("Loyalty",    fmt_num(kpi_df["loyalty_members"].iloc[0]),    "enrolled in points",      AFYA_BLUE)
-with c8: kpi_card("Avg Basket", fmt_ksh(bsk_df["avg_basket_value"].iloc[0]),   "KES per transaction",     TEAL)
-with c9: kpi_card("Avg Items",  fmt_num(bsk_df["avg_items_per_basket"].iloc[0]),"per transaction",        GRAY)
+def _kpi_metric(label, value, definition, color):
+    return (
+        f'<div style="flex:1;min-width:0;padding:0 12px">'
+        f'<div style="font-size:13px;font-weight:600;color:{color};margin-bottom:3px">{label}</div>'
+        f'<div style="font-size:32px;font-weight:800;color:{color};line-height:1.1">{value}</div>'
+        f'<div style="font-size:12px;color:#8A9BB0;margin-top:4px;line-height:1.4">{definition}</div>'
+        f'</div>'
+    )
+
+def _kpi_tile(title, metrics_html):
+    return (
+        f'<div style="background:{BG_LIGHT};border:1px solid {BORDER};border-radius:10px;'
+        f'padding:18px 20px;height:100%">'
+        f'<div style="font-size:10px;font-weight:700;color:#6B8CAE;text-transform:uppercase;'
+        f'letter-spacing:1.5px;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid {BORDER}">'
+        f'{title}</div>'
+        f'<div style="display:flex;gap:0">{metrics_html}</div>'
+        f'</div>'
+    )
+
+_t1, _t2, _t3 = st.columns(3, gap="large")
+with _t1:
+    st.markdown(_kpi_tile("Customer Base", (
+        _kpi_metric("Active",   fmt_num(kpi_df["active_customers"].iloc[0]),   "total customers (lifetime)", AFYA_BLUE) +
+        _kpi_metric("Repeat",   fmt_num(kpi_df["repeat_customers"].iloc[0]),   "visited more than once",     TEAL) +
+        _kpi_metric("One-Time", fmt_num(kpi_df["one_time_customers"].iloc[0]), "never returned",             CORAL)
+    )), unsafe_allow_html=True)
+with _t2:
+    st.markdown(_kpi_tile("Loyalty & Retention — Customers", (
+        _kpi_metric("Regular",  fmt_num(rl_df["regular_customers"].iloc[0]),  "6+ visits in 90 days",    PURPLE) +
+        _kpi_metric("Loyal",    fmt_num(rl_df["loyal_customers"].iloc[0]),    "12+ visits, seen in 21d", COOL_BLUE) +
+        _kpi_metric("New (30d)",fmt_num(kpi_df["new_last_30d"].iloc[0]),      "first purchase",          ORANGE)
+    )), unsafe_allow_html=True)
+with _t3:
+    st.markdown(_kpi_tile("Basket", (
+        _kpi_metric("Avg Value", fmt_ksh(bsk_df["avg_basket_value"].iloc[0]),    "KES per transaction", TEAL) +
+        _kpi_metric("Avg Items", fmt_num(bsk_df["avg_items_per_basket"].iloc[0]),"per transaction",     GRAY)
+    )), unsafe_allow_html=True)
 
 gap(16)
 
@@ -260,19 +290,33 @@ with tab1:
     c1, c2 = st.columns(2, gap="large")
 
     with c1:
-        fig_act = go.Figure(go.Scatter(
-            x=act_df["month"], y=act_df["active_customers"],
-            mode="lines+markers",
-            line=dict(color=AFYA_BLUE, width=2.5),
-            marker=dict(size=6, color=AFYA_BLUE),
-            fill="tozeroy", fillcolor=_rgba(AFYA_BLUE, 0.07),
-            hovertemplate="<b>%{x|%b %Y}</b>: %{y:,} customers<extra></extra>",
-        ))
-        fig_act.update_layout(**_CL, height=260,
-            title=dict(text="Total Active Customers per Month",
-                       font=dict(size=11, family="Montserrat"), x=0))
+        if "store_name" not in act_df.columns:
+            D.load_active_customers_over_time.clear()
+            act_df = D.load_active_customers_over_time()
+        act_df["store_name"] = act_df["store_name"].fillna("Unknown")
+        if excl_ws: act_df = excl_wholesale(act_df)
+        act_df = apply_filters(act_df)
+        stores_in_view = sorted([s for s in act_df["store_name"].unique() if s])
+        palette = [AFYA_BLUE, TEAL, PURPLE, ORANGE, CORAL, GRAY, "#185FA5", "#0BB99F"]
+        cmap = {s: palette[i % len(palette)] for i, s in enumerate(stores_in_view)}
+        fig_act = go.Figure()
+        for store in stores_in_view:
+            d = act_df[act_df["store_name"] == store]
+            fig_act.add_trace(go.Scatter(
+                x=d["month"], y=d["active_customers"], name=store,
+                mode="lines+markers",
+                line=dict(color=cmap[store], width=2), marker=dict(size=5),
+                fill="tozeroy", fillcolor=_rgba(cmap[store], 0.07),
+                hovertemplate=f"<b>{store}</b><br>%{{x|%b %Y}}: %{{y}}<extra></extra>",
+            ))
+        fig_act.update_layout(**_CL, height=300)
+        fig_act.update_layout(
+            legend=dict(orientation="h", yanchor="top", y=-0.18,
+                        xanchor="left", x=0, font=dict(size=9)),
+            margin=dict(t=10, b=80, l=0, r=10))
         fig_act.update_xaxes(**AXIS, tickformat="%b %Y")
-        fig_act.update_yaxes(**AXIS, title_text="Active customers")
+        fig_act.update_yaxes(**AXIS, title_text="Customers")
+        st.markdown('<div style="font-size:15px;font-weight:600;color:#003467;margin-bottom:4px">Overall Customers per Store (Active & New Combined)</div>', unsafe_allow_html=True)
         pc(fig_act)
         note("All customers who transacted that month — new and returning combined.")
 
@@ -290,15 +334,14 @@ with tab1:
                 fill="tozeroy", fillcolor=_rgba(cmap[store], 0.07),
                 hovertemplate=f"<b>{store}</b><br>%{{x|%b %Y}}: %{{y}}<extra></extra>",
             ))
-        fig_gs.update_layout(**_CL, height=300,
-            title=dict(text="New Customer Acquisition — Per Store",
-                       font=dict(size=11, family="Montserrat"), x=0))
+        fig_gs.update_layout(**_CL, height=300)
         fig_gs.update_layout(
             legend=dict(orientation="h", yanchor="top", y=-0.18,
                         xanchor="left", x=0, font=dict(size=9)),
-            margin=dict(t=30, b=80, l=0, r=10))
+            margin=dict(t=0, b=80, l=0, r=10))
         fig_gs.update_xaxes(**AXIS, tickformat="%b %Y")
         fig_gs.update_yaxes(**AXIS, title_text="New customers")
+        st.markdown('<div style="font-size:15px;font-weight:600;color:#003467;margin-bottom:4px">New Customer Acquisition — Per Store</div>', unsafe_allow_html=True)
         pc(fig_gs)
         note("First-time buyers only. Filter by cluster or business unit using the sidebar.")
 
@@ -344,11 +387,10 @@ with tab1:
                     marker_color=color_nvr.get(rtype, GRAY),
                     hovertemplate=f"<b>{rtype}</b><br>%{{x|%b %Y}}: KSh %{{y:,.0f}}<extra></extra>",
                 ))
-        fig_nvr.update_layout(**_CL, height=260, barmode="stack",
-            title=dict(text="New vs Returning Revenue",
-                       font=dict(size=11, family="Montserrat"), x=0))
+        fig_nvr.update_layout(**_CL, height=260, barmode="stack")
         fig_nvr.update_xaxes(**AXIS, tickformat="%b %Y")
         fig_nvr.update_yaxes(**AXIS, tickformat=",.0f", tickprefix="KSh ")
+        st.markdown('<div style="font-size:15px;font-weight:600;color:#003467;margin-bottom:4px">New vs Returning Revenue</div>', unsafe_allow_html=True)
         pc(fig_nvr)
         note("Returning (blue) flat while new (teal) grows = leaky bucket.")
 
@@ -367,11 +409,10 @@ with tab1:
             customdata=shop_df["basket_count"],
             hovertemplate="<b>%{y}</b><br>%{x}% of trips · %{customdata:,} transactions<extra></extra>",
         ))
-        fig_shop.update_layout(**_CL, height=240,
-            title=dict(text="Is XanaLife a Primary Store?",
-                       font=dict(size=11, family="Montserrat"), x=0))
+        fig_shop.update_layout(**_CL, height=240)
         fig_shop.update_xaxes(**_ax(showgrid=False, showticklabels=False), range=[0, 60])
         fig_shop.update_yaxes(**_ax(showgrid=False))
+        st.markdown('<div style="font-size:15px;font-weight:600;color:#003467;margin-bottom:4px">Is XanaLife a Primary Store?</div>', unsafe_allow_html=True)
         pc(fig_shop)
 
     with c2:
@@ -387,11 +428,10 @@ with tab1:
                     line=dict(color=color, width=2), marker=dict(size=5),
                     hovertemplate=f"<b>{cl}</b><br>%{{x|%b %Y}}: %{{y}}%<extra></extra>",
                 ))
-        fig_xs.update_layout(**_CL, height=240,
-            title=dict(text="Pharmacy & Supermarket Cross-Shopping Rate (%)",
-                       font=dict(size=11, family="Montserrat"), x=0))
+        fig_xs.update_layout(**_CL, height=240)
         fig_xs.update_xaxes(**AXIS, tickformat="%b")
         fig_xs.update_yaxes(**AXIS, ticksuffix="%")
+        st.markdown('<div style="font-size:15px;font-weight:600;color:#003467;margin-bottom:4px">Pharmacy &amp; Supermarket Cross-Shopping Rate (%)</div>', unsafe_allow_html=True)
         pc(fig_xs)
         note("% of registered customers who visited both pharmacy and grocery in the same month.")
 
@@ -411,11 +451,10 @@ with tab1:
             customdata=bsz_df["avg_basket_value"].fillna(0),
             hovertemplate="<b>%{x}</b><br>%{y}% of revenue<br>Avg basket: KSh %{customdata:,.0f}<extra></extra>",
         ))
-        fig_bsz.update_layout(**_CL, height=280,
-            title=dict(text="Which Basket Size Drives Revenue?",
-                       font=dict(size=11, family="Montserrat"), x=0))
+        fig_bsz.update_layout(**_CL, height=280)
         fig_bsz.update_xaxes(**_ax(showgrid=False))
         fig_bsz.update_yaxes(**AXIS, ticksuffix="%")
+        st.markdown('<div style="font-size:15px;font-weight:600;color:#003467;margin-bottom:4px">Which Basket Size Drives Revenue?</div>', unsafe_allow_html=True)
         pc(fig_bsz)
 
     with c2:
@@ -423,38 +462,37 @@ with tab1:
         bst_df["store_name"] = bst_df["store_name"].fillna("Unknown")
         if excl_ws: bst_df = excl_wholesale(bst_df)
         bst_df = apply_filters(bst_df)
+        _txn_max = bst_df["transactions"].fillna(0).max()
+        palette = [AFYA_BLUE, TEAL, PURPLE, ORANGE, CORAL, GRAY, "#185FA5", COOL_BLUE]
         fig_bst = go.Figure()
-        fig_bst.add_trace(go.Bar(
-            x=bst_df["store_name"], y=bst_df["avg_items"].fillna(0),
-            name="Avg items", marker_color=AFYA_BLUE,
-            text=[f'{v:.0f}' for v in bst_df["avg_items"].fillna(0)],
-            textposition="outside", cliponaxis=False, constraintext="none",
-            textfont=dict(color=AFYA_BLUE, size=10, family="Montserrat"),
-            hovertemplate="<b>%{x}</b><br>Avg items: %{y:.0f}<extra></extra>",
-        ))
-        fig_bst.add_trace(go.Bar(
-            x=bst_df["store_name"], y=bst_df["avg_basket_value"].fillna(0),
-            name="Avg value (KSh)", marker_color=TEAL, opacity=0.7, yaxis="y2",
-            hovertemplate="<b>%{x}</b><br>Avg value: KSh %{y:,.0f}<extra></extra>",
-        ))
-        _bst_max = bst_df["avg_items"].fillna(0).max()
-        fig_bst.update_layout(**_CL, height=370,
-            title=dict(text="Avg Basket per Store",
-                       font=dict(size=11, family="Montserrat"), x=0),
-            barmode="group",
-            yaxis=dict(range=[0, _bst_max * 1.55],
-                       tickfont=dict(size=9, family="Montserrat"),
-                       showgrid=True, gridcolor="#EBF3FB", zeroline=False,
-                       title_text="Avg items"),
-            yaxis2=dict(overlaying="y", side="right", showgrid=False,
-                        range=[0, bst_df["avg_basket_value"].fillna(0).max() * 1.55],
-                        tickformat=",.0f",
-                        tickfont=dict(size=9, color=TEAL, family="Montserrat")))
-        fig_bst.update_layout(
-            legend=dict(orientation="h", yanchor="top", y=-0.18,
-                        xanchor="left", x=0, font=dict(size=9)),
-            margin=dict(t=50, b=70, l=0, r=10))
-        fig_bst.update_xaxes(**_ax(tickfont=dict(size=8)))
+        for i, row in bst_df.iterrows():
+            fig_bst.add_trace(go.Scatter(
+                x=[row["avg_items"]], y=[row["avg_basket_value"]],
+                mode="markers+text",
+                name=row["store_name"],
+                marker=dict(
+                    size=max(12, row["transactions"] / _txn_max * 60),
+                    color=palette[i % len(palette)],
+                    opacity=0.85,
+                    line=dict(width=1, color="white"),
+                ),
+                text=[row["store_name"]],
+                textposition="top center",
+                textfont=dict(size=9, family="Montserrat", color=AFYA_BLUE),
+                hovertemplate=(
+                    f"<b>{row['store_name']}</b><br>"
+                    "Avg items: %{x:.1f}<br>"
+                    "Avg basket: KSh %{y:,.0f}<br>"
+                    f"Transactions: {row['transactions']:,.0f}"
+                    "<extra></extra>"
+                ),
+            ))
+        fig_bst.update_layout(**_CL, height=370, showlegend=False)
+        fig_bst.update_layout(margin=dict(t=10, b=40, l=0, r=10))
+        fig_bst.update_xaxes(**_ax(title_text="Avg items per basket"))
+        fig_bst.update_yaxes(**_ax(title_text="Avg basket value (KSh)", tickformat=",.0f"))
+        note("Bubble size = number of transactions. Top-right = high-value, high-volume baskets.")
+        st.markdown('<div style="font-size:15px;font-weight:600;color:#003467;margin-bottom:4px">Basket Profile by Store</div>', unsafe_allow_html=True)
         pc(fig_bst)
 
     gap(8)
@@ -486,11 +524,10 @@ with tab1:
                     name=cl, marker_color=color, cliponaxis=False,
                     hovertemplate=f"<b>{cl}</b> — %{{x}}<br>Transactions: %{{y:,}}<extra></extra>",
                 ))
-        fig_dow.update_layout(**_CL, height=280, barmode="group",
-            title=dict(text="Transactions by Day of Week",
-                       font=dict(size=11, family="Montserrat"), x=0))
+        fig_dow.update_layout(**_CL, height=280, barmode="group")
         fig_dow.update_xaxes(**_ax(showgrid=False))
         fig_dow.update_yaxes(**AXIS, title_text="Transactions")
+        st.markdown('<div style="font-size:15px;font-weight:600;color:#003467;margin-bottom:4px">Transactions by Day of Week</div>', unsafe_allow_html=True)
         pc(fig_dow)
 
     with c2:
@@ -503,14 +540,78 @@ with tab1:
                     name=cl, marker_color=color, cliponaxis=False,
                     hovertemplate=f"<b>{cl}</b> — %{{x}}<br>Unique patients: %{{y:,}}<extra></extra>",
                 ))
-        fig_dow2.update_layout(**_CL, height=280, barmode="group",
-            title=dict(text="Unique Customers by Day of Week",
-                       font=dict(size=11, family="Montserrat"), x=0))
+        fig_dow2.update_layout(**_CL, height=280, barmode="group")
         fig_dow2.update_xaxes(**_ax(showgrid=False))
         fig_dow2.update_yaxes(**AXIS, title_text="Unique patients")
+        st.markdown('<div style="font-size:15px;font-weight:600;color:#003467;margin-bottom:4px">Unique Customers by Day of Week</div>', unsafe_allow_html=True)
         pc(fig_dow2)
     note("Busiest day per cluster = highest-ROI window for marketing. "
          "Low-traffic days = opportunities for targeted incentives.")
+
+    gap(8)
+    sh("Where Is Retail Growth Coming From?", mt=4)
+    st.markdown(
+        f'<ul style="font-size:12px;color:#4A5568;line-height:2;margin-bottom:10px;padding-left:18px">'
+        f'<li><b style="color:{TEAL}">Healthcare</b> — Pharmacy stores. Growth is need-driven: customers coming for medicine, potentially cross-shopping for groceries.</li>'
+        f'<li><b style="color:{PURPLE}">Specialty / High Margin</b> — Wine and Deli stores. Growth signals premiumisation — customers buying higher-margin, discretionary items.</li>'
+        f'<li><b style="color:{AFYA_BLUE}">Standard Retail</b> — All other stores (supermarkets, general grocery). The core volume driver; growth comes from everyday basket expansion or more frequent visits.</li>'
+        f'</ul>',
+        unsafe_allow_html=True)
+    rgs_df = D.load_retail_growth_segments()
+    seg_palette = {"Healthcare": TEAL, "Specialty / High Margin": PURPLE, "Standard Retail": AFYA_BLUE}
+    c1, c2 = st.columns(2, gap="large")
+
+    with c1:
+        fig_rg = go.Figure()
+        for seg, grp in rgs_df.groupby("retail_segment"):
+            grp = grp.sort_values("month")
+            fig_rg.add_trace(go.Scatter(
+                x=grp["month"], y=grp["revenue"],
+                name=seg, mode="lines+markers",
+                line=dict(color=seg_palette.get(seg, GRAY), width=2),
+                marker=dict(size=5),
+                fill="tozeroy", fillcolor=_rgba(seg_palette.get(seg, GRAY), 0.07),
+                hovertemplate=f"<b>{seg}</b><br>%{{x|%b %Y}}<br>Revenue: KSh %{{y:,.0f}}<extra></extra>",
+            ))
+        fig_rg.update_layout(**_CL, height=300)
+        fig_rg.update_layout(
+            legend=dict(orientation="h", yanchor="top", y=-0.18, xanchor="left", x=0, font=dict(size=9)),
+            margin=dict(t=10, b=70, l=0, r=10))
+        fig_rg.update_xaxes(**_ax(tickformat="%b %Y"))
+        fig_rg.update_yaxes(**_ax(title_text="Revenue (KSh)", tickformat=",.0f"))
+        st.markdown('<div style="font-size:15px;font-weight:600;color:#003467;margin-bottom:4px">Monthly Revenue by Retail Segment</div>', unsafe_allow_html=True)
+        pc(fig_rg)
+
+    with c2:
+        rgs_recent = rgs_df.copy()
+        rgs_recent["month"] = pd.to_datetime(rgs_recent["month"], errors="coerce")
+        last_6 = sorted(rgs_recent["month"].dropna().unique())[-6:]
+        rgs_recent = rgs_recent[rgs_recent["month"].isin(last_6)]
+        fig_mom = go.Figure()
+        for seg, clr in seg_palette.items():
+            d = rgs_recent[rgs_recent["retail_segment"] == seg].sort_values("month")
+            if d.empty:
+                continue
+            fig_mom.add_trace(go.Bar(
+                name=seg, x=d["month"].dt.strftime("%b %Y"), y=d["revenue"].fillna(0),
+                marker_color=clr,
+                customdata=d[["rev_change_kes", "avg_basket_value", "transaction_count"]].fillna(0).values,
+                hovertemplate=(
+                    f"<b>{seg}</b><br>%{{x}}<br>Revenue: KSh %{{y:,.0f}}<br>"
+                    "MoM: KSh %{customdata[0]:,.0f}<br>"
+                    "Avg basket: KSh %{customdata[1]:,.0f}<br>"
+                    "Transactions: %{customdata[2]:,.0f}<extra></extra>"
+                ),
+            ))
+        fig_mom.update_layout(**_CL, height=300, barmode="group")
+        fig_mom.update_layout(
+            legend=dict(orientation="h", yanchor="top", y=-0.18, xanchor="left", x=0, font=dict(size=9)),
+            margin=dict(t=10, b=70, l=0, r=10))
+        fig_mom.update_xaxes(**_ax(showgrid=False, tickfont=dict(size=9)))
+        fig_mom.update_yaxes(**_ax(title_text="Revenue (KSh)", tickformat=",.0f"))
+        st.markdown('<div style="font-size:15px;font-weight:600;color:#003467;margin-bottom:4px">MoM Revenue Change by Segment — Last 6 Months</div>', unsafe_allow_html=True)
+        pc(fig_mom)
+        note("Grouped by retail segment. Hover for MoM change, avg basket, and transaction count.")
 
     gap(8); sh("Insights")
     ic1, ic2, ic3 = st.columns(3, gap="large")
@@ -533,27 +634,20 @@ with tab1:
 # ══════════════════════════════════════════════════════════════════════════════
 with tab2:
 
-    with st.expander("📖 Glossary — Segmentation Terms"):
-        st.markdown("""
-**CLV (Customer Lifetime Value Velocity)** — revenue ÷ number of days the customer actually visited.
-A customer who spent KSh 50,000 across 5 visits has a CLV velocity of KSh 10,000/day.
-
-**Daily Spend Intensity (KSh/day)** — another name for CLV Velocity. Used to rank and tier customers.
-
-**Elite (Weekly Loyal)** — Daily Spend Intensity ≥ KSh 10,000/day AND ≥ 4 visits/month.
-
-**Elite (Bulk/Wholesale)** — Daily Spend Intensity ≥ KSh 10,000/day but low visit frequency (bulk buyers).
-
-**High** — Daily Spend Intensity ≥ KSh 5,000/day.
-
-**Medium** — Daily Spend Intensity ≥ KSh 1,000/day.
-
-**Low** — Daily Spend Intensity below KSh 1,000/day. Largest segment by count.
-
-**One-Time** — single purchase only. CLV Velocity cannot be calculated.
-        """)
-
     sh("Segment Distribution & Revenue Concentration")
+    st.markdown("""
+<div class="nb">
+<b>Tiers ranked by Daily Spend Intensity</b> (revenue ÷ days visited):
+<ul style="margin:6px 0 0 0;padding-left:18px;line-height:1.9">
+<li><b>Elite (Weekly Loyal)</b> — ≥ KSh 10,000/day AND ≥ 4 visits/month</li>
+<li><b>Elite (Bulk/Wholesale)</b> — ≥ KSh 10,000/day but low visit frequency</li>
+<li><b>High</b> — ≥ KSh 5,000/day</li>
+<li><b>Medium</b> — ≥ KSh 1,000/day</li>
+<li><b>Low</b> — below KSh 1,000/day · largest segment by count</li>
+<li><b>One-Time</b> — single purchase only · Daily Spend Intensity cannot be calculated</li>
+</ul>
+</div>
+""", unsafe_allow_html=True)
     seg_df = D.load_segments()
     seg_df = seg_df.fillna(0)
 
@@ -567,11 +661,10 @@ A customer who spent KSh 50,000 across 5 visits has a CLV velocity of KSh 10,000
             customdata=seg_df["pct_revenue"],
             hovertemplate="<b>%{y}</b><br>%{x} customers · %{customdata}% of revenue<extra></extra>",
         ))
-        fig_sc.update_layout(**_CL, height=320,
-            title=dict(text="Customers per Segment",
-                       font=dict(size=11, family="Montserrat"), x=0))
+        fig_sc.update_layout(**_CL, height=320)
         fig_sc.update_xaxes(**_ax(showgrid=False, showticklabels=False))
         fig_sc.update_yaxes(**_ax(showgrid=False))
+        st.markdown('<div style="font-size:15px;font-weight:600;color:#003467;margin-bottom:4px">Customers per Segment</div>', unsafe_allow_html=True)
         pc(fig_sc)
 
     with c2:
@@ -582,11 +675,10 @@ A customer who spent KSh 50,000 across 5 visits has a CLV velocity of KSh 10,000
             textposition="outside", cliponaxis=False,
             hovertemplate="<b>%{x}</b><br>%{y}% of revenue<extra></extra>",
         ))
-        fig_rc.update_layout(**_CL, height=320,
-            title=dict(text="Revenue Concentration by Segment",
-                       font=dict(size=11, family="Montserrat"), x=0))
+        fig_rc.update_layout(**_CL, height=320)
         fig_rc.update_xaxes(**_ax(showgrid=False, tickfont=dict(size=8)))
         fig_rc.update_yaxes(**AXIS, ticksuffix="%", range=[0, 45])
+        st.markdown('<div style="font-size:15px;font-weight:600;color:#003467;margin-bottom:4px">Revenue Concentration by Segment</div>', unsafe_allow_html=True)
         pc(fig_rc)
 
     gap(8); sh("Purchasing Characteristics", mt=4)
@@ -625,6 +717,14 @@ A customer who spent KSh 50,000 across 5 visits has a CLV velocity of KSh 10,000
     note("'Visits' = avg distinct days transacted. 'Daily Spend Intensity' = CLV Velocity in plain terms.")
 
     gap(8); sh("Shopping Frequency — Heartbeat per Segment", mt=4)
+    st.markdown("""
+<div class="nb">
+<ul style="margin:0;padding-left:18px;line-height:1.9">
+<li><b>Heartbeat</b> — avg days between a customer's consecutive visits. A 7-day heartbeat = expected back weekly.</li>
+<li><b>Lapsing</b> — absent for more than 2× their heartbeat. Not yet churned but overdue for a visit.</li>
+</ul>
+</div>
+""", unsafe_allow_html=True)
     hb_df = D.load_heartbeat()
     hb_df["avg_heartbeat_days"] = pd.to_numeric(
         hb_df["avg_heartbeat_days"], errors="coerce").fillna(0)
@@ -639,11 +739,10 @@ A customer who spent KSh 50,000 across 5 visits has a CLV velocity of KSh 10,000
         hovertemplate="<b>%{x}</b><br>Avg gap: %{y} days<br>"
                       "Lapsing if absent > %{customdata} days<extra></extra>",
     ))
-    fig_hb.update_layout(**_CL, height=280,
-        title=dict(text="Average Days Between Visits (Heartbeat) per Segment",
-                   font=dict(size=11, family="Montserrat"), x=0))
+    fig_hb.update_layout(**_CL, height=280)
     fig_hb.update_xaxes(**_ax(showgrid=False, tickfont=dict(size=9)))
     fig_hb.update_yaxes(**AXIS, title_text="Avg days between visits")
+    st.markdown('<div style="font-size:15px;font-weight:600;color:#003467;margin-bottom:4px">Average Days Between Visits (Heartbeat) per Segment</div>', unsafe_allow_html=True)
     pc(fig_hb)
     # note("Lapsing threshold = 2× heartbeat — not a fixed 60-day cutoff.")
 
@@ -652,22 +751,54 @@ A customer who spent KSh 50,000 across 5 visits has a CLV velocity of KSh 10,000
     cv_df = D.load_conversion_velocity()
     cv_df = cv_df.fillna(0)
     cv_colors = {"Up-Converting": TEAL, "Stable": AFYA_BLUE, "Down-Converting": CORAL}
-    fig_cv = go.Figure(go.Bar(
-        x=cv_df["conversion_status"].fillna("Unknown"),
-        y=cv_df["customer_count"].fillna(0),
-        marker_color=[cv_colors.get(s, GRAY) for s in cv_df["conversion_status"].fillna("")],
-        text=cv_df["customer_count"].fillna(0).astype(int),
-        textposition="outside", cliponaxis=False,
-        customdata=cv_df["avg_spend_shift_kes"].fillna(0),
-        hovertemplate="<b>%{x}</b><br>%{y} customers<br>"
-                      "Avg spend shift: KSh %{customdata:+,.0f}/day<extra></extra>",
-    ))
-    fig_cv.update_layout(**_CL, height=260,
-        title=dict(text="Spend Trajectory — Early Half vs Recent Half of Customer Journey",
-                   font=dict(size=11, family="Montserrat"), x=0))
-    fig_cv.update_xaxes(**_ax(showgrid=False))
-    fig_cv.update_yaxes(**_ax(showgrid=False, showticklabels=False))
-    pc(fig_cv)
+
+    _cv_texts = [
+        f"{int(n)}<br>{'▲' if v >= 0 else '▼'} KSh {abs(int(v)):,}/day"
+        for n, v in zip(cv_df["customer_count"].fillna(0), cv_df["avg_spend_shift_kes"].fillna(0))
+    ]
+
+    _cv1, _cv2 = st.columns(2, gap="large")
+    with _cv1:
+        fig_cv = go.Figure(go.Bar(
+            x=cv_df["conversion_status"].fillna("Unknown"),
+            y=cv_df["customer_count"].fillna(0),
+            marker_color=[cv_colors.get(s, GRAY) for s in cv_df["conversion_status"].fillna("")],
+            text=_cv_texts,
+            textposition="outside", cliponaxis=False,
+            textfont=dict(size=10, family="Montserrat", color=AFYA_BLUE),
+            hovertemplate="<b>%{x}</b><br>%{y} customers<extra></extra>",
+        ))
+        fig_cv.update_layout(**_CL, height=300)
+        fig_cv.update_xaxes(**_ax(showgrid=False))
+        fig_cv.update_yaxes(**_ax(showgrid=False, showticklabels=False))
+        st.markdown('<div style="font-size:15px;font-weight:600;color:#003467;margin-bottom:4px">How Many Customers Are Up vs Down?</div>', unsafe_allow_html=True)
+        pc(fig_cv)
+
+    with _cv2:
+        cvt_df = D.load_conversion_velocity_by_tier()
+        cvt_df = cvt_df.fillna(0)
+        cvt_df = cvt_df[cvt_df["refined_tier"].astype(str).str.strip() != ""]
+        cvt_df = cvt_df[~cvt_df["refined_tier"].astype(str).str.startswith("0 -")]
+        _tier_order = [t for t in SEG_COLORS.keys() if t in cvt_df["refined_tier"].values]
+        _tier_order += [t for t in cvt_df["refined_tier"].unique() if t not in _tier_order]
+        fig_cvt = go.Figure()
+        for status, color in cv_colors.items():
+            _d = cvt_df[cvt_df["conversion_status"] == status]
+            _d = _d.set_index("refined_tier").reindex(_tier_order).reset_index()
+            fig_cvt.add_trace(go.Bar(
+                name=status,
+                x=_d["refined_tier"],
+                y=_d["customer_count"].fillna(0),
+                marker_color=color,
+                customdata=_d["customer_count"].fillna(0),
+                hovertemplate=f"<b>%{{x}}</b><br>{status}: %{{customdata:.0f}} customers (%{{y:.1f}}%)<extra></extra>",
+            ))
+        fig_cvt.update_layout(**_CL, height=300, barmode="stack", barnorm="percent")
+        fig_cvt.update_xaxes(**_ax(showgrid=False, tickfont=dict(size=9)))
+        fig_cvt.update_yaxes(**_ax(showgrid=False), ticksuffix="%", range=[0, 100])
+        st.markdown('<div style="font-size:15px;font-weight:600;color:#003467;margin-bottom:4px">Which Segments Are Slipping?</div>', unsafe_allow_html=True)
+        pc(fig_cvt)
+
     note("Up-Converting = spending 20%+ more per day now vs when they started. "
          "Down-Converting = spending 20%+ less — still shopping but intensity is dropping. "
          "Only customers with ≥4 visits are included — enough history to show movement.")
@@ -679,7 +810,10 @@ A customer who spent KSh 50,000 across 5 visits has a CLV velocity of KSh 10,000
         seg_trend = D.load_seg_trend()
         seg_trend["month"] = pd.to_datetime(seg_trend["month"], errors="coerce")
         fig_st = go.Figure()
-        for tier in seg_trend["refined_tier"].fillna("Unknown").unique():
+        _st_tiers_present = seg_trend["refined_tier"].fillna("Unknown").unique().tolist()
+        _st_order = [t for t in SEG_COLORS.keys() if t in _st_tiers_present]
+        _st_order += [t for t in _st_tiers_present if t not in _st_order]
+        for tier in _st_order:
             d = seg_trend[seg_trend["refined_tier"] == tier]
             fig_st.add_trace(go.Scatter(
                 x=d["month"], y=d["customer_count"].fillna(0),
@@ -688,9 +822,8 @@ A customer who spent KSh 50,000 across 5 visits has a CLV velocity of KSh 10,000
                 fillcolor=_rgba(seg_color(tier), 0.5),
                 hovertemplate=f"<b>{tier}</b>: %{{y}} customers<extra></extra>",
             ))
-        fig_st.update_layout(**_CL, height=300,
-            title=dict(text="Segment Growth — Stacked Area",
-                       font=dict(size=11, family="Montserrat"), x=0))
+        st.markdown('<div style="font-size:15px;font-weight:600;color:#003467;margin-bottom:4px">Segment Growth — Stacked Area</div>', unsafe_allow_html=True)
+        fig_st.update_layout(**_CL, height=300)
         fig_st.update_xaxes(**AXIS, tickformat="%b %Y")
         fig_st.update_yaxes(**AXIS, title_text="Customers")
         pc(fig_st)
@@ -707,49 +840,132 @@ A customer who spent KSh 50,000 across 5 visits has a CLV velocity of KSh 10,000
             text=[fmt_ksh(v) for v in tp_filt["total_spend"].fillna(0)],
             textposition="outside", cliponaxis=False,
         ))
-        fig_tp.update_layout(**_CL, height=300,
-            title=dict(text=f"Top 5 Products — {sel_tier}",
-                       font=dict(size=11, family="Montserrat"), x=0))
+        fig_tp.update_layout(**_CL, height=300)
         fig_tp.update_xaxes(**_ax(showgrid=False, showticklabels=False))
         fig_tp.update_yaxes(**_ax(showgrid=False, tickfont=dict(size=9)))
+        st.markdown(f'<div style="font-size:15px;font-weight:600;color:#003467;margin-bottom:4px">Top 5 Products — {sel_tier}</div>', unsafe_allow_html=True)
         pc(fig_tp)
 
     gap(8); sh("First Purchase Category — What Brought Them to XanaLife?", mt=4)
     fcat_df = D.load_first_category()
     fcat_df = fcat_df.fillna(0)
-    # Top 5 by customer count for the bar chart — full list stays in the table
-    fcat_top5 = fcat_df.nlargest(5, "customer_count")
+    fevo_df = D.load_first_cat_evolution()
+    fevo_df = fevo_df.fillna(0)
 
-    c1, c2 = st.columns(2, gap="large")
-    with c1:
-        fig_fc = go.Figure(go.Bar(
-            x=fcat_top5["pct_new_customers"],
-            y=fcat_top5["first_category"].replace(0, "Unknown"),
-            orientation="h", marker_color=AFYA_BLUE,
-            text=[f'{v}%' for v in fcat_top5["pct_new_customers"]],
-            textposition="outside", cliponaxis=False,
-            customdata=fcat_top5["avg_daily_spend_intensity"],
-            hovertemplate="<b>%{y}</b><br>%{x}% of new customers<br>"
-                          "Daily Spend Intensity: KSh %{customdata:,.0f}/day<extra></extra>",
-        ))
-        fig_fc.update_layout(**_CL, height=280,
-            title=dict(text="Entry Category — Top 5 by Customer Count",
-                       font=dict(size=11, family="Montserrat"), x=0))
-        fig_fc.update_xaxes(**_ax(showgrid=False, showticklabels=False), range=[0, 40])
-        fig_fc.update_yaxes(**_ax(showgrid=False, tickfont=dict(size=10)))
+    fcat_top10 = fcat_df.nlargest(10, "customer_count").copy()
+    fcat_top10["first_category"] = fcat_top10["first_category"].replace(0, "Unknown")
+    _pal10 = (SEQ * 3)[:len(fcat_top10)]
+
+    fig_fc = go.Figure(go.Bar(
+        y=fcat_top10["first_category"],
+        x=fcat_top10["customer_count"],
+        orientation="h",
+        marker_color=_pal10,
+        text=fcat_top10["customer_count"].astype(int),
+        textposition="outside", cliponaxis=False, constraintext="none",
+        textfont=dict(size=11, family="Montserrat", color=AFYA_BLUE),
+        hovertemplate="<b>%{y}</b><br>%{x:,} first-time customers<extra></extra>",
+    ))
+    fig_fc.update_layout(**_CL, height=370)
+    fig_fc.update_xaxes(**_ax(showgrid=False, showticklabels=False),
+        range=[0, fcat_top10["customer_count"].max() * 1.3])
+    fig_fc.update_yaxes(**_ax(showgrid=False, tickfont=dict(size=10)),
+        categoryorder="total ascending")
+
+    col_fc, col_ret = st.columns(2, gap="large")
+    with col_fc:
+        st.markdown('<div style="font-size:15px;font-weight:600;color:#003467;margin-bottom:4px">1. What Product Brought Them to XanaLife for the First Time?</div>', unsafe_allow_html=True)
         pc(fig_fc)
 
-    with c2:
-        fc_display = pd.DataFrame({
-            "First Category":        fcat_df["first_category"].replace(0, "Unknown"),
-            "Customers":             fcat_df["customer_count"].astype(int),
-            "% Regular (≥6 visits)": [f'{v}%' for v in fcat_df["pct_became_regular"]],
-            "Became Elite":          fcat_df["became_elite"].astype(int),
-            "Stayed One-Time":       fcat_df["stayed_one_time"].astype(int),
-            "Daily Spend Intensity": [fmt_ksh(v) + "/day" for v in fcat_df["avg_daily_spend_intensity"]],
+    with col_ret:
+        st.markdown('<div style="font-size:15px;font-weight:600;color:#003467;margin-bottom:4px">2. Did They Come Back? — Retention by First Product</div>', unsafe_allow_html=True)
+
+    _ret = fcat_df.copy()
+    _ret["first_category"] = _ret["first_category"].replace(0, "Unknown")
+    for _c in ["regular_customers", "returning_customers", "one_time_customers"]:
+        if _c not in _ret.columns:
+            _ret[_c] = 0
+    _ret["retention_rate"] = (
+        (_ret["regular_customers"] + _ret["returning_customers"])
+        / _ret["customer_count"].replace(0, pd.NA) * 100
+    ).fillna(0).round(1)
+    _ret["pct_regular"]  = (_ret["regular_customers"]  / _ret["customer_count"].replace(0, pd.NA) * 100).fillna(0).round(1)
+    _ret["pct_one_time"] = (_ret["one_time_customers"]  / _ret["customer_count"].replace(0, pd.NA) * 100).fillna(0).round(1)
+
+    for _c in ["regular_customers", "returning_customers", "one_time_customers", "customer_count"]:
+        _ret[_c] = pd.to_numeric(_ret.get(_c, 0), errors="coerce").fillna(0).astype(int)
+    ret_display = pd.DataFrame({
+        "First Category":    _ret["first_category"].reset_index(drop=True),
+        "Customers":         _ret["customer_count"].reset_index(drop=True),
+        "Regular ≥6 visits": _ret["regular_customers"].reset_index(drop=True),
+        "Regular %":         (_ret["pct_regular"].astype(str) + "%").reset_index(drop=True),
+        "Returning (2–5)":   _ret["returning_customers"].reset_index(drop=True),
+        "One-Time":          _ret["one_time_customers"].reset_index(drop=True),
+        "One-Time %":        (_ret["pct_one_time"].astype(str) + "%").reset_index(drop=True),
+        "Retention Rate":    (_ret["retention_rate"].astype(str) + "%").reset_index(drop=True),
+    })
+
+    def _style_ret_df(df):
+        style = pd.DataFrame("", index=df.index, columns=df.columns)
+        for i, v_str in enumerate(df["Retention Rate"]):
+            try:
+                v = float(str(v_str).replace("%", ""))
+                style.loc[i, "Retention Rate"] = (
+                    "background-color: #e8f5e9" if v >= 70 else
+                    "background-color: #fff8e1" if v >= 40 else
+                    "background-color: #fdecea"
+                )
+            except: pass
+        for i, v_str in enumerate(df["One-Time %"]):
+            try:
+                v = float(str(v_str).replace("%", ""))
+                style.loc[i, "One-Time %"] = (
+                    "background-color: #fdecea" if v >= 60 else
+                    "background-color: #fff8e1" if v >= 30 else ""
+                )
+            except: pass
+        return style
+
+    with col_ret:
+        st.dataframe(ret_display.style.apply(_style_ret_df, axis=None), width='stretch', hide_index=True)
+
+    if not fevo_df.empty:
+        gap(4)
+        st.markdown('<div style="font-size:15px;font-weight:600;color:#003467;margin-bottom:4px">3. Did Their Basket Grow? — Basket Evolution for Returning Customers</div>', unsafe_allow_html=True)
+        _ev = fevo_df.copy()
+        _ev["first_category"] = _ev["first_category"].replace(0, "Unknown")
+
+        _sig_bg = {
+            "Exploring — primary store": "#d4f5f1",
+            "Growing basket":            "#d0e8f9",
+            "Slight growth":             "#fff3dc",
+        }
+
+        def _style_evo_df(df):
+            style = pd.DataFrame("", index=df.index, columns=df.columns)
+            for i, v_str in enumerate(df["Value Change %"]):
+                try:
+                    v = float(str(v_str).replace("%", "").replace("+", ""))
+                    style.loc[i, "Value Change %"] = (
+                        "background-color: #e8f5e9" if v > 10 else
+                        "background-color: #fff8e1" if v >= 0 else
+                        "background-color: #fdecea"
+                    )
+                except: pass
+            for i, sig in enumerate(df["Signal"]):
+                style.loc[i, "Signal"] = f"background-color: {_sig_bg.get(sig, '#fde8e8')}"
+            return style
+
+        evo_display = pd.DataFrame({
+            "First Category":       _ev["first_category"].reset_index(drop=True),
+            "Customers":            _ev["customer_count"].astype(int).reset_index(drop=True),
+            "First Visit Value":    _ev["first_visit_value"].apply(lambda v: f"KSh {v:,.0f}").reset_index(drop=True),
+            "Recent Visit Value":   _ev["recent_visit_value"].apply(lambda v: f"KSh {v:,.0f}").reset_index(drop=True),
+            "Value Change %":       _ev["value_change_pct"].apply(lambda v: f"{int(v):+}%").reset_index(drop=True),
+            "New Categories Added": _ev["new_categories_added"].round(1).reset_index(drop=True),
+            "Signal":               _ev["signal"].reset_index(drop=True),
         })
-        st.dataframe(fc_display, width='stretch', hide_index=True, height=380)
-    # note("⚠ Correlation, not causation. High 'Became Elite' = correlation, not proof of cause.")
+        st.dataframe(evo_display.style.apply(_style_evo_df, axis=None), width='stretch', hide_index=True)
 
     gap(8); sh("How Have Purchases Changed? — Early vs Recent Basket", mt=4)
     bev_df = D.load_basket_evolution()
@@ -771,11 +987,10 @@ A customer who spent KSh 50,000 across 5 visits has a CLV velocity of KSh 10,000
         y=bev_df["avg_recent_basket"], marker_color=AFYA_BLUE,
         hovertemplate="<b>%{x}</b><br>Recent avg basket: KSh %{y:,.0f}<extra></extra>",
     ))
-    fig_bev.update_layout(**_CL, height=300, barmode="group",
-        title=dict(text="Early vs Recent Basket Value — Has Spending Changed?",
-                   font=dict(size=11, family="Montserrat"), x=0))
+    fig_bev.update_layout(**_CL, height=300, barmode="group")
     fig_bev.update_xaxes(**_ax(showgrid=False, tickfont=dict(size=9)))
     fig_bev.update_yaxes(**AXIS, tickformat=",.0f", tickprefix="KSh ")
+    st.markdown('<div style="font-size:15px;font-weight:600;color:#003467;margin-bottom:4px">Early vs Recent Basket Value — Has Spending Changed?</div>', unsafe_allow_html=True)
     pc(fig_bev)
 
     with st.expander("📊 Detailed evolution table — Expanding vs Shrinking customers"):
@@ -812,13 +1027,12 @@ A customer who spent KSh 50,000 across 5 visits has a CLV velocity of KSh 10,000
                 marker_color=color,
                 hovertemplate=f"<b>{label}</b><br>%{{x}}: %{{y}}%<extra></extra>",
             ))
-    fig_pay.update_layout(**_CL, height=360, barmode="stack",
-        title=dict(text="Payment Method Mix — % of Transactions per Segment",
-                   font=dict(size=11, family="Montserrat"), x=0))
+    fig_pay.update_layout(**_CL, height=360, barmode="stack")
     fig_pay.update_layout(legend=dict(orientation="v", yanchor="top", y=1,
                     xanchor="left", x=1.02, font=dict(size=9)))
     fig_pay.update_xaxes(**_ax(showgrid=False, tickfont=dict(size=9)))
     fig_pay.update_yaxes(**AXIS, ticksuffix="%", range=[0, 105])
+    st.markdown('<div style="font-size:15px;font-weight:600;color:#003467;margin-bottom:4px">Payment Method Mix — % of Transactions per Segment</div>', unsafe_allow_html=True)
     pc(fig_pay)
     note("M-Pesa dominance in lower segments is expected. "
          "High loyalty_count in Elite confirms the programme reaches your most valuable customers.")
@@ -841,17 +1055,6 @@ A customer who spent KSh 50,000 across 5 visits has a CLV velocity of KSh 10,000
 # TAB 3
 # ══════════════════════════════════════════════════════════════════════════════
 with tab3:
-
-    with st.expander("📖 Glossary — Retention Terms"):
-        st.markdown("""
-**Heartbeat** — the average number of days between a customer's consecutive visits.
-A customer with a 7-day heartbeat is expected back weekly.
-
-**Lapsing** — a customer absent for more than 2× their heartbeat. Not yet churned but overdue.
-
-**Churn Proxy Buckets** — Active (< 30d since last visit) · At Risk (31–60d) · Lapsed (61–90d) · Lost (90d+).
-These are rule-based thresholds. A statistical churn model needs 12+ months of data.
-        """)
 
     sh("Return Window — How Quickly Do Customers Come Back?")
     ret_win = D.load_return_window()
@@ -887,18 +1090,27 @@ These are rule-based thresholds. A statistical churn model needs 12+ months of d
             connector=dict(line=dict(color=BORDER, width=2, dash="dot")),
             hovertemplate="<b>%{y}</b><br>%{x} customers · %{percentInitial}<extra></extra>",
         ))
-        fig_funnel.update_layout(**_CL, height=340,
-            title=dict(text=f"Return Window — {funnel_seg}",
-                       font=dict(size=11, family="Montserrat"), x=0))
+        fig_funnel.update_layout(**_CL, height=340)
+        st.markdown(f'<div style="font-size:15px;font-weight:600;color:#003467;margin-bottom:4px">Return Window — {funnel_seg}</div>', unsafe_allow_html=True)
         pc(fig_funnel)
         note("One-Time customers excluded — they have no return window. "
              "Heavy bottom band = chronic lapsers needing a win-back campaign.")
 
     with c2:
         sh("Churn Status per Segment")
+        st.markdown("""
+<div class="nb">
+<b>Churn Proxy Buckets</b> — rule-based thresholds (a statistical model needs 12+ months of data):
+<ul style="margin:6px 0 0 0;padding-left:18px;line-height:1.9">
+<li><b>Active</b> — last visit within 30 days</li>
+<li><b>At Risk</b> — 31–60 days since last visit</li>
+<li><b>Lapsed</b> — 61–90 days since last visit</li>
+<li><b>Lost</b> — 90+ days since last visit</li>
+</ul>
+</div>
+""", unsafe_allow_html=True)
         churn_df = D.load_churn_by_segment()
         churn_df = churn_df.fillna(0)
-        # Color each status cell: green=active, amber=at_risk, orange=lapsed, red=lost
         _n = len(churn_df)
         _active_fill  = [_rgba("#276749", 0.15)] * _n
         _atrisk_fill  = [_rgba("#D97706", 0.15)] * _n
@@ -929,81 +1141,52 @@ These are rule-based thresholds. A statistical churn model needs 12+ months of d
         ))
         fig_churn.update_layout(margin=dict(l=0,r=0,t=0,b=0), height=240)
         pc(fig_churn)
-        with st.expander("ℹ What do these buckets mean?"):
-            st.markdown(
-                "Grouped by days since last purchase (from latest data date, not today):\n\n"
-                "- 🟢 **Active** = <30 days\n"
-                "- 🟡 **At Risk** = 31–60 days\n"
-                "- 🟠 **Lapsed** = 61–90 days\n"
-                "- 🔴 **Lost** = 90+ days\n\n"
-                #"Rule-based, not a predictive model. A proper churn model needs 12+ months of data."
-                )
 
     gap(8)
-    sh("Second Purchase — How Quickly Do Customers Return?", mt=4)
     sp_df = D.load_second_purchase()
     sp_df = sp_df.fillna(0)
+    sp_ret = sp_df[~sp_df["refined_tier"].astype(str).str.startswith("0 -")].copy()
 
     c1, c2 = st.columns(2, gap="large")
     with c1:
         fig_sp = go.Figure(go.Bar(
-            x=sp_df["refined_tier"].fillna("Unknown"),
-            y=sp_df["avg_days_to_second"].fillna(0),
-            marker_color=[seg_color(t) for t in sp_df["refined_tier"].fillna("")],
-            text=[safe_str(v, "d") for v in sp_df["avg_days_to_second"].fillna(0)],
+            x=sp_ret["refined_tier"].fillna("Unknown"),
+            y=sp_ret["avg_days_to_second"].fillna(0),
+            marker_color=[seg_color(t) for t in sp_ret["refined_tier"].fillna("")],
+            text=[safe_str(v, "d") for v in sp_ret["avg_days_to_second"].fillna(0)],
             textposition="outside", cliponaxis=False,
             hovertemplate="<b>%{x}</b><br>Avg %{y} days to second visit<extra></extra>",
         ))
-        fig_sp.update_layout(**_CL, height=300,
-            title=dict(text="Avg Days from First to Second Purchase",
-                       font=dict(size=11, family="Montserrat"), x=0))
+        fig_sp.update_layout(**_CL, height=300)
         fig_sp.update_xaxes(**_ax(showgrid=False, tickfont=dict(size=9)))
         fig_sp.update_yaxes(**_ax(showgrid=False), title_text="Days")
+        st.markdown('<div style="font-size:15px;font-weight:600;color:#003467;margin-bottom:4px">Avg Days from First to Second Purchase</div>', unsafe_allow_html=True)
         pc(fig_sp)
         note("Prompt a second visit within this window = significantly more likely to become regular.")
 
     with c2:
-        fig_sp2 = go.Figure(go.Bar(
-            x=sp_df["refined_tier"].fillna("Unknown"),
-            y=sp_df["pct_had_second_visit"].fillna(0),
-            marker_color=[seg_color(t) for t in sp_df["refined_tier"].fillna("")],
-            text=[f'{v}%' for v in sp_df["pct_had_second_visit"].fillna(0)],
-            textposition="outside", cliponaxis=False,
-            customdata=sp_df["customers_with_second"].fillna(0).astype(int),
-            hovertemplate="<b>%{x}</b><br>%{y}% returned<br>%{customdata} customers<extra></extra>",
-        ))
-        fig_sp2.update_layout(**_CL, height=300,
-            title=dict(text="% of Customers Who Made a Second Purchase",
-                       font=dict(size=11, family="Montserrat"), x=0))
-        fig_sp2.update_xaxes(**_ax(showgrid=False, tickfont=dict(size=9)))
-        fig_sp2.update_yaxes(**AXIS, ticksuffix="%", range=[0, 105])
-        pc(fig_sp2)
-        note("One-Time = 0% by definition. Included to show scale of win-back opportunity.")
-
-    gap(8)
-    sh("Win-Back Window + Recommended Action per Segment", mt=4)
-
-    lap_merge = D.load_lapsing_by_segment().fillna(0)
-    prompt_map = {
-        "1 - Elite (Weekly Loyal)":    "Personalised restock reminder for their top category",
-        "1 - Elite (Bulk/Wholesale)":  "Account manager outreach — check on order needs",
-        "2 - High":                    "Loyalty points reminder + top category offer",
-        "3 - Medium":                  "Discount on first-purchase category",
-        "4 - Low":                     "Enrol in loyalty + new product in their category",
-        "0 - One Time":                "Win-back offer using first-purchase product as hook",
-    }
-    action_rows = []
-    for _, row in sp_df.iterrows():
-        t = row["refined_tier"]
-        lap_row = lap_merge[lap_merge["refined_tier"] == t]
-        action_rows.append({
-            "Segment":            t,
-            "Win-back window":    f"{row['avg_days_to_second']:.0f} days",
-            "Lapsing customers":  int(lap_row["lapsing_customers"].iloc[0]) if not lap_row.empty else 0,
-            "Revenue at risk":    fmt_ksh(lap_row["revenue_at_risk"].iloc[0]) if not lap_row.empty else "—",
-            "Recommended prompt": prompt_map.get(t, "—"),
-        })
-    st.dataframe(pd.DataFrame(action_rows), width='stretch', hide_index=True)
+        st.markdown('<div style="font-size:15px;font-weight:600;color:#003467;margin-bottom:4px">Win-Back Window + Recommended Action per Segment</div>', unsafe_allow_html=True)
+        lap_merge = D.load_lapsing_by_segment().fillna(0)
+        prompt_map = {
+            "1 - Elite (Weekly Loyal)":    "Personalised restock reminder for their top category",
+            "1 - Elite (Bulk/Wholesale)":  "Account manager outreach — check on order needs",
+            "2 - High":                    "Loyalty points reminder + top category offer",
+            "3 - Medium":                  "Discount on first-purchase category",
+            "4 - Low":                     "Enrol in loyalty + new product in their category",
+            "0 - One Time":                "Win-back offer using first-purchase product as hook",
+        }
+        action_rows = []
+        for _, row in sp_df.iterrows():
+            t = row["refined_tier"]
+            lap_row = lap_merge[lap_merge["refined_tier"] == t]
+            action_rows.append({
+                "Segment":            t,
+                "Win-back window":    f"{row['avg_days_to_second']:.0f} days",
+                "Lapsing customers":  int(lap_row["lapsing_customers"].iloc[0]) if not lap_row.empty else 0,
+                "Revenue at risk":    fmt_ksh(lap_row["revenue_at_risk"].iloc[0]) if not lap_row.empty else "—",
+                "Recommended prompt": prompt_map.get(t, "—"),
+            })
+        st.dataframe(pd.DataFrame(action_rows), width='stretch', hide_index=True)
 
     gap(8)
     sh("Shopping Rhythm — How Reliably Do Customers Visit?", mt=4)
@@ -1023,11 +1206,10 @@ These are rule-based thresholds. A statistical churn model needs 12+ months of d
             customdata=cons_df["avg_days_between_visits"],
             hovertemplate="<b>%{x}</b><br>%{y} customers<br>Avg gap: %{customdata} days<extra></extra>",
         ))
-        fig_cons.update_layout(**_CL, height=280,
-            title=dict(text="Customers by Shopping Rhythm",
-                       font=dict(size=11, family="Montserrat"), x=0))
+        fig_cons.update_layout(**_CL, height=280)
         fig_cons.update_xaxes(**_ax(showgrid=False, tickfont=dict(size=9)))
         fig_cons.update_yaxes(**_ax(showgrid=False, showticklabels=False))
+        st.markdown('<div style="font-size:15px;font-weight:600;color:#003467;margin-bottom:4px">Customers by Shopping Rhythm</div>', unsafe_allow_html=True)
         pc(fig_cons)
 
     with c2:
@@ -1039,8 +1221,18 @@ These are rule-based thresholds. A statistical churn model needs 12+ months of d
             "Avg Days Between": [f'{v}d' for v in cons_df["avg_days_between_visits"]],
         })
         st.dataframe(cons_display, width='stretch', hide_index=True, height=280)
-    note("Weekly = ≤7 days. Bi-Weekly = ≤14 days. Monthly = ≤30 days. "
-         "Weekly customers have the highest lifetime revenue.")
+    st.markdown("""
+<div class="nb">
+<b>Shopping rhythm is classified by avg days between visits:</b>
+<ul style="margin:6px 0 0 0;padding-left:18px;line-height:1.9">
+<li><b>Weekly</b> — avg gap ≤ 7 days · highest lifetime revenue · most loyal segment</li>
+<li><b>Bi-Weekly</b> — avg gap ≤ 14 days · regular but less frequent</li>
+<li><b>Monthly</b> — avg gap ≤ 30 days · occasional shoppers</li>
+<li><b>Sporadic</b> — avg gap > 30 days · unpredictable visit pattern</li>
+<li><b>One-Time</b> — only one visit on record · no rhythm can be calculated</li>
+</ul>
+</div>
+""", unsafe_allow_html=True)
 
     gap(8)
     sh("One-Time Customer Analysis — Why Didn't They Return?", mt=4)
@@ -1062,12 +1254,12 @@ These are rule-based thresholds. A statistical churn model needs 12+ months of d
             customdata=ot_basket["avg_basket_value"],
             hovertemplate="<b>%{x}</b><br>%{y}% · avg KSh %{customdata:,.0f}<extra></extra>",
         ))
-        fig_otb.update_layout(**_CL, height=240,
-            title=dict(text="Shop Type — One-Timers", font=dict(size=10), x=0))
+        fig_otb.update_layout(**_CL, height=240)
         fig_otb.update_xaxes(**_ax(showgrid=False, tickfont=dict(size=8)))
         fig_otb.update_yaxes(**_ax(ticksuffix="%"), range=[0, 100])
+        st.markdown('<div style="font-size:15px;font-weight:600;color:#003467;margin-bottom:4px">Shop Type — One-Timers</div>', unsafe_allow_html=True)
         pc(fig_otb)
-        note("If >60% Top-Up: fix checkout cross-sell, not win-back.", warn=True)
+        note("If >60% Top-Up: first visit was low-engagement — offer a welcome bundle at checkout to drive a second trip.", warn=True)
 
     with c2:
         st.markdown(f'<div style="font-size:10px;font-weight:600;color:{AFYA_BLUE};'
@@ -1080,12 +1272,12 @@ These are rule-based thresholds. A statistical churn model needs 12+ months of d
             textposition="outside", cliponaxis=False,
             hovertemplate="<b>%{x}</b><br>%{y}%<extra></extra>",
         ))
-        fig_otp.update_layout(**_CL, height=240,
-            title=dict(text="Entry Point", font=dict(size=10), x=0))
+        fig_otp.update_layout(**_CL, height=240)
         fig_otp.update_xaxes(**_ax(showgrid=False, tickfont=dict(size=8)))
         fig_otp.update_yaxes(**_ax(ticksuffix="%"), range=[0, 100])
+        st.markdown('<div style="font-size:15px;font-weight:600;color:#003467;margin-bottom:4px">Entry Point</div>', unsafe_allow_html=True)
         pc(fig_otp)
-        note("Pharmacy-only = high-conversion target. Offer grocery coupon.", warn=True)
+        note("Pharmacy-only entry = high-conversion target. A grocery discount on the receipt gives them a reason to explore the rest of the store.", warn=True)
 
     with c3:
         st.markdown(f'<div style="font-size:10px;font-weight:600;color:{AFYA_BLUE};'
@@ -1099,12 +1291,12 @@ These are rule-based thresholds. A statistical churn model needs 12+ months of d
             textposition="outside", cliponaxis=False,
             hovertemplate="<b>%{x}</b><br>%{y}%<extra></extra>",
         ))
-        fig_otu.update_layout(**_CL, height=240,
-            title=dict(text="Urgency Buckets", font=dict(size=10), x=0))
+        fig_otu.update_layout(**_CL, height=240)
         fig_otu.update_xaxes(**_ax(showgrid=False, tickfont=dict(size=7)))
         fig_otu.update_yaxes(**_ax(ticksuffix="%"), range=[0, 100])
+        st.markdown('<div style="font-size:15px;font-weight:600;color:#003467;margin-bottom:4px">14-Day Golden Window — Urgency Buckets</div>', unsafe_allow_html=True)
         pc(fig_otu)
-        note("'Window open' = contact within 7 days.", warn=True)
+        note("'Window open' = contact within 7 days with an offer tied to their first purchase category.", warn=True)
 
     with c4:
         st.markdown(f'<div style="font-size:10px;font-weight:600;color:{AFYA_BLUE};'
@@ -1117,10 +1309,10 @@ These are rule-based thresholds. A statistical churn model needs 12+ months of d
             textposition="outside", cliponaxis=False,
             hovertemplate="<b>%{x}</b><br>%{y}%<extra></extra>",
         ))
-        fig_otps.update_layout(**_CL, height=240,
-            title=dict(text="Shopper Type", font=dict(size=10), x=0))
+        fig_otps.update_layout(**_CL, height=240)
         fig_otps.update_xaxes(**_ax(showgrid=False, tickfont=dict(size=7)))
         fig_otps.update_yaxes(**_ax(ticksuffix="%"), range=[0, 100])
+        st.markdown('<div style="font-size:15px;font-weight:600;color:#003467;margin-bottom:4px">Shopper Profile</div>', unsafe_allow_html=True)
         pc(fig_otps)
         note("Staples-only = price cherry-picker. Loyalty won't work.", warn=True)
 
@@ -1158,11 +1350,10 @@ with tab4:
             textposition="outside", cliponaxis=False,
             hovertemplate="<b>%{x}</b>: %{y} customers<extra></extra>",
         ))
-        fig_pts.update_layout(**_CL, height=260,
-            title=dict(text="Points Bucket Distribution",
-                       font=dict(size=11, family="Montserrat"), x=0))
+        fig_pts.update_layout(**_CL, height=260)
         fig_pts.update_xaxes(**_ax(showgrid=False, tickfont=dict(size=8)))
         fig_pts.update_yaxes(**_ax(showgrid=False, showticklabels=False))
+        st.markdown('<div style="font-size:15px;font-weight:600;color:#003467;margin-bottom:4px">Points Bucket Distribution</div>', unsafe_allow_html=True)
         pc(fig_pts)
         note("High concentration in lowest bucket = redemption threshold too high. "
              "A low-entry tier (50 pts = KSh 50 off) would activate dormant members.", warn=True)
@@ -1178,12 +1369,11 @@ with tab4:
             textposition="outside", cliponaxis=False,
             hovertemplate="<b>%{y}</b>: %{x}% loyalty rate<extra></extra>",
         ))
-        fig_lseg.update_layout(**_CL, height=260,
-            title=dict(text="Loyalty Rate by Segment",
-                       font=dict(size=11, family="Montserrat"), x=0))
+        fig_lseg.update_layout(**_CL, height=260)
         fig_lseg.update_xaxes(**_ax(showgrid=False), ticksuffix="%",
                               title_text="% of segment enrolled in loyalty")
         fig_lseg.update_yaxes(**_ax(showgrid=False))
+        st.markdown('<div style="font-size:15px;font-weight:600;color:#003467;margin-bottom:4px">Loyalty Rate by Segment</div>', unsafe_allow_html=True)
         pc(fig_lseg)
 
     with c3:
@@ -1197,12 +1387,11 @@ with tab4:
             textfont=dict(size=12, family="Montserrat"),
             hovertemplate="<b>%{x}</b>: avg %{y} days between visits<extra></extra>",
         ))
-        fig_lr.update_layout(**_CL, height=260,
-            title=dict(text="Return Speed — Loyalty vs Non-Loyalty",
-                       font=dict(size=11, family="Montserrat"), x=0))
+        fig_lr.update_layout(**_CL, height=260)
         fig_lr.update_xaxes(**_ax(showgrid=False))
         fig_lr.update_yaxes(**_ax(showgrid=False, showticklabels=False),
                             title_text="Avg days between visits")
+        st.markdown('<div style="font-size:15px;font-weight:600;color:#003467;margin-bottom:4px">Return Speed — Loyalty vs Non-Loyalty</div>', unsafe_allow_html=True)
         pc(fig_lr)
 
     gap(8)
@@ -1224,13 +1413,12 @@ with tab4:
             hovertemplate="%{x|%b %Y}: %{y} customers<extra></extra>",
         ))
         fig_red.update_layout(**_CL, height=280,
-            title=dict(text="Is Loyalty Redemption Actually Happening?",
-                       font=dict(size=11, family="Montserrat"), x=0),
             yaxis2=dict(overlaying="y", side="right", showgrid=False,
                         tickfont=dict(size=9, color=TEAL, family="Montserrat")))
         fig_red.update_xaxes(**AXIS, tickformat="%b %Y")
         fig_red.update_yaxes(**AXIS, tickformat=",.0f", tickprefix="KSh ",
                              title_text="KES redeemed")
+        st.markdown('<div style="font-size:15px;font-weight:600;color:#003467;margin-bottom:4px">Is Loyalty Redemption Actually Happening?</div>', unsafe_allow_html=True)
         pc(fig_red)
         note("Bars = KES redeemed. Line = customers who redeemed. "
              "Flat bars = programme exists but nobody uses it.")
@@ -1248,11 +1436,10 @@ with tab4:
             hovertemplate="<b>%{y}</b>: %{x} customers<br>"
                           "Daily Spend Intensity: KSh %{customdata:,.0f}/day<extra></extra>",
         ))
-        fig_lag.update_layout(**_CL, height=280,
-            title=dict(text="When Do Customers Join Loyalty?",
-                       font=dict(size=11, family="Montserrat"), x=0))
+        fig_lag.update_layout(**_CL, height=280)
         fig_lag.update_xaxes(**_ax(showgrid=False, showticklabels=False))
         fig_lag.update_yaxes(**_ax(showgrid=False))
+        st.markdown('<div style="font-size:15px;font-weight:600;color:#003467;margin-bottom:4px">When Do Customers Join Loyalty?</div>', unsafe_allow_html=True)
         pc(fig_lag)
         note("Day 1 enrolees show higher Daily Spend Intensity. "
              "Enrolment at first purchase should be standard process, not optional.")
@@ -1277,6 +1464,7 @@ with tab4:
                     tickfont=dict(size=9, color=TEAL, family="Montserrat")))
     fig_lt.update_xaxes(**AXIS, tickformat="%b %Y")
     fig_lt.update_yaxes(**AXIS, title_text="New members / month")
+    st.markdown('<div style="font-size:15px;font-weight:600;color:#003467;margin-bottom:4px">Loyalty Sign-Up Growth</div>', unsafe_allow_html=True)
     pc(fig_lt)
 
     gap(8); sh("Insights")

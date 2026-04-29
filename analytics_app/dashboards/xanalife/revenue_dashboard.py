@@ -117,9 +117,12 @@ for key in ("ci_data", "scr_data", "sa_data", "ma_data", "ov_data", "stores_df")
 
 if st.session_state.stores_df is None:
     # import pdb;pdb.set_trace()
+
     stores_raw = ov.run_query(
         "SELECT id AS STORE_ID, MIN(name) AS STORE_NAME, MIN(code) AS STORE_CODE "
         "FROM hospitals.xanalife_clean.inventory_stores GROUP BY id ORDER BY MIN(name)")
+    # import time
+    # time.sleep(3)
     # stores_raw.columns = stores_raw.columns.str.upper()
     stores_raw["LOCATION"] = stores_raw["STORE_ID"].apply(
         lambda x: "Syokimau" if x in {399, 400, 401, 402, 403, 404} else "Katani"

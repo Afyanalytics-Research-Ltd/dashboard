@@ -21,7 +21,7 @@ else:
         file_path = None
     print(file_path)
     if os.path.exists(file_path):
-        with open(file_path) as f:
+        with open(file_path, encoding='utf-8') as f:
             code = f.read()
         
         try:

@@ -1,33 +1,31 @@
 import os
+from pathlib import Path
 import snowflake.connector
-from cryptography.hazmat.backends import default_backend
-from cryptography.hazmat.primitives import serialization
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).parent.parent.parent.parent / ".env")
 
 
 class SnowflakeClient:
+
     def __init__(self):
-        passphrase = os.environ.get("SNOWFLAKE_PRIVATE_KEY_PASSPHRASE", "")
-        password_bytes = passphrase.encode() if passphrase else b""
 
-        with open(os.environ["SNOWFLAKE_PRIVATE_KEY_PATH"], "rb") as key_file:
-            p_key = serialization.load_pem_private_key(
-                key_file.read(),
-                password=password_bytes,
-                backend=default_backend(),
-            )
-
-        pkb = p_key.private_bytes(
-            encoding=serialization.Encoding.DER,
-            format=serialization.PrivateFormat.PKCS8,
-            encryption_algorithm=serialization.NoEncryption(),
-        )
+        with open(os.getenv("SNOWFLAKE_PRIVATE_KEY_PATH").strip(), "rb") as key:
+            private_key = key.read()
 
         self.conn = snowflake.connector.connect(
-            user=os.environ["SNOWFLAKE_USER"],
-            account=os.environ["SNOWFLAKE_ACCOUNT"],
-            private_key=pkb,
-            warehouse=os.environ["SNOWFLAKE_WAREHOUSE"],
-            database=os.environ["SNOWFLAKE_DATABASE"],
-            schema=os.environ["SNOWFLAKE_SCHEMA"],
-            role=os.environ["SNOWFLAKE_ROLE"],
+            user=os.getenv("SNOWFLAKE_USER").strip(),
+            account=os.getenv("SNOWFLAKE_ACCOUNT").strip(),
+            warehouse=os.getenv("SNOWFLAKE_WAREHOUSE").strip(),
+            database=os.getenv("SNOWFLAKE_DATABASE").strip(),
+            schema=os.getenv("SNOWFLAKE_SCHEMA", "PUBLIC").strip(),
+            private_key_file=os.getenv("SNOWFLAKE_PRIVATE_KEY_PATH").strip(),
         )
+
+    def query(self, sql):
+        cursor = self.conn.cursor()
+        try:
+            cursor.execute(sql)
+            return cursor.fetch_pandas_all()
+        finally:
+            cursor.close()

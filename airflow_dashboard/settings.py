@@ -8,7 +8,7 @@ load_dotenv()  # loads .env file from current directory
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = 'django-secret-key'
-DEBUG = os.getenv('DEBUG',True).strip()
+DEBUG = os.getenv('DEBUG', 'False').strip().lower() in ('true', '1', 'yes', 'on')
 ALLOWED_HOSTS = ['datahub.afyaanalytics.com', 'localhost', '127.0.0.1']
 
 CSRF_TRUSTED_ORIGINS = [

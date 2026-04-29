@@ -12,11 +12,12 @@ Changes from v2:
   - load_mvar_coverage / overall / by_store now read from views
 """
 
-import os
+import sys
 from pathlib import Path
 import streamlit as st
 import pandas as pd
 from snowflake_service.snowflake_client import SnowflakeClient
+
 MIN_DATE         = "2025-09-01"
 
 
@@ -49,9 +50,16 @@ def run_query(sql: str) -> pd.DataFrame:
         df = client.query(sql)
         df.columns = [c.lower() for c in df.columns]
         return df
+    def _fetch(client):
+        df = client.query(sql)
+        df.columns = [c.lower() for c in df.columns]
+        return df
     try:
         df = _fetch(get_connection())
     except Exception as e:
+        err = str(e).lower()
+        if "connect" in err or "session" in err or "250001" in str(e):
+            st.session_state.pop("sf_client", None)
         err = str(e).lower()
         if "connect" in err or "session" in err or "250001" in str(e):
             st.session_state.pop("sf_client", None)
@@ -86,33 +94,27 @@ EXCL_WHOLESALE_SQL = """
 # ═════════════════════════════════════════════════════════════════════════════
 
 SQL_KPIS = f"""
-WITH active AS (
-    SELECT patient, COUNT(DISTINCT id) AS t_transactions
+WITH anchor AS (SELECT MAX(created_at) AS max_date FROM inventory_inventory_batch_product_sales),
+hist AS (
+    SELECT patient,
+           MIN(created_at) AS first_ever_visit
     FROM inventory_inventory_batch_product_sales
     WHERE created_at::DATE >= '{MIN_DATE}'
       AND patient NOT IN (273017, 276430)
       AND status != 'canceled'
     GROUP BY patient
-),
-anchor AS (SELECT MAX(created_at) AS max_date FROM inventory_inventory_batch_product_sales),
-hist AS (
-    SELECT patient,
-           MIN(created_at) AS first_ever_visit,
-           COUNT(id)       AS lifetime_visits
-    FROM inventory_inventory_batch_product_sales
-    WHERE created_at::DATE >= '{MIN_DATE}'
-    GROUP BY patient
 )
 SELECT
-    COUNT(DISTINCT a.patient)                                          AS active_customers,
-    COUNT(CASE WHEN a.t_transactions > 1 THEN 1 END)                   AS repeat_customers,
-    COUNT(CASE WHEN h.lifetime_visits = 1 THEN 1 END)                  AS one_time_customers,
-    COUNT(CASE WHEN h.first_ever_visit >= DATEADD(day,-30,an.max_date)
-               THEN 1 END)                                             AS new_last_30d,
+    (SELECT COUNT(*)     FROM VW_CUSTOMER_SEGMENTATION)                AS active_customers,
+    (SELECT COUNT(*)     FROM VW_CUSTOMER_SEGMENTATION
+     WHERE active_days > 1)                                            AS repeat_customers,
+    (SELECT COUNT(*)     FROM VW_CUSTOMER_SEGMENTATION
+     WHERE refined_tier = '0 - One Time')                              AS one_time_customers,
+    (SELECT COUNT(DISTINCT h.patient)
+     FROM hist h CROSS JOIN anchor an
+     WHERE h.first_ever_visit >= DATEADD(day,-30,an.max_date))         AS new_last_30d,
     (SELECT COUNT(DISTINCT customer_id) FROM points)                   AS loyalty_members
-FROM active a
-JOIN hist h ON a.patient = h.patient
-CROSS JOIN anchor an
+FROM (SELECT 1) dummy
 """
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -194,16 +196,17 @@ def load_dow_by_cluster() -> pd.DataFrame:
 SQL_ACTIVE_CUSTOMERS_OVER_TIME = f"""
 SELECT
     DATE_TRUNC('month', ps.created_at::DATE) AS month,
+    st.name                                  AS store_name, 
     COUNT(DISTINCT ps.patient)               AS active_customers
 FROM inventory_inventory_batch_product_sales ps
 LEFT JOIN evaluation_pos_sale_details s  ON ps.id = s.sale_id
 LEFT JOIN inventory_store_products sp    ON s.store_product_id = sp.id
-LEFT JOIN inventory_stores ins           ON sp.store_id = ins.id
+LEFT JOIN inventory_stores st           ON sp.store_id = st.id
 WHERE ps.created_at::DATE >= '{MIN_DATE}'
-  AND s.created_at::DATE  >= '{MIN_DATE}'
+  AND s.created_at::DATE  >= '{MIN_DATE}'   
   AND ps.patient NOT IN (273017, 276430)
   AND sp.product_active = TRUE
-GROUP BY 1
+GROUP BY ALL
 HAVING COUNT(s.sale_id) >= 1
 ORDER BY 1
 """
@@ -387,6 +390,47 @@ FROM ot_profile GROUP BY 1 ORDER BY patient_count DESC
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_onetimer_price_sensitive() -> pd.DataFrame:
     return run_query(SQL_ONETIMER_PRICE_SENSITIVE)
+
+
+SQL_RETAIL_GROWTH_SEGMENTS = f"""
+WITH monthly AS (
+    SELECT
+        DATE_TRUNC('month', s.created_at::DATE)                    AS month,
+        st.name                                                    AS store_name,
+        CASE
+            WHEN st.name ILIKE '%Pharmacy%' THEN 'Healthcare'
+            WHEN st.name ILIKE '%Wine%' OR st.name ILIKE '%Deli%'  THEN 'Specialty / High Margin'
+            ELSE 'Standard Retail'
+        END                                                        AS retail_segment,
+        ROUND(SUM(s.amount), 0)                                    AS monthly_revenue,
+        COUNT(DISTINCT s.sale_id)                                  AS transaction_count,
+        ROUND(SUM(s.amount) / NULLIF(COUNT(DISTINCT s.sale_id),0), 0) AS avg_basket_value
+    FROM inventory_inventory_batch_product_sales ps
+    LEFT JOIN evaluation_pos_sale_details s  ON ps.id = s.sale_id
+    RIGHT JOIN inventory_store_products sp   ON sp.id = s.store_product_id
+    LEFT JOIN inventory_stores st            ON sp.store_id = st.id
+    WHERE s.created_at::DATE >= '{MIN_DATE}'
+      AND st.name NOT ILIKE '%Wholesale%'
+      AND st.name NOT ILIKE '%Bulk%'
+    GROUP BY 1, 2, 3
+)
+SELECT
+    month,
+    retail_segment,
+    SUM(monthly_revenue)                                           AS revenue,
+    SUM(monthly_revenue)
+        - LAG(SUM(monthly_revenue)) OVER (
+            PARTITION BY retail_segment ORDER BY month)            AS rev_change_kes,
+    ROUND(AVG(avg_basket_value), 0)                                AS avg_basket_value,
+    SUM(transaction_count)                                         AS transaction_count
+FROM monthly
+GROUP BY 1, 2
+ORDER BY 1 DESC, revenue DESC
+"""
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def load_retail_growth_segments() -> pd.DataFrame:
+    return run_query(SQL_RETAIL_GROWTH_SEGMENTS)
 
 
 SQL_GROWTH_OVERALL = f"""
@@ -718,13 +762,28 @@ def load_segments() -> pd.DataFrame:
     return run_query(SQL_SEGMENTS)
 
 
-SQL_SEG_TREND = """
+SQL_SEG_TREND = f"""
+WITH patient_cluster AS (
+    SELECT ps.patient,
+        CASE WHEN SUM(CASE WHEN st.name ILIKE 'Katani%' THEN 1 ELSE 0 END)
+                  >= SUM(CASE WHEN st.name NOT ILIKE 'Katani%' THEN 1 ELSE 0 END)
+             THEN 'Katani' ELSE 'Syokimau' END AS cluster
+    FROM inventory_inventory_batch_product_sales ps
+    LEFT JOIN evaluation_pos_sale_details s  ON ps.id = s.sale_id
+    LEFT JOIN inventory_store_products sp    ON s.store_product_id = sp.id
+    LEFT JOIN inventory_stores st            ON sp.store_id = st.id
+    WHERE ps.patient NOT IN (273017, 276430)
+      AND ps.status != 'canceled'
+    GROUP BY ps.patient
+)
 SELECT
-    DATE_TRUNC('MONTH', first_purchase_date) AS month,
-    refined_tier,
-    COUNT(customer_id)                       AS customer_count
-FROM VW_CUSTOMER_SEGMENTATION
-GROUP BY 1,2 ORDER BY 1
+    DATE_TRUNC('MONTH', v.first_purchase_date) AS month,
+    v.refined_tier,
+    COALESCE(pc.cluster, 'Unknown')            AS cluster,
+    COUNT(v.customer_id)                       AS customer_count
+FROM VW_CUSTOMER_SEGMENTATION v
+LEFT JOIN patient_cluster pc ON pc.patient = v.customer_id
+GROUP BY 1,2,3 ORDER BY 1
 """
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -743,7 +802,8 @@ WITH tp AS (
     JOIN VW_CUSTOMER_SEGMENTATION v         ON bp.patient = v.customer_id
     WHERE bp.created_at::DATE >= '{MIN_DATE}'
       AND bp.status != 'canceled'
-    GROUP BY 1,2
+      AND store_product_id IS NOT NULL
+    GROUP BY ALL
 )
 SELECT * FROM tp
 QUALIFY ROW_NUMBER() OVER (PARTITION BY refined_tier ORDER BY total_spend DESC) <= 5
@@ -840,6 +900,53 @@ def load_conversion_velocity() -> pd.DataFrame:
     return run_query(SQL_CONVERSION_VELOCITY)
 
 
+SQL_CONVERSION_VELOCITY_BY_TIER = f"""
+WITH raw AS (
+    SELECT ps.patient, ps.amount,
+           ps.created_at::DATE                                         AS visit_date,
+           v.refined_tier,
+           COUNT(*) OVER (PARTITION BY ps.patient)                     AS total_visits,
+           ROW_NUMBER() OVER (PARTITION BY ps.patient ORDER BY ps.created_at) AS visit_num
+    FROM inventory_inventory_batch_product_sales ps
+    JOIN VW_CUSTOMER_SEGMENTATION v ON v.customer_id = ps.patient
+    WHERE ps.status != 'canceled'
+      AND ps.created_at::DATE >= '{MIN_DATE}'
+      AND ps.patient NOT IN (273017, 276430)
+),
+half AS (
+    SELECT patient, refined_tier,
+           CASE WHEN visit_num <= (total_visits / 2)
+                THEN 'Early' ELSE 'Recent' END                        AS phase,
+           SUM(amount)                                                 AS phase_rev,
+           COUNT(DISTINCT visit_date)                                  AS phase_days
+    FROM raw WHERE total_visits >= 4
+    GROUP BY 1, 2, 3
+),
+vel AS (
+    SELECT patient, refined_tier,
+           MAX(CASE WHEN phase='Early'  THEN phase_rev / NULLIF(phase_days,0) END) AS early_v,
+           MAX(CASE WHEN phase='Recent' THEN phase_rev / NULLIF(phase_days,0) END) AS recent_v
+    FROM half GROUP BY 1, 2
+)
+SELECT
+    refined_tier,
+    CASE
+        WHEN recent_v > early_v * 1.2 THEN 'Up-Converting'
+        WHEN recent_v < early_v * 0.8 THEN 'Down-Converting'
+        ELSE 'Stable'
+    END                                                                AS conversion_status,
+    COUNT(*)                                                           AS customer_count,
+    ROUND(AVG(recent_v - early_v), 0)                                  AS avg_spend_shift_kes
+FROM vel
+GROUP BY 1, 2
+ORDER BY 1, 2
+"""
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def load_conversion_velocity_by_tier() -> pd.DataFrame:
+    return run_query(SQL_CONVERSION_VELOCITY_BY_TIER)
+
+
 SQL_PAYMENT_BY_SEGMENT = f"""
 SELECT
     COALESCE(v.refined_tier, 'Unregistered')                      AS refined_tier,
@@ -893,24 +1000,106 @@ fc AS (
 )
 SELECT
     fc.first_category,
-    COUNT(DISTINCT fc.patient)                                     AS customer_count,
-    ROUND(RATIO_TO_REPORT(COUNT(DISTINCT fc.patient)) OVER () * 100, 1) AS pct_new_customers,
-    ROUND(AVG(v.active_days), 1)                                   AS avg_visits,
-    ROUND(AVG(v.daily_velocity), 0)                                AS avg_daily_spend_intensity,
-    ROUND(AVG(v.total_revenue), 0)                                 AS avg_lifetime_revenue,
-    ROUND(COUNT(CASE WHEN v.active_days >= 6 THEN 1 END)
-          / NULLIF(COUNT(*),0) * 100, 1)                           AS pct_became_regular,
-    COUNT(CASE WHEN v.refined_tier LIKE '%Elite%' THEN 1 END)      AS became_elite,
-    COUNT(CASE WHEN v.refined_tier = '0 - One Time' THEN 1 END)    AS stayed_one_time
+    COUNT(DISTINCT fc.patient)                                             AS customer_count,
+    ROUND(RATIO_TO_REPORT(COUNT(DISTINCT fc.patient)) OVER () * 100, 1)   AS pct_new_customers,
+    COUNT(CASE WHEN v.active_days >= 6 THEN 1 END)                        AS regular_customers,
+    COUNT(CASE WHEN v.active_days BETWEEN 2 AND 5 THEN 1 END)             AS returning_customers,
+    COUNT(CASE WHEN v.refined_tier = '0 - One Time' THEN 1 END)           AS one_time_customers,
+    ROUND(AVG(v.active_days), 1)                                           AS avg_visits,
+    ROUND(AVG(v.daily_velocity), 0)                                        AS avg_daily_spend_intensity,
+    ROUND(AVG(v.total_revenue), 0)                                         AS avg_lifetime_revenue,
+    COUNT(CASE WHEN v.refined_tier LIKE '%Elite%' THEN 1 END)              AS became_elite
 FROM fc
 JOIN VW_CUSTOMER_SEGMENTATION v ON fc.patient = v.customer_id
 GROUP BY 1
-ORDER BY avg_daily_spend_intensity DESC
+ORDER BY customer_count DESC
 """
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_first_category() -> pd.DataFrame:
     return run_query(SQL_FIRST_CATEGORY)
+
+
+SQL_FIRST_CAT_EVOLUTION = f"""
+WITH fp AS (
+    SELECT b.patient,
+           FIRST_VALUE(s.sale_id) OVER (
+               PARTITION BY b.patient ORDER BY b.created_at ASC
+           )                                                               AS first_sale_id
+    FROM inventory_inventory_batch_product_sales b
+    JOIN evaluation_pos_sale_details s ON b.id = s.sale_id
+    WHERE b.status != 'canceled'
+      AND b.patient NOT IN (273017,276430)
+    GROUP BY b.patient, s.sale_id, b.created_at
+),
+fc AS (
+    SELECT fp.patient, c.name AS first_category
+    FROM fp
+    JOIN evaluation_pos_sale_details s   ON fp.first_sale_id = s.sale_id
+    JOIN inventory_store_products sp     ON s.store_product_id = sp.id
+    JOIN inventory_inventory_products ip ON sp.product_id = ip.id
+    JOIN inventory_inventory_categories c ON ip.category = c.id
+    WHERE sp.product_active = TRUE
+    QUALIFY ROW_NUMBER() OVER (PARTITION BY fp.patient ORDER BY s.created_at ASC) = 1
+),
+vp AS (
+    SELECT b.patient, s.sale_id, c.name AS category_name, s.amount,
+           ROW_NUMBER() OVER (PARTITION BY b.patient ORDER BY b.created_at ASC) AS visit_num,
+           COUNT(*) OVER (PARTITION BY b.patient)                               AS total_visits
+    FROM inventory_inventory_batch_product_sales b
+    JOIN evaluation_pos_sale_details s     ON b.id = s.sale_id
+    JOIN inventory_store_products sp       ON s.store_product_id = sp.id
+    JOIN inventory_inventory_products ip   ON sp.product_id = ip.id
+    JOIN inventory_inventory_categories c  ON ip.category = c.id
+    WHERE b.status != 'canceled'
+      AND b.patient NOT IN (273017,276430)
+      AND b.created_at::DATE >= '{MIN_DATE}'
+      AND sp.product_active = TRUE
+),
+ph AS (
+    SELECT patient,
+           CASE WHEN visit_num <= 3 THEN 'Early' ELSE 'Recent' END AS phase,
+           COUNT(DISTINCT category_name)    AS cat_div,
+           SUM(amount)                      AS phase_rev,
+           COUNT(DISTINCT sale_id)          AS phase_visits
+    FROM vp
+    WHERE total_visits >= 4
+      AND (visit_num <= 3 OR visit_num >= total_visits - 2)
+    GROUP BY 1, 2
+),
+pv AS (
+    SELECT patient,
+           MAX(CASE WHEN phase='Early'  THEN cat_div END)                      AS early_cats,
+           MAX(CASE WHEN phase='Recent' THEN cat_div END)                      AS recent_cats,
+           MAX(CASE WHEN phase='Early'  THEN phase_rev/NULLIF(phase_visits,0) END) AS early_basket,
+           MAX(CASE WHEN phase='Recent' THEN phase_rev/NULLIF(phase_visits,0) END) AS recent_basket
+    FROM ph GROUP BY 1
+)
+SELECT
+    fc.first_category,
+    COUNT(pv.patient)                                                      AS customer_count,
+    ROUND(AVG(pv.early_basket), 0)                                         AS first_visit_value,
+    ROUND(AVG(pv.recent_basket), 0)                                        AS recent_visit_value,
+    ROUND((AVG(pv.recent_basket) - AVG(pv.early_basket))
+          / NULLIF(AVG(pv.early_basket), 0) * 100, 0)                      AS value_change_pct,
+    ROUND(AVG(pv.recent_cats - pv.early_cats), 1)                          AS new_categories_added,
+    CASE
+        WHEN AVG(pv.recent_basket) > AVG(pv.early_basket) * 1.5
+             AND AVG(pv.recent_cats - pv.early_cats) > 1.5  THEN 'Exploring — primary store'
+        WHEN AVG(pv.recent_basket) > AVG(pv.early_basket) * 1.1
+             AND AVG(pv.recent_cats - pv.early_cats) > 0.5  THEN 'Growing basket'
+        WHEN AVG(pv.recent_basket) >= AVG(pv.early_basket)  THEN 'Slight growth'
+        ELSE 'Shrinking'
+    END                                                                    AS signal
+FROM fc
+JOIN pv ON fc.patient = pv.patient
+GROUP BY 1
+ORDER BY customer_count DESC
+"""
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def load_first_cat_evolution() -> pd.DataFrame:
+    return run_query(SQL_FIRST_CAT_EVOLUTION)
 
 
 SQL_BASKET_EVOLUTION = f"""

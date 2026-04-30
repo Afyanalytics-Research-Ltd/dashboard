@@ -3,7 +3,7 @@ Cash Integrity & Forensics — all 9 analyses.
 """
 
 import pandas as pd
-from connect_to_snowflake import run_query
+from connect_to_snowflake import run_query_
 
 
 # ── Config ─────────────────────────────────────────────────────────────────────
@@ -213,7 +213,7 @@ def run_all() -> dict:
     results = {}
     for label, sql in ANALYSES:
         print(f"\n{'='*60}\n  {label}\n{'='*60}")
-        df = run_query(sql)
+        df = run_query_(sql)
         df.columns = df.columns.str.upper()
         print(df.to_string(index=False))
         results[label] = df

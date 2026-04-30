@@ -118,7 +118,7 @@ for key in ("ci_data", "scr_data", "sa_data", "ma_data", "ov_data", "stores_df")
 if st.session_state.stores_df is None:
     # import pdb;pdb.set_trace()
 
-    stores_raw = ov.run_query(
+    stores_raw = ov.run_query_(
         "SELECT id AS STORE_ID, MIN(name) AS STORE_NAME, MIN(code) AS STORE_CODE "
         "FROM hospitals.xanalife_clean.inventory_stores GROUP BY id ORDER BY MIN(name)")
     # import time
@@ -196,7 +196,7 @@ if page == "Overview":
         with st.spinner("Loading overview…"):
             st.session_state.ov_data = {"_filter_key": filter_key}
             for label, sql in ov.get_analyses(effective_stores):
-                st.session_state.ov_data[label] = ov.run_query(sql)
+                st.session_state.ov_data[label] = ov.run_query_(sql)
 
     O = st.session_state.ov_data
 
@@ -331,7 +331,7 @@ if page == "Cash Integrity":
         with st.spinner("Loading…"):
             st.session_state.ci_data = {}
             for label, sql in ci.ANALYSES:
-                st.session_state.ci_data[label] = ci.run_query(sql)
+                st.session_state.ci_data[label] = ci.run_query_(sql)
 
     D        = st.session_state.ci_data
     pareto   = D["Analysis 1 — Pareto by Station"].copy()
@@ -511,7 +511,7 @@ if page == "SCR":
         with st.spinner("Loading…"):
             st.session_state.scr_data = {"_filter_key": filter_key}
             for label, sql in scr.get_analyses(effective_stores):
-                st.session_state.scr_data[label] = scr.run_query(sql)
+                st.session_state.scr_data[label] = scr.run_query_(sql)
 
     S         = st.session_state.scr_data
     summary   = S["SCR Summary — Stockouts + Top Substitute"].copy()
@@ -666,7 +666,7 @@ if page == "Revenue Intelligence":
         with st.spinner("Loading…"):
             st.session_state.sa_data = {"_filter_key": filter_key}
             for label, sql in sa.get_analyses(effective_stores):
-                st.session_state.sa_data[label] = sa.run_query(sql)
+                st.session_state.sa_data[label] = sa.run_query_(sql)
 
     A              = st.session_state.sa_data
     daily_df       = A["Daily Revenue"].copy()
@@ -1051,7 +1051,7 @@ if page == "Margin Intelligence":
         with st.spinner("Loading…"):
             st.session_state.ma_data = {"_filter_key": filter_key}
             for label, sql in ma.get_analyses(effective_stores):
-                st.session_state.ma_data[label] = ma.run_query(sql)
+                st.session_state.ma_data[label] = ma.run_query_(sql)
 
     M        = st.session_state.ma_data
     overall  = M["MVaR — Overall"].copy()

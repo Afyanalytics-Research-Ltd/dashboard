@@ -3,7 +3,7 @@ Margin Intelligence — MVaR (Margin Value-at-Risk) Analysis Module
 """
 
 import pandas as pd
-from connect_to_snowflake import run_query
+from connect_to_snowflake import run_query_
 
 
 def _store_clause(store_names, pos_col="s.store_product_id"):
@@ -167,7 +167,7 @@ def run_all() -> dict:
     results = {}
     for label, sql in ANALYSES:
         print(f"Running: {label}…")
-        results[label] = run_query(sql)
+        results[label] = run_query_(sql)
     return results
 
 

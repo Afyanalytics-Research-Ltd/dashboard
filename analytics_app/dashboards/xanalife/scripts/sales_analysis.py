@@ -5,7 +5,7 @@ Revenue Intelligence — Sales Analysis Module
 from datetime import timedelta
 import pandas as pd
 import numpy as np
-from connect_to_snowflake import run_query
+from connect_to_snowflake import run_query_
 
 
 # ── Store filter helpers ───────────────────────────────────────────────────────
@@ -355,7 +355,7 @@ def run_all() -> dict:
     results = {}
     for label, sql in ANALYSES:
         print(f"Running: {label}…")
-        results[label] = run_query(sql)
+        results[label] = run_query_(sql)
     return results
 
 

@@ -3,7 +3,7 @@ Substitution Capture Rate (SCR) — Analysis Module
 """
 
 import pandas as pd
-from connect_to_snowflake import run_query
+from connect_to_snowflake import run_query_
 
 
 def _store_clause(store_names, dis_col="d.store_product_id"):
@@ -266,7 +266,7 @@ def run_all() -> dict:
     results = {}
     for label, sql in ANALYSES:
         print(f"Running: {label}…")
-        results[label] = run_query(sql)
+        results[label] = run_query_(sql)
     return results
 
 
@@ -274,7 +274,7 @@ if __name__ == "__main__":
     import sys
     if len(sys.argv) > 1 and sys.argv[1] == "nulls":
         print("\n=== NULL product_name investigation ===")
-        print(run_query(SQL_NULL_PRODUCTS_INVESTIGATION).to_string(index=False))
+        print(run_query_(SQL_NULL_PRODUCTS_INVESTIGATION).to_string(index=False))
     else:
         data = run_all()
         for label, df in data.items():

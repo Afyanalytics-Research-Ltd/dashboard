@@ -30,6 +30,7 @@ def get_connection() -> SnowflakeClient:
  
 def _normalize_df(df: pd.DataFrame) -> pd.DataFrame:
     """Lowercase columns, cast Decimal→float, date strings→datetime."""
+    df.columns = [c.upper() for c in df.columns]
     for col in df.columns:
         if df[col].dtype != object:
             continue
@@ -43,8 +44,8 @@ def _normalize_df(df: pd.DataFrame) -> pd.DataFrame:
                 pass
     return df
  
-@st.cache_data(ttl=3600, show_spinner="Loading data…")
-def run_query(sql: str) -> pd.DataFrame:
+# @st.cache_data(ttl=3600, show_spinner="Loading data…")
+def run_query_(sql: str) -> pd.DataFrame:
     def _fetch(client):
         df = client.query(sql)
         df.columns = [c.upper() for c in df.columns]
@@ -55,6 +56,7 @@ def run_query(sql: str) -> pd.DataFrame:
         return df
     try:
         df = _fetch(get_connection())
+        df.columns = [c.upper() for c in df.columns]
     except Exception as e:
         err = str(e).lower()
         if "connect" in err or "session" in err or "250001" in str(e):
@@ -63,6 +65,7 @@ def run_query(sql: str) -> pd.DataFrame:
         if "connect" in err or "session" in err or "250001" in str(e):
             st.session_state.pop("sf_client", None)
             df = _fetch(get_connection())
+            df.columns = [c.upper() for c in df.columns]
         else:
             raise
     return _normalize_df(df)

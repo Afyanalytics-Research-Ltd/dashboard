@@ -48,8 +48,8 @@ def _normalize_df(df: pd.DataFrame) -> pd.DataFrame:
                 pass
     return df
  
-@st.cache_data(ttl=3600, show_spinner="Loading data…")
-def run_query(sql: str) -> pd.DataFrame:
+# @st.cache_data(ttl=3600, show_spinner="Loading data…")
+def run_customer_query(sql: str) -> pd.DataFrame:
     def _fetch(client):
         df = client.query(sql)
         df.columns = [c.lower() for c in df.columns]
@@ -123,7 +123,7 @@ FROM (SELECT 1) dummy
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_kpis() -> pd.DataFrame:
-    return run_query(SQL_KPIS)
+    return run_customer_query(SQL_KPIS)
 
 
 SQL_AVG_BASKET = f"""
@@ -136,7 +136,7 @@ WHERE created_at::DATE >= '{MIN_DATE}'
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_avg_basket() -> pd.DataFrame:
-    return run_query(SQL_AVG_BASKET)
+    return run_customer_query(SQL_AVG_BASKET)
 
 
 SQL_REGULAR_LOYAL = f"""
@@ -170,7 +170,7 @@ SELECT
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_regular_loyal() -> pd.DataFrame:
-    return run_query(SQL_REGULAR_LOYAL)
+    return run_customer_query(SQL_REGULAR_LOYAL)
 
 
 SQL_DOW_BY_CLUSTER = f"""
@@ -194,7 +194,7 @@ ORDER BY 1
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_dow_by_cluster() -> pd.DataFrame:
-    return run_query(SQL_DOW_BY_CLUSTER)
+    return run_customer_query(SQL_DOW_BY_CLUSTER)
 
 
 SQL_ACTIVE_CUSTOMERS_OVER_TIME = f"""
@@ -217,7 +217,7 @@ ORDER BY 1
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_active_customers_over_time() -> pd.DataFrame:
-    return run_query(SQL_ACTIVE_CUSTOMERS_OVER_TIME)
+    return run_customer_query(SQL_ACTIVE_CUSTOMERS_OVER_TIME)
 
 
 SQL_CONSISTENCY_SEGMENTS = """
@@ -249,7 +249,7 @@ ORDER BY avg_days_between_visits ASC NULLS LAST
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_consistency_segments() -> pd.DataFrame:
-    return run_query(SQL_CONSISTENCY_SEGMENTS)
+    return run_customer_query(SQL_CONSISTENCY_SEGMENTS)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -283,7 +283,7 @@ FROM ot_baskets GROUP BY 1 ORDER BY 1
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_onetimer_basket_type() -> pd.DataFrame:
-    return run_query(SQL_ONETIMER_BASKET_TYPE)
+    return run_customer_query(SQL_ONETIMER_BASKET_TYPE)
 
 
 SQL_ONETIMER_PHARMACY_SPLIT = f"""
@@ -321,7 +321,7 @@ FROM classified GROUP BY 1 ORDER BY patient_count DESC
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_onetimer_pharmacy_split() -> pd.DataFrame:
-    return run_query(SQL_ONETIMER_PHARMACY_SPLIT)
+    return run_customer_query(SQL_ONETIMER_PHARMACY_SPLIT)
 
 
 SQL_ONETIMER_URGENCY = f"""
@@ -350,7 +350,7 @@ FROM ot_timing GROUP BY 1 ORDER BY 1
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_onetimer_urgency() -> pd.DataFrame:
-    return run_query(SQL_ONETIMER_URGENCY)
+    return run_customer_query(SQL_ONETIMER_URGENCY)
 
 
 SQL_ONETIMER_PRICE_SENSITIVE = f"""
@@ -393,7 +393,7 @@ FROM ot_profile GROUP BY 1 ORDER BY patient_count DESC
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_onetimer_price_sensitive() -> pd.DataFrame:
-    return run_query(SQL_ONETIMER_PRICE_SENSITIVE)
+    return run_customer_query(SQL_ONETIMER_PRICE_SENSITIVE)
 
 
 SQL_RETAIL_GROWTH_SEGMENTS = f"""
@@ -434,7 +434,7 @@ ORDER BY 1 DESC, revenue DESC
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_retail_growth_segments() -> pd.DataFrame:
-    return run_query(SQL_RETAIL_GROWTH_SEGMENTS)
+    return run_customer_query(SQL_RETAIL_GROWTH_SEGMENTS)
 
 
 SQL_GROWTH_OVERALL = f"""
@@ -454,7 +454,7 @@ GROUP BY 1 ORDER BY 1
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_growth_overall() -> pd.DataFrame:
-    return run_query(SQL_GROWTH_OVERALL)
+    return run_customer_query(SQL_GROWTH_OVERALL)
 
 
 SQL_GROWTH_PER_STORE = f"""
@@ -496,7 +496,7 @@ ORDER BY 1
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_growth_per_store() -> pd.DataFrame:
-    return run_query(SQL_GROWTH_PER_STORE)
+    return run_customer_query(SQL_GROWTH_PER_STORE)
 
 
 SQL_STORE_SPLIT = f"""
@@ -555,7 +555,7 @@ GROUP BY 1, 2, 3
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_store_split() -> pd.DataFrame:
-    return run_query(SQL_STORE_SPLIT)
+    return run_customer_query(SQL_STORE_SPLIT)
 
 
 SQL_SHOP_TYPE = f"""
@@ -581,7 +581,7 @@ FROM bt GROUP BY 1 ORDER BY 1
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_shop_type() -> pd.DataFrame:
-    return run_query(SQL_SHOP_TYPE)
+    return run_customer_query(SQL_SHOP_TYPE)
 
 
 SQL_CROSS_SELL = f"""
@@ -615,7 +615,7 @@ FROM mc GROUP BY 1,2 ORDER BY 1
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_cross_sell() -> pd.DataFrame:
-    return run_query(SQL_CROSS_SELL)
+    return run_customer_query(SQL_CROSS_SELL)
 
 
 SQL_COOCCURRENCE = f"""
@@ -658,7 +658,7 @@ ORDER BY store_name, times_together DESC
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_cooccurrence() -> pd.DataFrame:
-    return run_query(SQL_COOCCURRENCE)
+    return run_customer_query(SQL_COOCCURRENCE)
 
 
 SQL_BASKET_BY_SIZE = f"""
@@ -691,7 +691,7 @@ FROM bs GROUP BY 1 ORDER BY MIN(items)
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_basket_by_size() -> pd.DataFrame:
-    return run_query(SQL_BASKET_BY_SIZE)
+    return run_customer_query(SQL_BASKET_BY_SIZE)
 
 
 SQL_BASKET_PER_STORE = f"""
@@ -714,7 +714,7 @@ ORDER BY avg_basket_value DESC
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_basket_per_store() -> pd.DataFrame:
-    return run_query(SQL_BASKET_PER_STORE)
+    return run_customer_query(SQL_BASKET_PER_STORE)
 
 
 SQL_NEW_VS_RETURNING = f"""
@@ -739,7 +739,7 @@ GROUP BY 1,2 ORDER BY 1
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_new_vs_returning() -> pd.DataFrame:
-    return run_query(SQL_NEW_VS_RETURNING)
+    return run_customer_query(SQL_NEW_VS_RETURNING)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -763,7 +763,7 @@ GROUP BY 1 ORDER BY 1
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_segments() -> pd.DataFrame:
-    return run_query(SQL_SEGMENTS)
+    return run_customer_query(SQL_SEGMENTS)
 
 
 SQL_SEG_TREND = f"""
@@ -792,7 +792,7 @@ GROUP BY 1,2,3 ORDER BY 1
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_seg_trend() -> pd.DataFrame:
-    return run_query(SQL_SEG_TREND)
+    return run_customer_query(SQL_SEG_TREND)
 
 
 SQL_TOP_PRODUCTS_SEG = f"""
@@ -815,7 +815,7 @@ QUALIFY ROW_NUMBER() OVER (PARTITION BY refined_tier ORDER BY total_spend DESC) 
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_top_products_seg() -> pd.DataFrame:
-    return run_query(SQL_TOP_PRODUCTS_SEG)
+    return run_customer_query(SQL_TOP_PRODUCTS_SEG)
 
 
 SQL_LAPSING_BY_SEGMENT = """
@@ -840,7 +840,7 @@ GROUP BY 1 ORDER BY revenue_at_risk DESC
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_lapsing_by_segment() -> pd.DataFrame:
-    return run_query(SQL_LAPSING_BY_SEGMENT)
+    return run_customer_query(SQL_LAPSING_BY_SEGMENT)
 
 
 SQL_HEARTBEAT = """
@@ -859,7 +859,7 @@ GROUP BY 1 ORDER BY 1
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_heartbeat() -> pd.DataFrame:
-    return run_query(SQL_HEARTBEAT)
+    return run_customer_query(SQL_HEARTBEAT)
 
 
 SQL_CONVERSION_VELOCITY = f"""
@@ -901,7 +901,7 @@ FROM vel GROUP BY 1
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_conversion_velocity() -> pd.DataFrame:
-    return run_query(SQL_CONVERSION_VELOCITY)
+    return run_customer_query(SQL_CONVERSION_VELOCITY)
 
 
 SQL_CONVERSION_VELOCITY_BY_TIER = f"""
@@ -948,7 +948,7 @@ ORDER BY 1, 2
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_conversion_velocity_by_tier() -> pd.DataFrame:
-    return run_query(SQL_CONVERSION_VELOCITY_BY_TIER)
+    return run_customer_query(SQL_CONVERSION_VELOCITY_BY_TIER)
 
 
 SQL_PAYMENT_BY_SEGMENT = f"""
@@ -974,7 +974,7 @@ GROUP BY 1 ORDER BY 1
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_payment_by_segment() -> pd.DataFrame:
-    return run_query(SQL_PAYMENT_BY_SEGMENT)
+    return run_customer_query(SQL_PAYMENT_BY_SEGMENT)
 
 
 SQL_FIRST_CATEGORY = f"""
@@ -1021,7 +1021,7 @@ ORDER BY customer_count DESC
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_first_category() -> pd.DataFrame:
-    return run_query(SQL_FIRST_CATEGORY)
+    return run_customer_query(SQL_FIRST_CATEGORY)
 
 
 SQL_FIRST_CAT_EVOLUTION = f"""
@@ -1103,7 +1103,7 @@ ORDER BY customer_count DESC
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_first_cat_evolution() -> pd.DataFrame:
-    return run_query(SQL_FIRST_CAT_EVOLUTION)
+    return run_customer_query(SQL_FIRST_CAT_EVOLUTION)
 
 
 SQL_BASKET_EVOLUTION = f"""
@@ -1160,7 +1160,7 @@ GROUP BY 1 ORDER BY 1
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_basket_evolution() -> pd.DataFrame:
-    return run_query(SQL_BASKET_EVOLUTION)
+    return run_customer_query(SQL_BASKET_EVOLUTION)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -1187,7 +1187,7 @@ FROM cb GROUP BY 1 ORDER BY 1
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_return_window() -> pd.DataFrame:
-    return run_query(SQL_RETURN_WINDOW)
+    return run_customer_query(SQL_RETURN_WINDOW)
 
 
 SQL_CHURN_BY_SEGMENT = """
@@ -1210,7 +1210,7 @@ FROM rec GROUP BY 1 ORDER BY 1
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_churn_by_segment() -> pd.DataFrame:
-    return run_query(SQL_CHURN_BY_SEGMENT)
+    return run_customer_query(SQL_CHURN_BY_SEGMENT)
 
 
 SQL_SECOND_PURCHASE = f"""
@@ -1241,7 +1241,7 @@ GROUP BY 1 ORDER BY 1
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_second_purchase() -> pd.DataFrame:
-    return run_query(SQL_SECOND_PURCHASE)
+    return run_customer_query(SQL_SECOND_PURCHASE)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -1263,7 +1263,7 @@ FROM points GROUP BY 1 ORDER BY 1
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_points_buckets() -> pd.DataFrame:
-    return run_query(SQL_POINTS_BUCKETS)
+    return run_customer_query(SQL_POINTS_BUCKETS)
 
 
 SQL_LOYALTY_TREND = """
@@ -1275,7 +1275,7 @@ FROM points GROUP BY 1 ORDER BY 1
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_loyalty_trend() -> pd.DataFrame:
-    df = run_query(SQL_LOYALTY_TREND)
+    df = run_customer_query(SQL_LOYALTY_TREND)
     df["cumulative"] = df["new_loyalty_members"].cumsum()
     return df
 
@@ -1297,7 +1297,7 @@ GROUP BY 1
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_loyalty_return() -> pd.DataFrame:
-    return run_query(SQL_LOYALTY_RETURN)
+    return run_customer_query(SQL_LOYALTY_RETURN)
 
 
 SQL_LOYALTY_BY_SEGMENT = """
@@ -1315,7 +1315,7 @@ GROUP BY 1 ORDER BY 1
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_loyalty_by_segment() -> pd.DataFrame:
-    return run_query(SQL_LOYALTY_BY_SEGMENT)
+    return run_customer_query(SQL_LOYALTY_BY_SEGMENT)
 
 
 SQL_LOYALTY_REDEMPTION = f"""
@@ -1333,7 +1333,7 @@ GROUP BY 1 ORDER BY 1
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_loyalty_redemption() -> pd.DataFrame:
-    return run_query(SQL_LOYALTY_REDEMPTION)
+    return run_customer_query(SQL_LOYALTY_REDEMPTION)
 
 
 SQL_LOYALTY_CONVERSION_LAG = f"""
@@ -1371,4 +1371,4 @@ ORDER BY MIN(DATEDIFF('day', fp.first_purchase_date, lj.loyalty_join_date))
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_loyalty_conversion_lag() -> pd.DataFrame:
-    return run_query(SQL_LOYALTY_CONVERSION_LAG)
+    return run_customer_query(SQL_LOYALTY_CONVERSION_LAG)

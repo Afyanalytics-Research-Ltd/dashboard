@@ -8,7 +8,7 @@ load_dotenv(Path(__file__).parent.parent.parent.parent / ".env")
 
 class SnowflakeClient:
 
-    def __init__(self):
+    def __init__(self, schema_=None):
 
         with open(os.getenv("SNOWFLAKE_PRIVATE_KEY_PATH").strip(), "rb") as key:
             private_key = key.read()
@@ -18,7 +18,7 @@ class SnowflakeClient:
             account=os.getenv("SNOWFLAKE_ACCOUNT").strip(),
             warehouse=os.getenv("SNOWFLAKE_WAREHOUSE").strip(),
             database=os.getenv("SNOWFLAKE_DATABASE").strip(),
-            schema=os.getenv("SNOWFLAKE_SCHEMA", "PUBLIC").strip(),
+            schema=schema_ if schema_ else os.getenv("SNOWFLAKE_SCHEMA", "PUBLIC").strip(),
             private_key_file=os.getenv("SNOWFLAKE_PRIVATE_KEY_PATH").strip(),
         )
 

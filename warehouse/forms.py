@@ -4,7 +4,7 @@ Each form ships Bootstrap-friendly widgets (``form-control`` / ``form-select`` /
 ``form-check-input``) so templates stay thin. Form parsing helpers turn
 textarea input into the 2D lists the Sheets API expects.
 """
-from __future__ import annotations
+
 
 import csv
 import io

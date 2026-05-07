@@ -1,7 +1,7 @@
 """
 app_revenue.py
 --------------
-PharmaPlus · Revenue Intelligence
+Kisumu Specialist Hospital · Revenue Intelligence
 
 Live dashboard backed by Snowflake. SQL queries live in queries.py. Predictive
 models (forecast, anomalies, RFM, drivers) live in predictive.py and run on
@@ -26,6 +26,7 @@ sys.path.insert(
     )
 )
 
+
 from datetime import date, timedelta
 
 import numpy as np
@@ -43,7 +44,7 @@ import ksh.revenue_module.whatif as whatif
 PAGE_TITLE = "Revenue Intelligence"
 
 st.set_page_config(
-    page_title=f"PharmaPlus · {PAGE_TITLE}",
+    page_title=f"Kisumu Specialist Hospital · {PAGE_TITLE}",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -160,11 +161,11 @@ def hex_to_rgba(h: str, a: float) -> str:
 
 with st.sidebar:
     try:
-        st.image("assets/pharmaplus_logo.png", width=160)
+        st.image("assets/Kisumu Specialist Hospital_logo.png", width=160)
     except Exception:
         st.markdown(
             '<div style="font-size:16px;font-weight:800;color:#0072CE;'
-            'padding:8px 0 16px">PharmaPlus</div>',
+            'padding:8px 0 16px">Kisumu Specialist Hospital</div>',
             unsafe_allow_html=True,
         )
 
@@ -209,7 +210,7 @@ with st.sidebar:
     st.markdown(
         '<div style="font-size:11px;color:#6B8CAE;line-height:1.6">'
         'Live Snowflake · auto-refreshes every 15 min<br>'
-        'Schema: <span style="color:#003467;font-weight:600">PHARMAPLUS_PROD</span></div>',
+        'Schema: <span style="color:#003467;font-weight:600">Kisumu Specialist Hospital_PROD</span></div>',
         unsafe_allow_html=True,
     )
 
@@ -219,14 +220,14 @@ with st.sidebar:
 st.markdown(
     f'<p style="font-size:11px;font-weight:800;letter-spacing:3px;'
     f'text-transform:uppercase;color:#0072CE;margin-bottom:16px">'
-    f'PharmaPlus · {PAGE_TITLE}</p>',
+    f'Kisumu Specialist Hospital · {PAGE_TITLE}</p>',
     unsafe_allow_html=True,
 )
 
 
 # ─── DATA FETCH ─────────────────────────────────────────────────────────────
 
-start_s = start.strftime("%Y-%m-%d")
+start_s = '1970-01-01'
 end_s   = (end + timedelta(days=1)).strftime("%Y-%m-%d")    # exclusive
 
 # All Snowflake calls happen here. If the connection fails, we surface a
@@ -234,7 +235,6 @@ end_s   = (end + timedelta(days=1)).strftime("%Y-%m-%d")    # exclusive
 try:
     daily        = dl.daily_revenue(start_s, end_s, clinic_filter)
     sl_monthly   = dl.revenue_by_service_line(start_s, end_s)
-    branches_df  = dl.revenue_by_branch(start_s, end_s)
     pay_mix_df   = dl.payment_mode_mix(start_s, end_s)
     payer_df     = dl.payer_performance(start_s, end_s)
     rfm_df       = dl.patient_rfm(start_s, end_s)
@@ -243,12 +243,10 @@ try:
     cohort_df    = dl.cohort_retention(start_s, end_s)
     docs_df      = dl.doctor_productivity(start_s, end_s)
     leak_df      = dl.leakage(start_s, end_s)
-    margin_df    = dl.inventory_margin(start_s, end_s)
     rejection_df = dl.claim_rejection(start_s, end_s)
     concent_df   = dl.revenue_concentration(start_s, end_s)
     arpv_df      = dl.arpv_trend(start_s, end_s)
     risk_df      = dl.revenue_at_risk(start_s, end_s)
-    gp_df        = dl.gross_profit_weekly(start_s, end_s)
 except Exception as exc:
     st.error(
         "Could not connect to Snowflake. Verify SNOWFLAKE_ACCOUNT, "
@@ -256,6 +254,11 @@ except Exception as exc:
     )
     st.exception(exc)
     st.stop()
+
+
+print(daily)
+# import pdb;pdb.set_trace()
+
 
 
 # ─── KPI ROW ────────────────────────────────────────────────────────────────
@@ -266,6 +269,8 @@ unique_pat      = daily["unique_patients"].sum()
 avg_daily       = daily.groupby("revenue_date")["gross_amount"].sum().mean()
 collected_total = payer_df["collected"].sum() if len(payer_df) else 0
 billed_total    = payer_df["billed"].sum()    if len(payer_df) else 0
+collected_total = float(collected_total or 0)
+billed_total    = float(billed_total or 0)
 collection_pct  = 100 * collected_total / billed_total if billed_total else 0
 
 # month-over-month delta on total revenue (last full month vs prior)
@@ -360,37 +365,12 @@ with tab1:
                 ),
                 textfont=dict(family="Montserrat", color="#fff", size=12),
             ))
-            fig.update_layout(**CHART_LAYOUT, height=360, margin=dict(l=0, r=0, t=10, b=10))
+            fig.update_layout(**{**CHART_LAYOUT, "margin": dict(l=0, r=0, t=10, b=10)}, height=360)
             st.plotly_chart(fig, use_container_width=True)
         else:
             st.info("No service-line data for this window.")
 
-    # ── Branch ranking horizontal bar
-    with col_r:
-        section_header("Branch ranking · period total")
-        br_total = (branches_df.groupby(["clinic_id", "clinic_name"], as_index=False)["revenue"]
-                    .sum().sort_values("revenue"))
-        if len(br_total):
-            fig = go.Figure(go.Bar(
-                x=br_total["revenue"],
-                y=br_total["clinic_name"],
-                orientation="h",
-                marker=dict(
-                    color=br_total["revenue"],
-                    colorscale=[[0, "#D6E4F0"], [1, COLORS["primary"]]],
-                    line=dict(width=0),
-                ),
-                text=[fmt_ksh(v) for v in br_total["revenue"]],
-                textposition="outside",
-                textfont=dict(size=10, color=COLORS["navy"]),
-                hovertemplate="<b>%{y}</b><br>%{x:,.0f} KSh<extra></extra>",
-            ))
-            fig.update_layout(
-                **{**CHART_LAYOUT, "margin": dict(l=0, r=40, t=10, b=20)},
-                height=360, showlegend=False,
-            )
-            st.plotly_chart(fig, use_container_width=True)
-
+    
     # ── Hourly heatmap + payment mode area
     col_a, col_b = st.columns(2, gap="large")
 
@@ -432,7 +412,7 @@ with tab1:
                     hovertemplate=f"<b>{m.title()}</b><br>"
                                   "%{x|%b %Y}<br>%{y:,.0f} KSh<extra></extra>",
                 ))
-                cum += vals
+                cum += vals.astype(float)
             fig.update_layout(**CHART_LAYOUT, height=300, hovermode="x unified",
                               legend=dict(orientation="h", y=-0.2, font=dict(size=10)))
             st.plotly_chart(fig, use_container_width=True)
@@ -457,10 +437,10 @@ with tab1:
             hovertemplate="<b>%{x}</b><br>Cumulative %{y:.1f}%<extra></extra>",
         ))
         fig.update_layout(
-            **{k: v for k, v in CHART_LAYOUT.items() if k not in ("xaxis", "yaxis")},
+            **{k: v for k, v in CHART_LAYOUT.items() if k not in ("xaxis", "yaxis", "margin")},
             xaxis=dict(tickangle=-45, tickfont=dict(size=9, color="#6B8CAE")),
             yaxis=dict(title="Revenue (KSh)", gridcolor="#EBF3FB",
-                       tickfont=dict(size=10, color="#6B8CAE")),
+                    tickfont=dict(size=10, color="#6B8CAE")),
             yaxis2=dict(title="Cumulative %", overlaying="y", side="right",
                         range=[0, 105], gridcolor="rgba(0,0,0,0)",
                         tickfont=dict(size=10, color=COLORS["coral"])),
@@ -482,7 +462,12 @@ with tab2:
     series["revenue_date"] = pd.to_datetime(series["revenue_date"])
 
     if len(series) >= 60:
-        fc = predictive.forecast_revenue(series, horizon_days=forecast_horizon)
+        s = pd.Series(
+            pd.to_numeric(series["revenue"], errors="coerce").values,
+            index=pd.to_datetime(series["revenue_date"]),
+        ).dropna()
+        s_df = s.rename("revenue").rename_axis("revenue_date").reset_index()
+        fc = predictive.forecast_revenue(s_df, horizon_days=forecast_horizon)
         hist = fc[fc["segment"] == "history"]
         fut  = fc[fc["segment"] == "forecast"]
 
@@ -554,22 +539,80 @@ with tab2:
 
     with col_r:
         section_header("Revenue drivers · feature importance", margin_top=8)
-        if len(series) >= 30:
-            drivers = predictive.revenue_drivers(series)
-            drivers = drivers.sort_values("importance")
-            fig = go.Figure(go.Bar(
-                x=drivers["importance"], y=drivers["label"],
-                orientation="h",
-                marker=dict(color=drivers["importance"],
-                            colorscale=[[0, "#D6E4F0"], [1, COLORS["purple"]]],
-                            line=dict(width=0)),
-                hovertemplate="<b>%{y}</b><br>%{x:.3f}<extra></extra>",
-            ))
-            fig.update_layout(**CHART_LAYOUT, height=300,
-                              margin=dict(l=0, r=20, t=10, b=20),
-                              xaxis=dict(title="", showgrid=True, gridcolor="#EBF3FB"))
-            st.plotly_chart(fig, use_container_width=True)
 
+        if len(series) < 30:
+            st.info("Need at least 30 days of data to estimate feature importance.")
+        else:
+            drivers = (
+                predictive.revenue_drivers(series)
+                        .sort_values("importance", ascending=True)
+                        .reset_index(drop=True)
+            )
+
+            # Highlight the top driver with the accent colour, fade the rest
+            top_idx = drivers["importance"].idxmax()
+            bar_colors = [
+                COLORS["purple"] if i == top_idx else "#B8CFE5"
+                for i in range(len(drivers))
+            ]
+
+            # Pretty value labels (3 sig figs, no trailing zeros)
+            max_imp = drivers["importance"].max() or 1
+            text_labels = [f"{v:.3f}".rstrip("0").rstrip(".") for v in drivers["importance"]]
+
+            fig = go.Figure(go.Bar(
+                x=drivers["importance"],
+                y=drivers["label"],
+                orientation="h",
+                marker=dict(
+                    color=bar_colors,
+                    line=dict(width=0),
+                ),
+                text=text_labels,
+                textposition="outside",
+                textfont=dict(family="Montserrat", size=11, color="#0F2A47"),
+                cliponaxis=False,
+                hovertemplate="<b>%{y}</b><br>importance %{x:.3f}<extra></extra>",
+            ))
+
+            # Subtle reference line at the median importance
+            median_imp = float(drivers["importance"].median())
+            fig.add_vline(
+                x=median_imp,
+                line=dict(color="#C8D6E5", width=1, dash="dot"),
+                annotation_text="median",
+                annotation_position="top",
+                annotation_font=dict(family="Montserrat", size=9, color="#7A93B0"),
+            )
+
+            # Build the layout in a single dict so duplicates are impossible
+            layout = {
+                **CHART_LAYOUT,
+                "height": 360,
+                "margin": dict(l=10, r=60, t=20, b=20),
+                "showlegend": False,
+                "bargap": 0.35,
+                "xaxis": dict(
+                    title="",
+                    showgrid=True,
+                    gridcolor="#EBF3FB",
+                    zeroline=False,
+                    showline=False,
+                    tickfont=dict(family="Montserrat", size=10, color="#6B8CAE"),
+                    range=[0, max_imp * 1.18],   # leaves room for outside labels
+                ),
+                "yaxis": dict(
+                    title="",
+                    showgrid=False,
+                    zeroline=False,
+                    showline=False,
+                    tickfont=dict(family="Montserrat", size=11, color="#0F2A47"),
+                    automargin=True,
+                ),
+            }
+
+            fig.update_layout(**layout)
+            st.plotly_chart(fig, use_container_width=True)
     # ── AR ageing & at-risk
     col_a, col_b = st.columns(2, gap="large")
     with col_a:
@@ -600,53 +643,181 @@ with tab2:
         section_header("What-if levers · projected uplift", margin_top=8)
         baseline_avg = avg_daily if not np.isnan(avg_daily) else 0
         whatif_df = whatif.simulate_levers(baseline_avg, horizon_days=forecast_horizon)
-        if len(whatif_df):
-            base_value = baseline_avg * forecast_horizon
+
+        if not len(whatif_df) or baseline_avg <= 0:
+            st.info("Not enough baseline revenue to project lever scenarios.")
+        else:
+            base_value      = baseline_avg * forecast_horizon
+            cumulative_end  = float(whatif_df["cumulative"].iloc[-1])
+            total_uplift    = cumulative_end - base_value
+            total_uplift_pc = 100 * total_uplift / base_value if base_value else 0
+
+            # Waterfall data
+            x_labels = ["Baseline"] + whatif_df["lever"].tolist() + ["With all levers"]
+            y_values = [base_value] + whatif_df["uplift_value"].tolist() + [0]
+            text_lbl = (
+                [fmt_ksh(base_value)]
+                + [f"+{p:.1f}%" for p in whatif_df["uplift_pct"]]
+                + [fmt_ksh(cumulative_end)]
+            )
+
             fig = go.Figure(go.Waterfall(
                 name="What-if",
                 orientation="v",
                 measure=["absolute"] + ["relative"] * len(whatif_df) + ["total"],
-                x=["Baseline"] + whatif_df["lever"].tolist() + ["With all levers"],
-                text=[fmt_ksh(base_value)]
-                     + [f"+{p:.1f}%" for p in whatif_df["uplift_pct"]]
-                     + [fmt_ksh(whatif_df["cumulative"].iloc[-1])],
-                y=[base_value] + whatif_df["uplift_value"].tolist() + [0],
+                x=x_labels,
+                y=y_values,
+                text=text_lbl,
                 textposition="outside",
-                textfont=dict(size=9, color=COLORS["navy"]),
-                connector={"line": {"color": "#D6E4F0"}},
-                increasing={"marker": {"color": COLORS["success"]}},
-                decreasing={"marker": {"color": COLORS["danger"]}},
-                totals={"marker": {"color": COLORS["primary"]}},
+                textfont=dict(family="Montserrat", size=10, color=COLORS["navy"]),
+                cliponaxis=False,
+                connector=dict(
+                    line=dict(color="#C8D6E5", width=1, dash="dot"),
+                ),
+                increasing=dict(marker=dict(color=COLORS["success"], line=dict(width=0))),
+                decreasing=dict(marker=dict(color=COLORS["danger"],  line=dict(width=0))),
+                totals    =dict(marker=dict(color=COLORS["primary"], line=dict(width=0))),
                 hovertemplate="<b>%{x}</b><br>%{y:,.0f} KSh<extra></extra>",
             ))
-            fig.update_layout(**CHART_LAYOUT, height=320,
-                              xaxis=dict(tickangle=-25, tickfont=dict(size=9, color="#6B8CAE")),
-                              yaxis=dict(gridcolor="#EBF3FB", tickfont=dict(size=10, color="#6B8CAE")))
+
+            # Subtle baseline reference line
+            fig.add_hline(
+                y=base_value,
+                line=dict(color="#C8D6E5", width=1, dash="dot"),
+                annotation_text=f"baseline {fmt_ksh(base_value)}",
+                annotation_position="top left",
+                annotation_font=dict(family="Montserrat", size=9, color="#7A93B0"),
+            )
+
+            # Single dict → no duplicate-keyword errors possible
+            layout = {
+                **CHART_LAYOUT,
+                "height": 360,
+                "margin": dict(l=10, r=10, t=40, b=60),
+                "showlegend": False,
+                "bargap": 0.4,
+                "xaxis": dict(
+                    tickangle=-25,
+                    tickfont=dict(family="Montserrat", size=10, color="#6B8CAE"),
+                    showgrid=False,
+                    showline=False,
+                    zeroline=False,
+                ),
+                "yaxis": dict(
+                    title=dict(text="Revenue (KSh)",
+                            font=dict(family="Montserrat", size=10, color="#6B8CAE")),
+                    gridcolor="#EBF3FB",
+                    tickfont=dict(family="Montserrat", size=10, color="#6B8CAE"),
+                    zeroline=False,
+                    showline=False,
+                    rangemode="tozero",
+                ),
+            }
+            fig.update_layout(**layout)
             st.plotly_chart(fig, use_container_width=True)
+
             info_card(
-                f"If all levers hit, {forecast_horizon}-day revenue rises to "
-                f"<b>{fmt_ksh(whatif_df['cumulative'].iloc[-1])}</b> from "
-                f"{fmt_ksh(base_value)}.",
+                f"If all levers land, {forecast_horizon}-day revenue rises to "
+                f"<b>{fmt_ksh(cumulative_end)}</b> from {fmt_ksh(base_value)} — "
+                f"an uplift of <b>{fmt_ksh(total_uplift)}</b> "
+                f"(<b>+{total_uplift_pc:.1f}%</b>).",
                 COLORS["success"],
             )
 
     # ── Two-lever elasticity heatmap
     section_header("Two-lever sensitivity · ARPV × Volume", margin_top=8)
-    if not np.isnan(avg_daily):
-        grid = whatif.elasticity_grid(avg_daily, horizon_days=forecast_horizon)
-        pivot = grid.pivot(index="arpv_delta_pct", columns="volume_delta_pct",
-                           values="projected_revenue")
-        fig = go.Figure(go.Heatmap(
-            z=pivot.values, x=pivot.columns, y=pivot.index,
-            colorscale=[[0, "#FBE6EB"], [0.5, "#F4F8FC"], [1, hex_to_rgba(COLORS["success"], 0.85)]],
-            hovertemplate="ARPV %{y:+.1f}% · Volume %{x:+.1f}%<br>%{z:,.0f} KSh<extra></extra>",
-            colorbar=dict(title="KSh", tickfont=dict(size=9, color="#6B8CAE")),
-        ))
-        fig.update_layout(**CHART_LAYOUT, height=300,
-                          xaxis=dict(title="Visit volume Δ %", tickfont=dict(size=10, color="#6B8CAE")),
-                          yaxis=dict(title="ARPV Δ %", tickfont=dict(size=10, color="#6B8CAE")))
-        st.plotly_chart(fig, use_container_width=True)
 
+    if np.isnan(avg_daily) or avg_daily <= 0:
+        st.info("Need a positive baseline to compute the sensitivity grid.")
+    else:
+        grid = whatif.elasticity_grid(avg_daily, horizon_days=forecast_horizon)
+        pivot = grid.pivot(
+            index="arpv_delta_pct",
+            columns="volume_delta_pct",
+            values="projected_revenue",
+        ).sort_index().sort_index(axis=1)
+
+        baseline_value = float(avg_daily * forecast_horizon)
+        z_vals         = pivot.values.astype(float)
+        z_min, z_max   = float(np.nanmin(z_vals)), float(np.nanmax(z_vals))
+
+        # Diverging colorscale anchored at the baseline ("no change" point)
+        colorscale = [
+            [0.00, "#E85A6F"],   # deep coral — biggest losses
+            [0.40, "#FBE6EB"],   # pale pink
+            [0.50, "#F4F8FC"],   # neutral
+            [0.60, "#D8EBE0"],   # pale mint
+            [1.00, COLORS["success"]],
+        ]
+
+        fig = go.Figure(go.Heatmap(
+            z=z_vals,
+            x=pivot.columns,
+            y=pivot.index,
+            colorscale=colorscale,
+            zmid=baseline_value,                          # anchors gradient at baseline
+            zmin=z_min,
+            zmax=z_max,
+            xgap=2, ygap=2,                                # subtle separation between cells
+            hovertemplate=(
+                "<b>ARPV %{y:+.1f}%   ·   Volume %{x:+.1f}%</b>"
+                "<br>Projected: %{z:,.0f} KSh"
+                "<br>Δ vs baseline: %{customdata:+,.0f} KSh<extra></extra>"
+            ),
+            customdata=z_vals - baseline_value,
+            colorbar=dict(
+                title=dict(text="KSh", font=dict(family="Montserrat", size=10, color="#6B8CAE")),
+                tickfont=dict(family="Montserrat", size=9, color="#6B8CAE"),
+                tickformat=",.0f",
+                outlinewidth=0,
+                thickness=12,
+                len=0.85,
+            ),
+        ))
+
+        # Crosshair marking the "no change" baseline point
+        if 0 in pivot.index and 0 in pivot.columns:
+            fig.add_hline(y=0, line=dict(color="#0F2A47", width=1, dash="dot"), opacity=0.45)
+            fig.add_vline(x=0, line=dict(color="#0F2A47", width=1, dash="dot"), opacity=0.45)
+            fig.add_annotation(
+                x=0, y=0,
+                text=f"<b>baseline</b><br>{fmt_ksh(baseline_value)}",
+                showarrow=False,
+                font=dict(family="Montserrat", size=9, color="#0F2A47"),
+                bgcolor="rgba(255,255,255,0.85)",
+                bordercolor="#C8D6E5",
+                borderwidth=1,
+                borderpad=3,
+            )
+
+        layout = {
+            **CHART_LAYOUT,
+            "height": 360,
+            "margin": dict(l=10, r=10, t=20, b=40),
+            "xaxis": dict(
+                title=dict(text="Visit volume Δ %",
+                        font=dict(family="Montserrat", size=10, color="#6B8CAE")),
+                tickfont=dict(family="Montserrat", size=10, color="#6B8CAE"),
+                ticksuffix="%",
+                showgrid=False,
+                zeroline=False,
+                showline=False,
+                constrain="domain",
+            ),
+            "yaxis": dict(
+                title=dict(text="ARPV Δ %",
+                        font=dict(family="Montserrat", size=10, color="#6B8CAE")),
+                tickfont=dict(family="Montserrat", size=10, color="#6B8CAE"),
+                ticksuffix="%",
+                showgrid=False,
+                zeroline=False,
+                showline=False,
+                scaleanchor="x",      # square cells
+                scaleratio=1,
+            ),
+        }
+        fig.update_layout(**layout)
+        st.plotly_chart(fig, use_container_width=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 3 — Payer & Patient Mix (qualitative + segmentation)
@@ -707,126 +878,406 @@ with tab3:
             st.dataframe(
                 scoreboard.style
                     .format({
-                        "Billed (KSh)": "{:,.0f}",
-                        "Collected (KSh)": "{:,.0f}",
+                        "Billed (KSh)":      "{:,.0f}",
+                        "Collected (KSh)":   "{:,.0f}",
                         "Outstanding (KSh)": "{:,.0f}",
-                        "Collection %": "{:.1f}%",
-                        "Avg DSO": "{:.0f}",
-                    })
+                        "Collection %":      "{:.1f}%",
+                        "Avg DSO":           "{:.0f}",
+                    }, na_rep="—")
                     .background_gradient(subset=["Collection %"], cmap="RdYlGn"),
                 hide_index=True, use_container_width=True, height=320,
             )
 
     with col_r:
         section_header("AR ageing by payer", margin_top=8)
-        if len(payer_df):
-            buckets = ["bucket_0_30", "bucket_31_60", "bucket_61_90", "bucket_over_90"]
-            buckets = [b for b in buckets if b in payer_df.columns]
-            top6 = payer_df.head(6)
-            fig = go.Figure()
-            for i, b in enumerate(buckets):
-                fig.add_trace(go.Bar(
-                    x=top6["payer_name"], y=top6[b].fillna(0),
-                    name=b.replace("bucket_", "").replace("_", "-"),
-                    marker=dict(color=PALETTE[i], line=dict(width=0)),
-                    hovertemplate="<b>%{x}</b><br>%{y:,.0f}<extra></extra>",
-                ))
-            fig.update_layout(**CHART_LAYOUT, height=320, barmode="stack",
-                              xaxis=dict(tickangle=-20, tickfont=dict(size=9, color="#6B8CAE")),
-                              legend=dict(orientation="h", y=-0.25, font=dict(size=9)))
-            st.plotly_chart(fig, use_container_width=True)
 
+        bucket_meta = [
+            ("bucket_0_30",     "0–30 days",   "#4FB286"),  # mint — current
+            ("bucket_31_60",    "31–60 days",  "#F4C95D"),  # amber — watch
+            ("bucket_61_90",    "61–90 days",  "#E8945A"),  # orange — concern
+            ("bucket_over_90",  "90+ days",    "#D45B6E"),  # coral — risk
+        ]
+        available = [(col, label, c) for (col, label, c) in bucket_meta if col in payer_df.columns]
+
+        if not len(payer_df) or not available:
+            st.info("No accounts-receivable data to age for this window.")
+        else:
+            # Sort by total outstanding so the worst payers lead
+            bucket_cols = [b[0] for b in available]
+            plot_df = payer_df.copy()
+            for c in bucket_cols:
+                plot_df[c] = pd.to_numeric(plot_df[c], errors="coerce").fillna(0)
+            plot_df["_total"] = plot_df[bucket_cols].sum(axis=1)
+            plot_df = plot_df.sort_values("_total", ascending=False).head(6)
+
+            # Long y-tick labels truncated nicely
+            x_labels = [
+                (n if len(n) <= 18 else n[:16] + "…")
+                for n in plot_df["payer_name"]
+            ]
+
+            fig = go.Figure()
+            for col, label, colour in available:
+                fig.add_trace(go.Bar(
+                    name=label,
+                    x=x_labels,
+                    y=plot_df[col],
+                    marker=dict(color=colour, line=dict(width=0)),
+                    hovertemplate=f"<b>%{{x}}</b><br>{label}: %{{y:,.0f}} KSh<extra></extra>",
+                ))
+
+            # Total label sitting above each stack
+            for x, total in zip(x_labels, plot_df["_total"]):
+                fig.add_annotation(
+                    x=x,
+                    y=total,
+                    text=fmt_ksh(total),
+                    showarrow=False,
+                    yshift=10,
+                    font=dict(family="Montserrat", size=10, color="#0F2A47"),
+                )
+
+            layout = {
+                **CHART_LAYOUT,
+                "height": 360,
+                "margin": dict(l=10, r=10, t=20, b=80),
+                "barmode": "stack",
+                "bargap": 0.35,
+                "showlegend": True,
+                "legend": dict(
+                    orientation="h",
+                    y=-0.32,
+                    x=0.5,
+                    xanchor="center",
+                    font=dict(family="Montserrat", size=10, color="#6B8CAE"),
+                    bgcolor="rgba(0,0,0,0)",
+                ),
+                "xaxis": dict(
+                    tickangle=-20,
+                    tickfont=dict(family="Montserrat", size=10, color="#0F2A47"),
+                    showgrid=False,
+                    zeroline=False,
+                    showline=False,
+                ),
+                "yaxis": dict(
+                    title=dict(text="Outstanding (KSh)",
+                            font=dict(family="Montserrat", size=10, color="#6B8CAE")),
+                    tickfont=dict(family="Montserrat", size=10, color="#6B8CAE"),
+                    gridcolor="#EBF3FB",
+                    zeroline=False,
+                    showline=False,
+                    rangemode="tozero",
+                ),
+            }
+            fig.update_layout(**layout)
+            st.plotly_chart(fig, use_container_width=True)
     # ── Patient RFM segmentation (KMeans)
     section_header("Patient segmentation · RFM clustering (KMeans, k=5)", margin_top=8)
-    if len(rfm_df):
-        seg = predictive.segment_patients(rfm_df, k=5)
+
+    if not len(rfm_df):
+        st.info("No patient activity in this window to segment.")
+    else:
+        seg  = predictive.segment_patients(rfm_df, k=5)
         risk = predictive.churn_risk(rfm_df)
         seg["churn_risk"] = risk["churn_risk"].values
         seg["risk_band"]  = risk["risk_band"].values
 
+        # Coerce Decimals → float once
+        for c in ("recency_days", "frequency", "monetary", "churn_risk"):
+            if c in seg.columns:
+                seg[c] = pd.to_numeric(seg[c], errors="coerce")
+
         col_a, col_b = st.columns([1.3, 1], gap="large")
         with col_a:
             sample = seg.sample(min(2500, len(seg)), random_state=42)
-            seg_summary = (seg.groupby("segment")
-                              .agg(patients=("patient_id", "count"),
-                                   revenue=("monetary", "sum"),
-                                   recency=("recency_days", "mean"),
-                                   frequency=("frequency", "mean"))
-                              .reset_index().sort_values("revenue", ascending=False))
+
+            seg_summary = (
+                seg.groupby("segment")
+                .agg(patients=("patient_id", "count"),
+                        revenue=("monetary", "sum"),
+                        recency=("recency_days", "mean"),
+                        frequency=("frequency", "mean"))
+                .reset_index()
+                .sort_values("revenue", ascending=False)
+            )
             seg_color = {s: PALETTE[i % len(PALETTE)] for i, s in enumerate(seg_summary["segment"])}
 
             fig = go.Figure()
             for s in seg_summary["segment"]:
-                sub = sample[sample["segment"] == s]
+                sub = sample[sample["segment"] == s].copy()
+                if not len(sub):
+                    continue
                 fig.add_trace(go.Scatter(
-                    x=sub["recency_days"], y=sub["frequency"],
-                    mode="markers", name=s,
+                    x=sub["recency_days"],
+                    y=sub["frequency"],
+                    mode="markers",
+                    name=s,
                     marker=dict(
                         size=np.clip(np.log1p(sub["monetary"]) * 1.6, 4, 22),
-                        color=seg_color[s], line=dict(color="#fff", width=0.5),
-                        opacity=0.7,
+                        color=seg_color[s],
+                        line=dict(color="#ffffff", width=0.6),
+                        opacity=0.65,
                     ),
-                    hovertemplate=f"<b>{s}</b><br>Recency %{{x:.0f}}d<br>"
-                                  "Visits %{y}<br>Spend %{marker.size:.0f}<extra></extra>",
+                    customdata=np.stack([sub["monetary"].values,
+                                        sub["recency_days"].values,
+                                        sub["frequency"].values], axis=-1),
+                    hovertemplate=(
+                        f"<b>{s}</b>"
+                        "<br>Recency: %{customdata[1]:.0f} days"
+                        "<br>Visits: %{customdata[2]:.0f}"
+                        "<br>Spend: %{customdata[0]:,.0f} KSh"
+                        "<extra></extra>"
+                    ),
                 ))
-            fig.update_layout(**CHART_LAYOUT, height=380,
-                              xaxis=dict(title="Recency (days since last visit)",
-                                         gridcolor="#EBF3FB",
-                                         tickfont=dict(size=10, color="#6B8CAE")),
-                              yaxis=dict(title="Frequency (visits)", gridcolor="#EBF3FB",
-                                         tickfont=dict(size=10, color="#6B8CAE")),
-                              legend=dict(orientation="h", y=-0.25, font=dict(size=10)))
+
+            # Segment centroids — bigger, ringed, labelled
+            fig.add_trace(go.Scatter(
+                x=seg_summary["recency"],
+                y=seg_summary["frequency"],
+                mode="markers+text",
+                text=seg_summary["segment"],
+                textposition="top center",
+                textfont=dict(family="Montserrat", size=10, color="#0F2A47"),
+                marker=dict(
+                    size=18,
+                    color=[seg_color[s] for s in seg_summary["segment"]],
+                    line=dict(color="#0F2A47", width=1.5),
+                    symbol="circle",
+                ),
+                name="Segment centroid",
+                hoverinfo="skip",
+                showlegend=False,
+            ))
+
+            layout = {
+                **CHART_LAYOUT,
+                "height": 420,
+                "margin": dict(l=10, r=10, t=20, b=80),
+                "showlegend": True,
+                "legend": dict(
+                    orientation="h",
+                    y=-0.22,
+                    x=0.5,
+                    xanchor="center",
+                    font=dict(family="Montserrat", size=10, color="#6B8CAE"),
+                    bgcolor="rgba(0,0,0,0)",
+                ),
+                "xaxis": dict(
+                    title=dict(text="Recency · days since last visit",
+                            font=dict(family="Montserrat", size=10, color="#6B8CAE")),
+                    tickfont=dict(family="Montserrat", size=10, color="#6B8CAE"),
+                    gridcolor="#EBF3FB",
+                    zeroline=False,
+                    showline=False,
+                    rangemode="tozero",
+                ),
+                "yaxis": dict(
+                    title=dict(text="Frequency · visits",
+                            font=dict(family="Montserrat", size=10, color="#6B8CAE")),
+                    tickfont=dict(family="Montserrat", size=10, color="#6B8CAE"),
+                    gridcolor="#EBF3FB",
+                    zeroline=False,
+                    showline=False,
+                    rangemode="tozero",
+                    type="log" if sample["frequency"].max() > 50 else "linear",
+                ),
+            }
+            fig.update_layout(**layout)
             st.plotly_chart(fig, use_container_width=True)
 
         with col_b:
+            seg_summary = seg_summary.copy()
+            seg_summary["revenue"]       = pd.to_numeric(seg_summary["revenue"], errors="coerce").fillna(0)
+            seg_summary["patients"]      = pd.to_numeric(seg_summary["patients"], errors="coerce").fillna(0).astype(int)
+            total_revenue                 = seg_summary["revenue"].sum()
             seg_summary["share_revenue"] = (
-                100 * seg_summary["revenue"] / seg_summary["revenue"].sum()
+                100 * seg_summary["revenue"] / total_revenue if total_revenue else 0
             )
+
+            # Sort ascending so the largest bar lands at the top of a horizontal chart
+            seg_summary = seg_summary.sort_values("share_revenue", ascending=True)
+
+            max_share = float(seg_summary["share_revenue"].max() or 0)
+
+            bar_text = [
+                f"{p:.1f}%   ·   {n:,} patients"
+                for p, n in zip(seg_summary["share_revenue"], seg_summary["patients"])
+            ]
+
             fig = go.Figure(go.Bar(
-                x=seg_summary["share_revenue"], y=seg_summary["segment"],
+                x=seg_summary["share_revenue"],
+                y=seg_summary["segment"],
                 orientation="h",
-                marker=dict(color=[seg_color[s] for s in seg_summary["segment"]],
-                            line=dict(width=0)),
-                text=[f"{p:.1f}% · {int(n):,} pt" for p, n in
-                      zip(seg_summary["share_revenue"], seg_summary["patients"])],
+                marker=dict(
+                    color=[seg_color[s] for s in seg_summary["segment"]],
+                    line=dict(width=0),
+                ),
+                text=bar_text,
                 textposition="outside",
-                textfont=dict(size=10, color=COLORS["navy"]),
-                hovertemplate="<b>%{y}</b><br>%{x:.1f}% revenue<extra></extra>",
+                textfont=dict(family="Montserrat", size=10, color=COLORS["navy"]),
+                cliponaxis=False,
+                customdata=seg_summary[["revenue", "patients"]].values,
+                hovertemplate=(
+                    "<b>%{y}</b>"
+                    "<br>%{x:.1f}% of revenue"
+                    "<br>%{customdata[0]:,.0f} KSh"
+                    "<br>%{customdata[1]:,} patients"
+                    "<extra></extra>"
+                ),
             ))
-            fig.update_layout(**CHART_LAYOUT, height=380,
-                              margin=dict(l=0, r=80, t=10, b=20),
-                              xaxis=dict(title="% of revenue", gridcolor="#EBF3FB"))
+
+            layout = {
+                **CHART_LAYOUT,
+                "height": 380,
+                "margin": dict(l=10, r=110, t=20, b=20),     # right margin reserves room for outside labels
+                "showlegend": False,
+                "bargap": 0.4,
+                "xaxis": dict(
+                    title=dict(text="% of revenue",
+                            font=dict(family="Montserrat", size=10, color="#6B8CAE")),
+                    tickfont=dict(family="Montserrat", size=10, color="#6B8CAE"),
+                    ticksuffix="%",
+                    gridcolor="#EBF3FB",
+                    zeroline=False,
+                    showline=False,
+                    range=[0, max_share * 1.25],             # leaves space for outside labels
+                ),
+                "yaxis": dict(
+                    title="",
+                    tickfont=dict(family="Montserrat", size=11, color="#0F2A47"),
+                    showgrid=False,
+                    zeroline=False,
+                    showline=False,
+                    automargin=True,
+                ),
+            }
+            fig.update_layout(**layout)
             st.plotly_chart(fig, use_container_width=True)
 
-        critical = (risk["risk_band"] == "Critical").sum()
+        # Critical-band info card (unchanged from your version, with safer math)
+        critical          = int((risk["risk_band"] == "Critical").sum())
+        critical_share    = (100 * critical / len(risk)) if len(risk) else 0
+        median_ticket     = float(pd.to_numeric(rfm_df["avg_ticket"], errors="coerce").median() or 0)
+        recovery_estimate = 0.2 * critical * median_ticket
+
         info_card(
-            f"<b>{int(critical):,}</b> patients are in the Critical churn band "
-            f"({100*critical/len(risk):.1f}% of the active base). "
-            f"Recovering 20% of them at average spend would add "
-            f"<b>{fmt_ksh(0.2 * critical * rfm_df['avg_ticket'].median())}</b> per month.",
+            f"<b>{critical:,}</b> patients are in the Critical churn band "
+            f"({critical_share:.1f}% of the active base). "
+            f"Recovering 20% of them at median spend would add "
+            f"<b>{fmt_ksh(recovery_estimate)}</b> per month.",
             COLORS["danger"],
         )
-
     # ── Cohort retention heatmap
     section_header("Cohort retention · revenue", margin_top=8)
-    if len(cohort_df):
+
+    if not len(cohort_df):
+        st.info("No cohort activity in this window.")
+    else:
         ch = cohort_df.copy()
-        pivot = ch.pivot_table(index="cohort_month", columns="month_offset",
-                               values="revenue", aggfunc="sum")
-        # Normalize each cohort row to its own month-0 revenue
-        norm = pivot.div(pivot[0], axis=0) * 100 if 0 in pivot.columns else pivot
-        fig = go.Figure(go.Heatmap(
-            z=norm.values,
-            x=[f"M{c}" for c in norm.columns],
-            y=[d.strftime("%b %Y") for d in pd.to_datetime(norm.index)],
-            colorscale=[[0, "#F4F8FC"], [0.5, "#7FB1E0"], [1, COLORS["primary"]]],
-            hovertemplate="Cohort %{y}<br>%{x}<br>%{z:.0f}% of cohort month<extra></extra>",
-            colorbar=dict(title="% of M0", tickfont=dict(size=9, color="#6B8CAE")),
-        ))
-        fig.update_layout(**CHART_LAYOUT, height=300, margin=dict(l=0, r=0, t=10, b=20))
-        st.plotly_chart(fig, use_container_width=True)
+        ch["revenue"] = pd.to_numeric(ch["revenue"], errors="coerce").fillna(0)
 
+        pivot = ch.pivot_table(
+            index="cohort_month",
+            columns="month_offset",
+            values="revenue",
+            aggfunc="sum",
+        ).sort_index()
 
+        if 0 not in pivot.columns or (pivot[0] == 0).all():
+            st.info("Cohort month-0 baseline is missing — cannot compute retention %.")
+        else:
+            # Normalize each cohort to its own month-0 revenue (avoid div-by-zero)
+            m0 = pivot[0].replace(0, np.nan)
+            norm = pivot.div(m0, axis=0) * 100
+
+            # Drop empty trailing offsets (no cohort has data there)
+            norm = norm.dropna(axis=1, how="all")
+
+            # Newest cohorts at the top — conventional for retention grids
+            norm  = norm.sort_index(ascending=False)
+            pivot = pivot.reindex(norm.index)
+
+            x_labels = [f"M{int(c)}" for c in norm.columns]
+            y_labels = [d.strftime("%b %Y") for d in pd.to_datetime(norm.index)]
+
+            # Hover gets both % and absolute KSh
+            revenue_grid = pivot.reindex(columns=norm.columns).values
+
+            fig = go.Figure(go.Heatmap(
+                z=norm.values,
+                x=x_labels,
+                y=y_labels,
+                customdata=revenue_grid,
+                colorscale=[
+                    [0.00, "#F4F8FC"],
+                    [0.25, "#D6E4F0"],
+                    [0.50, "#9FC2E5"],
+                    [0.75, "#5E94CC"],
+                    [1.00, COLORS["primary"]],
+                ],
+                zmin=0,
+                zmax=100,                      # clamps visual range; values >100% just saturate
+                xgap=2, ygap=2,                # subtle cell separation
+                hovertemplate=(
+                    "<b>Cohort %{y}</b>"
+                    "<br>%{x}"
+                    "<br>Retention: %{z:.0f}% of M0"
+                    "<br>Revenue: %{customdata:,.0f} KSh"
+                    "<extra></extra>"
+                ),
+                colorbar=dict(
+                    title=dict(text="% of M0",
+                            font=dict(family="Montserrat", size=10, color="#6B8CAE")),
+                    tickfont=dict(family="Montserrat", size=9, color="#6B8CAE"),
+                    ticksuffix="%",
+                    outlinewidth=0,
+                    thickness=12,
+                    len=0.85,
+                ),
+            ))
+
+            # Annotate cells with their values when the grid is small enough to read
+            if norm.shape[0] * norm.shape[1] <= 80:
+                for i, cohort in enumerate(norm.index):
+                    for j, off in enumerate(norm.columns):
+                        val = norm.iloc[i, j]
+                        if pd.isna(val):
+                            continue
+                        fig.add_annotation(
+                            x=x_labels[j],
+                            y=y_labels[i],
+                            text=f"{val:.0f}",
+                            showarrow=False,
+                            font=dict(
+                                family="Montserrat",
+                                size=9,
+                                color="#0F2A47" if val < 55 else "#FFFFFF",
+                            ),
+                        )
+
+            layout = {
+                **CHART_LAYOUT,
+                "height": 360,
+                "margin": dict(l=10, r=10, t=20, b=30),
+                "xaxis": dict(
+                    title="",
+                    side="top",
+                    tickfont=dict(family="Montserrat", size=10, color="#6B8CAE"),
+                    showgrid=False,
+                    zeroline=False,
+                    showline=False,
+                ),
+                "yaxis": dict(
+                    title="",
+                    tickfont=dict(family="Montserrat", size=10, color="#0F2A47"),
+                    showgrid=False,
+                    zeroline=False,
+                    showline=False,
+                    automargin=True,
+                ),
+            }
+            fig.update_layout(**layout)
+            st.plotly_chart(fig, use_container_width=True)
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 4 — KPI Scorecard
 # ══════════════════════════════════════════════════════════════════════════════
@@ -840,7 +1291,6 @@ with tab4:
         if len(payer_df) and payer_df["billed"].sum() else None
     )
     leakage_pct  = leak_df["leakage_pct"].mean() if len(leak_df) else None
-    margin_pct   = gp_df["gross_margin_pct"].mean() if len(gp_df) else None
     arpv_now     = arpv_df["arpv_28d"].dropna().iloc[-1] if len(arpv_df) else None
     rejection_rate = (rejection_df["rejection_rate_pct"].mean()
                       if len(rejection_df) else None)
@@ -849,14 +1299,12 @@ with tab4:
         if len(docs_df) and docs_df["revenue_attributed"].sum() else None
     )
 
-    k1, k2, k3, k4 = st.columns(4)
+    k1, k2, k3 = st.columns(3)
     with k1: kpi_card("Weighted DSO", f"{weighted_dso:.0f} d" if weighted_dso else "—",
                       "Across all payers", COLORS["warning"])
     with k2: kpi_card("Discount/waiver leakage", fmt_pct(leakage_pct),
                       "Of gross + leakage", COLORS["danger"])
-    with k3: kpi_card("Gross margin (pharmacy)", fmt_pct(margin_pct),
-                      "Avg over period", COLORS["success"])
-    with k4: kpi_card("28-day ARPV", fmt_ksh(arpv_now),
+    with k3: kpi_card("28-day ARPV", fmt_ksh(arpv_now),
                       "Smoothed average", COLORS["primary"])
 
     k5, k6, k7, k8 = st.columns(4)
@@ -866,9 +1314,7 @@ with tab4:
                       "Of doctor-attributed revenue", COLORS["purple"])
     with k7: kpi_card("Active doctors", f"{len(docs_df):,}",
                       "With ≥5 visits in window", COLORS["navy"])
-    with k8: kpi_card("Branches", f"{branches_df['clinic_id'].nunique() if len(branches_df) else 0}",
-                      "With activity in window", COLORS["muted"])
-
+    
     # ── KPI trends panel
     col_l, col_r = st.columns(2, gap="large")
     with col_l:
@@ -936,88 +1382,134 @@ with tab4:
 
     # ── Doctor productivity polar
     section_header("Doctor productivity · top 12 (revenue & ARPV)", margin_top=8)
-    if len(docs_df):
+
+    if not len(docs_df):
+        st.info("No doctor activity in this window.")
+    else:
         top12 = docs_df.head(12).copy()
-        # Normalise the two metrics to 0-100 for comparable bars
-        top12["rev_norm"]  = 100 * top12["revenue_attributed"] / top12["revenue_attributed"].max()
-        top12["arpv_norm"] = 100 * top12["arpv"] / top12["arpv"].max()
+
+        # Coerce numerics once
+        for c in ("revenue_attributed", "arpv", "visits", "unique_patients"):
+            if c in top12.columns:
+                top12[c] = pd.to_numeric(top12[c], errors="coerce").fillna(0)
+
+        # Sort by revenue so the chart reads left → right "best to worst"
+        top12 = top12.sort_values("revenue_attributed", ascending=False).reset_index(drop=True)
+
+        # Index both metrics to their respective max so bars and line share a 0–100 axis
+        rev_max  = float(top12["revenue_attributed"].max() or 1)
+        arpv_max = float(top12["arpv"].max() or 1)
+        top12["rev_norm"]  = 100 * top12["revenue_attributed"] / rev_max
+        top12["arpv_norm"] = 100 * top12["arpv"]               / arpv_max
+
+        # Truncate long doctor names for tick labels (full name still in hover)
+        name_short = [
+            n if len(n) <= 16 else n[:14] + "…"
+            for n in top12["doctor_name"].astype(str)
+        ]
+
+        # Colour bars by ARPV index — darker = both high-revenue AND high-ARPV
+        bar_colors = [
+            f"rgba(74, 144, 226, {0.35 + 0.6 * (a / 100):.2f})"   # COLORS["primary"] family
+            for a in top12["arpv_norm"]
+        ]
 
         fig = go.Figure()
+
         fig.add_trace(go.Bar(
-            x=top12["doctor_name"], y=top12["rev_norm"],
+            x=name_short,
+            y=top12["rev_norm"],
             name="Revenue (indexed)",
-            marker=dict(color=COLORS["primary"], line=dict(width=0)),
+            marker=dict(color=bar_colors, line=dict(width=0)),
             text=[fmt_ksh(v) for v in top12["revenue_attributed"]],
             textposition="outside",
-            textfont=dict(size=9, color=COLORS["navy"]),
-            hovertemplate="<b>%{x}</b><br>Revenue %{text}<extra></extra>",
-        ))
-        fig.add_trace(go.Scatter(
-            x=top12["doctor_name"], y=top12["arpv_norm"],
-            name="ARPV (indexed)", mode="lines+markers",
-            line=dict(color=COLORS["coral"], width=2, shape="spline"),
-            marker=dict(size=8, color=COLORS["coral"], line=dict(color="#fff", width=1)),
-            hovertemplate="<b>%{x}</b><br>ARPV index %{y:.0f}<extra></extra>",
-        ))
-        fig.update_layout(**CHART_LAYOUT, height=380,
-                          xaxis=dict(tickangle=-25, tickfont=dict(size=10, color="#6B8CAE")),
-                          yaxis=dict(title="% of leader (max=100)", gridcolor="#EBF3FB",
-                                     tickfont=dict(size=10, color="#6B8CAE")),
-                          legend=dict(orientation="h", y=-0.3, font=dict(size=10)))
-        st.plotly_chart(fig, use_container_width=True)
-
-    # ── Branch radar comparison
-    if len(branches_df):
-        section_header("Branch comparison · multi-metric radar", margin_top=8)
-        latest = branches_df.sort_values("revenue_month").groupby("clinic_name").last().reset_index()
-        # Normalise metrics for the radar chart
-        for col in ["revenue", "patients", "visits", "arpv", "arpu"]:
-            if col in latest.columns:
-                m = latest[col].max()
-                latest[f"{col}_n"] = 100 * latest[col] / m if m else 0
-
-        radar_metrics = [
-            ("revenue_n",  "Revenue"),
-            ("patients_n", "Patients"),
-            ("visits_n",   "Visits"),
-            ("arpv_n",     "ARPV"),
-            ("arpu_n",     "ARPU"),
-        ]
-        radar_metrics = [m for m in radar_metrics if m[0] in latest.columns]
-
-        fig = go.Figure()
-        for i, (_, row) in enumerate(latest.iterrows()):
-            fig.add_trace(go.Scatterpolar(
-                r=[row[m[0]] for m in radar_metrics] + [row[radar_metrics[0][0]]],
-                theta=[m[1] for m in radar_metrics] + [radar_metrics[0][1]],
-                fill="toself",
-                name=row["clinic_name"],
-                line=dict(color=PALETTE[i % len(PALETTE)], width=2),
-                fillcolor=hex_to_rgba(PALETTE[i % len(PALETTE)], 0.10),
-                hovertemplate="<b>%{theta}</b><br>%{r:.1f}<extra></extra>",
-            ))
-        fig.update_layout(
-            polar=dict(
-                bgcolor="#F4F8FC",
-                radialaxis=dict(visible=True, range=[0, 100],
-                                gridcolor="#D6E4F0",
-                                tickfont=dict(size=9, color="#6B8CAE")),
-                angularaxis=dict(tickfont=dict(size=11, color="#003467")),
+            textfont=dict(family="Montserrat", size=9, color=COLORS["navy"]),
+            cliponaxis=False,
+            customdata=np.stack([
+                top12["doctor_name"].astype(str).values,
+                top12["revenue_attributed"].values,
+                top12["arpv"].values,
+                top12["visits"].values if "visits" in top12.columns else np.zeros(len(top12)),
+            ], axis=-1),
+            hovertemplate=(
+                "<b>%{customdata[0]}</b>"
+                "<br>Revenue: %{customdata[1]:,.0f} KSh"
+                "<br>ARPV: %{customdata[2]:,.0f} KSh"
+                "<br>Visits: %{customdata[3]:,.0f}"
+                "<extra></extra>"
             ),
-            paper_bgcolor="#fff",
-            font=dict(family="Montserrat", color="#003467"),
-            height=420,
-            legend=dict(orientation="h", y=-0.1, font=dict(size=10)),
-            margin=dict(l=20, r=20, t=10, b=10),
+        ))
+
+        fig.add_trace(go.Scatter(
+            x=name_short,
+            y=top12["arpv_norm"],
+            name="ARPV (indexed)",
+            mode="lines+markers",
+            line=dict(color=COLORS["coral"], width=2.5, shape="spline"),
+            marker=dict(size=9, color=COLORS["coral"], line=dict(color="#ffffff", width=1.5)),
+            customdata=np.stack([
+                top12["doctor_name"].astype(str).values,
+                top12["arpv"].values,
+            ], axis=-1),
+            hovertemplate=(
+                "<b>%{customdata[0]}</b>"
+                "<br>ARPV: %{customdata[1]:,.0f} KSh"
+                "<br>Indexed: %{y:.0f}"
+                "<extra></extra>"
+            ),
+        ))
+
+        layout = {
+            **CHART_LAYOUT,
+            "height": 420,
+            "margin": dict(l=10, r=10, t=40, b=110),
+            "bargap": 0.35,
+            "showlegend": True,
+            "legend": dict(
+                orientation="h",
+                y=-0.32,
+                x=0.5,
+                xanchor="center",
+                font=dict(family="Montserrat", size=10, color="#6B8CAE"),
+                bgcolor="rgba(0,0,0,0)",
+            ),
+            "xaxis": dict(
+                tickangle=-25,
+                tickfont=dict(family="Montserrat", size=10, color="#0F2A47"),
+                showgrid=False,
+                zeroline=False,
+                showline=False,
+            ),
+            "yaxis": dict(
+                title=dict(text="% of leader (max = 100)",
+                        font=dict(family="Montserrat", size=10, color="#6B8CAE")),
+                tickfont=dict(family="Montserrat", size=10, color="#6B8CAE"),
+                ticksuffix="%",
+                gridcolor="#EBF3FB",
+                zeroline=False,
+                showline=False,
+                range=[0, 115],                 # leaves room for outside text labels
+            ),
+        }
+        fig.update_layout(**layout)
+
+        # Tiny caption explaining the indexing — answers "100 of what?" without a hover
+        fig.add_annotation(
+            text=f"Leader: {fmt_ksh(rev_max)} revenue · ARPV {fmt_ksh(arpv_max)}",
+            xref="paper", yref="paper", x=0.0, y=1.07,
+            xanchor="left", showarrow=False,
+            font=dict(family="Montserrat", size=10, color="#7A93B0"),
         )
+
         st.plotly_chart(fig, use_container_width=True)
 
+    
 # ─── Footer ─────────────────────────────────────────────────────────────────
 
 st.markdown(
     '<div style="margin-top:30px;padding-top:14px;border-top:1px solid #EBF3FB;'
     'font-size:10px;color:#6B8CAE;letter-spacing:1.5px;text-transform:uppercase">'
-    'PharmaPlus · Revenue Intelligence · Powered by Snowflake'
+    'Kisumu Specialist Hospital · Revenue Intelligence · Powered by Snowflake'
     '</div>',
     unsafe_allow_html=True,
 )

@@ -120,12 +120,19 @@ def _get_client(schema: Optional[str] = None) -> SnowflakeClient:
 
 
 # ─── DataFrame helpers ──────────────────────────────────────────────────────
-
+from decimal import Decimal
 def _normalise(df: pd.DataFrame) -> pd.DataFrame:
     """Snowflake returns column names UPPERCASE — lower them so the rest of
     the codebase can use the same names as the SQL aliases."""
     if df is None or len(df) == 0:
         return df
+    
+    for col in df.columns:
+        if df[col].dtype == "object":
+            sample = df[col].dropna()
+            if len(sample) and isinstance(sample.iloc[0], Decimal):
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+
     df.columns = [c.lower() for c in df.columns]
     return df
 

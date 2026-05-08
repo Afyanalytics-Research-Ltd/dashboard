@@ -9,7 +9,7 @@ Important: a service account is its own identity. To touch an existing
 spreadsheet that wasn't created by the service account, share that
 spreadsheet with the service account's email (found in the JSON key).
 """
-from __future__ import annotations
+
 
 import json
 import threading

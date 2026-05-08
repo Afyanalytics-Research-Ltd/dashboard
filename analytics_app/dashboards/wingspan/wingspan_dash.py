@@ -13,7 +13,7 @@ The script reads `healthinsurance.csv` from the same directory as the script
 the dashboard is wired directly against the real columns.
 """
 
-from __future__ import annotations
+
 
 import os
 import warnings

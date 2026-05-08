@@ -32,7 +32,7 @@ Run:
     SF_DRY_RUN=1 python stack_clean_schemas.py    # preview
     python stack_clean_schemas.py                 # build for real
 """
-from __future__ import annotations
+
 
 import logging
 import os

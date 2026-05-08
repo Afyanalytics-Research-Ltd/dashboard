@@ -24,8 +24,8 @@ def _store_clause(store_names, pos_col="pos.store_product_id"):
 
 
 # ── SQL templates ──────────────────────────────────────────────────────────────
-# Revenue + Stockout: filterable via IN subquery — no fan-out.
-# Cash, Invoices, Loyalty: not filterable (no store linkage).
+# Revenue + Stockout + Operating Margin: filterable via IN subquery — no fan-out.
+# Invoices, Loyalty: not filterable (no store linkage).
 
 # Original structure preserved — no inventory_stores join in the main body.
 # {store_filter} uses IN subquery so no extra rows are introduced.
@@ -62,34 +62,26 @@ GROUP BY 1
 ORDER BY 1
 """
 
-SQL_CASH_SUMMARY = """
+SQL_OPERATING_MARGIN = """
+WITH line_margins AS (
+    SELECT
+        pos.sale_id,
+        SUM(pos.amount)                                                 AS revenue,
+        SUM(pos.amount - COALESCE(sp.unit_cost, 0) * pos.quantity)     AS gross_profit
+    FROM hospitals.xanalife_clean.evaluation_pos_sale_details pos
+    JOIN hospitals.xanalife_clean.inventory_store_products sp
+        ON pos.store_product_id = sp.id
+    WHERE TRY_TO_TIMESTAMP(pos.created_at) >= '2025-09-01'
+      AND pos.status != 'canceled'
+      AND sp.unit_cost > 0
+      {store_filter}
+    GROUP BY pos.sale_id
+)
 SELECT
-    ROUND(SUM(CASE WHEN closed_at IS NOT NULL AND closed_at != ''
-                        AND TRY_TO_NUMBER(cashier_closing_balance) > 0
-                   THEN TRY_TO_NUMBER(closing_variance) ELSE 0 END), 0)          AS net_variance,
-    ROUND(SUM(CASE WHEN closed_at IS NOT NULL AND closed_at != ''
-                        AND TRY_TO_NUMBER(cashier_closing_balance) > 0
-                   THEN TRY_TO_NUMBER(system_closing_balance) ELSE 0 END), 0)     AS cash_at_risk,
-    ROUND(SUM(CASE WHEN closed_at IS NOT NULL AND closed_at != ''
-                        AND TRY_TO_NUMBER(cashier_closing_balance) > 0
-                   THEN TRY_TO_NUMBER(closing_variance) ELSE 0 END) /
-          NULLIF(SUM(CASE WHEN closed_at IS NOT NULL AND closed_at != ''
-                               AND TRY_TO_NUMBER(cashier_closing_balance) > 0
-                          THEN TRY_TO_NUMBER(system_closing_balance) ELSE 0 END), 0)
-          * 100, 2)                                                                AS variance_pct,
-    COUNT(CASE WHEN closed_at IS NULL OR closed_at = '' THEN 1 END)               AS unclosed_shifts,
-    (SELECT COUNT(*)
-     FROM hospitals.xanalife_clean.reception_reception_shifts
-     WHERE TRY_TO_TIMESTAMP(created_at) >= '2025-09-01'
-       AND closed_at IS NOT NULL AND closed_at != ''
-       AND TRY_TO_NUMBER(cashier_closing_balance) > 0
-       AND ABS(TRY_TO_NUMBER(closing_variance)) > ABS(TRY_TO_NUMBER(system_closing_balance))
-       AND confirmed_by NOT IN ('sudo', 'Mrs. Xana  Admin', 'Mrs. Carole  Herzog')
-    )                                                                              AS anomalous_shifts
-FROM hospitals.xanalife_clean.reception_reception_shifts
-WHERE TRY_TO_TIMESTAMP(created_at) >= '2025-09-01'
-  AND user_id NOT IN (5, 1719, 1741, 1744, 1746, 1739)
-  AND (confirmed_by IS NULL OR confirmed_by NOT IN ('sudo', 'Mrs. Xana  Admin', 'Mrs. Carole  Herzog'))
+    ROUND(AVG(gross_profit / NULLIF(revenue, 0) * 100), 1)             AS avg_sale_margin_pct,
+    ROUND(SUM(gross_profit) / NULLIF(SUM(revenue), 0) * 100, 1)        AS portfolio_margin_pct
+FROM line_margins
+WHERE revenue > 0
 """
 
 # COUNT(DISTINCT s.product) handles any fan-out from the product_id join.
@@ -145,10 +137,10 @@ def get_analyses(store_names=None):
     return [
         ("Revenue Summary",  SQL_REVENUE_SUMMARY.format(store_filter=sf)),
         ("Revenue Trend",    SQL_REVENUE_TREND.format(store_filter=sf)),
-        ("Cash Summary",     SQL_CASH_SUMMARY),
         ("Stockout Count",   SQL_STOCKOUT_COUNT.format(store_name_filter=stockout_filter)),
         ("Invoices Summary", SQL_INVOICES_SUMMARY),
         ("Loyalty Summary",  SQL_LOYALTY_SUMMARY),
+        ("Operating Margin", SQL_OPERATING_MARGIN.format(store_filter=sf)),
     ]
 
 ANALYSES = get_analyses()

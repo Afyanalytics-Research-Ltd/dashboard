@@ -22,4 +22,12 @@
 
 </div>
 
+<script>
+    window.addEventListener('message', function(e) {
+        if (e.data && e.data.navigate) {
+            window.location.href = e.data.navigate;
+        }
+    });
+</script>
+
 {% endblock %}

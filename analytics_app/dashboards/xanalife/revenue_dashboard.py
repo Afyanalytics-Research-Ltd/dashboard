@@ -116,13 +116,9 @@ for key in ("ci_data", "scr_data", "sa_data", "ma_data", "ov_data", "stores_df")
 # ── Load stores on first run ───────────────────────────────────────────────────
 
 if st.session_state.stores_df is None:
-    # import pdb;pdb.set_trace()
-
     stores_raw = ov.run_query_(
         "SELECT id AS STORE_ID, MIN(name) AS STORE_NAME, MIN(code) AS STORE_CODE "
         "FROM hospitals.xanalife_clean.inventory_stores GROUP BY id ORDER BY MIN(name)")
-    # import time
-    # time.sleep(3)
     # stores_raw.columns = stores_raw.columns.str.upper()
     stores_raw["LOCATION"] = stores_raw["STORE_ID"].apply(
         lambda x: "Syokimau" if x in {399, 400, 401, 402, 403, 404} else "Katani"
@@ -134,14 +130,14 @@ if st.session_state.stores_df is None:
 
 with st.sidebar:
     try:
-        st.image("download.png", width=150)
+        st.image(os.path.join(os.path.dirname(os.path.abspath(__file__)), "scripts", "download.png"), width=150)
     except Exception:
         st.markdown(
             '<div style="font-size:16px;font-weight:800;color:#0072CE;padding:8px 0 16px">Xanalife</div>',
             unsafe_allow_html=True)
 
-    section_header("Module")
-    page = st.radio("", ["Overview", "Revenue Intelligence", "Cash Integrity", "SCR", "Margin Intelligence"],
+    section_header("Dashboard")
+    page = st.radio("", ["Overview", "Revenue Intelligence", "Cash Integrity", "Stock Intelligence", "Profit Margins"],
                     label_visibility="collapsed")
 
     st.markdown("<div style='margin-bottom:8px'></div>", unsafe_allow_html=True)
@@ -200,25 +196,25 @@ if page == "Overview":
 
     O = st.session_state.ov_data
 
-    rev   = O["Revenue Summary"].iloc[0]
-    trend = O["Revenue Trend"]
-    cash  = O["Cash Summary"].iloc[0]
-    stk   = O["Stockout Count"].iloc[0]
-    inv   = O["Invoices Summary"].iloc[0]
-    loy   = O["Loyalty Summary"].iloc[0]
+    rev    = O["Revenue Summary"].iloc[0]
+    trend  = O["Revenue Trend"]
+    stk    = O["Stockout Count"].iloc[0]
+    inv    = O["Invoices Summary"].iloc[0]
+    loy    = O["Loyalty Summary"].iloc[0]
+    mgn_ov = O["Operating Margin"].iloc[0]
 
     for col in ["TOTAL_REVENUE", "REVENUE_THIS_MONTH", "REVENUE_LAST_MONTH", "TOTAL_TRANSACTIONS"]:
         rev[col] = pd.to_numeric(rev[col], errors="coerce") or 0
     latest_month_label = pd.to_datetime(rev.get("LATEST_DATA_MONTH", pd.NaT))
     month_label = latest_month_label.strftime("%b %Y") if pd.notna(latest_month_label) else "Latest month"
-    for col in ["NET_VARIANCE", "CASH_AT_RISK", "VARIANCE_PCT", "UNCLOSED_SHIFTS", "ANOMALOUS_SHIFTS"]:
-        cash[col] = pd.to_numeric(cash[col], errors="coerce") or 0
     for col in ["PRODUCTS_AT_ZERO_STOCK"]:
         stk[col] = pd.to_numeric(stk[col], errors="coerce") or 0
     for col in ["TOTAL_INVOICES", "TOTAL_AMOUNT", "TOTAL_BALANCE"]:
         inv[col] = pd.to_numeric(inv[col], errors="coerce") or 0
     for col in ["TOTAL_EARNED", "REDEMPTION_COUNT", "TOTAL_REDEEMED", "CUSTOMERS_WITH_POINTS"]:
         loy[col] = pd.to_numeric(loy[col], errors="coerce") or 0
+    avg_sale_margin_ov  = float(pd.to_numeric(mgn_ov["AVG_SALE_MARGIN_PCT"],  errors="coerce") or 0)
+    portfolio_margin_ov = float(pd.to_numeric(mgn_ov["PORTFOLIO_MARGIN_PCT"], errors="coerce") or 0)
     trend["DAILY_REVENUE"] = pd.to_numeric(trend["DAILY_REVENUE"], errors="coerce").fillna(0)
     trend["SALE_DATE"]     = pd.to_datetime(trend["SALE_DATE"])
 
@@ -229,7 +225,7 @@ if page == "Overview":
         '<p style="font-size:11px;font-weight:800;letter-spacing:3px;text-transform:uppercase;'
         'color:#0072CE;margin-bottom:4px">Xanalife · Executive Overview</p>',
         unsafe_allow_html=True)
-    st.caption(f"Sep 2025 – present · As of today")
+    st.caption("Sep 2025 – March 18 2026 · Data cutoff")
     st.markdown("<div style='margin-bottom:16px'></div>", unsafe_allow_html=True)
 
     c1, c2, c3, c4, c5 = st.columns(5)
@@ -241,9 +237,9 @@ if page == "Overview":
                  f"{'+' if mom_pct >= 0 else ''}{mom_pct:.1f}% vs prior month",
                  COLORS["success"] if mom_pct >= 0 else COLORS["danger"])
     with c3:
-        kpi_card("Cash Shortfall", fmt_ksh(abs(cash["NET_VARIANCE"])),
-                 f"{abs(cash['VARIANCE_PCT']):.2f}% of cash handled · {int(cash['ANOMALOUS_SHIFTS'])} anomalous shifts",
-                 COLORS["danger"])
+        kpi_card("Avg Sale Margin", f"{avg_sale_margin_ov:.1f}%",
+                 f"Portfolio margin (total profit ÷ total revenue): {portfolio_margin_ov:.1f}%",
+                 COLORS["success"])
     with c4:
         kpi_card("Outstanding Invoices", fmt_ksh(inv["TOTAL_BALANCE"]),
                  f"{int(inv['TOTAL_INVOICES'])} invoices — none collected",
@@ -261,18 +257,6 @@ if page == "Overview":
         section_header("Act Now")
 
         alerts = []
-        if cash["ANOMALOUS_SHIFTS"] > 0:
-            alerts.append(("danger",
-                f"🔴 {int(cash['ANOMALOUS_SHIFTS'])} shifts where variance exceeded total sales — "
-                "impossible under honest operation. Pull receipts immediately."))
-        if abs(cash["VARIANCE_PCT"]) > 1:
-            alerts.append(("danger",
-                f"🔴 Cash shortfall is {abs(cash['VARIANCE_PCT']):.1f}% of revenue. "
-                f"{fmt_ksh(abs(cash['NET_VARIANCE']))} unaccounted across all closed shifts."))
-        if cash["UNCLOSED_SHIFTS"] > 100:
-            alerts.append(("warning",
-                f"🟡 {int(cash['UNCLOSED_SHIFTS']):,} shifts never closed. "
-                "Revenue in those shifts has no variance accountability."))
         if inv["TOTAL_BALANCE"] > 0:
             alerts.append(("warning",
                 f"🟡 {fmt_ksh(inv['TOTAL_BALANCE'])} in outstanding invoices — "
@@ -309,15 +293,6 @@ if page == "Overview":
         fig.update_yaxes(tickprefix="KSh ", tickformat=",.0f")
         st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
-    st.markdown("<div style='margin-bottom:8px'></div>", unsafe_allow_html=True)
-    section_header("Executive Recommendation", margin_top=8)
-    info_card(
-        f"Revenue is {'growing' if mom_pct > 0 else 'declining'} {abs(mom_pct):.1f}% month-on-month. "
-        f"The {fmt_ksh(abs(cash['NET_VARIANCE']))} cash shortfall ({abs(cash['VARIANCE_PCT']):.1f}% of cash handled) "
-        f"is the highest-priority operational risk — it is driven by individuals, not systems, and will not "
-        f"resolve without direct management intervention. The {fmt_ksh(inv['TOTAL_BALANCE'])} in uncollected "
-        f"invoices is a receivables gap that compounds every month it is not addressed.",
-        COLORS["primary"])
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -366,7 +341,7 @@ if page == "Cash Integrity":
 
     st.markdown(
         '<p style="font-size:11px;font-weight:800;letter-spacing:3px;text-transform:uppercase;'
-        'color:#0072CE;margin-bottom:4px">Xanalife · Cash Integrity</p>',
+        'color:#0072CE;margin-bottom:4px">Xanalife · Cash &amp; Shifts</p>',
         unsafe_allow_html=True)
     st.caption("Sep 2025 – present · Closed shifts only · System/admin users excluded")
     info_card(
@@ -376,25 +351,25 @@ if page == "Cash Integrity":
 
     c1, c2, c3, c4 = st.columns(4)
     with c1:
-        kpi_card("Net Cash Shortfall", fmt_ksh(abs(total_var)),
-                 f"Top 3 users = {top3_pct:.0f}% of all losses", COLORS["danger"])
+        kpi_card("Cash Shortfall", fmt_ksh(abs(total_var)),
+                 f"Top 3 cashiers = {top3_pct:.0f}% of all missing cash", COLORS["danger"])
     with c2:
-        kpi_card("Anomalous Shifts", str(len(anomaly)),
-                 "Variance exceeded total sales — impossible under honest operation", COLORS["danger"])
+        kpi_card("Problem Shifts", str(len(anomaly)),
+                 "Shifts where missing cash exceeded total sales — needs investigation", COLORS["danger"])
     with c3:
-        kpi_card("Unreconciled Shifts", f"{unclosed_count:,}",
-                 f"{fmt_ksh(revenue_unclosed)} revenue with no variance captured", COLORS["warning"])
+        kpi_card("Shifts Never Closed", f"{unclosed_count:,}",
+                 f"{fmt_ksh(revenue_unclosed)} revenue with no closing record", COLORS["warning"])
     with c4:
-        kpi_card("Variance Trend",
-                 "Worsening ↓" if worsening else "Stable / Improving",
+        kpi_card("Shortfall Trend",
+                 "Getting Worse ↓" if worsening else "Stable / Improving",
                  f"{first_var:.2f}% → {last_var:.2f}% since go-live",
                  COLORS["danger"] if worsening else COLORS["success"])
 
     st.markdown("<div style='margin-bottom:16px'></div>", unsafe_allow_html=True)
-    tab1, tab2, tab3 = st.tabs(["◉  Pareto", "△  Trend", "∑  Shift Audit"])
+    tab1, tab2, tab3 = st.tabs(["◉  Worst Offenders", "△  Month by Month", "∑  Shift Detail"])
 
     with tab1:
-        section_header("Variance by User — Pareto")
+        section_header("Cash Shortfall by Cashier")
         top_n = pareto.nsmallest(15, "NET_VARIANCE")
         fig = go.Figure(go.Bar(
             x=top_n["NET_VARIANCE"],
@@ -402,17 +377,17 @@ if page == "Cash Integrity":
             orientation="h",
             marker_color=[COLORS["danger"] if v < -50000 else COLORS["warning"]
                           for v in top_n["NET_VARIANCE"]],
-            hovertemplate="User %{y}<br>Variance: KSh %{x:,.0f}<br><extra></extra>"))
+            hovertemplate="User %{y}<br>Shortfall: KSh %{x:,.0f}<br><extra></extra>"))
         fig.update_layout(**cl(yaxis=dict(autorange="reversed", tickfont=dict(size=10))),
-                          height=380, xaxis_title="Net Variance (KSh)")
+                          height=380, xaxis_title="Cash Shortfall (KSh)")
         fig.update_xaxes(tickprefix="KSh ", tickformat=",.0f")
         st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
-        section_header("Decisions", margin_top=16)
+        section_header("Action Required", margin_top=16)
         decisions = [
             {"Severity": "Critical",
              "Finding": f"User {top1['USER_ID']} — {fmt_ksh(abs(top1['NET_VARIANCE']))} shortfall ({abs(top1['PCT_OF_LOSS_POOL']):.0f}% of total losses)",
-             "Action": "Needs Assessment."},
+             "Action": "Pull shift logs. Cross-reference opening balance against cash collected."},
             {"Severity": "Critical",
              "Finding": f"{len(anomaly)} shifts where variance exceeded total sales",
              "Action": "shift logs for all flagged shifts. Cross-reference opening balances."},
@@ -428,42 +403,42 @@ if page == "Cash Integrity":
         st.dataframe(pd.DataFrame(decisions), use_container_width=True, hide_index=True)
 
     with tab2:
-        section_header("Monthly Variance Trend")
+        section_header("Shortfall — Month by Month")
         ts2 = trend.sort_values("MONTH")
         fig2 = go.Figure()
         fig2.add_trace(go.Scatter(
             x=ts2["MONTH"], y=ts2["VARIANCE_PCT"],
-            mode="lines+markers", name="Variance %",
+            mode="lines+markers", name="Shortfall %",
             line=dict(color=COLORS["danger"], width=2),
             marker=dict(size=6),
-            hovertemplate="%{x|%b %Y}<br>Variance: %{y:.2f}%<extra></extra>"))
+            hovertemplate="%{x|%b %Y}<br>Shortfall: %{y:.2f}%<extra></extra>"))
         fig2.add_hline(y=0, line_dash="dash", line_color=COLORS["muted"], line_width=1)
-        fig2.update_layout(**CHART_LAYOUT, height=300, yaxis_title="Variance % of Revenue")
+        fig2.update_layout(**CHART_LAYOUT, height=300, yaxis_title="Shortfall % of Revenue")
         fig2.update_yaxes(ticksuffix="%")
         st.plotly_chart(fig2, use_container_width=True, config={"displayModeBar": False})
 
-        section_header("Cash at Risk vs Variance", margin_top=16)
+        section_header("Cash Handled vs Shortfall", margin_top=16)
         fig3 = go.Figure()
         fig3.add_trace(go.Bar(
-            x=ts2["MONTH"], y=ts2["CASH_AT_RISK"], name="Cash at Risk",
+            x=ts2["MONTH"], y=ts2["CASH_AT_RISK"], name="Cash Handled",
             marker_color=COLORS["primary"], opacity=0.7,
-            hovertemplate="%{x|%b %Y}<br>Cash at Risk: KSh %{y:,.0f}<extra></extra>"))
+            hovertemplate="%{x|%b %Y}<br>Cash Handled: KSh %{y:,.0f}<extra></extra>"))
         fig3.add_trace(go.Bar(
-            x=ts2["MONTH"], y=ts2["NET_VARIANCE"].abs(), name="Abs Variance",
+            x=ts2["MONTH"], y=ts2["NET_VARIANCE"].abs(), name="Shortfall",
             marker_color=COLORS["danger"],
-            hovertemplate="%{x|%b %Y}<br>Variance: KSh %{y:,.0f}<extra></extra>"))
+            hovertemplate="%{x|%b %Y}<br>Shortfall: KSh %{y:,.0f}<extra></extra>"))
         fig3.update_layout(**CHART_LAYOUT, height=280, barmode="overlay",
                            legend=dict(orientation="h", y=1.08, font=dict(size=10)))
         fig3.update_yaxes(tickprefix="KSh ", tickformat=",.0f")
         st.plotly_chart(fig3, use_container_width=True, config={"displayModeBar": False})
 
     with tab3:
-        section_header(f"Anomalous Shifts — {len(anomaly)}")
-        st.caption("Shifts where variance exceeded total sales. Share with HR and operations.")
+        section_header(f"Problem Shifts — {len(anomaly)}")
+        st.caption("Shifts where missing cash exceeded total sales. Share with HR and operations.")
         st.dataframe(anomaly, use_container_width=True, hide_index=True, height=250)
 
-        section_header("Unreconciled Shifts by User", margin_top=16)
-        st.caption("Users above 30% unclosed rate require immediate retraining.")
+        section_header("Cashiers with Unclosed Shifts", margin_top=16)
+        st.caption("Cashiers with more than 30% of their shifts left unclosed need follow-up.")
 
         if not by_user.empty:
             fig4 = go.Figure(go.Bar(
@@ -478,23 +453,14 @@ if page == "Cash Integrity":
             fig4.update_yaxes(ticksuffix="%")
             st.plotly_chart(fig4, use_container_width=True, config={"displayModeBar": False})
 
-        with st.expander("Full unreconciled shifts table"):
+        with st.expander("Full unclosed shifts table"):
             st.dataframe(by_user, use_container_width=True, hide_index=True)
-
-    st.markdown("<div style='margin-bottom:8px'></div>", unsafe_allow_html=True)
-    section_header("Executive Recommendation", margin_top=8)
-    info_card(
-        f"The {fmt_ksh(abs(total_var))} shortfall is not random — top 3 users account for {top3_pct:.0f}% of all losses. "
-        f"This is a pattern, not a coincidence. The {len(anomaly)} anomalous shifts (where variance exceeded sales) "
-        f"are the highest-risk events in this dataset and warrant physical investigation. "
-        f"{'Variance is worsening month-on-month — individual retraining will not fix a systemic drift. A policy change is required.' if worsening else 'Variance is stable. Maintain controls and re-evaluate monthly.'}",
-        COLORS["danger"] if worsening else COLORS["primary"])
 
     st.markdown("<div style='margin-bottom:8px'></div>", unsafe_allow_html=True)
     summary_dl = (pareto.merge(
         by_user[["USER_ID", "UNCLOSED", "UNCLOSED_RATE_PCT", "REVENUE_UNCLOSED_KES"]],
         on="USER_ID", how="outer").sort_values("NET_VARIANCE"))
-    st.download_button("⬇ Download full user data (CSV)", summary_dl.to_csv(index=False),
+    st.download_button("⬇ Download full cashier data (CSV)", summary_dl.to_csv(index=False),
                        "cash_integrity_user_summary.csv", "text/csv")
 
 
@@ -502,7 +468,7 @@ if page == "Cash Integrity":
 # SCR — SUBSTITUTION CAPTURE RATE
 # ══════════════════════════════════════════════════════════════════════════════
 
-if page == "SCR":
+if page == "Stock Intelligence":
 
     expected_scr = {label for label, _ in scr.get_analyses()}
     if (not st.session_state.scr_data
@@ -534,33 +500,33 @@ if page == "SCR":
 
     st.markdown(
         '<p style="font-size:11px;font-weight:800;letter-spacing:3px;text-transform:uppercase;'
-        'color:#0072CE;margin-bottom:4px">Xanalife · Substitution Capture Rate</p>',
+        'color:#0072CE;margin-bottom:4px">Xanalife · Stock Intelligence</p>',
         unsafe_allow_html=True)
-    st.caption("Stockout exposure, substitute intelligence, and depletion risk · Sep 2025 – present")
+    st.caption("Out-of-stock gaps, what customers buy instead, and products running low · Sep 2025 – present")
 
     c1, c2, c3, c4 = st.columns(4)
     with c1:
         kpi_card("Revenue at Risk", fmt_ksh(total_kes),
-                 f"Across {flagged} flagged products", COLORS["danger"] if total_kes > 0 else COLORS["muted"])
+                 f"Across {flagged} products currently out of stock", COLORS["danger"] if total_kes > 0 else COLORS["muted"])
     with c2:
-        kpi_card("Products Flagged in Stockout", str(flagged),
-                 "Products with dispensing gap ≥ 14 days", COLORS["warning"])
+        kpi_card("Products Out of Stock", str(flagged),
+                 "No sales recorded for 14 days or more", COLORS["warning"])
     with c3:
         if best_sub is not None:
-            kpi_card("Strongest Substitute", f"+{int(best_sub['SUBSTITUTE_UPLIFT'])} units",
-                     f"{best_sub['TOP_SUBSTITUTE']} absorbed demand when {best_sub['PRODUCT_NAME']} was out",
+            kpi_card("Best Replacement Found", f"+{int(best_sub['SUBSTITUTE_UPLIFT'])} units",
+                     f"{best_sub['TOP_SUBSTITUTE']} picked up demand when {best_sub['PRODUCT_NAME']} was out",
                      COLORS["success"])
         else:
-            kpi_card("Strongest Substitute", "—", "No substitute signal detected yet", COLORS["muted"])
+            kpi_card("Best Replacement Found", "—", "No replacement pattern detected yet", COLORS["muted"])
     with c4:
-        kpi_card("Most Exposed Category", str(top_cat),
-                 "Category with highest number of stockout products", COLORS["warning"])
+        kpi_card("Most at Risk Category", str(top_cat),
+                 "Category with the most products currently out of stock", COLORS["warning"])
 
     st.markdown("<div style='margin-bottom:16px'></div>", unsafe_allow_html=True)
-    tab1, tab2 = st.tabs(["◉  Stockout Intelligence", "△  Depletion Watch"])
+    tab1, tab2 = st.tabs(["◉  Out of Stock", "△  Running Low"])
 
     with tab1:
-        section_header("Category Exposure")
+        section_header("Stock Gaps by Category")
         if not cat_exp.empty:
             fig = go.Figure(go.Bar(
                 x=cat_exp["STOCKOUT_PRODUCTS"],
@@ -574,7 +540,7 @@ if page == "SCR":
             st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
         section_header("What to Order — and How Much", margin_top=16)
-        st.caption("Ranked by revenue at risk. Pre-stock quantity includes 20% buffer over substitute absorption.")
+        st.caption("Ranked by revenue at risk. Pre-stock quantity includes a 20% safety buffer.")
 
         # Pagination (100 rows per page)
         page_size = 100
@@ -606,8 +572,8 @@ if page == "SCR":
         st.dataframe(display, use_container_width=True, hide_index=True)
 
     with tab2:
-        section_header("Depletion Risk — Days Until Stockout")
-        st.caption("Products with < 30 days of stock at current dispensing rate.")
+        section_header("How Long Stock Will Last")
+        st.caption("Products expected to run out within 30 days, based on current sales pace.")
 
         if not depletion.empty:
             dep_sorted = depletion.sort_values("DAYS_UNTIL_STOCKOUT")
@@ -627,28 +593,16 @@ if page == "SCR":
                                height=340, yaxis_title="Days Until Stockout")
             st.plotly_chart(fig2, use_container_width=True, config={"displayModeBar": False})
 
-        with st.expander("Full depletion table"):
+        with st.expander("Full stock levels table"):
             st.dataframe(
                 depletion[["PRODUCT_NAME", "CURRENT_STOCK", "AVG_DAILY_RATE",
                            "DAYS_UNTIL_STOCKOUT", "URGENCY"]]
                 .rename(columns={"PRODUCT_NAME": "Product", "CURRENT_STOCK": "Units in Stock",
-                                 "AVG_DAILY_RATE": "Daily Rate", "DAYS_UNTIL_STOCKOUT": "Days Left",
+                                 "AVG_DAILY_RATE": "Daily Sales Rate", "DAYS_UNTIL_STOCKOUT": "Days Left",
                                  "URGENCY": "Urgency"}),
                 use_container_width=True, hide_index=True)
 
     st.markdown("<div style='margin-bottom:8px'></div>", unsafe_allow_html=True)
-    section_header("Executive Recommendation", margin_top=8)
-    if total_kes > 0:
-        top3_risk = summary.nlargest(3, "REVENUE_AT_RISK_KES")["PRODUCT_NAME"].tolist()
-        info_card(
-            f"{fmt_ksh(total_kes)} in revenue is exposed to stockout gaps across {flagged} products. "
-            f"The top 3 by risk — {', '.join(top3_risk)} — likely account for the majority of that exposure. "
-            f"A single procurement order covering these three resolves most of the risk. "
-            f"Where a substitute is identified, pre-stock it before the primary product hits its reorder level — "
-            f"don't wait for the gap to open.", COLORS["warning"])
-    else:
-        info_card("No active stockout revenue risk detected.", COLORS["success"])
-
     st.download_button("⬇ Download SCR data (CSV)", summary.to_csv(index=False),
                        "scr_stockouts_and_substitutes.csv", "text/csv")
 
@@ -721,8 +675,8 @@ if page == "Revenue Intelligence":
                  f"{float(basket_sum['AVG_ITEMS_PER_SALE'].iloc[0]) if not basket_sum.empty else 0:.1f} items per transaction",
                  COLORS["success"])
     with c3:
-        kpi_card("Single-Item Basket Rate", f"{single_pct:.1f}%",
-                 "Transactions with only one product — cross-sell opportunity",
+        kpi_card("One-Item Sales Rate", f"{single_pct:.1f}%",
+                 "Transactions with only one product — pairing opportunity",
                  COLORS["warning"] if single_pct > 50 else COLORS["muted"])
     with c4:
         kpi_card("Peak Revenue Slot", peak_label,
@@ -730,7 +684,7 @@ if page == "Revenue Intelligence":
                  COLORS["purple"])
 
     st.markdown("<div style='margin-bottom:16px'></div>", unsafe_allow_html=True)
-    tab1, tab2, tab3, tab4 = st.tabs(["◉  Revenue Trend", "△  Basket Analysis", "∑  Peak Windows", "◎  By Location"])
+    tab1, tab2, tab3, tab4 = st.tabs(["◉  Revenue Trend", "△  What People Buy", "∑  Busiest Times", "◎  By Location"])
 
     with tab1:
         section_header("Revenue Trend + 30-Day Forecast")
@@ -779,17 +733,17 @@ if page == "Revenue Intelligence":
             "revenue_trend_forecast.csv", "text/csv")
 
     with tab2:
-        section_header("Basket Intelligence")
+        section_header("What People Buy")
 
         avg_items = float(basket_sum["AVG_ITEMS_PER_SALE"].iloc[0]) if not basket_sum.empty else 0.0
         multi_pct = float(basket_sum["MULTI_ITEM_PCT"].iloc[0]) if not basket_sum.empty else 0.0
 
         lift_1item = ((avg_items + 1) / avg_items - 1) * 100 if avg_items > 0 else 0
         info_card(
-            f"Average basket is <b>{avg_items:.1f} items</b> — a 1-item lift per transaction would increase basket revenue "
-            f"by ~{lift_1item:.0f}%. With {int(basket_sum['TOTAL_TRANSACTIONS'].iloc[0]):,} transactions, "
+            f"The average sale has <b>{avg_items:.1f} items</b>. Adding just one more item per transaction "
+            f"would grow revenue by ~{lift_1item:.0f}%. Across {int(basket_sum['TOTAL_TRANSACTIONS'].iloc[0]):,} transactions, "
             f"that is {fmt_ksh((avg_basket / avg_items) * basket_sum['TOTAL_TRANSACTIONS'].iloc[0])} "
-            f"in additional annual revenue at current volume. The products below are the lever.",
+            f"in additional revenue at current volume. The products below show where to start.",
             COLORS["primary"])
 
         b1, b2 = st.columns([1, 2])
@@ -810,7 +764,7 @@ if page == "Revenue Intelligence":
             kpi_card("Multi-item rate", f"{multi_pct:.1f}%", "transactions with 3+ items", COLORS["success"])
 
         with b2:
-            section_header("Top Products Bought Alone — Cross-Sell Targets")
+            section_header("Products Most Often Bought Alone")
             top_alone_d = top_alone.rename(columns={
                 "PRODUCT_NAME": "Product",
                 "TIMES_BOUGHT_ALONE": "Solo transactions",
@@ -819,12 +773,12 @@ if page == "Revenue Intelligence":
 
         info_card(
             "<b>What to do:</b> The products above are bought alone more than any others. "
-            "Place a companion product display at the point of sale next to the top 3 SKUs. "
-            "Brief cashiers on one suggested add-on per product. Even a 10% conversion rate "
-            "on solo transactions generates measurable basket lift within a week.",
+            "Place a companion product next to the top 3 at the point of sale. "
+            "Brief cashiers on one suggested pairing per product. Even a 10% uptake "
+            "on solo transactions generates measurable revenue within a week.",
             COLORS["success"])
 
-        with st.expander("Basket metrics by store"):
+        with st.expander("Sales metrics by store"):
             store_display = by_store.rename(columns={
                 "STORE_NAME": "Store", "TRANSACTIONS": "Transactions",
                 "AVG_ITEMS": "Avg items", "AVG_BASKET_KES": "Avg basket (KSh)",
@@ -838,8 +792,8 @@ if page == "Revenue Intelligence":
             "basket_peak_data.csv", "text/csv")
 
     with tab3:
-        section_header("Peak Revenue Heatmap — Day × Hour")
-        st.caption("Cumulative revenue by day of week and hour. Darker = more revenue.")
+        section_header("When Revenue is Highest — By Day and Hour")
+        st.caption("Total revenue by day and hour since go-live. Darker = more revenue.")
 
         if not peak_df.empty:
             day_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
@@ -1027,22 +981,12 @@ if page == "Revenue Intelligence":
                         "direction": "Action"}),
                     use_container_width=True, hide_index=True)
 
-    st.markdown("<div style='margin-bottom:8px'></div>", unsafe_allow_html=True)
-    section_header("Executive Recommendation", margin_top=8)
-    info_card(
-        f"At current trajectory, projected 30-day revenue is {fmt_ksh(proj_30d)}. "
-        f"{single_pct:.0f}% of transactions are single-item — this is the highest-ROI "
-        f"improvement available without additional stock or headcount. "
-        f"A cross-sell prompt at checkout on the top 5 solo products costs nothing to implement "
-        f"and can move basket size materially within 2 weeks.",
-        COLORS["primary"])
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 # MARGIN INTELLIGENCE
 # ══════════════════════════════════════════════════════════════════════════════
 
-if page == "Margin Intelligence":
+if page == "Profit Margins":
 
     expected_ma = {label for label, _ in ma.get_analyses()}
     if (not st.session_state.ma_data
@@ -1053,10 +997,11 @@ if page == "Margin Intelligence":
             for label, sql in ma.get_analyses(effective_stores):
                 st.session_state.ma_data[label] = ma.run_query_(sql)
 
-    M        = st.session_state.ma_data
-    overall  = M["MVaR — Overall"].copy()
+    M          = st.session_state.ma_data
+    overall    = M["MVaR — Overall"].copy()
     by_store_m = M["MVaR — By Store"].copy()
-    distrib  = M["MVaR — Distribution"].copy()
+    distrib    = M["MVaR — Distribution"].copy()
+    loss_df    = M["Loss Transactions"].copy()
 
     for col in ["TOTAL_TRANSACTIONS", "AVG_MARGIN_PCT", "MVAR_5PCT", "MVAR_10PCT",
                 "MEDIAN_MARGIN_PCT", "P25_MARGIN_PCT", "P75_MARGIN_PCT",
@@ -1069,6 +1014,11 @@ if page == "Margin Intelligence":
     for col in ["BUCKET_START", "TRANSACTION_COUNT"]:
         distrib[col] = pd.to_numeric(distrib[col], errors="coerce")
 
+    for col in ["REVENUE_KES", "COST_KES", "GROSS_PROFIT_KES", "MARGIN_PCT"]:
+        if col in loss_df.columns:
+            loss_df[col] = pd.to_numeric(loss_df[col], errors="coerce")
+    total_loss_kes = float(loss_df["GROSS_PROFIT_KES"].sum()) if not loss_df.empty else 0.0
+
     ov_row      = overall.iloc[0]
     avg_m       = float(ov_row["AVG_MARGIN_PCT"])
     mvar5       = float(ov_row["MVAR_5PCT"])
@@ -1078,40 +1028,40 @@ if page == "Margin Intelligence":
 
     st.markdown(
         '<p style="font-size:11px;font-weight:800;letter-spacing:3px;text-transform:uppercase;'
-        'color:#0072CE;margin-bottom:4px">Xanalife · Margin Intelligence</p>',
+        'color:#0072CE;margin-bottom:4px">Xanalife · Profit Margins</p>',
         unsafe_allow_html=True)
-    st.caption("Margin Value-at-Risk (MVaR) · Sep 2025 – present · 98.6% cost coverage")
+    st.caption("Sep 2025 – present · Based on sales with complete cost data (98.6% coverage)")
     info_card(
-        "<b>What is MVaR?</b> It measures your margin <i>floor</i> — not the average, but the worst. "
-        "MVaR(5%) = in the bottom 5% of transactions, margin falls to this level or below. "
-        "A low floor means discounts, pricing errors, or specific products are destroying value at the transaction level. "
-        "The average looks healthy; MVaR shows you what's hiding underneath it.",
+        "This page shows not just your <i>average</i> margin, but your <i>worst-case</i> margin — "
+        "what happens at the bottom of the range. The <b>Worst-Case Margin (5%)</b> means: in the bottom 5% of sales, "
+        "margin drops to this level. A low number here means discounts, pricing errors, or specific products "
+        "are selling below cost. The average looks fine — this shows what's hiding underneath.",
         COLORS["muted"])
     st.markdown("<div style='margin-bottom:8px'></div>", unsafe_allow_html=True)
 
     c1, c2, c3, c4 = st.columns(4)
     with c1:
-        kpi_card("Avg Transaction Margin", f"{avg_m:.1f}%",
-                 f"Median: {float(ov_row['MEDIAN_MARGIN_PCT']):.1f}%", COLORS["primary"])
+        kpi_card("Avg Sale Margin", f"{avg_m:.1f}%",
+                 f"Midpoint: {float(ov_row['MEDIAN_MARGIN_PCT']):.1f}%", COLORS["primary"])
     with c2:
-        kpi_card("MVaR (5%)", f"{mvar5:.1f}%",
-                 "Floor margin in your worst 5% of transactions",
+        kpi_card("Worst-Case Margin (5%)", f"{mvar5:.1f}%",
+                 "In the bottom 5% of sales, margin drops to this level",
                  COLORS["danger"] if mvar5 < 0 else COLORS["warning"])
     with c3:
-        kpi_card("MVaR (10%)", f"{mvar10:.1f}%",
-                 "Floor margin in your worst 10% of transactions",
+        kpi_card("Worst-Case Margin (10%)", f"{mvar10:.1f}%",
+                 "In the bottom 10% of sales, margin drops to this level",
                  COLORS["warning"])
     with c4:
-        kpi_card("Loss-Making Transactions", f"{loss_count:,}",
-                 f"{loss_pct:.1f}% of all transactions — actively sold below cost",
+        kpi_card("Sales Below Cost", f"{loss_count:,}",
+                 f"{fmt_ksh(abs(total_loss_kes))} eroded · {loss_pct:.1f}% of all transactions",
                  COLORS["danger"] if loss_count > 0 else COLORS["success"])
 
     st.markdown("<div style='margin-bottom:16px'></div>", unsafe_allow_html=True)
-    tab1, tab2 = st.tabs(["◉  Margin Distribution", "△  By Store"])
+    tab1, tab2 = st.tabs(["◉  Margin Spread", "△  By Store"])
 
     with tab1:
-        section_header("Transaction Margin Distribution")
-        st.caption("Each bar = a 5% margin bucket. Percentile lines show MVaR thresholds.")
+        section_header("How Margins Vary Across Sales")
+        st.caption("Each bar shows how many sales fall in that margin range. Lines mark key thresholds.")
 
         if not distrib.empty:
             fig_d = go.Figure()
@@ -1123,9 +1073,9 @@ if page == "Margin Intelligence":
                               for b in distrib["BUCKET_START"]],
                 hovertemplate="Margin %{x}%–%{x:.0f}+5%<br>%{y:,} transactions<extra></extra>"))
             for val, label_v, color_v in [
-                (mvar5,  "MVaR 5%",  COLORS["danger"]),
-                (mvar10, "MVaR 10%", COLORS["warning"]),
-                (avg_m,  "Avg",      COLORS["success"])]:
+                (mvar5,  "Worst 5%",  COLORS["danger"]),
+                (mvar10, "Worst 10%", COLORS["warning"]),
+                (avg_m,  "Average",   COLORS["success"])]:
                 fig_d.add_vline(x=val, line_dash="dash", line_color=color_v, line_width=2,
                                 annotation_text=f"{label_v}: {val:.1f}%",
                                 annotation_position="top",
@@ -1137,10 +1087,10 @@ if page == "Margin Intelligence":
             st.plotly_chart(fig_d, use_container_width=True, config={"displayModeBar": False})
 
         st.markdown("<div style='margin-bottom:8px'></div>", unsafe_allow_html=True)
-        section_header("Margin Percentile Summary", margin_top=8)
+        section_header("Margin Range Summary", margin_top=8)
         pct_df = pd.DataFrame({
-            "Percentile": ["5th (MVaR)", "10th (MVaR)", "25th", "50th (Median)", "75th", "Avg"],
-            "Margin %":   [mvar5, mvar10,
+            "Range":     ["Worst 5%", "Worst 10%", "Bottom quarter", "Midpoint", "Top quarter", "Average"],
+            "Margin %":  [mvar5, mvar10,
                            float(ov_row["P25_MARGIN_PCT"]),
                            float(ov_row["MEDIAN_MARGIN_PCT"]),
                            float(ov_row["P75_MARGIN_PCT"]),
@@ -1148,8 +1098,15 @@ if page == "Margin Intelligence":
         })
         st.dataframe(pct_df, use_container_width=True, hide_index=True)
 
+        if not loss_df.empty:
+            st.markdown("<div style='margin-bottom:8px'></div>", unsafe_allow_html=True)
+            st.download_button(
+                f"⬇ Download {loss_count:,} loss-making transactions (CSV)",
+                loss_df.to_csv(index=False),
+                "loss_making_transactions.csv", "text/csv")
+
     with tab2:
-        section_header("MVaR by Store")
+        section_header("Margin by Store")
 
         if not by_store_m.empty:
             stores_sorted = by_store_m.sort_values("AVG_MARGIN_PCT", ascending=False)
@@ -1162,54 +1119,33 @@ if page == "Margin Intelligence":
                 marker_color=COLORS["primary"],
                 hovertemplate="%{x}<br>Avg margin: %{y:.1f}%<extra></extra>"))
             fig_s.add_trace(go.Bar(
-                name="MVaR 5%",
+                name="Worst 5%",
                 x=stores_sorted["STORE_NAME"],
                 y=stores_sorted["MVAR_5PCT"],
                 marker_color=COLORS["danger"],
-                hovertemplate="%{x}<br>MVaR 5%%: %{y:.1f}%<extra></extra>"))
+                hovertemplate="%{x}<br>Worst 5%%: %{y:.1f}%<extra></extra>"))
             fig_s.add_trace(go.Bar(
-                name="MVaR 10%",
+                name="Worst 10%",
                 x=stores_sorted["STORE_NAME"],
                 y=stores_sorted["MVAR_10PCT"],
                 marker_color=COLORS["warning"],
-                hovertemplate="%{x}<br>MVaR 10%%: %{y:.1f}%<extra></extra>"))
+                hovertemplate="%{x}<br>Worst 10%%: %{y:.1f}%<extra></extra>"))
             fig_s.add_hline(y=0, line_dash="solid", line_color=COLORS["muted"], line_width=1)
             fig_s.update_layout(**CHART_LAYOUT, height=340, barmode="group",
                                 legend=dict(orientation="h", y=1.08, font=dict(size=10)))
             fig_s.update_yaxes(ticksuffix="%", title="Margin %")
             st.plotly_chart(fig_s, use_container_width=True, config={"displayModeBar": False})
 
-            with st.expander("Full MVaR by store table"):
+            with st.expander("Full margin table by store"):
                 st.dataframe(
                     by_store_m.rename(columns={
                         "STORE_NAME": "Store", "TRANSACTIONS": "Transactions",
-                        "AVG_MARGIN_PCT": "Avg Margin %", "MVAR_5PCT": "MVaR 5%",
-                        "MVAR_10PCT": "MVaR 10%", "MEDIAN_MARGIN_PCT": "Median %",
-                        "LOSS_MAKING_COUNT": "Loss-Making Txns"}),
+                        "AVG_MARGIN_PCT": "Avg Margin %", "MVAR_5PCT": "Worst 5%",
+                        "MVAR_10PCT": "Worst 10%", "MEDIAN_MARGIN_PCT": "Midpoint %",
+                        "LOSS_MAKING_COUNT": "Sales Below Cost"}),
                     use_container_width=True, hide_index=True)
 
     st.markdown("<div style='margin-bottom:8px'></div>", unsafe_allow_html=True)
-    section_header("Executive Recommendation", margin_top=8)
-
-    if mvar5 < 0:
-        info_card(
-            f"<b>MVaR(5%) is {mvar5:.1f}% — negative.</b> This means in your worst 5% of transactions, "
-            f"you are selling below cost. {loss_count:,} transactions ({loss_pct:.1f}%) are actively loss-making. "
-            f"This is not a rounding issue — it is a pricing or cost-data problem. "
-            f"Pull the lowest-margin transactions, identify the product lines, and review whether "
-            f"unit costs are correctly set or whether those products are being discounted past their floor.",
-            COLORS["danger"])
-    else:
-        worst_store = by_store_m.loc[by_store_m["MVAR_5PCT"].idxmin()] if not by_store_m.empty else None
-        info_card(
-            f"MVaR(5%) is {mvar5:.1f}% — on your worst 5% of transaction days, effective margin holds above zero. "
-            f"Average margin is {avg_m:.1f}%. "
-            + (f"Store '{worst_store['STORE_NAME']}' has the lowest floor margin ({worst_store['MVAR_5PCT']:.1f}%) — "
-               f"review pricing on its lowest-margin product lines." if worst_store is not None else "")
-            + f" Use MVaR as a benchmark when evaluating any new discount or promotion — "
-            f"if it pushes floor margin below {mvar5:.1f}%, the promotion is destroying value on your worst days.",
-            COLORS["primary"])
-
     st.download_button("⬇ Download margin data (CSV)",
                        pd.concat([overall.assign(table="overall"),
                                   by_store_m.assign(table="by_store")]).to_csv(index=False),

@@ -149,6 +149,38 @@ ORDER BY 1
 """
 
 
+SQL_LOSS_TRANSACTIONS = """
+WITH sale_margins AS (
+    SELECT
+        s.sale_id,
+        MIN(TRY_TO_TIMESTAMP(s.created_at))                            AS sale_date,
+        SUM(s.amount)                                                  AS revenue,
+        SUM(p.unit_cost * s.quantity)                                  AS total_cost,
+        SUM(s.amount - COALESCE(p.unit_cost, 0) * s.quantity)         AS gross_profit,
+        ROUND(SUM(s.amount - COALESCE(p.unit_cost, 0) * s.quantity)
+              / NULLIF(SUM(s.amount), 0) * 100, 2)                     AS margin_pct
+    FROM hospitals.xanalife_clean.evaluation_pos_sale_details s
+    JOIN hospitals.xanalife_clean.inventory_store_products p
+        ON s.store_product_id = p.id
+    WHERE TRY_TO_TIMESTAMP(s.created_at) >= '2025-09-01'
+      AND s.status != 'canceled'
+      AND p.unit_cost > 0
+      {store_filter}
+    GROUP BY s.sale_id
+)
+SELECT
+    sale_id,
+    DATE(sale_date)         AS sale_date,
+    ROUND(revenue, 2)       AS revenue_kes,
+    ROUND(total_cost, 2)    AS cost_kes,
+    ROUND(gross_profit, 2)  AS gross_profit_kes,
+    margin_pct
+FROM sale_margins
+WHERE gross_profit < 0
+ORDER BY margin_pct
+"""
+
+
 # ── Analyses registry ──────────────────────────────────────────────────────────
 
 def get_analyses(store_names=None):
@@ -158,6 +190,7 @@ def get_analyses(store_names=None):
         ("MVaR — Overall",      SQL_MVAR_OVERALL.format(store_filter=sf)),
         ("MVaR — By Store",     SQL_MVAR_BY_STORE.format(store_filter=bsf)),
         ("MVaR — Distribution", SQL_MVAR_DISTRIBUTION.format(store_filter=sf)),
+        ("Loss Transactions",   SQL_LOSS_TRANSACTIONS.format(store_filter=sf)),
     ]
 
 ANALYSES = get_analyses()

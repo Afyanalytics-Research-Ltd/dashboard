@@ -9,7 +9,7 @@ import numpy as np
 # ── Brand colors ──────────────────────────────────────────────────────────────
 COLORS = {
     "primary":  "#0072CE",
-    "success":  "#313D3B",
+    "success":  "#0BB99F",
     "warning":  "#D97706",
     "danger":   "#E11D48",
     "muted":    "#6B8CAE",
@@ -69,8 +69,9 @@ html, body, [class*="css"] {
 footer     { visibility: hidden; }
 header     { visibility: hidden; }
 
-/* ── Hide auto-generated sidebar nav so we render our own ── */
-[data-testid="stSidebarNav"] { display: none !important; }
+/* ── Hide auto-generated sidebar nav but keep the collapse toggle ── */
+[data-testid="stSidebarNav"]   { display: none !important; }
+[data-testid="collapsedControl"] { display: block !important; }
 
 /* ── Sidebar base ── */
 [data-testid="stSidebar"] {
@@ -244,12 +245,12 @@ def sidebar_nav():
         'letter-spacing:1.5px;padding:0 4px;margin-bottom:6px">Menu</div>',
         unsafe_allow_html=True,
     )
-    # st.page_link("xanalife/cross_sell_inventory_dashboard.py",
-    #              label="Home", icon="🏠")
-    # st.page_link("xanalife/1_CSUC.py",
-    #              label="Cross-Sell Intelligence", icon="📊")
-    # st.page_link("xanalife/3_Stockout_Prediction.py",
-    #              label="Inventory Risk", icon="📦")
+    st.page_link("xanalife/cross_sell_inventory_dashboard.py",
+                 label="Home", icon="🏠")
+    st.page_link("xanalife/1_CSUC.py",
+                 label="Cross-Sell Intelligence", icon="📊")
+    st.page_link("xanalife/3_Stockout_Prediction.py",
+                 label="Inventory Risk", icon="📦")
     st.markdown(
         '<div style="border-bottom:1px solid #D6E4F0;margin:12px 0 16px"></div>',
         unsafe_allow_html=True,

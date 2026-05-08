@@ -1,6 +1,6 @@
 import os
 from django.conf import settings
-from django.shortcuts import render
+from django.shortcuts import render, redirect
 from .models import Dashboard
 
 EXCLUDED_FILES = {"__init__.py", "dynamic_file_loader.py"}
@@ -12,11 +12,15 @@ EXCLUDED_FILES = {"__init__.py", "dynamic_file_loader.py"}
 def dashboard_main(request, slug='main'):
     user = request.user
     client = user.profile.client or "default"
-    dashboard = Dashboard.objects.filter(slug=slug, client=client, is_active=True).latest('created_at')
+    dashboards = Dashboard.objects.filter(slug=slug, client=client, is_active=True)
+    if dashboards.filter(name__icontains='main').exists():
+        dashboard = dashboards.latest('created_at')
 
-    return render(request, "dashboard_iframe.html", {
-        "dashboard": dashboard
-    })
+        return render(request, "dashboard_iframe.html", {
+            "dashboard": dashboard
+        })
+    else:
+        return redirect('dashboard_list')
 
 def dashboard_view(request, slug):
     dashboard = Dashboard.objects.filter(slug=slug, is_active=True).latest('created_at')
@@ -48,14 +52,13 @@ def dashboard_list(request):
 
 
     # 🔄 Sync filesystem → DB
+    current_slugs = set()
     for file in os.listdir(folder):
         if file.endswith(".py") and file not in EXCLUDED_FILES:
             slug = file.replace(".py", "")
+            current_slugs.add(slug)
             name = slug.replace("_", " ").title()
-            url = f"{settings.STREAMLIT_BASE_URL}/?dashboard={slug}"
-
-            # url = f"https://datahub.afyaanalytics.com/dashboard/?dashboard={slug}" # routes online
-            # url = f"http://localhost:8501/?dashboard={slug}"
+            url = f"http://localhost:8501/?dashboard={slug}"
 
             Dashboard.objects.update_or_create(
                 client=client,
@@ -67,9 +70,12 @@ def dashboard_list(request):
                 }
             )
 
+    # Deactivate records whose files no longer exist on disk
+    Dashboard.objects.filter(client=client).exclude(slug__in=current_slugs).update(is_active=False)
+
     # 📊 Only render what's in DB
     dashboards = Dashboard.objects.filter(is_active=True, client=client)
 
     return render(request, "dashboards.html", {
         "dashboards": dashboards
-    })
+  })

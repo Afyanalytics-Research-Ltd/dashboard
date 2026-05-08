@@ -58,8 +58,8 @@ def dashboard_list(request):
             slug = file.replace(".py", "")
             current_slugs.add(slug)
             name = slug.replace("_", " ").title()
-            url = f"http://localhost:8501/?dashboard={slug}"
-
+            url = f"{settings.STREAMLIT_BASE_URL}/?dashboard={slug}"
+            
             Dashboard.objects.update_or_create(
                 client=client,
                 slug=slug,

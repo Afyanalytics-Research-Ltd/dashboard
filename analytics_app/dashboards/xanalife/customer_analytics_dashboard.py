@@ -40,7 +40,7 @@ from ui_template import (
     AFYA_BLUE, TEAL, COOL_BLUE, ORANGE, CORAL, PURPLE, GRAY,
     CHART_LAYOUT, AXIS, BG_LIGHT, BORDER, SEG_COLORS, SEQ,
 )
-import xanalife.customers.connect_to_snowflake as D
+import connect_to_snowflake as D
 
 st.set_page_config(page_title="XanaLife Analytics", page_icon="🛒",
                    layout="wide", initial_sidebar_state="expanded")
@@ -71,6 +71,19 @@ html,body,[class*="css"]{font-family:'Montserrat',sans-serif;background:#fff;col
   font-size:14px;color:#003467;margin-top:5px;border-radius:0 4px 4px 0;font-style:italic}
 .nw{background:#FFFBEB;border-left:3px solid #D97706;padding:7px 11px;
   font-size:14px;color:#92400E;margin-top:5px;border-radius:0 4px 4px 0}
+
+/* ── Responsive layout ─────────────────────────────────── */
+/* Stack Streamlit columns vertically on narrow screens */
+@media (max-width:768px){
+  [data-testid="column"]{width:100%!important;flex:1 1 100%!important;min-width:0!important}
+  [data-testid="stHorizontalBlock"]{flex-wrap:wrap!important}
+  /* Sidebar collapses by default on mobile — nothing extra needed */
+  .kpi-metric-val{font-size:clamp(18px,5vw,32px)!important}
+}
+@media (max-width:480px){
+  .sh{font-size:10px;letter-spacing:1.5px}
+  [data-baseweb="tab"]{font-size:12px!important}
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -129,7 +142,7 @@ def seg_color(s): return SEG_COLORS.get(str(s) if s else "", GRAY)
 def to_csv(df: pd.DataFrame) -> bytes:
     buf = io.StringIO(); df.to_csv(buf, index=False); return buf.getvalue().encode()
 
-def pc(fig): st.plotly_chart(fig, width='stretch')
+def pc(fig): st.plotly_chart(fig, use_container_width=True)
 
 def apply_filters(df: pd.DataFrame,
                   cluster_col="cluster", type_col="store_type") -> pd.DataFrame:
@@ -222,15 +235,15 @@ st.markdown(
 
 gap(12)
 
-kpi_df = D.load_kpis()
-bsk_df = D.load_avg_basket()
-rl_df  = D.load_regular_loyal()
+kpi_df = D.load_kpis(cluster=cluster, biz=biz)
+bsk_df = D.load_avg_basket(cluster=cluster, biz=biz)
+rl_df  = D.load_regular_loyal(cluster=cluster, biz=biz)
 
 def _kpi_metric(label, value, definition, color):
     return (
-        f'<div style="flex:1;min-width:0;padding:0 12px">'
+        f'<div style="flex:1 1 120px;min-width:120px;padding:0 12px 8px 0">'
         f'<div style="font-size:13px;font-weight:600;color:{color};margin-bottom:3px">{label}</div>'
-        f'<div style="font-size:32px;font-weight:800;color:{color};line-height:1.1">{value}</div>'
+        f'<div class="kpi-metric-val" style="font-size:32px;font-weight:800;color:{color};line-height:1.1">{value}</div>'
         f'<div style="font-size:12px;color:#8A9BB0;margin-top:4px;line-height:1.4">{definition}</div>'
         f'</div>'
     )
@@ -242,7 +255,7 @@ def _kpi_tile(title, metrics_html):
         f'<div style="font-size:10px;font-weight:700;color:#6B8CAE;text-transform:uppercase;'
         f'letter-spacing:1.5px;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid {BORDER}">'
         f'{title}</div>'
-        f'<div style="display:flex;gap:0">{metrics_html}</div>'
+        f'<div style="display:flex;flex-wrap:wrap;gap:8px 0">{metrics_html}</div>'
         f'</div>'
     )
 
@@ -376,7 +389,7 @@ with tab1:
 
     with c2:
         sh("New vs Returning Revenue — Monthly")
-        nvr = D.load_new_vs_returning()
+        nvr = D.load_new_vs_returning(cluster=cluster)
         color_nvr = {"New Customer Revenue": TEAL, "Returning Customer Revenue": AFYA_BLUE}
         fig_nvr = go.Figure()
         for rtype in ["New Customer Revenue", "Returning Customer Revenue"]:
@@ -399,7 +412,7 @@ with tab1:
     c1, c2 = st.columns(2, gap="large")
 
     with c1:
-        shop_df = D.load_shop_type()
+        shop_df = D.load_shop_type(cluster=cluster)
         fig_shop = go.Figure(go.Bar(
             x=shop_df["pct_of_trips"], y=shop_df["shop_type"],
             orientation="h",
@@ -440,7 +453,7 @@ with tab1:
     c1, c2 = st.columns(2, gap="large")
 
     with c1:
-        bsz_df = D.load_basket_by_size()
+        bsz_df = D.load_basket_by_size(cluster=cluster)
         fig_bsz = go.Figure(go.Bar(
             x=bsz_df["basket_size_category"],
             y=bsz_df["pct_of_revenue"].fillna(0),
@@ -558,7 +571,7 @@ with tab1:
         f'</ul>',
         unsafe_allow_html=True)
     # import pdb;pdb.set_trace()
-    rgs_df = D.load_retail_growth_segments()
+    rgs_df = D.load_retail_growth_segments(cluster=cluster)
     seg_palette = {"Healthcare": TEAL, "Specialty / High Margin": PURPLE, "Standard Retail": AFYA_BLUE}
     c1, c2 = st.columns(2, gap="large")
 
@@ -616,18 +629,74 @@ with tab1:
 
     gap(8); sh("Insights")
     ic1, ic2, ic3 = st.columns(3, gap="large")
+
     with ic1:
-        insight("Growth", "Which stores are driving acquisition?",
-                "Filter by cluster or business unit to isolate where growth is concentrated "
-                "vs where acquisition has plateaued.", "green")
+        # Fastest-growing store last month vs prior month
+        _gs = growth_df.copy()
+        _gs["month"] = pd.to_datetime(_gs["month"], errors="coerce")
+        _gs_sorted = sorted(_gs["month"].dropna().unique())
+        if len(_gs_sorted) >= 2:
+            _last, _prev = _gs_sorted[-1], _gs_sorted[-2]
+            _last_m = _gs[_gs["month"] == _last].groupby("store_name")["new_customers"].sum()
+            _prev_m = _gs[_gs["month"] == _prev].groupby("store_name")["new_customers"].sum()
+            _growth = (_last_m - _prev_m).dropna().sort_values(ascending=False)
+            _top = _growth.index[0] if len(_growth) > 0 else "—"
+            _top_val = int(_growth.iloc[0]) if len(_growth) > 0 else 0
+            _bot = _growth.index[-1] if len(_growth) > 0 else "—"
+            _bot_val = int(_growth.iloc[-1]) if len(_growth) > 0 else 0
+            _g_color = "green" if _top_val > 0 else "amber"
+            insight("Growth",
+                    f"{_top}: +{_top_val} new customers MoM",
+                    f"{_bot} is the slowest ({_bot_val:+d} MoM). "
+                    "Focus acquisition effort where momentum already exists.", _g_color)
+        else:
+            insight("Growth", "Insufficient data for MoM comparison",
+                    "Need at least 2 months of data.", "blue")
+
     with ic2:
-        insight("Shop Type", "What % of trips are Full Shops?",
-                "If <30% of trips are Full Shops, XanaLife is a secondary store. "
-                "Full-basket promotions on staples can shift this.", "amber")
+        # Full Shop % from shop_df
+        _fs_row = shop_df[shop_df["shop_type"].str.contains("Full Shop", na=False)]
+        _fs_pct = float(_fs_row["pct_of_trips"].iloc[0]) if not _fs_row.empty else 0
+        if _fs_pct < 30:
+            insight("Shop Type", f"Only {_fs_pct}% of trips are Full Shops",
+                    "XanaLife is likely a secondary store. "
+                    "Full-basket promotions on staples can shift this.", "amber")
+        elif _fs_pct >= 40:
+            insight("Shop Type", f"{_fs_pct}% of trips are Full Shops",
+                    "Strong primary-store signal. Reinforce with loyalty rewards on full baskets.", "green")
+        else:
+            insight("Shop Type", f"{_fs_pct}% of trips are Full Shops",
+                    "On the edge of primary-store behaviour. "
+                    "Full-basket promotions on staples can push this above 40%.", "blue")
+
     with ic3:
-        insight("New vs Returning", "Is growth healthy or a leaky bucket?",
-                "Healthy = both bars growing. New grows but returning flat = "
-                "acquiring and losing at the same rate.", "blue")
+        # Compare last 2 months returning vs new revenue growth
+        _nvr = nvr.copy()
+        _nvr["month"] = pd.to_datetime(_nvr["month"], errors="coerce")
+        _nvr_months = sorted(_nvr["month"].dropna().unique())
+        if len(_nvr_months) >= 2:
+            _nl, _np = _nvr_months[-1], _nvr_months[-2]
+            def _rev(m, rtype):
+                r = _nvr[(_nvr["month"] == m) & (_nvr["revenue_type"] == rtype)]["revenue"]
+                return float(r.iloc[0]) if not r.empty else 0
+            _new_growth  = _rev(_nl, "New Customer Revenue")      - _rev(_np, "New Customer Revenue")
+            _ret_growth  = _rev(_nl, "Returning Customer Revenue") - _rev(_np, "Returning Customer Revenue")
+            _ret_pct = (_ret_growth / max(_rev(_np, "Returning Customer Revenue"), 1) * 100)
+            if _ret_growth < 0:
+                insight("New vs Returning", f"Returning revenue down {abs(_ret_pct):.0f}% MoM",
+                        "Acquiring customers but losing existing ones at the same rate — leaky bucket. "
+                        "Prioritise retention over acquisition.", "red")
+            elif _ret_growth >= _new_growth:
+                insight("New vs Returning", "Returning revenue growing faster than new",
+                        "Healthy retention signal. Keep nurturing existing customers "
+                        "while maintaining acquisition momentum.", "green")
+            else:
+                insight("New vs Returning", f"Returning revenue +{_ret_pct:.0f}% MoM but lagging new",
+                        "New acquisition is outpacing retention growth. "
+                        "Watch for a plateau — returning revenue should track new.", "amber")
+        else:
+            insight("New vs Returning", "Insufficient data for MoM comparison",
+                    "Need at least 2 months of data.", "blue")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -649,7 +718,7 @@ with tab2:
 </ul>
 </div>
 """, unsafe_allow_html=True)
-    seg_df = D.load_segments()
+    seg_df = D.load_segments(cluster=cluster, biz=biz)
     seg_df = seg_df.fillna(0)
 
     c1, c2 = st.columns(2, gap="large")
@@ -726,7 +795,7 @@ with tab2:
 </ul>
 </div>
 """, unsafe_allow_html=True)
-    hb_df = D.load_heartbeat()
+    hb_df = D.load_heartbeat(cluster=cluster, biz=biz)
     hb_df["avg_heartbeat_days"] = pd.to_numeric(
         hb_df["avg_heartbeat_days"], errors="coerce").fillna(0)
 
@@ -749,7 +818,7 @@ with tab2:
 
     gap(8)
     sh("Spend Trajectory — Are Customers Growing or Slipping?", mt=4)
-    cv_df = D.load_conversion_velocity()
+    cv_df = D.load_conversion_velocity(cluster=cluster, biz=biz)
     cv_df = cv_df.fillna(0)
     cv_colors = {"Up-Converting": TEAL, "Stable": AFYA_BLUE, "Down-Converting": CORAL}
 
@@ -776,7 +845,7 @@ with tab2:
         pc(fig_cv)
 
     with _cv2:
-        cvt_df = D.load_conversion_velocity_by_tier()
+        cvt_df = D.load_conversion_velocity_by_tier(cluster=cluster, biz=biz)
         cvt_df = cvt_df.fillna(0)
         cvt_df = cvt_df[cvt_df["refined_tier"].astype(str).str.strip() != ""]
         cvt_df = cvt_df[~cvt_df["refined_tier"].astype(str).str.startswith("0 -")]
@@ -808,7 +877,7 @@ with tab2:
     c1, c2 = st.columns(2, gap="large")
 
     with c1:
-        seg_trend = D.load_seg_trend()
+        seg_trend = D.load_seg_trend(cluster=cluster, biz=biz)
         seg_trend["month"] = pd.to_datetime(seg_trend["month"], errors="coerce")
         fig_st = go.Figure()
         _st_tiers_present = seg_trend["refined_tier"].fillna("Unknown").unique().tolist()
@@ -830,7 +899,7 @@ with tab2:
         pc(fig_st)
 
     with c2:
-        tp_df = D.load_top_products_seg()
+        tp_df = D.load_top_products_seg(cluster=cluster, biz=biz)
         tiers_avail = tp_df["refined_tier"].dropna().unique().tolist()
         sel_tier = st.selectbox("Select segment", tiers_avail, key="tier_sel")
         tp_filt = tp_df[tp_df["refined_tier"] == sel_tier]
@@ -848,9 +917,9 @@ with tab2:
         pc(fig_tp)
 
     gap(8); sh("First Purchase Category — What Brought Them to XanaLife?", mt=4)
-    fcat_df = D.load_first_category()
+    fcat_df = D.load_first_category(cluster=cluster, biz=biz)
     fcat_df = fcat_df.fillna(0)
-    fevo_df = D.load_first_cat_evolution()
+    fevo_df = D.load_first_cat_evolution(cluster=cluster, biz=biz)
     fevo_df = fevo_df.fillna(0)
 
     fcat_top10 = fcat_df.nlargest(10, "customer_count").copy()
@@ -969,7 +1038,7 @@ with tab2:
         st.dataframe(evo_display.style.apply(_style_evo_df, axis=None), width='stretch', hide_index=True)
 
     gap(8); sh("How Have Purchases Changed? — Early vs Recent Basket", mt=4)
-    bev_df = D.load_basket_evolution()
+    bev_df = D.load_basket_evolution(cluster=cluster, biz=biz)
     for c in ["avg_diversity_change","avg_basket_growth","avg_early_basket",
               "avg_recent_basket","customer_count","expanding","shrinking"]:
         if c in bev_df.columns:
@@ -1007,7 +1076,7 @@ with tab2:
         st.dataframe(bev_display, width='stretch', hide_index=True)
 
     gap(8); sh("Payment Method by Segment", mt=4)
-    pay_df = D.load_payment_by_segment()
+    pay_df = D.load_payment_by_segment(cluster=cluster, biz=biz)
     pay_df = pay_df.fillna(0)
 
     pay_methods = ["cash_count","mpesa_count","card_count","jambopay_count",
@@ -1040,16 +1109,38 @@ with tab2:
 
     gap(8); sh("Insights")
     ic1, ic2 = st.columns(2, gap="large")
+
     with ic1:
-        insight("Priority Action",
-                "Elite + High: shrinking AND lapsing = highest priority",
-                "Cross-reference basket evolution with lapsing segment table in Retention. "
-                "<strong>Contact this week.</strong>", "red")
+        # Down-converting count + Elite/High lapsing revenue at risk
+        _down_n = int(cv_df[cv_df["conversion_status"] == "Down-Converting"]["customer_count"].sum())
+        _lap_risk = cvt_df[cvt_df["refined_tier"].str.contains("Elite|High", na=False)]["customer_count"].sum()
+        _lap_merge_t2 = D.load_lapsing_by_segment(cluster=cluster, biz=biz).fillna(0)
+        _at_risk_rev = _lap_merge_t2[_lap_merge_t2["refined_tier"].str.contains("Elite|High", na=False)]["revenue_at_risk"].sum()
+        if _at_risk_rev > 0:
+            _risk_color = "red" if _at_risk_rev > 50_000 else "amber"
+            insight("Priority Action",
+                    f"{_down_n} customers spending less · {fmt_ksh(float(_at_risk_rev))} at risk",
+                    f"Elite + High lapsers hold {fmt_ksh(float(_at_risk_rev))} in at-risk revenue. "
+                    "<strong>Contact this week before they churn.</strong>", _risk_color)
+        else:
+            insight("Priority Action", f"{_down_n} customers are down-converting",
+                    "Cross-reference basket evolution with lapsing table in Retention tab.", "amber")
+
     with ic2:
-        insight("Growth Opportunity",
-                "Low is the largest segment — and the most improvable",
-                "Enrol them in loyalty from day 1 — "
-                "loyalty members return 2.2× faster and spend more per visit.", "amber")
+        # Confirm Low is largest, show actual one-time % for Low
+        _largest = seg_df.sort_values("customer_count", ascending=False).iloc[0]
+        _low_row = seg_df[seg_df["refined_tier"].str.contains("Low", na=False)]
+        _low_ot_pct = float(_low_row["pct_customers"].iloc[0]) if not _low_row.empty else 0
+        _low_n = int(_low_row["customer_count"].iloc[0]) if not _low_row.empty else 0
+        if "Low" in str(_largest["refined_tier"]):
+            insight("Growth Opportunity",
+                    f"Low is the largest segment — {_low_n:,} customers ({_low_ot_pct}%)",
+                    "Enrol them in loyalty from day 1 — "
+                    "loyalty members return 2.2× faster and spend more per visit.", "amber")
+        else:
+            insight("Growth Opportunity",
+                    f"{_largest['refined_tier']} is the largest segment ({int(_largest['customer_count']):,})",
+                    "Enrol new customers in loyalty from day 1 to accelerate repeat visits.", "blue")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1058,7 +1149,7 @@ with tab2:
 with tab3:
 
     sh("Return Window — How Quickly Do Customers Come Back?")
-    ret_win = D.load_return_window()
+    ret_win = D.load_return_window(cluster=cluster, biz=biz)
 
     # One-Time excluded — no return window by definition
     tiers_for_funnel = [t for t in ret_win["refined_tier"].dropna().unique().tolist()
@@ -1110,7 +1201,7 @@ with tab3:
 </ul>
 </div>
 """, unsafe_allow_html=True)
-        churn_df = D.load_churn_by_segment()
+        churn_df = D.load_churn_by_segment(cluster=cluster, biz=biz)
         churn_df = churn_df.fillna(0)
         _n = len(churn_df)
         _active_fill  = [_rgba("#276749", 0.15)] * _n
@@ -1144,7 +1235,7 @@ with tab3:
         pc(fig_churn)
 
     gap(8)
-    sp_df = D.load_second_purchase()
+    sp_df = D.load_second_purchase(cluster=cluster, biz=biz)
     sp_df = sp_df.fillna(0)
     sp_ret = sp_df[~sp_df["refined_tier"].astype(str).str.startswith("0 -")].copy()
 
@@ -1167,7 +1258,7 @@ with tab3:
 
     with c2:
         st.markdown('<div style="font-size:15px;font-weight:600;color:#003467;margin-bottom:4px">Win-Back Window + Recommended Action per Segment</div>', unsafe_allow_html=True)
-        lap_merge = D.load_lapsing_by_segment().fillna(0)
+        lap_merge = D.load_lapsing_by_segment(cluster=cluster, biz=biz).fillna(0)
         prompt_map = {
             "1 - Elite (Weekly Loyal)":    "Personalised restock reminder for their top category",
             "1 - Elite (Bulk/Wholesale)":  "Account manager outreach — check on order needs",
@@ -1191,7 +1282,7 @@ with tab3:
 
     gap(8)
     sh("Shopping Rhythm — How Reliably Do Customers Visit?", mt=4)
-    cons_df = D.load_consistency_segments()
+    cons_df = D.load_consistency_segments(cluster=cluster, biz=biz)
     cons_df = cons_df.fillna(0)
     rhythm_colors = {"Weekly": TEAL, "Bi-Weekly": AFYA_BLUE, "Monthly": PURPLE,
                      "Sporadic": ORANGE, "One-Time": CORAL}
@@ -1245,7 +1336,7 @@ with tab3:
     with c1:
         st.markdown(f'<div style="font-size:10px;font-weight:600;color:{AFYA_BLUE};'
                     f'margin-bottom:6px">What did they buy?</div>', unsafe_allow_html=True)
-        ot_basket = D.load_onetimer_basket_type().fillna(0)
+        ot_basket = D.load_onetimer_basket_type(cluster=cluster, biz=biz).fillna(0)
         ot_basket["label"] = ot_basket["shop_type"].str.replace(r'^\d\. ', '', regex=True)
         fig_otb = go.Figure(go.Bar(
             x=ot_basket["label"], y=ot_basket["pct_of_one_timers"],
@@ -1265,7 +1356,7 @@ with tab3:
     with c2:
         st.markdown(f'<div style="font-size:10px;font-weight:600;color:{AFYA_BLUE};'
                     f'margin-bottom:6px">Where did they enter?</div>', unsafe_allow_html=True)
-        ot_pharm = D.load_onetimer_pharmacy_split().fillna(0)
+        ot_pharm = D.load_onetimer_pharmacy_split(cluster=cluster, biz=biz).fillna(0)
         fig_otp = go.Figure(go.Bar(
             x=ot_pharm["entry_type"], y=ot_pharm["pct_of_one_timers"],
             marker_color=[TEAL, AFYA_BLUE, PURPLE][:len(ot_pharm)],
@@ -1283,7 +1374,7 @@ with tab3:
     with c3:
         st.markdown(f'<div style="font-size:10px;font-weight:600;color:{AFYA_BLUE};'
                     f'margin-bottom:6px">14-Day Golden Window</div>', unsafe_allow_html=True)
-        ot_urg = D.load_onetimer_urgency().fillna(0)
+        ot_urg = D.load_onetimer_urgency(cluster=cluster, biz=biz).fillna(0)
         ot_urg["label"] = ot_urg["urgency_bucket"].str.replace(r'^\d\. ', '', regex=True)
         fig_otu = go.Figure(go.Bar(
             x=ot_urg["label"], y=ot_urg["pct_of_one_timers"],
@@ -1302,7 +1393,7 @@ with tab3:
     with c4:
         st.markdown(f'<div style="font-size:10px;font-weight:600;color:{AFYA_BLUE};'
                     f'margin-bottom:6px">Shopper profile</div>', unsafe_allow_html=True)
-        ot_ps = D.load_onetimer_price_sensitive().fillna(0)
+        ot_ps = D.load_onetimer_price_sensitive(cluster=cluster, biz=biz).fillna(0)
         fig_otps = go.Figure(go.Bar(
             x=ot_ps["customer_profile"], y=ot_ps["pct"],
             marker_color=[CORAL, ORANGE, TEAL][:len(ot_ps)],
@@ -1319,18 +1410,53 @@ with tab3:
 
     gap(8); sh("Insights")
     ic1, ic2, ic3 = st.columns(3, gap="large")
+
     with ic1:
-        insight("Win-Back Window", "Contact within the second-purchase window",
-                "Each segment has a different window. Acting within it is the "
-                "highest-leverage retention action.", "green")
+        # Shortest win-back window segment (excluding One-Time)
+        _sp_filt = sp_df[~sp_df["refined_tier"].astype(str).str.startswith("0 -")]
+        _sp_filt = _sp_filt[_sp_filt["avg_days_to_second"].fillna(0) > 0]
+        if not _sp_filt.empty:
+            _shortest = _sp_filt.sort_values("avg_days_to_second").iloc[0]
+            _seg_name  = _shortest["refined_tier"]
+            _days      = int(_shortest["avg_days_to_second"])
+            insight("Win-Back Window",
+                    f"{_seg_name} returns in {_days} days on average",
+                    f"Contact within {_days} days of first purchase. "
+                    "Acting inside this window is the highest-leverage retention action.", "green")
+        else:
+            insight("Win-Back Window", "Contact within the second-purchase window",
+                    "Each segment has a different window — see table above.", "green")
+
     with ic2:
-        insight("Elite + High Risk", "Check lapsing customers in the table above",
-                "Revenue at risk from Elite + High lapsers is your most urgent number. "
-                "<strong>These customers are profitable and can still be saved.</strong>", "red")
+        # Actual Elite + High revenue at risk
+        _eh_risk = lap_merge[lap_merge["refined_tier"].str.contains("Elite|High", na=False)]["revenue_at_risk"].sum()
+        _eh_lapsing = lap_merge[lap_merge["refined_tier"].str.contains("Elite|High", na=False)]["lapsing_customers"].sum()
+        if _eh_risk > 0:
+            _r_color = "red" if _eh_risk > 50_000 else "amber"
+            insight("Elite + High Risk",
+                    f"{fmt_ksh(_eh_risk)} at risk · {int(_eh_lapsing)} lapsing customers",
+                    "These customers are profitable and can still be saved. "
+                    "<strong>Contact this week.</strong>", _r_color)
+        else:
+            insight("Elite + High Risk", "No Elite or High lapsers detected",
+                    "All high-value customers are within their expected visit window.", "green")
+
     with ic3:
-        insight("Low Segment", "High one-time rate in Low segment",
-                "Converting 10% of Low one-timers adds significant recurring revenue. "
-                "First repeat visit = critical conversion moment.", "amber")
+        # Low tier churn status — how many are lost or lapsing
+        _low_churn = churn_df[churn_df["refined_tier"].str.contains("Low", na=False)]
+        if not _low_churn.empty:
+            _low_total   = int(_low_churn["total"].iloc[0])
+            _low_lost    = int(_low_churn["lost"].iloc[0])
+            _low_at_risk = int(_low_churn["at_risk"].iloc[0]) + int(_low_churn["lapsed"].iloc[0])
+            _low_lost_pct = round(_low_lost / max(_low_total, 1) * 100, 1)
+            _ot_color = "red" if _low_lost_pct > 50 else "amber" if _low_lost_pct > 30 else "green"
+            insight("Low Segment",
+                    f"{_low_lost_pct}% of Low customers lost · {_low_at_risk:,} at risk",
+                    f"{_low_lost:,} Low-tier customers haven't visited in 90+ days. "
+                    "First repeat visit is the critical conversion moment — enrol in loyalty on day 1.", _ot_color)
+        else:
+            insight("Low Segment", "Low segment churn data unavailable",
+                    "Check churn table above for Low tier status.", "blue")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1342,7 +1468,7 @@ with tab4:
     c1, c2, c3 = st.columns(3, gap="large")
 
     with c1:
-        pts_df = D.load_points_buckets()
+        pts_df = D.load_points_buckets(cluster=cluster)
         fig_pts = go.Figure(go.Bar(
             x=pts_df["points_bucket"].fillna("Unknown"),
             y=pts_df["customer_count"].fillna(0),
@@ -1360,7 +1486,7 @@ with tab4:
              "A low-entry tier (50 pts = KSh 50 off) would activate dormant members.", warn=True)
 
     with c2:
-        lseg_df = D.load_loyalty_by_segment()
+        lseg_df = D.load_loyalty_by_segment(cluster=cluster)
         fig_lseg = go.Figure(go.Bar(
             x=lseg_df["loyalty_pct"].fillna(0),
             y=lseg_df["refined_tier"].fillna("Unknown"),
@@ -1378,7 +1504,7 @@ with tab4:
         pc(fig_lseg)
 
     with c3:
-        lr_df = D.load_loyalty_return()
+        lr_df = D.load_loyalty_return(cluster=cluster)
         fig_lr = go.Figure(go.Bar(
             x=lr_df["member_status"].fillna("Unknown"),
             y=lr_df["avg_days_between_visits"].fillna(0),
@@ -1400,7 +1526,7 @@ with tab4:
     c1, c2 = st.columns(2, gap="large")
 
     with c1:
-        red_df = D.load_loyalty_redemption()
+        red_df = D.load_loyalty_redemption(cluster=cluster)
         fig_red = go.Figure()
         fig_red.add_trace(go.Bar(
             x=red_df["month"], y=red_df["loyalty_kes_redeemed"].fillna(0),
@@ -1425,7 +1551,7 @@ with tab4:
              "Flat bars = programme exists but nobody uses it.")
 
     with c2:
-        lag_df = D.load_loyalty_conversion_lag()
+        lag_df = D.load_loyalty_conversion_lag(cluster=cluster)
         fig_lag = go.Figure(go.Bar(
             x=lag_df["customer_count"].fillna(0),
             y=lag_df["enrolment_lag"].fillna("Unknown"),
@@ -1447,7 +1573,7 @@ with tab4:
 
     gap(8)
     sh("Loyalty Sign-Up Growth", mt=4)
-    lt_df = D.load_loyalty_trend()
+    lt_df = D.load_loyalty_trend(cluster=cluster)
     fig_lt = go.Figure()
     fig_lt.add_trace(go.Bar(
         x=lt_df["month"], y=lt_df["new_loyalty_members"].fillna(0),
@@ -1470,13 +1596,52 @@ with tab4:
 
     gap(8); sh("Insights")
     ic1, ic2 = st.columns(2, gap="large")
+
     with ic1:
-        insight("Loyalty Programme Signal",
-                "Is redemption actually happening?",
-                "Flat redemption chart = programme exists on paper only. "
-                "Add a low-entry tier (50 pts = KSh 50 off).", "amber")
+        # Last month redemption vs prior month
+        _red = red_df.copy()
+        _red["month"] = pd.to_datetime(_red["month"], errors="coerce")
+        _red_months = sorted(_red["month"].dropna().unique())
+        if len(_red_months) >= 2:
+            _last_red  = float(_red[_red["month"] == _red_months[-1]]["loyalty_kes_redeemed"].sum())
+            _prior_red = float(_red[_red["month"] == _red_months[-2]]["loyalty_kes_redeemed"].sum())
+            if _last_red == 0:
+                insight("Loyalty Programme Signal",
+                        "Zero redemptions last month",
+                        "Programme exists on paper only. "
+                        "Add a low-entry tier (50 pts = KSh 50 off) to activate dormant members.", "red")
+            elif _last_red > _prior_red:
+                insight("Loyalty Programme Signal",
+                        f"{fmt_ksh(_last_red)} redeemed last month — growing",
+                        "Redemption is trending up. Keep the momentum with targeted point reminders.", "green")
+            else:
+                _drop_pct = round((_prior_red - _last_red) / max(_prior_red, 1) * 100, 0)
+                insight("Loyalty Programme Signal",
+                        f"{fmt_ksh(_last_red)} redeemed — down {_drop_pct:.0f}% MoM",
+                        "Redemption is declining. "
+                        "A low-entry tier (50 pts = KSh 50 off) can reactivate dormant members.", "amber")
+        else:
+            insight("Loyalty Programme Signal", "Insufficient redemption data",
+                    "Need at least 2 months to detect trend.", "blue")
+
     with ic2:
-        insight("Enrolment Timing",
-                "Enrol customers on Day 1 — not later",
-                "Day 1 enrolees show higher Daily Spend Intensity. "
-                "Every day of enrolment lag is a missed behaviour-change opportunity.", "green")
+        # Day 1 enrolment % from lag_df
+        _lag = lag_df.copy()
+        _total_lag = _lag["customer_count"].sum()
+        _day1_row = _lag[_lag["enrolment_lag"].str.contains("Day 1", na=False)]
+        _day1_n = int(_day1_row["customer_count"].iloc[0]) if not _day1_row.empty else 0
+        _day1_pct = round(_day1_n / max(_total_lag, 1) * 100, 0)
+        if _day1_pct >= 70:
+            insight("Enrolment Timing",
+                    f"{_day1_pct:.0f}% of members enrolled on Day 1",
+                    "Strong enrolment discipline. Day 1 enrolees show higher Daily Spend Intensity — keep it standard.", "green")
+        elif _day1_pct >= 50:
+            insight("Enrolment Timing",
+                    f"{_day1_pct:.0f}% enrolled on Day 1 — room to improve",
+                    "Push Day 1 enrolment at checkout for every new customer. "
+                    "Every day of lag is a missed behaviour-change opportunity.", "amber")
+        else:
+            insight("Enrolment Timing",
+                    f"Only {_day1_pct:.0f}% enrolled on Day 1",
+                    "Most members join late — after habits are already set. "
+                    "Enrolment at first purchase must become standard process.", "red")

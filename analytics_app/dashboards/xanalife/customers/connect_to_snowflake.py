@@ -1,24 +1,19 @@
 """
-data.py — XanaLife Snowflake Connection + Query Layer  v3
+data.py — XanaLife Snowflake Connection + Query Layer  v4
 =========================================================
-Changes from v2:
-  - Removed SQL_HOUR_DOW (never used in app)
-  - store_type added to every query that needs sidebar filtering
-  - daily_velocity renamed to daily_spend_intensity throughout
-  - avg_txns_per_day replaced with avg_active_days in segment query
-  - STORE_CLUSTER_SQL / STORE_TYPE_SQL now use a single st alias
-    to avoid copy-paste substitution errors
-  - DLC OR-precedence bug fixed
-  - load_mvar_coverage / overall / by_store now read from views
+Changes from v3:
+  - cluster + biz filter parameters added to all load functions
+  - Helper functions _cluster_where, _biz_where, _patient_cte, _pf added
+  - Duplicate _fetch definition in run_customer_query removed
+  - SQL constants converted to dynamic SQL in parameterised load functions
 """
 
 import sys
 from pathlib import Path
 import streamlit as st
 import pandas as pd
-# from dotenv import load_dotenv
 
-# sys.path.insert(0, str(Path('__file__').parent.parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from snowflake_service.snowflake_client import SnowflakeClient
 
 
@@ -32,7 +27,7 @@ def get_connection() -> SnowflakeClient:
         with st.spinner("Connecting to Snowflake…"):
             st.session_state["sf_client"] = SnowflakeClient()
     return st.session_state["sf_client"]
- 
+
 def _normalize_df(df: pd.DataFrame) -> pd.DataFrame:
     """Lowercase columns, cast Decimal→float, date strings→datetime."""
     for col in df.columns:
@@ -47,13 +42,9 @@ def _normalize_df(df: pd.DataFrame) -> pd.DataFrame:
             except (ValueError, TypeError):
                 pass
     return df
- 
+
 # @st.cache_data(ttl=3600, show_spinner="Loading data…")
 def run_customer_query(sql: str) -> pd.DataFrame:
-    def _fetch(client):
-        df = client.query(sql)
-        df.columns = [c.lower() for c in df.columns]
-        return df
     def _fetch(client):
         df = client.query(sql)
         df.columns = [c.lower() for c in df.columns]
@@ -61,9 +52,6 @@ def run_customer_query(sql: str) -> pd.DataFrame:
     try:
         df = _fetch(get_connection())
     except Exception as e:
-        err = str(e).lower()
-        if "connect" in err or "session" in err or "250001" in str(e):
-            st.session_state.pop("sf_client", None)
         err = str(e).lower()
         if "connect" in err or "session" in err or "250001" in str(e):
             st.session_state.pop("sf_client", None)
@@ -93,12 +81,59 @@ EXCL_WHOLESALE_SQL = """
 """
 
 
+# ─── FILTER HELPERS ───────────────────────────────────────────────────────────
+
+def _cluster_where(cluster: str, alias: str = "st") -> str:
+    if cluster == "Both":
+        return ""
+    name = cluster.replace(" only", "")
+    return (f"AND {alias}.name ILIKE 'Katani%'" if name == "Katani"
+            else f"AND {alias}.name NOT ILIKE 'Katani%'")
+
+def _biz_where(biz: str, alias: str = "st") -> str:
+    if biz == "All":
+        return ""
+    if "Supermarket" in biz:
+        return f"AND {alias}.code != 'PHARMACY' AND {alias}.name NOT ILIKE '%Pharmacy%'"
+    return f"AND ({alias}.code = 'PHARMACY' OR {alias}.name ILIKE '%Pharmacy%')"
+
+def _patient_cte(cluster: str, biz: str) -> str:
+    """CTE fragment (with trailing comma) that resolves to filtered patient IDs."""
+    if cluster == "Both" and biz == "All":
+        return ""
+    cw = _cluster_where(cluster)
+    bw = _biz_where(biz)
+    return f"""filtered_patients AS (
+    SELECT DISTINCT ps.patient
+    FROM inventory_inventory_batch_product_sales ps
+    LEFT JOIN evaluation_pos_sale_details s  ON ps.id = s.sale_id
+    LEFT JOIN inventory_store_products sp    ON s.store_product_id = sp.id
+    LEFT JOIN inventory_stores st            ON sp.store_id = st.id
+    WHERE ps.patient NOT IN (273017, 276430)
+      AND ps.status != 'canceled'
+      {cw}
+      {bw}
+),
+"""
+
+def _pf(cluster: str, biz: str, col: str = "customer_id") -> str:
+    """Single WHERE-clause filter snippet: AND col IN (filtered_patients)."""
+    if cluster == "Both" and biz == "All":
+        return ""
+    return f"AND {col} IN (SELECT patient FROM filtered_patients)"
+
+
 # ═════════════════════════════════════════════════════════════════════════════
 # CUSTOMER BASE + GROWTH
 # ═════════════════════════════════════════════════════════════════════════════
 
-SQL_KPIS = f"""
-WITH anchor AS (SELECT MAX(created_at) AS max_date FROM inventory_inventory_batch_product_sales),
+@st.cache_data(ttl=3600, show_spinner=False)
+def load_kpis(cluster: str = "Both", biz: str = "All") -> pd.DataFrame:
+    pcte = _patient_cte(cluster, biz)
+    pf = _pf(cluster, biz)
+    pf_patient = _pf(cluster, biz, "patient")
+    sql = f"""
+WITH {pcte}anchor AS (SELECT MAX(created_at) AS max_date FROM inventory_inventory_batch_product_sales),
 hist AS (
     SELECT patient,
            MIN(created_at) AS first_ever_visit
@@ -106,59 +141,74 @@ hist AS (
     WHERE created_at::DATE >= '{MIN_DATE}'
       AND patient NOT IN (273017, 276430)
       AND status != 'canceled'
+      {pf_patient}
     GROUP BY patient
 )
 SELECT
-    (SELECT COUNT(*)     FROM VW_CUSTOMER_SEGMENTATION)                AS active_customers,
-    (SELECT COUNT(*)     FROM VW_CUSTOMER_SEGMENTATION
-     WHERE active_days > 1)                                            AS repeat_customers,
-    (SELECT COUNT(*)     FROM VW_CUSTOMER_SEGMENTATION
-     WHERE refined_tier = '0 - One Time')                              AS one_time_customers,
+    (SELECT COUNT(*) FROM VW_CUSTOMER_SEGMENTATION WHERE 1=1 {pf})                AS active_customers,
+    (SELECT COUNT(*) FROM VW_CUSTOMER_SEGMENTATION WHERE active_days > 1 {pf})    AS repeat_customers,
+    (SELECT COUNT(*) FROM VW_CUSTOMER_SEGMENTATION WHERE refined_tier = '0 - One Time' {pf}) AS one_time_customers,
     (SELECT COUNT(DISTINCT h.patient)
      FROM hist h CROSS JOIN anchor an
-     WHERE h.first_ever_visit >= DATEADD(day,-30,an.max_date))         AS new_last_30d,
-    (SELECT COUNT(DISTINCT customer_id) FROM points)                   AS loyalty_members
+     WHERE h.first_ever_visit >= DATEADD(day,-30,an.max_date))                    AS new_last_30d,
+    (SELECT COUNT(DISTINCT customer_id) FROM points WHERE 1=1 {pf})               AS loyalty_members
 FROM (SELECT 1) dummy
 """
+    return run_customer_query(sql)
+
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def load_kpis() -> pd.DataFrame:
-    return run_customer_query(SQL_KPIS)
-
-
-SQL_AVG_BASKET = f"""
+def load_avg_basket(cluster: str = "Both", biz: str = "All") -> pd.DataFrame:
+    sql = f"""
 SELECT
-    ROUND(SUM(quantity) / NULLIF(COUNT(DISTINCT sale_id),0), 1) AS avg_items_per_basket,
-    ROUND(SUM(amount)   / NULLIF(COUNT(DISTINCT sale_id),0), 0) AS avg_basket_value
-FROM evaluation_pos_sale_details
-WHERE created_at::DATE >= '{MIN_DATE}'
+    ROUND(SUM(s.quantity) / NULLIF(COUNT(DISTINCT s.sale_id),0), 1) AS avg_items_per_basket,
+    ROUND(SUM(s.amount)   / NULLIF(COUNT(DISTINCT s.sale_id),0), 0) AS avg_basket_value
+FROM evaluation_pos_sale_details s
+LEFT JOIN inventory_store_products sp ON s.store_product_id = sp.id
+LEFT JOIN inventory_stores st         ON sp.store_id = st.id
+WHERE s.created_at::DATE >= '{MIN_DATE}'
+  AND s.status != 'canceled'
+  AND sp.product_active = TRUE
+  AND st.name NOT ILIKE '%Wholesale%'
+  AND st.name NOT ILIKE '%Bulk%'
+  {_cluster_where(cluster)}
+  {_biz_where(biz)}
 """
+    return run_customer_query(sql)
+
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def load_avg_basket() -> pd.DataFrame:
-    return run_customer_query(SQL_AVG_BASKET)
-
-
-SQL_REGULAR_LOYAL = f"""
+def load_regular_loyal(cluster: str = "Both", biz: str = "All") -> pd.DataFrame:
+    cw = _cluster_where(cluster)
+    bw = _biz_where(biz)
+    sql = f"""
 WITH anchor AS (SELECT MAX(created_at) AS last_point FROM evaluation_pos_sale_details),
 regular AS (
-    SELECT ps.patient, COUNT(s.sale_id) AS visit_count
+    SELECT ps.patient, COUNT(DISTINCT ps.id) AS visit_count
     FROM inventory_inventory_batch_product_sales ps
     LEFT JOIN evaluation_pos_sale_details s ON ps.id = s.sale_id
+    LEFT JOIN inventory_store_products sp ON s.store_product_id = sp.id
+    LEFT JOIN inventory_stores st ON sp.store_id = st.id
     CROSS JOIN anchor
     WHERE s.created_at >= DATEADD(day, -90, anchor.last_point)
       AND ps.patient NOT IN (273017, 276430)
       AND ps.status != 'canceled'
+      {cw}
+      {bw}
     GROUP BY 1
     HAVING visit_count >= 6
 ),
 loyal AS (
-    SELECT ps.patient, COUNT(s.sale_id) AS visit_count,
+    SELECT ps.patient, COUNT(DISTINCT ps.id) AS visit_count,
            MAX(s.created_at) AS last_visit
     FROM inventory_inventory_batch_product_sales ps
     LEFT JOIN evaluation_pos_sale_details s ON ps.id = s.sale_id
+    LEFT JOIN inventory_store_products sp ON s.store_product_id = sp.id
+    LEFT JOIN inventory_stores st ON sp.store_id = st.id
     WHERE s.created_at >= DATEADD(day, -90, (SELECT MAX(created_at) FROM evaluation_pos_sale_details))
       AND ps.patient NOT IN (273017, 276430)
+      {cw}
+      {bw}
     GROUP BY 1
     HAVING visit_count >= 12
        AND last_visit >= DATEADD(day, -21, (SELECT MAX(created_at) FROM evaluation_pos_sale_details))
@@ -167,10 +217,7 @@ SELECT
     (SELECT COUNT(DISTINCT patient) FROM regular) AS regular_customers,
     (SELECT COUNT(DISTINCT patient) FROM loyal)   AS loyal_customers
 """
-
-@st.cache_data(ttl=3600, show_spinner=False)
-def load_regular_loyal() -> pd.DataFrame:
-    return run_customer_query(SQL_REGULAR_LOYAL)
+    return run_customer_query(sql)
 
 
 SQL_DOW_BY_CLUSTER = f"""
@@ -200,14 +247,14 @@ def load_dow_by_cluster() -> pd.DataFrame:
 SQL_ACTIVE_CUSTOMERS_OVER_TIME = f"""
 SELECT
     DATE_TRUNC('month', ps.created_at::DATE) AS month,
-    st.name                                  AS store_name, 
+    st.name                                  AS store_name,
     COUNT(DISTINCT ps.patient)               AS active_customers
 FROM inventory_inventory_batch_product_sales ps
 LEFT JOIN evaluation_pos_sale_details s  ON ps.id = s.sale_id
 LEFT JOIN inventory_store_products sp    ON s.store_product_id = sp.id
 LEFT JOIN inventory_stores st           ON sp.store_id = st.id
 WHERE ps.created_at::DATE >= '{MIN_DATE}'
-  AND s.created_at::DATE  >= '{MIN_DATE}'   
+  AND s.created_at::DATE  >= '{MIN_DATE}'
   AND ps.patient NOT IN (273017, 276430)
   AND sp.product_active = TRUE
 GROUP BY ALL
@@ -220,7 +267,14 @@ def load_active_customers_over_time() -> pd.DataFrame:
     return run_customer_query(SQL_ACTIVE_CUSTOMERS_OVER_TIME)
 
 
-SQL_CONSISTENCY_SEGMENTS = """
+@st.cache_data(ttl=3600, show_spinner=False)
+def load_consistency_segments(cluster: str = "Both", biz: str = "All") -> pd.DataFrame:
+    pcte = _patient_cte(cluster, biz)
+    pf = _pf(cluster, biz)
+    sql = f"""
+WITH {pcte}base AS (
+    SELECT * FROM VW_CUSTOMER_SEGMENTATION WHERE 1=1 {pf}
+)
 SELECT
     CASE
         WHEN active_days = 1 THEN 'One-Time'
@@ -242,22 +296,23 @@ SELECT
         DATEDIFF('day', first_purchase_date, last_purchase_date)
         / NULLIF(active_days - 1, 0)
     ), 1)                                                            AS avg_days_between_visits
-FROM VW_CUSTOMER_SEGMENTATION
+FROM base
 GROUP BY 1
 ORDER BY avg_days_between_visits ASC NULLS LAST
 """
-
-@st.cache_data(ttl=3600, show_spinner=False)
-def load_consistency_segments() -> pd.DataFrame:
-    return run_customer_query(SQL_CONSISTENCY_SEGMENTS)
+    return run_customer_query(sql)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
 # ONE-TIME CUSTOMER ANALYSIS
 # ═════════════════════════════════════════════════════════════════════════════
 
-SQL_ONETIMER_BASKET_TYPE = f"""
-WITH ot_baskets AS (
+@st.cache_data(ttl=3600, show_spinner=False)
+def load_onetimer_basket_type(cluster: str = "Both", biz: str = "All") -> pd.DataFrame:
+    pcte = _patient_cte(cluster, biz)
+    pf = _pf(cluster, biz)
+    sql = f"""
+WITH {pcte}ot_baskets AS (
     SELECT b.patient, SUM(s.amount) AS basket_value
     FROM inventory_inventory_batch_product_sales b
     JOIN evaluation_pos_sale_details s ON b.id = s.sale_id
@@ -266,6 +321,7 @@ WITH ot_baskets AS (
       AND b.patient IN (
           SELECT customer_id FROM VW_CUSTOMER_SEGMENTATION
           WHERE refined_tier = '0 - One Time'
+          {pf}
       )
     GROUP BY b.patient
 )
@@ -280,14 +336,17 @@ SELECT
     ROUND(AVG(basket_value), 0)                                  AS avg_basket_value
 FROM ot_baskets GROUP BY 1 ORDER BY 1
 """
+    return run_customer_query(sql)
+
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def load_onetimer_basket_type() -> pd.DataFrame:
-    return run_customer_query(SQL_ONETIMER_BASKET_TYPE)
-
-
-SQL_ONETIMER_PHARMACY_SPLIT = f"""
-WITH ot_store_visits AS (
+def load_onetimer_pharmacy_split(cluster: str = "Both", biz: str = "All") -> pd.DataFrame:
+    pcte = _patient_cte(cluster, biz)
+    pf = _pf(cluster, biz)
+    cw = _cluster_where(cluster)
+    bw = _biz_where(biz)
+    sql = f"""
+WITH {pcte}ot_store_visits AS (
     SELECT DISTINCT b.patient,
         {STORE_TYPE_SQL} AS store_type
     FROM inventory_inventory_batch_product_sales b
@@ -297,9 +356,12 @@ WITH ot_store_visits AS (
     WHERE b.status != 'canceled'
       AND b.created_at::DATE >= '{MIN_DATE}'
       AND sp.product_active = TRUE
+      {cw}
+      {bw}
       AND b.patient IN (
           SELECT customer_id FROM VW_CUSTOMER_SEGMENTATION
           WHERE refined_tier = '0 - One Time'
+          {pf}
       )
 ),
 classified AS (
@@ -318,14 +380,15 @@ SELECT
     ROUND(RATIO_TO_REPORT(COUNT(*)) OVER () * 100, 1)            AS pct_of_one_timers
 FROM classified GROUP BY 1 ORDER BY patient_count DESC
 """
+    return run_customer_query(sql)
+
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def load_onetimer_pharmacy_split() -> pd.DataFrame:
-    return run_customer_query(SQL_ONETIMER_PHARMACY_SPLIT)
-
-
-SQL_ONETIMER_URGENCY = f"""
-WITH anchor AS (
+def load_onetimer_urgency(cluster: str = "Both", biz: str = "All") -> pd.DataFrame:
+    pcte = _patient_cte(cluster, biz)
+    pf = _pf(cluster, biz)
+    sql = f"""
+WITH {pcte}anchor AS (
     SELECT MAX(created_at::DATE) AS max_date
     FROM inventory_inventory_batch_product_sales
 ),
@@ -335,6 +398,7 @@ ot_timing AS (
     FROM VW_CUSTOMER_SEGMENTATION v
     CROSS JOIN anchor a
     WHERE v.refined_tier = '0 - One Time'
+    {pf}
 )
 SELECT
     CASE
@@ -347,14 +411,17 @@ SELECT
     ROUND(RATIO_TO_REPORT(COUNT(*)) OVER () * 100, 1)            AS pct_of_one_timers
 FROM ot_timing GROUP BY 1 ORDER BY 1
 """
+    return run_customer_query(sql)
+
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def load_onetimer_urgency() -> pd.DataFrame:
-    return run_customer_query(SQL_ONETIMER_URGENCY)
-
-
-SQL_ONETIMER_PRICE_SENSITIVE = f"""
-WITH ot_cats AS (
+def load_onetimer_price_sensitive(cluster: str = "Both", biz: str = "All") -> pd.DataFrame:
+    pcte = _patient_cte(cluster, biz)
+    pf = _pf(cluster, biz)
+    cw = _cluster_where(cluster)
+    bw = _biz_where(biz)
+    sql = f"""
+WITH {pcte}ot_cats AS (
     SELECT b.patient, c.name AS category_name,
            COUNT(DISTINCT c.name) OVER (PARTITION BY b.patient) AS cat_count
     FROM inventory_inventory_batch_product_sales b
@@ -362,12 +429,16 @@ WITH ot_cats AS (
     JOIN inventory_store_products sp       ON s.store_product_id = sp.id
     JOIN inventory_inventory_products ip   ON sp.product_id = ip.id
     JOIN inventory_inventory_categories c  ON ip.category = c.id
+    JOIN inventory_stores st               ON sp.store_id = st.id
     WHERE b.status != 'canceled'
       AND b.created_at::DATE >= '{MIN_DATE}'
       AND sp.product_active = TRUE
+      {cw}
+      {bw}
       AND b.patient IN (
           SELECT customer_id FROM VW_CUSTOMER_SEGMENTATION
           WHERE refined_tier = '0 - One Time'
+          {pf}
       )
 ),
 ot_profile AS (
@@ -390,13 +461,13 @@ SELECT
     ROUND(RATIO_TO_REPORT(COUNT(*)) OVER () * 100, 1)            AS pct
 FROM ot_profile GROUP BY 1 ORDER BY patient_count DESC
 """
+    return run_customer_query(sql)
+
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def load_onetimer_price_sensitive() -> pd.DataFrame:
-    return run_customer_query(SQL_ONETIMER_PRICE_SENSITIVE)
-
-
-SQL_RETAIL_GROWTH_SEGMENTS = f"""
+def load_retail_growth_segments(cluster: str = "Both") -> pd.DataFrame:
+    cw = _cluster_where(cluster)
+    sql = f"""
 WITH monthly AS (
     SELECT
         DATE_TRUNC('month', s.created_at::DATE)                    AS month,
@@ -416,6 +487,7 @@ WITH monthly AS (
     WHERE s.created_at::DATE >= '{MIN_DATE}'
       AND st.name NOT ILIKE '%Wholesale%'
       AND st.name NOT ILIKE '%Bulk%'
+      {cw}
     GROUP BY 1, 2, 3
 )
 SELECT
@@ -431,10 +503,7 @@ FROM monthly
 GROUP BY 1, 2
 ORDER BY 1 DESC, revenue DESC
 """
-
-@st.cache_data(ttl=3600, show_spinner=False)
-def load_retail_growth_segments() -> pd.DataFrame:
-    return run_customer_query(SQL_RETAIL_GROWTH_SEGMENTS)
+    return run_customer_query(sql)
 
 
 SQL_GROWTH_OVERALL = f"""
@@ -558,17 +627,23 @@ def load_store_split() -> pd.DataFrame:
     return run_customer_query(SQL_STORE_SPLIT)
 
 
-SQL_SHOP_TYPE = f"""
+@st.cache_data(ttl=3600, show_spinner=False)
+def load_shop_type(cluster: str = "Both") -> pd.DataFrame:
+    cw = _cluster_where(cluster)
+    sql = f"""
 WITH bt AS (
-    SELECT sale_id,
+    SELECT s.sale_id,
         CASE
-            WHEN SUM(amount) > 5000  THEN '1. Full Shop (>KSh 5K)'
-            WHEN SUM(amount) >= 1500 THEN '2. Stock-Up (1.5–5K)'
-            ELSE                          '3. Top-Up (<1.5K)'
+            WHEN SUM(s.amount) > 5000  THEN '1. Full Shop (>KSh 5K)'
+            WHEN SUM(s.amount) >= 1500 THEN '2. Stock-Up (1.5–5K)'
+            ELSE                            '3. Top-Up (<1.5K)'
         END AS shop_type,
-        SUM(amount) AS basket_value
-    FROM evaluation_pos_sale_details
-    WHERE created_at::DATE >= '{MIN_DATE}'
+        SUM(s.amount) AS basket_value
+    FROM evaluation_pos_sale_details s
+    LEFT JOIN inventory_store_products sp ON s.store_product_id = sp.id
+    LEFT JOIN inventory_stores st ON sp.store_id = st.id
+    WHERE s.created_at::DATE >= '{MIN_DATE}'
+      {cw}
     GROUP BY 1
 )
 SELECT
@@ -578,10 +653,7 @@ SELECT
     ROUND(AVG(basket_value), 0)                                   AS avg_basket_value
 FROM bt GROUP BY 1 ORDER BY 1
 """
-
-@st.cache_data(ttl=3600, show_spinner=False)
-def load_shop_type() -> pd.DataFrame:
-    return run_customer_query(SQL_SHOP_TYPE)
+    return run_customer_query(sql)
 
 
 SQL_CROSS_SELL = f"""
@@ -661,13 +733,19 @@ def load_cooccurrence() -> pd.DataFrame:
     return run_customer_query(SQL_COOCCURRENCE)
 
 
-SQL_BASKET_BY_SIZE = f"""
+@st.cache_data(ttl=3600, show_spinner=False)
+def load_basket_by_size(cluster: str = "Both") -> pd.DataFrame:
+    cw = _cluster_where(cluster)
+    sql = f"""
 WITH ss AS (
-    SELECT sale_id,
-           SUM(quantity) AS items,
-           SUM(amount)   AS revenue
-    FROM evaluation_pos_sale_details
-    WHERE created_at::DATE >= '{MIN_DATE}'
+    SELECT s.sale_id,
+           SUM(s.quantity) AS items,
+           SUM(s.amount)   AS revenue
+    FROM evaluation_pos_sale_details s
+    LEFT JOIN inventory_store_products sp ON s.store_product_id = sp.id
+    LEFT JOIN inventory_stores st ON sp.store_id = st.id
+    WHERE s.created_at::DATE >= '{MIN_DATE}'
+      {cw}
     GROUP BY 1
 ),
 bs AS (
@@ -688,10 +766,7 @@ SELECT
     ROUND(AVG(revenue), 0)                                        AS avg_basket_value
 FROM bs GROUP BY 1 ORDER BY MIN(items)
 """
-
-@st.cache_data(ttl=3600, show_spinner=False)
-def load_basket_by_size() -> pd.DataFrame:
-    return run_customer_query(SQL_BASKET_BY_SIZE)
+    return run_customer_query(sql)
 
 
 SQL_BASKET_PER_STORE = f"""
@@ -717,8 +792,12 @@ def load_basket_per_store() -> pd.DataFrame:
     return run_customer_query(SQL_BASKET_PER_STORE)
 
 
-SQL_NEW_VS_RETURNING = f"""
-WITH fp AS (
+@st.cache_data(ttl=3600, show_spinner=False)
+def load_new_vs_returning(cluster: str = "Both") -> pd.DataFrame:
+    pcte = _patient_cte(cluster, "All")
+    pf   = _pf(cluster, "All", "b.patient")
+    sql = f"""
+WITH {pcte}fp AS (
     SELECT patient, MIN(created_at::DATE) AS first_date
     FROM inventory_inventory_batch_product_sales
     WHERE status != 'canceled' AND patient NOT IN (273017,276430)
@@ -734,20 +813,24 @@ FROM inventory_inventory_batch_product_sales b
 JOIN fp ON b.patient = fp.patient
 WHERE b.created_at::DATE >= '{MIN_DATE}'
   AND b.status != 'canceled'
+  {pf}
 GROUP BY 1,2 ORDER BY 1
 """
-
-@st.cache_data(ttl=3600, show_spinner=False)
-def load_new_vs_returning() -> pd.DataFrame:
-    return run_customer_query(SQL_NEW_VS_RETURNING)
+    return run_customer_query(sql)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
 # SEGMENTATION
 # ═════════════════════════════════════════════════════════════════════════════
 
-# Note: daily_velocity renamed to daily_spend_intensity in the view alias
-SQL_SEGMENTS = """
+@st.cache_data(ttl=3600, show_spinner=False)
+def load_segments(cluster: str = "Both", biz: str = "All") -> pd.DataFrame:
+    pcte = _patient_cte(cluster, biz)
+    pf = _pf(cluster, biz)
+    sql = f"""
+WITH {pcte}seg AS (
+    SELECT * FROM VW_CUSTOMER_SEGMENTATION WHERE 1=1 {pf}
+)
 SELECT
     refined_tier,
     COUNT(customer_id)                                             AS customer_count,
@@ -757,17 +840,18 @@ SELECT
     ROUND(AVG(daily_velocity), 0)                                  AS avg_daily_spend_intensity,
     ROUND(RATIO_TO_REPORT(COUNT(customer_id)) OVER () * 100, 1)    AS pct_customers,
     ROUND(RATIO_TO_REPORT(SUM(total_revenue)) OVER () * 100, 1)    AS pct_revenue
-FROM VW_CUSTOMER_SEGMENTATION
+FROM seg
 GROUP BY 1 ORDER BY 1
 """
+    return run_customer_query(sql)
+
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def load_segments() -> pd.DataFrame:
-    return run_customer_query(SQL_SEGMENTS)
-
-
-SQL_SEG_TREND = f"""
-WITH patient_cluster AS (
+def load_seg_trend(cluster: str = "Both", biz: str = "All") -> pd.DataFrame:
+    pcte = _patient_cte(cluster, biz)
+    pf = _pf(cluster, biz, "v.customer_id")
+    sql = f"""
+WITH {pcte}patient_cluster AS (
     SELECT ps.patient,
         CASE WHEN SUM(CASE WHEN st.name ILIKE 'Katani%' THEN 1 ELSE 0 END)
                   >= SUM(CASE WHEN st.name NOT ILIKE 'Katani%' THEN 1 ELSE 0 END)
@@ -787,16 +871,18 @@ SELECT
     COUNT(v.customer_id)                       AS customer_count
 FROM VW_CUSTOMER_SEGMENTATION v
 LEFT JOIN patient_cluster pc ON pc.patient = v.customer_id
+WHERE 1=1 {pf}
 GROUP BY 1,2,3 ORDER BY 1
 """
+    return run_customer_query(sql)
+
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def load_seg_trend() -> pd.DataFrame:
-    return run_customer_query(SQL_SEG_TREND)
-
-
-SQL_TOP_PRODUCTS_SEG = f"""
-WITH tp AS (
+def load_top_products_seg(cluster: str = "Both", biz: str = "All") -> pd.DataFrame:
+    pcte = _patient_cte(cluster, biz)
+    pf = _pf(cluster, biz, "bp.patient")
+    sql = f"""
+WITH {pcte}tp AS (
     SELECT v.refined_tier,
            s.name                          AS product_name,
            COUNT(*)                        AS purchase_frequency,
@@ -807,19 +893,21 @@ WITH tp AS (
     WHERE bp.created_at::DATE >= '{MIN_DATE}'
       AND bp.status != 'canceled'
       AND store_product_id IS NOT NULL
+      {pf}
     GROUP BY ALL
 )
 SELECT * FROM tp
 QUALIFY ROW_NUMBER() OVER (PARTITION BY refined_tier ORDER BY total_spend DESC) <= 5
 """
+    return run_customer_query(sql)
+
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def load_top_products_seg() -> pd.DataFrame:
-    return run_customer_query(SQL_TOP_PRODUCTS_SEG)
-
-
-SQL_LAPSING_BY_SEGMENT = """
-WITH cb AS (
+def load_lapsing_by_segment(cluster: str = "Both", biz: str = "All") -> pd.DataFrame:
+    pcte = _patient_cte(cluster, biz)
+    pf = _pf(cluster, biz)
+    sql = f"""
+WITH {pcte}cb AS (
     SELECT refined_tier, customer_id, total_revenue,
            DATEDIFF('day', first_purchase_date, last_purchase_date)
                / NULLIF(active_days - 1, 0)                        AS avg_gap,
@@ -828,6 +916,7 @@ WITH cb AS (
                 FROM inventory_inventory_batch_product_sales))      AS absence
     FROM VW_CUSTOMER_SEGMENTATION
     WHERE active_days > 1
+    {pf}
 )
 SELECT
     refined_tier,
@@ -837,13 +926,17 @@ FROM cb
 WHERE absence > (avg_gap * 2) AND absence > 7
 GROUP BY 1 ORDER BY revenue_at_risk DESC
 """
+    return run_customer_query(sql)
+
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def load_lapsing_by_segment() -> pd.DataFrame:
-    return run_customer_query(SQL_LAPSING_BY_SEGMENT)
-
-
-SQL_HEARTBEAT = """
+def load_heartbeat(cluster: str = "Both", biz: str = "All") -> pd.DataFrame:
+    pcte = _patient_cte(cluster, biz)
+    pf = _pf(cluster, biz)
+    sql = f"""
+WITH {pcte}hb AS (
+    SELECT * FROM VW_CUSTOMER_SEGMENTATION WHERE active_days > 1 {pf}
+)
 SELECT
     refined_tier,
     ROUND(AVG(
@@ -852,18 +945,18 @@ SELECT
     ), 1)                           AS avg_heartbeat_days,
     ROUND(AVG(active_days), 1)      AS avg_active_days,
     COUNT(customer_id)              AS customer_count
-FROM VW_CUSTOMER_SEGMENTATION
-WHERE active_days > 1
+FROM hb
 GROUP BY 1 ORDER BY 1
 """
+    return run_customer_query(sql)
+
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def load_heartbeat() -> pd.DataFrame:
-    return run_customer_query(SQL_HEARTBEAT)
-
-
-SQL_CONVERSION_VELOCITY = f"""
-WITH raw AS (
+def load_conversion_velocity(cluster: str = "Both", biz: str = "All") -> pd.DataFrame:
+    pcte = _patient_cte(cluster, biz)
+    pf = _pf(cluster, biz, "patient")
+    sql = f"""
+WITH {pcte}raw AS (
     SELECT patient, amount,
            created_at::DATE                                        AS visit_date,
            COUNT(*) OVER (PARTITION BY patient)                    AS total_visits,
@@ -872,6 +965,7 @@ WITH raw AS (
     WHERE status != 'canceled'
       AND created_at::DATE >= '{MIN_DATE}'
       AND patient NOT IN (273017,276430)
+      {pf}
 ),
 half AS (
     SELECT patient,
@@ -898,14 +992,15 @@ SELECT
     ROUND(AVG(recent_v - early_v),0) AS avg_spend_shift_kes
 FROM vel GROUP BY 1
 """
+    return run_customer_query(sql)
+
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def load_conversion_velocity() -> pd.DataFrame:
-    return run_customer_query(SQL_CONVERSION_VELOCITY)
-
-
-SQL_CONVERSION_VELOCITY_BY_TIER = f"""
-WITH raw AS (
+def load_conversion_velocity_by_tier(cluster: str = "Both", biz: str = "All") -> pd.DataFrame:
+    pcte = _patient_cte(cluster, biz)
+    pf = _pf(cluster, biz, "ps.patient")
+    sql = f"""
+WITH {pcte}raw AS (
     SELECT ps.patient, ps.amount,
            ps.created_at::DATE                                         AS visit_date,
            v.refined_tier,
@@ -916,6 +1011,7 @@ WITH raw AS (
     WHERE ps.status != 'canceled'
       AND ps.created_at::DATE >= '{MIN_DATE}'
       AND ps.patient NOT IN (273017, 276430)
+      {pf}
 ),
 half AS (
     SELECT patient, refined_tier,
@@ -945,13 +1041,15 @@ FROM vel
 GROUP BY 1, 2
 ORDER BY 1, 2
 """
+    return run_customer_query(sql)
+
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def load_conversion_velocity_by_tier() -> pd.DataFrame:
-    return run_customer_query(SQL_CONVERSION_VELOCITY_BY_TIER)
-
-
-SQL_PAYMENT_BY_SEGMENT = f"""
+def load_payment_by_segment(cluster: str = "Both", biz: str = "All") -> pd.DataFrame:
+    pcte = _patient_cte(cluster, biz)
+    pf = _pf(cluster, biz, "f.patient")
+    sql = f"""
+WITH {pcte}dummy AS (SELECT 1)
 SELECT
     COALESCE(v.refined_tier, 'Unregistered')                      AS refined_tier,
     COUNT(CASE WHEN f.cash_amount > 0 THEN 1 END)                 AS cash_count,
@@ -969,16 +1067,18 @@ FROM finance_evaluation_payments f
 LEFT JOIN VW_CUSTOMER_SEGMENTATION v ON f.patient = v.customer_id
 WHERE f.created_at::DATE >= '{MIN_DATE}'
   AND (f.status IS NULL OR f.status != 'canceled')
+  {pf}
 GROUP BY 1 ORDER BY 1
 """
+    return run_customer_query(sql)
+
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def load_payment_by_segment() -> pd.DataFrame:
-    return run_customer_query(SQL_PAYMENT_BY_SEGMENT)
-
-
-SQL_FIRST_CATEGORY = f"""
-WITH fp AS (
+def load_first_category(cluster: str = "Both", biz: str = "All") -> pd.DataFrame:
+    pcte = _patient_cte(cluster, biz)
+    pf = _pf(cluster, biz, "v.customer_id")
+    sql = f"""
+WITH {pcte}fp AS (
     SELECT b.patient,
            MIN(b.created_at::DATE)                                 AS first_purchase_date,
            FIRST_VALUE(s.sale_id) OVER (
@@ -1015,17 +1115,19 @@ SELECT
     COUNT(CASE WHEN v.refined_tier LIKE '%Elite%' THEN 1 END)              AS became_elite
 FROM fc
 JOIN VW_CUSTOMER_SEGMENTATION v ON fc.patient = v.customer_id
+WHERE 1=1 {pf}
 GROUP BY 1
 ORDER BY customer_count DESC
 """
+    return run_customer_query(sql)
+
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def load_first_category() -> pd.DataFrame:
-    return run_customer_query(SQL_FIRST_CATEGORY)
-
-
-SQL_FIRST_CAT_EVOLUTION = f"""
-WITH fp AS (
+def load_first_cat_evolution(cluster: str = "Both", biz: str = "All") -> pd.DataFrame:
+    pcte = _patient_cte(cluster, biz)
+    pf = _pf(cluster, biz, "fc.patient")
+    sql = f"""
+WITH {pcte}fp AS (
     SELECT b.patient,
            FIRST_VALUE(s.sale_id) OVER (
                PARTITION BY b.patient ORDER BY b.created_at ASC
@@ -1097,17 +1199,19 @@ SELECT
     END                                                                    AS signal
 FROM fc
 JOIN pv ON fc.patient = pv.patient
+WHERE 1=1 {pf}
 GROUP BY 1
 ORDER BY customer_count DESC
 """
+    return run_customer_query(sql)
+
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def load_first_cat_evolution() -> pd.DataFrame:
-    return run_customer_query(SQL_FIRST_CAT_EVOLUTION)
-
-
-SQL_BASKET_EVOLUTION = f"""
-WITH vp AS (
+def load_basket_evolution(cluster: str = "Both", biz: str = "All") -> pd.DataFrame:
+    pcte = _patient_cte(cluster, biz)
+    pf = _pf(cluster, biz, "pv.patient")
+    sql = f"""
+WITH {pcte}vp AS (
     SELECT b.patient, s.sale_id, c.name AS category_name, s.amount,
            ROW_NUMBER() OVER (PARTITION BY b.patient ORDER BY b.created_at ASC) AS visit_num,
            COUNT(*) OVER (PARTITION BY b.patient)                               AS total_visits
@@ -1155,25 +1259,28 @@ SELECT
                AND pv.recent_basket < pv.early_basket THEN 1 END)  AS shrinking
 FROM pv
 JOIN VW_CUSTOMER_SEGMENTATION v ON pv.patient = v.customer_id
+WHERE 1=1 {pf}
 GROUP BY 1 ORDER BY 1
 """
-
-@st.cache_data(ttl=3600, show_spinner=False)
-def load_basket_evolution() -> pd.DataFrame:
-    return run_customer_query(SQL_BASKET_EVOLUTION)
+    return run_customer_query(sql)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
 # RETENTION
 # ═════════════════════════════════════════════════════════════════════════════
 
-SQL_RETURN_WINDOW = """
-WITH cb AS (
+@st.cache_data(ttl=3600, show_spinner=False)
+def load_return_window(cluster: str = "Both", biz: str = "All") -> pd.DataFrame:
+    pcte = _patient_cte(cluster, biz)
+    pf = _pf(cluster, biz)
+    sql = f"""
+WITH {pcte}cb AS (
     SELECT v.refined_tier,
            DATEDIFF('day', v.last_purchase_date,
                (SELECT MAX(created_at::DATE)
                 FROM inventory_inventory_batch_product_sales))     AS days_since
     FROM VW_CUSTOMER_SEGMENTATION v
+    WHERE 1=1 {pf}
 )
 SELECT
     refined_tier,
@@ -1184,19 +1291,21 @@ SELECT
     COUNT(*)                                                       AS total
 FROM cb GROUP BY 1 ORDER BY 1
 """
+    return run_customer_query(sql)
+
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def load_return_window() -> pd.DataFrame:
-    return run_customer_query(SQL_RETURN_WINDOW)
-
-
-SQL_CHURN_BY_SEGMENT = """
-WITH rec AS (
+def load_churn_by_segment(cluster: str = "Both", biz: str = "All") -> pd.DataFrame:
+    pcte = _patient_cte(cluster, biz)
+    pf = _pf(cluster, biz)
+    sql = f"""
+WITH {pcte}rec AS (
     SELECT customer_id, refined_tier, total_revenue,
            DATEDIFF('day', last_purchase_date,
                (SELECT MAX(created_at::DATE)
                 FROM inventory_inventory_batch_product_sales))     AS days_since
     FROM VW_CUSTOMER_SEGMENTATION
+    WHERE 1=1 {pf}
 )
 SELECT
     refined_tier,
@@ -1207,14 +1316,15 @@ SELECT
     COUNT(*)                                                       AS total
 FROM rec GROUP BY 1 ORDER BY 1
 """
+    return run_customer_query(sql)
+
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def load_churn_by_segment() -> pd.DataFrame:
-    return run_customer_query(SQL_CHURN_BY_SEGMENT)
-
-
-SQL_SECOND_PURCHASE = f"""
-WITH ordered AS (
+def load_second_purchase(cluster: str = "Both", biz: str = "All") -> pd.DataFrame:
+    pcte = _patient_cte(cluster, biz)
+    pf = _pf(cluster, biz)
+    sql = f"""
+WITH {pcte}ordered AS (
     SELECT patient, created_at::DATE AS visit_date,
            ROW_NUMBER() OVER (PARTITION BY patient ORDER BY created_at ASC) AS rn
     FROM inventory_inventory_batch_product_sales
@@ -1236,19 +1346,24 @@ SELECT
     ROUND(COUNT(g.patient) * 100.0 / NULLIF(COUNT(v.customer_id),0), 1) AS pct_had_second_visit
 FROM VW_CUSTOMER_SEGMENTATION v
 LEFT JOIN gaps g ON v.customer_id = g.patient
+WHERE 1=1 {pf}
 GROUP BY 1 ORDER BY 1
 """
-
-@st.cache_data(ttl=3600, show_spinner=False)
-def load_second_purchase() -> pd.DataFrame:
-    return run_customer_query(SQL_SECOND_PURCHASE)
+    return run_customer_query(sql)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
 # LOYALTY + PRODUCTS
 # ═════════════════════════════════════════════════════════════════════════════
 
-SQL_POINTS_BUCKETS = """
+@st.cache_data(ttl=3600, show_spinner=False)
+def load_points_buckets(cluster: str = "Both") -> pd.DataFrame:
+    pcte = _patient_cte(cluster, "All")
+    pf = _pf(cluster, "All")
+    sql = f"""
+WITH {pcte}pts AS (
+    SELECT * FROM points WHERE 1=1 {pf}
+)
 SELECT
     CASE
         WHEN points = 0    THEN '0 — No Points'
@@ -1258,29 +1373,37 @@ SELECT
         ELSE                    '4 — Elite (1000+)'
     END                             AS points_bucket,
     COUNT(DISTINCT customer_id)     AS customer_count
-FROM points GROUP BY 1 ORDER BY 1
+FROM pts GROUP BY 1 ORDER BY 1
 """
+    return run_customer_query(sql)
+
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def load_points_buckets() -> pd.DataFrame:
-    return run_customer_query(SQL_POINTS_BUCKETS)
-
-
-SQL_LOYALTY_TREND = """
+def load_loyalty_trend(cluster: str = "Both") -> pd.DataFrame:
+    pcte = _patient_cte(cluster, "All")
+    pf = _pf(cluster, "All")
+    sql = f"""
+WITH {pcte}pts AS (
+    SELECT * FROM points WHERE 1=1 {pf}
+)
 SELECT
     DATE_TRUNC('MONTH', created_at::DATE) AS month,
     COUNT(DISTINCT customer_id)           AS new_loyalty_members
-FROM points GROUP BY 1 ORDER BY 1
+FROM pts GROUP BY 1 ORDER BY 1
 """
-
-@st.cache_data(ttl=3600, show_spinner=False)
-def load_loyalty_trend() -> pd.DataFrame:
-    df = run_customer_query(SQL_LOYALTY_TREND)
+    df = run_customer_query(sql)
     df["cumulative"] = df["new_loyalty_members"].cumsum()
     return df
 
 
-SQL_LOYALTY_RETURN = """
+@st.cache_data(ttl=3600, show_spinner=False)
+def load_loyalty_return(cluster: str = "Both") -> pd.DataFrame:
+    pcte = _patient_cte(cluster, "All")
+    pf = _pf(cluster, "All")
+    sql = f"""
+WITH {pcte}seg AS (
+    SELECT * FROM VW_CUSTOMER_SEGMENTATION WHERE 1=1 {pf}
+)
 SELECT
     CASE WHEN p.customer_id IS NOT NULL THEN 'Loyalty Member'
          ELSE 'Non-Member' END                                     AS member_status,
@@ -1289,36 +1412,42 @@ SELECT
         / NULLIF(v.active_days - 1, 0)
     ), 1)                                                          AS avg_days_between_visits,
     COUNT(v.customer_id)                                           AS customer_count
-FROM VW_CUSTOMER_SEGMENTATION v
+FROM seg v
 LEFT JOIN (SELECT DISTINCT customer_id FROM points) p
        ON v.customer_id = p.customer_id
 GROUP BY 1
 """
+    return run_customer_query(sql)
+
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def load_loyalty_return() -> pd.DataFrame:
-    return run_customer_query(SQL_LOYALTY_RETURN)
-
-
-SQL_LOYALTY_BY_SEGMENT = """
+def load_loyalty_by_segment(cluster: str = "Both") -> pd.DataFrame:
+    pcte = _patient_cte(cluster, "All")
+    pf = _pf(cluster, "All")
+    sql = f"""
+WITH {pcte}seg AS (
+    SELECT * FROM VW_CUSTOMER_SEGMENTATION WHERE 1=1 {pf}
+)
 SELECT
     v.refined_tier,
     COUNT(DISTINCT v.customer_id)                                  AS total_customers,
     COUNT(DISTINCT p.customer_id)                                  AS loyalty_members,
     ROUND(COUNT(DISTINCT p.customer_id)
           / NULLIF(COUNT(DISTINCT v.customer_id),0) * 100, 1)      AS loyalty_pct
-FROM VW_CUSTOMER_SEGMENTATION v
+FROM seg v
 LEFT JOIN (SELECT DISTINCT customer_id FROM points) p
        ON v.customer_id = p.customer_id
 GROUP BY 1 ORDER BY 1
 """
+    return run_customer_query(sql)
+
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def load_loyalty_by_segment() -> pd.DataFrame:
-    return run_customer_query(SQL_LOYALTY_BY_SEGMENT)
-
-
-SQL_LOYALTY_REDEMPTION = f"""
+def load_loyalty_redemption(cluster: str = "Both") -> pd.DataFrame:
+    pcte = _patient_cte(cluster, "All")
+    pf = _pf(cluster, "All", "f.patient")
+    sql = f"""
+WITH {pcte}dummy AS (SELECT 1)
 SELECT
     DATE_TRUNC('MONTH', f.created_at::DATE)                        AS month,
     COUNT(CASE WHEN f.loyalty_amount > 0 THEN 1 END)               AS redemption_transactions,
@@ -1328,16 +1457,18 @@ SELECT
 FROM finance_evaluation_payments f
 WHERE f.created_at::DATE >= '{MIN_DATE}'
   AND f.status != 'canceled'
+  {pf}
 GROUP BY 1 ORDER BY 1
 """
+    return run_customer_query(sql)
+
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def load_loyalty_redemption() -> pd.DataFrame:
-    return run_customer_query(SQL_LOYALTY_REDEMPTION)
-
-
-SQL_LOYALTY_CONVERSION_LAG = f"""
-WITH fp AS (
+def load_loyalty_conversion_lag(cluster: str = "Both") -> pd.DataFrame:
+    pcte = _patient_cte(cluster, "All")
+    pf = _pf(cluster, "All")
+    sql = f"""
+WITH {pcte}fp AS (
     SELECT patient, MIN(created_at::DATE) AS first_purchase_date
     FROM inventory_inventory_batch_product_sales
     WHERE status != 'canceled' AND patient NOT IN (273017,276430)
@@ -1365,10 +1496,8 @@ SELECT
 FROM fp
 JOIN lj ON fp.patient = lj.customer_id
 JOIN VW_CUSTOMER_SEGMENTATION v ON fp.patient = v.customer_id
+WHERE 1=1 {pf}
 GROUP BY 1
 ORDER BY MIN(DATEDIFF('day', fp.first_purchase_date, lj.loyalty_join_date))
 """
-
-@st.cache_data(ttl=3600, show_spinner=False)
-def load_loyalty_conversion_lag() -> pd.DataFrame:
-    return run_customer_query(SQL_LOYALTY_CONVERSION_LAG)
+    return run_customer_query(sql)

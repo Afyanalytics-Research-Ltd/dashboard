@@ -40,7 +40,7 @@ from ui_template import (
     AFYA_BLUE, TEAL, COOL_BLUE, ORANGE, CORAL, PURPLE, GRAY,
     CHART_LAYOUT, AXIS, BG_LIGHT, BORDER, SEG_COLORS, SEQ,
 )
-import connect_to_snowflake as D
+import xanalife.customers.connect_to_snowflake as D
 
 st.set_page_config(page_title="XanaLife Analytics", page_icon="🛒",
                    layout="wide", initial_sidebar_state="expanded")

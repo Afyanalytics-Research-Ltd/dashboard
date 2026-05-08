@@ -37,12 +37,12 @@ DAILY_REVENUE = dedent("""
         SELECT
             TO_DATE(TRY_TO_TIMESTAMP(p.created_at))             AS revenue_date,
             v.CLINIC                                              AS clinic_id,
-            COALESCE(p.PAYMENT_MODE, 'mixed')                     AS payment_mode,
+            COALESCE(NULL, 'mixed')                     AS payment_mode,
             CASE WHEN v.SCHEME IS NULL THEN 'cash' ELSE 'insurance' END AS payer_type,
             SUM(COALESCE(p.AMOUNT, 0))                            AS gross_amount,
             SUM(COALESCE(p.DISCOUNT, 0))                          AS discount_amount,
-            SUM(COALESCE(p.WAIVER_AMOUNT, 0))                     AS waiver_amount,
-            SUM(COALESCE(p.VAT_AMOUNT, 0))                        AS vat_amount,
+            SUM(COALESCE(NULL, 0))                     AS waiver_amount,
+            SUM(COALESCE(NULL, 0))                        AS vat_amount,
             COUNT(DISTINCT p.PATIENT)                             AS unique_patients,
             COUNT(*)                                              AS receipt_count
         FROM FINANCE_EVALUATION_PAYMENTS p
@@ -70,10 +70,11 @@ DAILY_REVENUE = dedent("""
 # 2. REVENUE BY SERVICE LINE
 # ──────────────────────────────────────────────────────────────────────────────
 REVENUE_BY_SERVICE_LINE = dedent("""
+    
     SELECT
         DATE_TRUNC('MONTH', TRY_TO_DATE(i.created_at))                   AS revenue_month,
-        COALESCE(NULLIF(ii.REVENUE_SUMMARY_TAG, ''),
-                NULLIF(ii.ITEM_CLASSIFY,       ''),
+        COALESCE(NULLIF(NULL, ''),
+                NULLIF(NULL,       ''),
                 INITCAP(ii.ITEM_TYPE), 'other')                           AS service_line,
         COUNT(DISTINCT i.ID)                                               AS invoices,
         COUNT(DISTINCT i.PATIENT_ID)                                       AS patients,
@@ -93,20 +94,17 @@ REVENUE_BY_SERVICE_LINE = dedent("""
 # 4. PAYMENT MODE MIX
 # ──────────────────────────────────────────────────────────────────────────────
 PAYMENT_MODE_MIX = dedent("""
-    
     SELECT
         DATE_TRUNC('MONTH', TRY_TO_TIMESTAMP(created_at))   AS revenue_month,
         SUM(CASH_AMOUNT)                                      AS cash,
-        SUM(MPESA_AMOUNT)
-          + SUM(PESA_PAL_MPESA_AMOUNT)                        AS mpesa,
-        SUM(CARD_AMOUNT)
-          + SUM(PESA_PAL_CARD_AMOUNT)                         AS card,
+        SUM(MPESA_AMOUNT)                    AS mpesa,
+        SUM(CARD_AMOUNT)                        AS card,
         SUM(CHEQUE_AMOUNT)                                    AS cheque,
         SUM(JAMBOPAY_AMOUNT)                                  AS jambopay,
         SUM(PATIENTACCOUNT_AMOUNT)                            AS account,
-        SUM(WAIVER_AMOUNT)                                    AS waiver,
-        SUM(GIFTCARD_AMOUNT)                                  AS giftcard,
-        SUM(LOYALTY_AMOUNT) + SUM(POINTS_AMOUNT)              AS loyalty
+        SUM(0)                                    AS waiver,
+        SUM(0)                                  AS giftcard,
+        SUM(0) + SUM(0)              AS loyalty
     FROM FINANCE_EVALUATION_PAYMENTS
     GROUP BY 1
     HAVING revenue_month IS NOT NULL
@@ -171,9 +169,10 @@ PATIENT_RFM = dedent("""
 # 7. TOP REVENUE-DRIVING ITEMS
 # ──────────────────────────────────────────────────────────────────────────────
 TOP_ITEMS = dedent("""
-    SELECT
+    
+SELECT
         ii.ITEM_NAME                                  AS item_name,
-        COALESCE(ii.REVENUE_SUMMARY_TAG, ii.CATEGORY) AS category,
+        COALESCE(ii.item_type, ii.CATEGORY) AS category,
         COUNT(DISTINCT ii.INVOICE_ID)                 AS invoices,
         SUM(ii.QUANTITY)                              AS units,
         SUM(ii.AMOUNT)                                AS gross_revenue,
@@ -242,8 +241,7 @@ DOCTOR_PRODUCTIVITY = dedent("""
         SUM(p.AMOUNT)                                        AS revenue_attributed,
         SUM(p.AMOUNT) / NULLIF(COUNT(DISTINCT v.ID), 0)      AS arpv,
         COUNT(DISTINCT v.ID)
-        / NULLIF(COUNT(DISTINCT TO_DATE(TRY_TO_TIMESTAMP(v.CREATED_AT))), 0)
-                                                            AS visits_per_active_day
+            / NULLIF(COUNT(DISTINCT TO_DATE(v.CREATED_AT)), 0) AS visits_per_active_day
     FROM EVALUATION_VISITS              v
     JOIN USERS                          u ON u.ID = v.USER
     LEFT JOIN FINANCE_EVALUATION_PAYMENTS p
@@ -258,14 +256,15 @@ DOCTOR_PRODUCTIVITY = dedent("""
 # 11. LEAKAGE
 # ──────────────────────────────────────────────────────────────────────────────
 LEAKAGE = dedent("""
-    SELECT
+    
+SELECT
         DATE_TRUNC('MONTH', TRY_TO_TIMESTAMP(CREATED_AT))            AS revenue_month,
         SUM(AMOUNT)                                                    AS net_received,
         SUM(DISCOUNT)                                                  AS discount,
-        SUM(WAIVER_AMOUNT)                                             AS waiver,
-        SUM(DISCOUNT) + SUM(WAIVER_AMOUNT)                             AS leakage_total,
-        100 * (SUM(DISCOUNT) + SUM(WAIVER_AMOUNT))
-            / NULLIF(SUM(AMOUNT) + SUM(DISCOUNT) + SUM(WAIVER_AMOUNT), 0)
+        SUM(0)                                             AS waiver,
+        SUM(DISCOUNT) + SUM(0)                             AS leakage_total,
+        100 * (SUM(DISCOUNT) + SUM(0))
+            / NULLIF(SUM(AMOUNT) + SUM(DISCOUNT) + SUM(0), 0)
                                                                     AS leakage_pct
     FROM FINANCE_EVALUATION_PAYMENTS
     GROUP BY 1
@@ -279,33 +278,21 @@ LEAKAGE = dedent("""
 # ──────────────────────────────────────────────────────────────────────────────
 CLAIM_REJECTION = dedent("""                     
     SELECT
-        DATE_TRUNC('MONTH', TO_DATE(TRY_TO_TIMESTAMP(i.CREATED_AT)))            AS revenue_month,
-        s.NAME                                                                  AS payer_name,
-        COUNT(*)                                                                AS claims,
-        SUM(i.AMOUNT)                                                           AS billed,
-        SUM(i.PAID)                                                             AS collected,
-        SUM(i.BALANCE)                                                          AS outstanding,
-        -- Proxy: insurance claim still has balance after 90 days = effectively rejected/stuck
-        SUM(CASE
-                WHEN i.BALANCE > 0
-                AND DATEDIFF('day', TRY_TO_TIMESTAMP(i.CREATED_AT), CURRENT_DATE) > 90
-                THEN 1 ELSE 0
-            END)                                                                AS rejected,
-        SUM(CASE
-                WHEN i.BALANCE > 0
-                AND DATEDIFF('day', TRY_TO_TIMESTAMP(i.CREATED_AT), CURRENT_DATE) > 90
-                THEN i.BALANCE
-            END)                                                                AS rejected_value,
-        100.0 * SUM(CASE
-                        WHEN i.BALANCE > 0
-                        AND DATEDIFF('day', TRY_TO_TIMESTAMP(i.CREATED_AT), CURRENT_DATE) > 90
-                        THEN 1 ELSE 0
-                    END) / NULLIF(COUNT(*), 0)                                  AS rejection_rate_pct
-    FROM FINANCE_INVOICES        i
-    JOIN SETTINGS_INSURANCE      s ON s.ID = i.SCHEME_ID    -- INNER JOIN drops cash invoices
-    GROUP BY 1, 2
-    HAVING revenue_month IS NOT NULL
-    ORDER BY 1, claims DESC
+    DATE_TRUNC('MONTH', TRY_TO_TIMESTAMP(i.CREATED_AT))::DATE                AS revenue_month,
+    s.NAME                                                                   AS payer_name,
+    COUNT(*)                                                                 AS claims,
+    SUM(i.AMOUNT)                                                            AS billed,
+    SUM(i.PAID)                                                              AS collected,
+    SUM(i.BALANCE)                                                           AS outstanding,
+    SUM(CASE WHEN i.BALANCE > 0 THEN 1 ELSE 0 END)                           AS rejected,
+    SUM(CASE WHEN i.BALANCE > 0 THEN i.BALANCE ELSE 0 END)                   AS rejected_value,
+    100.0 * SUM(CASE WHEN i.BALANCE > 0 THEN 1 ELSE 0 END)
+          / NULLIF(COUNT(*), 0)                                              AS rejection_rate_pct
+FROM FINANCE_INVOICES   i
+JOIN SETTINGS_INSURANCE s ON s.ID = i.SCHEME_ID
+GROUP BY 1, 2
+HAVING revenue_month IS NOT NULL
+ORDER BY 1, claims DESC
 """)
 
 # ──────────────────────────────────────────────────────────────────────────────

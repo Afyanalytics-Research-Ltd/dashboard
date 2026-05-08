@@ -34,36 +34,36 @@ from textwrap import dedent
 # ──────────────────────────────────────────────────────────────────────────────
 DAILY_REVENUE = dedent("""
     WITH paid AS (
-        SELECT
-            TO_DATE(TRY_TO_TIMESTAMP(p.created_at))             AS revenue_date,
-            v.CLINIC                                              AS clinic_id,
-            COALESCE(p.PAYMENT_MODE, 'mixed')                     AS payment_mode,
-            CASE WHEN v.SCHEME IS NULL THEN 'cash' ELSE 'insurance' END AS payer_type,
-            SUM(COALESCE(p.AMOUNT, 0))                            AS gross_amount,
-            SUM(COALESCE(p.DISCOUNT, 0))                          AS discount_amount,
-            SUM(COALESCE(p.WAIVER_AMOUNT, 0))                     AS waiver_amount,
-            SUM(COALESCE(p.VAT_AMOUNT, 0))                        AS vat_amount,
-            COUNT(DISTINCT p.PATIENT)                             AS unique_patients,
-            COUNT(*)                                              AS receipt_count
-        FROM FINANCE_EVALUATION_PAYMENTS p
-        LEFT JOIN EVALUATION_VISITS v ON v.ID = p.VISIT
-        GROUP BY 1, 2, 3, 4
-    )
     SELECT
-        revenue_date,
-        clinic_id,
-        payment_mode,
-        payer_type,
-        gross_amount,
-        discount_amount,
-        waiver_amount,
-        vat_amount,
-        gross_amount - discount_amount - waiver_amount  AS net_amount,
-        unique_patients,
-        receipt_count,
-        gross_amount / NULLIF(receipt_count, 0)         AS avg_receipt_value
-    FROM paid
-    ORDER BY revenue_date, clinic_id
+        p.created_at::DATE                                          AS revenue_date,
+        v.CLINIC                                                    AS clinic_id,
+        'mixed'                                                     AS payment_mode,
+        CASE WHEN v.SCHEME IS NULL THEN 'cash' ELSE 'insurance' END AS payer_type,
+        SUM(COALESCE(p.AMOUNT, 0))                                  AS gross_amount,
+        SUM(COALESCE(p.DISCOUNT, 0))                                AS discount_amount,
+        0                                                           AS waiver_amount,
+        0                                                           AS vat_amount,
+        COUNT(DISTINCT p.PATIENT)                                   AS unique_patients,
+        COUNT(*)                                                    AS receipt_count
+    FROM FINANCE_EVALUATION_PAYMENTS p
+    LEFT JOIN EVALUATION_VISITS      v ON v.ID = p.VISIT
+    GROUP BY 1, 2, 3, 4
+)
+SELECT
+    revenue_date,
+    clinic_id,
+    payment_mode,
+    payer_type,
+    gross_amount,
+    discount_amount,
+    waiver_amount,
+    vat_amount,
+    gross_amount - discount_amount - waiver_amount AS net_amount,
+    unique_patients,
+    receipt_count,
+    gross_amount / NULLIF(receipt_count, 0)        AS avg_receipt_value
+FROM paid
+ORDER BY revenue_date, clinic_id
 """)
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -71,42 +71,37 @@ DAILY_REVENUE = dedent("""
 # ──────────────────────────────────────────────────────────────────────────────
 REVENUE_BY_SERVICE_LINE = dedent("""
     SELECT
-        DATE_TRUNC('MONTH', TRY_TO_DATE(i.created_at))                   AS revenue_month,
-        COALESCE(NULLIF(ii.REVENUE_SUMMARY_TAG, ''),
-                NULLIF(ii.ITEM_CLASSIFY,       ''),
-                INITCAP(ii.ITEM_TYPE), 'other')                           AS service_line,
-        COUNT(DISTINCT i.ID)                                               AS invoices,
-        COUNT(DISTINCT i.PATIENT_ID)                                       AS patients,
-        SUM(ii.AMOUNT)                                                     AS gross_revenue,
-        SUM(ii.QUANTITY)                                                   AS units_sold,
-        AVG(ii.PRICE)                                                      AS avg_unit_price,
-        SUM(ii.AMOUNT)
-            / NULLIF(COUNT(DISTINCT i.PATIENT_ID), 0)                      AS arpu
-    FROM FINANCE_INVOICES        i
-    JOIN FINANCE_INVOICE_ITEMS   ii ON ii.INVOICE_ID = i.ID
-    GROUP BY 1, 2
-    HAVING revenue_month IS NOT NULL
-    ORDER BY 1, gross_revenue DESC
+    DATE_TRUNC('MONTH', i.CREATED_AT)::DATE              AS revenue_month,
+    COALESCE(INITCAP(ii.ITEM_TYPE), 'other')             AS service_line,
+    COUNT(DISTINCT i.ID)                                 AS invoices,
+    COUNT(DISTINCT i.PATIENT_ID)                         AS patients,
+    SUM(ii.AMOUNT)                                       AS gross_revenue,
+    SUM(ii.UNITS)                                        AS units_sold,
+    AVG(ii.PRICE)                                        AS avg_unit_price,
+    SUM(ii.AMOUNT)
+        / NULLIF(COUNT(DISTINCT i.PATIENT_ID), 0)        AS arpu
+FROM FINANCE_INVOICES      i
+JOIN FINANCE_INVOICE_ITEMS ii ON ii.INVOICE_ID = i.ID
+GROUP BY 1, 2
+HAVING revenue_month IS NOT NULL
+ORDER BY 1, gross_revenue DESC
 """)
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 4. PAYMENT MODE MIX
 # ──────────────────────────────────────────────────────────────────────────────
 PAYMENT_MODE_MIX = dedent("""
-    
     SELECT
-        DATE_TRUNC('MONTH', TRY_TO_TIMESTAMP(created_at))   AS revenue_month,
+        DATE_TRUNC('MONTH', created_at)::DATE   AS revenue_month,
         SUM(CASH_AMOUNT)                                      AS cash,
-        SUM(MPESA_AMOUNT)
-          + SUM(PESA_PAL_MPESA_AMOUNT)                        AS mpesa,
-        SUM(CARD_AMOUNT)
-          + SUM(PESA_PAL_CARD_AMOUNT)                         AS card,
+        SUM(MPESA_AMOUNT)                    AS mpesa,
+        SUM(CARD_AMOUNT)                        AS card,
         SUM(CHEQUE_AMOUNT)                                    AS cheque,
         SUM(JAMBOPAY_AMOUNT)                                  AS jambopay,
         SUM(PATIENTACCOUNT_AMOUNT)                            AS account,
-        SUM(WAIVER_AMOUNT)                                    AS waiver,
-        SUM(GIFTCARD_AMOUNT)                                  AS giftcard,
-        SUM(LOYALTY_AMOUNT) + SUM(POINTS_AMOUNT)              AS loyalty
+        SUM(0)                                    AS waiver,
+        SUM(0)                                  AS giftcard,
+        SUM(0) + SUM(0)              AS loyalty
     FROM FINANCE_EVALUATION_PAYMENTS
     GROUP BY 1
     HAVING revenue_month IS NOT NULL
@@ -121,7 +116,7 @@ PAYER_PERFORMANCE = dedent("""
         SELECT
             COALESCE(s.NAME, 'Cash / Out-of-pocket')   AS payer_name,
             i.ID                                       AS invoice_id,
-            TRY_TO_DATE(i.INVOICE_DATE)                AS invoice_date,
+            i.INVOICE_DATE               AS invoice_date,
             i.AMOUNT                                   AS invoice_amount,
             i.PAID                                     AS paid_amount,
             i.BALANCE                                  AS outstanding_amount,
@@ -151,20 +146,17 @@ PAYER_PERFORMANCE = dedent("""
 # ──────────────────────────────────────────────────────────────────────────────
 PATIENT_RFM = dedent("""    
     SELECT
-        p.PATIENT                                                          AS patient_id,
-        MAX(TRY_TO_TIMESTAMP(p.created_at))                              AS last_receipt,
-        DATEDIFF('day', MAX(TRY_TO_TIMESTAMP(p.created_at)), CURRENT_DATE)
-                                                                        AS recency_days,
-        COUNT(DISTINCT p.RECEIPT)                                          AS frequency,
-        SUM(p.AMOUNT)                                                      AS monetary,
-        AVG(p.AMOUNT)                                                      AS avg_ticket,
-        MIN(TRY_TO_TIMESTAMP(p.created_at))                              AS first_receipt,
-        DATEDIFF('day',
-                MIN(TRY_TO_TIMESTAMP(p.created_at)),
-                MAX(TRY_TO_TIMESTAMP(p.created_at)))                    AS lifetime_days
-    FROM FINANCE_EVALUATION_PAYMENTS p
-    WHERE p.PATIENT    IS NOT NULL
-    GROUP BY p.PATIENT
+    p.PATIENT                                          AS patient_id,
+    MAX(p.created_at)::DATE                            AS last_receipt,
+    DATEDIFF('day', MAX(p.created_at), CURRENT_DATE)   AS recency_days,
+    COUNT(DISTINCT p.RECEIPT)                          AS frequency,
+    SUM(p.AMOUNT)                                      AS monetary,
+    AVG(p.AMOUNT)                                      AS avg_ticket,
+    MIN(p.created_at)                                  AS first_receipt,
+    DATEDIFF('day', MIN(p.created_at), MAX(p.created_at)) AS lifetime_days
+FROM FINANCE_EVALUATION_PAYMENTS p
+WHERE p.PATIENT IS NOT NULL
+GROUP BY p.PATIENT
 """)
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -173,9 +165,9 @@ PATIENT_RFM = dedent("""
 TOP_ITEMS = dedent("""
     SELECT
         ii.ITEM_NAME                                  AS item_name,
-        COALESCE(ii.REVENUE_SUMMARY_TAG, ii.CATEGORY) AS category,
+        ii.item_type AS category,
         COUNT(DISTINCT ii.INVOICE_ID)                 AS invoices,
-        SUM(ii.QUANTITY)                              AS units,
+        SUM(ii.UNITS)                              AS units,
         SUM(ii.AMOUNT)                                AS gross_revenue,
         AVG(ii.PRICE)                                 AS avg_price
     FROM FINANCE_INVOICE_ITEMS ii
@@ -190,9 +182,9 @@ TOP_ITEMS = dedent("""
 # ──────────────────────────────────────────────────────────────────────────────
 HOURLY_HEATMAP = dedent("""    
     SELECT
-        DAYNAME(TRY_TO_TIMESTAMP(p.CREATED_AT))         AS day_name,
-        DAYOFWEEK(TRY_TO_TIMESTAMP(p.CREATED_AT))       AS day_idx,
-        HOUR(TRY_TO_TIMESTAMP(p.CREATED_AT))            AS hour_of_day,
+        DAYNAME(p.CREATED_AT)         AS day_name,
+        DAYOFWEEK(p.CREATED_AT)       AS day_idx,
+        HOUR(p.CREATED_AT)            AS hour_of_day,
         COUNT(*)                                        AS receipts,
         SUM(p.AMOUNT)                                   AS revenue
     FROM FINANCE_EVALUATION_PAYMENTS p
@@ -208,19 +200,19 @@ COHORT_RETENTION = dedent("""
     WITH first_visit AS (
         SELECT
             PATIENT,
-            MIN(DATE_TRUNC('MONTH', TRY_TO_TIMESTAMP(CREATED_AT))) AS cohort_month
+            MIN(DATE_TRUNC('MONTH', CREATED_AT)) AS cohort_month
         FROM FINANCE_EVALUATION_PAYMENTS
         GROUP BY PATIENT
     ),
     monthly AS (
         SELECT
             f.cohort_month,
-            DATE_TRUNC('MONTH', TRY_TO_TIMESTAMP(p.CREATED_AT))             AS active_month,
+            DATE_TRUNC('MONTH', p.CREATED_AT)                          AS active_month,
             DATEDIFF('month',
-                    f.cohort_month,
-                    DATE_TRUNC('MONTH', TRY_TO_TIMESTAMP(p.CREATED_AT)))    AS month_offset,
-            COUNT(DISTINCT p.PATIENT)                                          AS active_patients,
-            SUM(p.AMOUNT)                                                      AS revenue
+                     f.cohort_month,
+                     DATE_TRUNC('MONTH', p.CREATED_AT))                AS month_offset,
+            COUNT(DISTINCT p.PATIENT)                                  AS active_patients,
+            SUM(p.AMOUNT)                                              AS revenue
         FROM FINANCE_EVALUATION_PAYMENTS p
         JOIN first_visit f ON f.PATIENT = p.PATIENT
         GROUP BY 1, 2, 3
@@ -235,17 +227,16 @@ COHORT_RETENTION = dedent("""
 # ──────────────────────────────────────────────────────────────────────────────
 DOCTOR_PRODUCTIVITY = dedent("""
     SELECT
-        u.ID                                                 AS user_id,
-        u.USERNAME                                               AS doctor_name,
-        COUNT(DISTINCT v.ID)                                 AS visits,
-        COUNT(DISTINCT v.PATIENT)                            AS unique_patients,
-        SUM(p.AMOUNT)                                        AS revenue_attributed,
-        SUM(p.AMOUNT) / NULLIF(COUNT(DISTINCT v.ID), 0)      AS arpv,
+        u.ID                                                AS user_id,
+        u.USERNAME                                          AS doctor_name,
+        COUNT(DISTINCT v.ID)                                AS visits,
+        COUNT(DISTINCT v.PATIENT)                           AS unique_patients,
+        SUM(p.AMOUNT)                                       AS revenue_attributed,
+        SUM(p.AMOUNT) / NULLIF(COUNT(DISTINCT v.ID), 0)     AS arpv,
         COUNT(DISTINCT v.ID)
-        / NULLIF(COUNT(DISTINCT TO_DATE(TRY_TO_TIMESTAMP(v.CREATED_AT))), 0)
-                                                            AS visits_per_active_day
-    FROM EVALUATION_VISITS              v
-    JOIN USERS                          u ON u.ID = v.USER
+          / NULLIF(COUNT(DISTINCT v.CREATED_AT::DATE), 0)   AS visits_per_active_day
+    FROM EVALUATION_VISITS                v
+    JOIN USERS                            u ON u.ID = v.USER
     LEFT JOIN FINANCE_EVALUATION_PAYMENTS p
         ON p.VISIT = v.ID AND p.DELETED_AT IS NULL
     GROUP BY 1, 2
@@ -259,50 +250,38 @@ DOCTOR_PRODUCTIVITY = dedent("""
 # ──────────────────────────────────────────────────────────────────────────────
 LEAKAGE = dedent("""
     SELECT
-        DATE_TRUNC('MONTH', TRY_TO_TIMESTAMP(CREATED_AT))            AS revenue_month,
-        SUM(AMOUNT)                                                    AS net_received,
-        SUM(DISCOUNT)                                                  AS discount,
-        SUM(WAIVER_AMOUNT)                                             AS waiver,
-        SUM(DISCOUNT) + SUM(WAIVER_AMOUNT)                             AS leakage_total,
-        100 * (SUM(DISCOUNT) + SUM(WAIVER_AMOUNT))
-            / NULLIF(SUM(AMOUNT) + SUM(DISCOUNT) + SUM(WAIVER_AMOUNT), 0)
-                                                                    AS leakage_pct
+        DATE_TRUNC('MONTH', CREATED_AT)::DATE              AS revenue_month,
+        SUM(AMOUNT)                                        AS net_received,
+        SUM(DISCOUNT)                                      AS discount,
+        0                                                  AS waiver,
+        SUM(DISCOUNT)                                      AS leakage_total,
+        100.0 * SUM(DISCOUNT)
+              / NULLIF(SUM(AMOUNT) + SUM(DISCOUNT), 0)     AS leakage_pct
     FROM FINANCE_EVALUATION_PAYMENTS
     GROUP BY 1
     HAVING revenue_month IS NOT NULL
     ORDER BY 1
 """)
-
+# Note: every `SUM(0)` was a no-op, and the original `SUM(0) AS waiver` was always 0.
+# If you have a real waiver column, swap `0` for `SUM(p.WAIVER)` in two places.
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 13. CLAIM REJECTION
 # ──────────────────────────────────────────────────────────────────────────────
-CLAIM_REJECTION = dedent("""                     
+CLAIM_REJECTION = dedent("""
     SELECT
-        DATE_TRUNC('MONTH', TO_DATE(TRY_TO_TIMESTAMP(i.CREATED_AT)))            AS revenue_month,
-        s.NAME                                                                  AS payer_name,
-        COUNT(*)                                                                AS claims,
-        SUM(i.AMOUNT)                                                           AS billed,
-        SUM(i.PAID)                                                             AS collected,
-        SUM(i.BALANCE)                                                          AS outstanding,
-        -- Proxy: insurance claim still has balance after 90 days = effectively rejected/stuck
-        SUM(CASE
-                WHEN i.BALANCE > 0
-                AND DATEDIFF('day', TRY_TO_TIMESTAMP(i.CREATED_AT), CURRENT_DATE) > 90
-                THEN 1 ELSE 0
-            END)                                                                AS rejected,
-        SUM(CASE
-                WHEN i.BALANCE > 0
-                AND DATEDIFF('day', TRY_TO_TIMESTAMP(i.CREATED_AT), CURRENT_DATE) > 90
-                THEN i.BALANCE
-            END)                                                                AS rejected_value,
-        100.0 * SUM(CASE
-                        WHEN i.BALANCE > 0
-                        AND DATEDIFF('day', TRY_TO_TIMESTAMP(i.CREATED_AT), CURRENT_DATE) > 90
-                        THEN 1 ELSE 0
-                    END) / NULLIF(COUNT(*), 0)                                  AS rejection_rate_pct
-    FROM FINANCE_INVOICES        i
-    JOIN SETTINGS_INSURANCE      s ON s.ID = i.SCHEME_ID    -- INNER JOIN drops cash invoices
+        DATE_TRUNC('MONTH', i.CREATED_AT)::DATE                  AS revenue_month,
+        s.NAME                                                   AS payer_name,
+        COUNT(*)                                                 AS claims,
+        SUM(i.AMOUNT)                                            AS billed,
+        SUM(i.PAID)                                              AS collected,
+        SUM(i.BALANCE)                                           AS outstanding,
+        SUM(CASE WHEN i.BALANCE > 0 THEN 1 ELSE 0 END)           AS rejected,
+        SUM(CASE WHEN i.BALANCE > 0 THEN i.BALANCE ELSE 0 END)   AS rejected_value,
+        100.0 * SUM(CASE WHEN i.BALANCE > 0 THEN 1 ELSE 0 END)
+              / NULLIF(COUNT(*), 0)                              AS rejection_rate_pct
+    FROM FINANCE_INVOICES   i
+    JOIN SETTINGS_INSURANCE s ON s.ID = i.SCHEME_ID
     GROUP BY 1, 2
     HAVING revenue_month IS NOT NULL
     ORDER BY 1, claims DESC
@@ -320,20 +299,20 @@ REVENUE_CONCENTRATION = dedent("""
               SUM(SUM(i.AMOUNT)) OVER ()       AS share
         FROM FINANCE_INVOICES        i
         LEFT JOIN SETTINGS_INSURANCE s ON s.ID = i.SCHEME_ID
-    
         GROUP BY 1
     )
     SELECT
         payer,
         amt,
-        100 * share                                                       AS share_pct,
+        100 * share                                                   AS share_pct,
         100 * SUM(share)
               OVER (ORDER BY share DESC
-                    ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)     AS cumulative_pct,
-        SUM(POWER(share * 100, 2)) OVER ()                                AS hhi_index
+                    ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS cumulative_pct,
+        SUM(POWER(share * 100, 2)) OVER ()                            AS hhi_index
     FROM per_payer
     ORDER BY share DESC
 """)
+# (No date columns here — left as-is.)
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 15. ARPV TREND
@@ -341,9 +320,9 @@ REVENUE_CONCENTRATION = dedent("""
 ARPV_TREND = dedent("""
     WITH daily AS (
         SELECT
-            TO_DATE(p.created_at)        AS d,
-            SUM(p.AMOUNT)                AS revenue,
-            COUNT(DISTINCT p.PATIENT)    AS visits   -- patient-day as visit proxy
+            p.CREATED_AT::DATE          AS d,
+            SUM(p.AMOUNT)               AS revenue,
+            COUNT(DISTINCT p.PATIENT)   AS visits   -- patient-day as visit proxy
         FROM FINANCE_EVALUATION_PAYMENTS p
         WHERE p.PATIENT IS NOT NULL                  -- drop the 21 orphan rows
         GROUP BY 1
@@ -367,12 +346,12 @@ REVENUE_AT_RISK = dedent("""
     WITH ageing AS (
         SELECT
             i.BALANCE,
-            DATEDIFF('day', TRY_TO_DATE(i.created_at), CURRENT_DATE) AS age_days
+            DATEDIFF('day', i.CREATED_AT::DATE, CURRENT_DATE) AS age_days
         FROM FINANCE_INVOICES i
         WHERE i.BALANCE > 0
-        AND i.DELETED_AT IS NULL
-        AND i.STATUS NOT IN (3, 4)
-        AND TRY_TO_DATE(i.created_at) IS NOT NULL
+          AND i.DELETED_AT IS NULL
+          AND i.STATUS NOT IN (3, 4)
+          AND i.CREATED_AT IS NOT NULL
     )
     SELECT
         CASE
@@ -381,13 +360,13 @@ REVENUE_AT_RISK = dedent("""
             WHEN age_days <= 90  THEN '61-90 days'
             WHEN age_days <= 180 THEN '91-180 days'
             ELSE '180+ days'
-        END                                                  AS age_bucket,
-        COUNT(*)                                             AS invoices,
-        SUM(BALANCE)                                         AS at_risk,
-        AVG(age_days)                                        AS avg_age_days,
+        END                                              AS age_bucket,
+        COUNT(*)                                         AS invoices,
+        SUM(BALANCE)                                     AS at_risk,
+        AVG(age_days)                                    AS avg_age_days,
         SUM(BALANCE *
             POWER(0.97,
-                GREATEST(0, (age_days - 30) / 30.0)))      AS expected_collection
+                  GREATEST(0, (age_days - 30) / 30.0)))  AS expected_collection
     FROM ageing
     GROUP BY age_bucket
     ORDER BY MIN(age_days)

@@ -62,7 +62,7 @@ baseline AS (
 ),
 
 cooccurrence AS (
-    -- Co-occurrence is per store 
+    -- Co-occurrence is per store
     SELECT
         a.product_name  AS product_a_name,
         b.product_name  AS product_b_name,
@@ -98,16 +98,16 @@ scored AS (
 )
 
 SELECT
-    store_name      AS "Store",
-    product_a_name  AS "Product A",
-    product_b_name  AS "Product B",
+    store_name        AS "Store",
+    product_a_name    AS "Product A",
+    product_b_name    AS "Product B",
     baskets_with_both AS "Baskets together",
-    baskets_with_a  AS "Baskets with A",
-    baskets_with_b  AS "Baskets with B",
-    prob_b_given_a  AS "P(B|A)",
-    prob_b_baseline AS "P(B) baseline",
-    csuc_score      AS "CSUC score",
-    lift            AS "Lift",
+    baskets_with_a    AS "Baskets with A",
+    baskets_with_b    AS "Baskets with B",
+    prob_b_given_a    AS "P(B|A)",
+    prob_b_baseline   AS "P(B) baseline",
+    csuc_score        AS "CSUC score",
+    lift              AS "Lift",
     CASE
         WHEN baskets_with_both >= 50 THEN 'High'
         WHEN baskets_with_both >= 20 THEN 'Medium'
@@ -151,7 +151,7 @@ WHERE epsd.STATUS   = 'Paid'
   AND epsd.NAME IS NOT NULL
   AND epsd.NAME != ''
   AND epsd.NAME != 'ctl-product'
-  AND epsd.CREATED_AT::DATE >= '2025-09-01'
+  AND epsd.CREATED_AT::DATE >= '2025-09-01' 
 GROUP BY UPPER(TRIM(epsd.NAME))
 ORDER BY total_revenue DESC
 LIMIT 50
@@ -169,13 +169,13 @@ SELECT
     (SELECT COUNT(DISTINCT epsd.SALE_ID)
      FROM evaluation_pos_sale_details epsd
      WHERE epsd.STATUS = 'Paid'
-       AND epsd.CREATED_AT::DATE >= '2025-09-01')                      AS total_transactions,
+       AND epsd.CREATED_AT::DATE >= '2025-09-01') AS total_transactions,
 
     (SELECT ROUND(SUM(epsd.AMOUNT), 0)
      FROM evaluation_pos_sale_details epsd
      WHERE epsd.STATUS = 'Paid'
        AND epsd.AMOUNT > 0
-       AND epsd.CREATED_AT::DATE >= '2025-09-01')                      AS total_revenue
+       AND epsd.CREATED_AT::DATE >= '2025-09-01') AS total_revenue
 """
 
 HOME_ALERTS_QUERY = """
@@ -193,14 +193,14 @@ demand AS (
         sp.PRODUCT_ID,
         sp.STORE_ID,
         ROUND(SUM(CASE
-            WHEN d.CREATED_AT::DATE >= DATEADD('day', -30, '2026-03-18')
+            WHEN d.CREATED_AT::DATE >= DATEADD('day', -30, CURRENT_DATE())
             THEN ABS(d.QUANTITY) ELSE 0 END) / 30.0, 4)                          AS daily_demand,
         ROUND(SUM(ABS(d.QUANTITY) * COALESCE(d.PRICE, 0)) /
-              NULLIF(DATEDIFF('day', MIN(d.CREATED_AT::DATE), '2026-03-18'::DATE) + 1, 0), 2)
+              NULLIF(DATEDIFF('day', MIN(d.CREATED_AT::DATE), CURRENT_DATE()) + 1, 0), 2)
                                                                                   AS daily_revenue
     FROM inventory_inventory_dispensing d
     JOIN inventory_store_products sp ON d.STORE_PRODUCT_ID = sp.ID
-    WHERE d.CREATED_AT::DATE BETWEEN '2025-09-01' AND '2026-03-18'
+    WHERE d.CREATED_AT::DATE >= '2025-09-01'
       AND d.QUANTITY != 0
     GROUP BY sp.PRODUCT_ID, sp.STORE_ID
 ),
@@ -208,9 +208,9 @@ classified AS (
     SELECT
         COALESCE(d.daily_revenue, 0) AS daily_rev,
         CASE
-            WHEN s.stock_on_hand <= 0                                                THEN 'Stockout'
+            WHEN s.stock_on_hand <= 0                                             THEN 'Stockout'
             WHEN COALESCE(d.daily_demand, 0) > 0
-             AND s.stock_on_hand / d.daily_demand <= 7                               THEN 'Critical'
+             AND s.stock_on_hand / d.daily_demand <= 7                            THEN 'Critical'
             ELSE 'Other'
         END AS status
     FROM soh s
@@ -243,13 +243,40 @@ ORDER BY total_revenue DESC
 """
 
 STOCKOUT_PREDICTION_QUERY = """
-WITH stock_on_hand AS (
+WITH disp_ref AS (
+    -- Anchor all rolling windows and forward-looking dates to the latest available data point.
+    SELECT MAX(TRY_TO_DATE(CREATED_AT)) AS d
+    FROM inventory_inventory_dispensing
+    WHERE QUANTITY != 0
+),
+
+latest_category AS (
+    -- Resolves one category per (product, store) using the most recently updated record.
+    -- Prevents duplicate rows and double-counted stock quantities when a product has
+    -- been assigned to multiple categories in inventory_store_products.
+    SELECT PRODUCT_ID, STORE_ID, PRODUCT_CATEGORY AS category_id
+    FROM (
+        SELECT
+            sp.PRODUCT_ID,
+            sp.STORE_ID,
+            sp.PRODUCT_CATEGORY,
+            ROW_NUMBER() OVER (
+                PARTITION BY sp.PRODUCT_ID, sp.STORE_ID
+                ORDER BY sp.UPDATED_AT DESC NULLS LAST
+            ) AS rn
+        FROM inventory_store_products sp
+        WHERE sp.PRODUCT_ACTIVE = TRUE
+    ) t
+    WHERE rn = 1
+),
+
+stock_on_hand AS (
     SELECT
         sp.PRODUCT_ID,
         sp.STORE_ID                                         AS store_id,
         s.NAME                                              AS store_name,
         UPPER(TRIM(sp.PRODUCT_NAME))                        AS product_name,
-        sp.PRODUCT_CATEGORY                                 AS category_id,
+        lc.category_id                                      AS category_id,
         ic.NAME                                             AS category_name,
         SUM(ABS(sp.QUANTITY::FLOAT))                        AS stock_on_hand,
         SUM(ABS(sp.QUANTITY::FLOAT) * COALESCE(sp.UNIT_COST, 0)) AS stock_value_ksh,
@@ -259,18 +286,22 @@ WITH stock_on_hand AS (
         MAX(sp.UPDATED_AT)                                  AS stock_last_updated,
         MAX(sp.PRODUCT_UNITS_SYMBOL)                        AS unit_symbol
     FROM inventory_store_products sp
+    JOIN latest_category lc
+        ON  sp.PRODUCT_ID       = lc.PRODUCT_ID
+        AND sp.STORE_ID         = lc.STORE_ID
+        AND sp.PRODUCT_CATEGORY = lc.category_id  -- only rows with the resolved category
     LEFT JOIN inventory_inventory_categories ic
-        ON sp.PRODUCT_CATEGORY = ic.ID
+        ON lc.category_id = ic.ID
     LEFT JOIN inventory_stores s
         ON sp.STORE_ID = s.ID
     WHERE sp.PRODUCT_ACTIVE = TRUE
-
+      AND ic.ID != '1887'
     GROUP BY
         sp.PRODUCT_ID,
         sp.STORE_ID,
         s.NAME,
         UPPER(TRIM(sp.PRODUCT_NAME)),
-        sp.PRODUCT_CATEGORY,
+        lc.category_id,
         ic.NAME
 ),
 
@@ -284,7 +315,7 @@ dispensing_demand AS (
     FROM inventory_inventory_dispensing disp
     JOIN inventory_store_products sp
         ON disp.STORE_PRODUCT_ID = sp.ID
-    WHERE TRY_TO_DATE(disp.CREATED_AT) BETWEEN '2025-09-01' AND '2026-03-18'
+    WHERE TRY_TO_DATE(disp.CREATED_AT) >= '2025-09-01' 
       AND disp.QUANTITY != 0
     GROUP BY sp.PRODUCT_ID, sp.STORE_ID, TRY_TO_DATE(disp.CREATED_AT)
 ),
@@ -306,14 +337,14 @@ demand_summary AS (
 
         ROUND(
             SUM(CASE
-                WHEN dispensed_date >= DATEADD('day', -30, '2026-03-18'::DATE)
+                WHEN dispensed_date >= DATEADD('day', -30, (SELECT d FROM disp_ref))
                 THEN units_consumed ELSE 0 END)
             / 30.0, 4)                                      AS recent_30d_daily_demand,
 
         ROUND(
             SUM(CASE
-                WHEN dispensed_date >= DATEADD('day', -60, '2026-03-18'::DATE)
-                 AND dispensed_date <  DATEADD('day', -30, '2026-03-18'::DATE)
+                WHEN dispensed_date >= DATEADD('day', -60, (SELECT d FROM disp_ref))
+                 AND dispensed_date <  DATEADD('day', -30, (SELECT d FROM disp_ref))
                 THEN units_consumed ELSE 0 END)
             / 30.0, 4)                                      AS prior_30d_daily_demand,
 
@@ -367,14 +398,14 @@ predictions AS (
 
         CASE
             WHEN stock_on_hand <= 0
-            THEN '2026-03-18'::DATE
+            THEN (SELECT d FROM disp_ref)
             WHEN effective_daily_demand > 0
             THEN DATEADD('day',
                     LEAST(
                         ROUND(stock_on_hand / effective_daily_demand, 0)::INT,
                         3650
                     ),
-                    '2026-03-18'::DATE)
+                    (SELECT d FROM disp_ref))
             ELSE NULL
         END                                         AS predicted_stockout_date,
 
@@ -475,27 +506,33 @@ SELECT
 FROM evaluation_pos_sale_details epsd
 WHERE epsd.STATUS = 'Paid'
   AND epsd.AMOUNT > 0
-  AND epsd.CREATED_AT::DATE >= '2025-09-01'
+  AND epsd.CREATED_AT::DATE >= '2025-09-01' 
 GROUP BY 1
 ORDER BY 1
 """
 
 HOME_PERIOD_QUERY = """
+WITH ref AS (
+    SELECT MAX(CREATED_AT::DATE) AS d
+    FROM evaluation_pos_sale_details
+    WHERE STATUS = 'Paid' AND AMOUNT > 0
+)
 SELECT
     SUM(CASE
-        WHEN CREATED_AT::DATE >= DATEADD('day', -30, '2026-03-18')
-        THEN AMOUNT ELSE 0 END)                                     AS rev_last_30d,
+        WHEN e.CREATED_AT::DATE >= DATEADD('day', -30, r.d)
+        THEN e.AMOUNT ELSE 0 END)                                    AS rev_last_30d,
     SUM(CASE
-        WHEN CREATED_AT::DATE >= DATEADD('day', -60, '2026-03-18')
-         AND CREATED_AT::DATE <  DATEADD('day', -30, '2026-03-18')
-        THEN AMOUNT ELSE 0 END)                                     AS rev_prior_30d,
+        WHEN e.CREATED_AT::DATE >= DATEADD('day', -60, r.d)
+         AND e.CREATED_AT::DATE <  DATEADD('day', -30, r.d)
+        THEN e.AMOUNT ELSE 0 END)                                    AS rev_prior_30d,
     COUNT(DISTINCT CASE
-        WHEN CREATED_AT::DATE >= DATEADD('day', -30, '2026-03-18')
-        THEN SALE_ID END)                                           AS txns_last_30d
-FROM evaluation_pos_sale_details
-WHERE STATUS = 'Paid'
-  AND AMOUNT > 0
-  AND CREATED_AT::DATE >= DATEADD('day', -60, '2026-03-18')
+        WHEN e.CREATED_AT::DATE >= DATEADD('day', -30, r.d)
+        THEN e.SALE_ID END)                                          AS txns_last_30d
+FROM evaluation_pos_sale_details e
+CROSS JOIN ref r
+WHERE e.STATUS = 'Paid'
+  AND e.AMOUNT > 0
+  AND e.CREATED_AT::DATE >= DATEADD('day', -60, r.d)
 """
 
 STORE_TREND_QUERY = """
@@ -512,7 +549,7 @@ FROM inventory_stores s
 JOIN inventory_store_products isp ON s.ID = isp.STORE_ID
 JOIN evaluation_pos_sale_details e
     ON e.STORE_PRODUCT_ID = isp.ID
-    AND e.CREATED_AT::DATE >= '2025-09-01'
+    AND e.CREATED_AT::DATE >= '2025-09-01' 
 GROUP BY DATE_TRUNC('month', e.CREATED_AT::DATE), s.NAME
 ORDER BY s.NAME, month
 """

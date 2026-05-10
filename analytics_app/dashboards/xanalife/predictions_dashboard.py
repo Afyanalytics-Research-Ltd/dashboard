@@ -353,8 +353,104 @@ div[data-testid="stMetricValue"] {
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-thumb { background: #B0C8E0; border-radius: 10px; }
 
-/* ── Slider ────────────────────────────────────────────────────────── */
-.stSlider [data-baseweb="slider"] div div { background: #0072CE !important; }
+/* ── Sliders & Select Sliders ──────────────────────────────────────── */
+.stSlider, .stSelectSlider {
+    padding: 4px 4px 8px;
+}
+.stSlider label, .stSelectSlider label {
+    color: #0A1F44 !important;
+    font-weight: 600 !important;
+    font-size: 12.5px !important;
+    margin-bottom: 6px !important;
+}
+
+/* Give the slider some breathing room so the thumb glow isn't clipped */
+.stSlider [data-baseweb="slider"],
+.stSelectSlider [data-baseweb="slider"] {
+    padding: 22px 12px 28px !important;
+}
+
+/* Unfilled track */
+.stSlider [data-baseweb="slider"] > div > div,
+.stSelectSlider [data-baseweb="slider"] > div > div {
+    background: #D6E4F0 !important;
+    height: 6px !important;
+    border-radius: 4px !important;
+}
+
+/* Filled portion — gradient that matches the rest of the theme */
+.stSlider [data-baseweb="slider"] > div > div > div,
+.stSelectSlider [data-baseweb="slider"] > div > div > div {
+    background: linear-gradient(90deg, #0072CE 0%, #00B4D8 100%) !important;
+    height: 6px !important;
+    border-radius: 4px !important;
+    box-shadow: 0 0 10px rgba(0, 114, 206, 0.35) !important;
+}
+
+/* The draggable thumb */
+.stSlider [role="slider"],
+.stSelectSlider [role="slider"] {
+    background: #FFFFFF !important;
+    border: 3px solid #0072CE !important;
+    width: 22px !important;
+    height: 22px !important;
+    border-radius: 50% !important;
+    box-shadow:
+        0 4px 12px rgba(0, 114, 206, 0.35),
+        0 0 0 4px rgba(0, 114, 206, 0.10) !important;
+    transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease !important;
+}
+
+.stSlider [role="slider"]:hover,
+.stSelectSlider [role="slider"]:hover {
+    transform: scale(1.15);
+    border-color: #00B4D8 !important;
+    box-shadow:
+        0 6px 18px rgba(0, 114, 206, 0.45),
+        0 0 0 8px rgba(0, 114, 206, 0.14) !important;
+}
+
+.stSlider [role="slider"]:focus,
+.stSlider [role="slider"]:active,
+.stSelectSlider [role="slider"]:focus,
+.stSelectSlider [role="slider"]:active {
+    outline: none !important;
+    box-shadow:
+        0 6px 18px rgba(0, 114, 206, 0.55),
+        0 0 0 10px rgba(0, 114, 206, 0.20) !important;
+}
+
+/* Value bubble that floats above the thumb while dragging */
+.stSlider [data-baseweb="slider"] [data-testid="stThumbValue"],
+.stSelectSlider [data-baseweb="slider"] [data-testid="stThumbValue"],
+.stSlider [data-baseweb="slider"] div[role="slider"] + div,
+.stSelectSlider [data-baseweb="slider"] div[role="slider"] + div {
+    background: linear-gradient(135deg, #003566 0%, #0072CE 100%) !important;
+    color: #FFFFFF !important;
+    font-family: 'JetBrains Mono', monospace !important;
+    font-weight: 700 !important;
+    font-size: 11.5px !important;
+    border: none !important;
+    border-radius: 6px !important;
+    padding: 3px 10px !important;
+    box-shadow: 0 4px 10px rgba(0, 53, 102, 0.25) !important;
+    letter-spacing: 0.3px !important;
+}
+
+/* Min / max tick labels under the track */
+.stSlider [data-testid="stTickBar"],
+.stSelectSlider [data-testid="stTickBar"] {
+    background: transparent !important;
+    padding: 0 !important;
+}
+.stSlider [data-testid="stTickBar"] > div,
+.stSelectSlider [data-testid="stTickBar"] > div {
+    color: #6B8CAE !important;
+    font-family: 'JetBrains Mono', monospace !important;
+    font-size: 10px !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.4px !important;
+}
 </style>
 """,
     unsafe_allow_html=True,
@@ -1550,13 +1646,15 @@ elif analysis_type == "Customer Lifetime Value":
                 saved = base_loss * (save_rate / 100)
                 cost = len(high_risk) * spend_per_save * (save_rate / 100)
                 roi = (saved - cost) / max(cost, 1) * 100 if cost > 0 else float("nan")
+                roi_log = np.log1p(roi)  # log(1 + ROI)
+                # roi = (saved - cost) / max(cost, 1) * 100 if cost > 0 else float("nan")
 
                 c1, c2, c3 = st.columns(3)
                 with c1: kpi_card("Revenue protected", fmt_ksh(saved), f"{horizon}-mo horizon", COLORS["success"])
                 with c2: kpi_card("Campaign cost", fmt_ksh(cost), f"{int(len(high_risk) * save_rate / 100):,} contacts",
                                   COLORS["warning"])
                 with c3: kpi_card("ROI",
-                                  f"{roi:.0f}%" if not np.isnan(roi) else "—",
+                                  f"{roi_log:.0f}%" if not np.isnan(roi_log) else "—",
                                   "saved minus cost",
                                   COLORS["success"] if roi > 0 else COLORS["danger"])
 

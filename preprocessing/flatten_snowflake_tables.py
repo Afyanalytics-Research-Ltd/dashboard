@@ -1,7 +1,14 @@
 from collections import defaultdict
-import os 
+import os
+import sys 
 import snowflake.connector
 from dotenv import load_dotenv 
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from analytics_app.dashboards.snowflake_service.snowflake_client import SnowflakeClient
 
 load_dotenv()
 
@@ -23,9 +30,10 @@ CLEAN_SCHEMAS = ["KISUMU_CLEAN","KAKAMEGA_CLEAN","LODWAR_CLEAN"]
 
 
 SCHEMA_PAIRS = [
-    ("KISUMU_RAW", "KISUMU_CLEAN"),
-    ("KAKAMEGA_RAW", "KAKAMEGA_CLEAN"),
-    ("LODWAR_RAW", "LODWAR_CLEAN"),
+    #("KISUMU_RAW", "KISUMU_CLEAN"),
+    #("KAKAMEGA_RAW", "KAKAMEGA_CLEAN"),
+    #("LODWAR_RAW", "LODWAR_CLEAN"),
+    ("XANALIFE_RAW", "XANALIFE_CLEAN"),
 ]
 
 # SNOWFLAKE CONNECTION
@@ -34,16 +42,8 @@ def _snowflake_connect(**kwargs):
     """
     Helper function to establish a connection to Snowflake using provided parameters.
     """
-    return snowflake.connector.connect(
-        account=SF_ACCOUNT,
-        user=SF_USER,
-        password=SF_PASSWORD,
-        role=SF_ROLE,
-        warehouse=SF_WAREHOUSE,
-        database=SF_DATABASE,
-        authenticator=SF_AUTHENTICATOR,
-        **kwargs
-    )
+    return SnowflakeClient().conn
+
 # HELPER FUNCTIONS
 
 # resolves when we have multiple observed types for a field, e.g. ["INTEGER", "NULL_VALUE"] or ["INTEGER", "VARCHAR"]

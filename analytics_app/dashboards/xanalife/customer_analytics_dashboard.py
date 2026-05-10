@@ -264,13 +264,13 @@ with _t1:
     st.markdown(_kpi_tile("Customer Base", (
         _kpi_metric("Active",   fmt_num(kpi_df["active_customers"].iloc[0]),   "total customers (lifetime)", AFYA_BLUE) +
         _kpi_metric("Repeat",   fmt_num(kpi_df["repeat_customers"].iloc[0]),   "visited more than once",     TEAL) +
-        _kpi_metric("One-Time", fmt_num(kpi_df["one_time_customers"].iloc[0]), "never returned",             CORAL)
+        _kpi_metric("One-Time", fmt_num(kpi_df["one_time_customers"].iloc[0]), "never returned",             CORAL) +
+        _kpi_metric("New (30d)",fmt_num(kpi_df["new_last_30d"].iloc[0]),       "first purchase",             ORANGE)
     )), unsafe_allow_html=True)
 with _t2:
     st.markdown(_kpi_tile("Loyalty & Retention — Customers", (
         _kpi_metric("Regular",  fmt_num(rl_df["regular_customers"].iloc[0]),  "6+ visits in 90 days",    PURPLE) +
-        _kpi_metric("Loyal",    fmt_num(rl_df["loyal_customers"].iloc[0]),    "12+ visits, seen in 21d", COOL_BLUE) +
-        _kpi_metric("New (30d)",fmt_num(kpi_df["new_last_30d"].iloc[0]),      "first purchase",          ORANGE)
+        _kpi_metric("Loyal",    fmt_num(rl_df["loyal_customers"].iloc[0]),    "12+ visits, seen in 21d", COOL_BLUE)
     )), unsafe_allow_html=True)
 with _t3:
     st.markdown(_kpi_tile("Basket", (
@@ -1281,52 +1281,6 @@ with tab3:
         st.dataframe(pd.DataFrame(action_rows), width='stretch', hide_index=True)
 
     gap(8)
-    sh("Shopping Rhythm — How Reliably Do Customers Visit?", mt=4)
-    cons_df = D.load_consistency_segments(cluster=cluster, biz=biz)
-    cons_df = cons_df.fillna(0)
-    rhythm_colors = {"Weekly": TEAL, "Bi-Weekly": AFYA_BLUE, "Monthly": PURPLE,
-                     "Sporadic": ORANGE, "One-Time": CORAL}
-
-    c1, c2 = st.columns(2, gap="large")
-    with c1:
-        fig_cons = go.Figure(go.Bar(
-            x=cons_df["shopping_rhythm"].fillna("Unknown"),
-            y=cons_df["customer_count"].fillna(0),
-            marker_color=[rhythm_colors.get(r, GRAY) for r in cons_df["shopping_rhythm"].fillna("")],
-            text=cons_df["customer_count"].fillna(0).astype(int),
-            textposition="outside", cliponaxis=False,
-            customdata=cons_df["avg_days_between_visits"],
-            hovertemplate="<b>%{x}</b><br>%{y} customers<br>Avg gap: %{customdata} days<extra></extra>",
-        ))
-        fig_cons.update_layout(**_CL, height=280)
-        fig_cons.update_xaxes(**_ax(showgrid=False, tickfont=dict(size=9)))
-        fig_cons.update_yaxes(**_ax(showgrid=False, showticklabels=False))
-        st.markdown('<div style="font-size:15px;font-weight:600;color:#003467;margin-bottom:4px">Customers by Shopping Rhythm</div>', unsafe_allow_html=True)
-        pc(fig_cons)
-
-    with c2:
-        cons_display = pd.DataFrame({
-            "Rhythm":           cons_df["shopping_rhythm"].fillna("Unknown"),
-            "Customers":        cons_df["customer_count"].astype(int),
-            "Avg Basket":       [fmt_ksh(v) for v in cons_df["avg_basket_value"]],
-            "Avg Lifetime Rev": [fmt_ksh(v) for v in cons_df["avg_lifetime_revenue"]],
-            "Avg Days Between": [f'{v}d' for v in cons_df["avg_days_between_visits"]],
-        })
-        st.dataframe(cons_display, width='stretch', hide_index=True, height=280)
-    st.markdown("""
-<div class="nb">
-<b>Shopping rhythm is classified by avg days between visits:</b>
-<ul style="margin:6px 0 0 0;padding-left:18px;line-height:1.9">
-<li><b>Weekly</b> — avg gap ≤ 7 days · highest lifetime revenue · most loyal segment</li>
-<li><b>Bi-Weekly</b> — avg gap ≤ 14 days · regular but less frequent</li>
-<li><b>Monthly</b> — avg gap ≤ 30 days · occasional shoppers</li>
-<li><b>Sporadic</b> — avg gap > 30 days · unpredictable visit pattern</li>
-<li><b>One-Time</b> — only one visit on record · no rhythm can be calculated</li>
-</ul>
-</div>
-""", unsafe_allow_html=True)
-
-    gap(8)
     sh("One-Time Customer Analysis — Why Didn't They Return?", mt=4)
     note("One-time rates of 40–60% are normal for supermarkets. Separate internal failures "
          "(fixable) from customers who were never the right fit (external).")
@@ -1407,6 +1361,52 @@ with tab3:
         st.markdown('<div style="font-size:15px;font-weight:600;color:#003467;margin-bottom:4px">Shopper Profile</div>', unsafe_allow_html=True)
         pc(fig_otps)
         note("Staples-only = price cherry-picker. Loyalty won't work.", warn=True)
+
+    gap(8)
+    sh("Shopping Rhythm — How Reliably Do Customers Visit?", mt=4)
+    cons_df = D.load_consistency_segments(cluster=cluster, biz=biz)
+    cons_df = cons_df.fillna(0)
+    rhythm_colors = {"Weekly": TEAL, "Bi-Weekly": AFYA_BLUE, "Monthly": PURPLE,
+                     "Sporadic": ORANGE, "One-Time": CORAL}
+
+    c1, c2 = st.columns(2, gap="large")
+    with c1:
+        fig_cons = go.Figure(go.Bar(
+            x=cons_df["shopping_rhythm"].fillna("Unknown"),
+            y=cons_df["customer_count"].fillna(0),
+            marker_color=[rhythm_colors.get(r, GRAY) for r in cons_df["shopping_rhythm"].fillna("")],
+            text=cons_df["customer_count"].fillna(0).astype(int),
+            textposition="outside", cliponaxis=False,
+            customdata=cons_df["avg_days_between_visits"],
+            hovertemplate="<b>%{x}</b><br>%{y} customers<br>Avg gap: %{customdata} days<extra></extra>",
+        ))
+        fig_cons.update_layout(**_CL, height=280)
+        fig_cons.update_xaxes(**_ax(showgrid=False, tickfont=dict(size=9)))
+        fig_cons.update_yaxes(**_ax(showgrid=False, showticklabels=False))
+        st.markdown('<div style="font-size:15px;font-weight:600;color:#003467;margin-bottom:4px">Customers by Shopping Rhythm</div>', unsafe_allow_html=True)
+        pc(fig_cons)
+
+    with c2:
+        cons_display = pd.DataFrame({
+            "Rhythm":           cons_df["shopping_rhythm"].fillna("Unknown"),
+            "Customers":        cons_df["customer_count"].astype(int),
+            "Avg Basket":       [fmt_ksh(v) for v in cons_df["avg_basket_value"]],
+            "Avg Lifetime Rev": [fmt_ksh(v) for v in cons_df["avg_lifetime_revenue"]],
+            "Avg Days Between": [f'{v}d' for v in cons_df["avg_days_between_visits"]],
+        })
+        st.dataframe(cons_display, width='stretch', hide_index=True, height=280)
+    st.markdown("""
+<div class="nb">
+<b>Shopping rhythm is classified by avg days between visits:</b>
+<ul style="margin:6px 0 0 0;padding-left:18px;line-height:1.9">
+<li><b>Weekly</b> — avg gap ≤ 7 days · highest lifetime revenue · most loyal segment</li>
+<li><b>Bi-Weekly</b> — avg gap ≤ 14 days · regular but less frequent</li>
+<li><b>Monthly</b> — avg gap ≤ 30 days · occasional shoppers</li>
+<li><b>Sporadic</b> — avg gap > 30 days · unpredictable visit pattern</li>
+<li><b>One-Time</b> — only one visit on record · no rhythm can be calculated</li>
+</ul>
+</div>
+""", unsafe_allow_html=True)
 
     gap(8); sh("Insights")
     ic1, ic2, ic3 = st.columns(3, gap="large")

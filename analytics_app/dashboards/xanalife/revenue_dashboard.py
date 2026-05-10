@@ -37,15 +37,15 @@ html,body,[class*="css"]{font-family:'Montserrat',sans-serif;background:#fff;col
 .stApp{background:#fff}
 [data-testid="stSidebar"]{background:#F4F8FC;border-right:1px solid #D6E4F0}
 [data-testid="stSidebar"] *{color:#003467!important;font-family:'Montserrat',sans-serif!important}
-.sh{font-size:10px;font-weight:800;color:#0072CE;text-transform:uppercase;
+.sh{font-size:12px;font-weight:800;color:#0072CE;text-transform:uppercase;
     letter-spacing:2.5px;padding:8px 0;border-bottom:2px solid #EBF3FB;margin-bottom:16px}
-.badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700}
+.badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:12px;font-weight:700}
 .stButton button{background:#0072CE!important;color:#fff!important;border:none!important;
-  font-family:'Montserrat',sans-serif!important;font-size:11px!important;font-weight:700!important;
+  font-family:'Montserrat',sans-serif!important;font-size:13px!important;font-weight:700!important;
   letter-spacing:1px!important;padding:8px 18px!important;border-radius:6px!important}
 .stButton button:hover{background:#003467!important}
 [data-baseweb="tab"]{font-family:'Montserrat',sans-serif!important;font-weight:600!important;
-  color:#6B8CAE!important;font-size:12px!important}
+  color:#6B8CAE!important;font-size:14px!important}
 [aria-selected="true"]{color:#0072CE!important;border-bottom-color:#0072CE!important}
 ::-webkit-scrollbar{width:6px;height:6px}
 ::-webkit-scrollbar-thumb{background:#B0C8E0;border-radius:10px}
@@ -66,10 +66,10 @@ def fmt_ksh(v):
 def kpi_card(label, value, sub="", color="#003467"):
     st.markdown(
         f'<div style="background:#F4F8FC;border:1px solid #D6E4F0;border-radius:8px;padding:18px 16px">'
-        f'<div style="font-size:10px;font-weight:700;color:#6B8CAE;text-transform:uppercase;'
+        f'<div style="font-size:12px;font-weight:700;color:#6B8CAE;text-transform:uppercase;'
         f'letter-spacing:1.5px;margin-bottom:8px">{label}</div>'
-        f'<div style="font-size:28px;font-weight:800;color:{color};line-height:1">{value}</div>'
-        f'<div style="font-size:11px;color:#6B8CAE;margin-top:6px">{sub}</div>'
+        f'<div style="font-size:32px;font-weight:800;color:{color};line-height:1">{value}</div>'
+        f'<div style="font-size:13px;color:#6B8CAE;margin-top:6px">{sub}</div>'
         f'</div>', unsafe_allow_html=True)
 
 def section_header(text, margin_top=0):
@@ -79,7 +79,7 @@ def section_header(text, margin_top=0):
 def info_card(text, border_color="#0072CE"):
     st.markdown(
         f'<div style="padding:10px 14px;background:#F4F8FC;border-left:3px solid {border_color};'
-        f'border-radius:4px;font-size:12px;color:#003467;margin-bottom:10px">{text}</div>',
+        f'border-radius:4px;font-size:14px;color:#003467;margin-bottom:10px">{text}</div>',
         unsafe_allow_html=True)
 
 CHART_LAYOUT = dict(
@@ -222,7 +222,7 @@ if page == "Overview":
     mom_pct   = (mom_delta / rev["REVENUE_LAST_MONTH"] * 100) if rev["REVENUE_LAST_MONTH"] > 0 else 0
 
     st.markdown(
-        '<p style="font-size:11px;font-weight:800;letter-spacing:3px;text-transform:uppercase;'
+        '<p style="font-size:13px;font-weight:800;letter-spacing:3px;text-transform:uppercase;'
         'color:#0072CE;margin-bottom:4px">Xanalife · Executive Overview</p>',
         unsafe_allow_html=True)
     st.caption("Sep 2025 – March 18 2026 · Data cutoff")
@@ -260,12 +260,12 @@ if page == "Overview":
         if inv["TOTAL_BALANCE"] > 0:
             alerts.append(("warning",
                 f"🟡 {fmt_ksh(inv['TOTAL_BALANCE'])} in outstanding invoices — "
-                f"{int(inv['TOTAL_INVOICES'])} invoices, none collected. Finance action required."))
+                f"{int(inv['TOTAL_INVOICES'])} invoices pending collection."))
         if loy["REDEMPTION_COUNT"] < 10:
             alerts.append(("muted",
                 f"⚪ Loyalty programme: {int(loy['TOTAL_EARNED']):,} points issued, "
                 f"only {int(loy['REDEMPTION_COUNT'])} redeemed. "
-                "Programme costs without retention benefit — review or relaunch."))
+                "Points issued with minimal redemption — programme review recommended."))
 
         for severity, text in alerts:
             info_card(text, COLORS[severity])
@@ -314,6 +314,9 @@ if page == "Cash Integrity":
     anomaly  = D["Analysis 3 — Anomalous Shifts"].copy()
     exposure = D["Analysis 5 — Unclosed Shift Exposure"].copy()
     by_user  = D["Analysis 6 — Unclosed by Station"].copy()
+    inv_sum  = D["Invoice Summary"].copy()
+    inv_cred = D["Invoice By Creditor"].copy()
+    inv_list = D["Invoice List"].copy()
 
     for col in ["NET_VARIANCE", "SHIFTS", "CASH_AT_RISK", "VARIANCE_PCT", "PCT_OF_LOSS_POOL"]:
         pareto[col] = pd.to_numeric(pareto[col], errors="coerce")
@@ -326,7 +329,15 @@ if page == "Cash Integrity":
     for col in ["SALES", "VARIANCE"]:
         if col in anomaly.columns:
             anomaly[col] = pd.to_numeric(anomaly[col], errors="coerce")
+    for col in ["UNIQUE_INVOICES", "TOTAL_OUTSTANDING_KES", "CORPORATE_KES",
+                "CORPORATE_COUNT", "CASH_PATIENT_KES", "CASH_PATIENT_COUNT"]:
+        inv_sum[col] = pd.to_numeric(inv_sum[col], errors="coerce")
+    for col in ["INVOICE_COUNT", "OUTSTANDING_KES"]:
+        inv_cred[col] = pd.to_numeric(inv_cred[col], errors="coerce")
+    for col in ["AMOUNT_KES", "OUTSTANDING_BALANCE_KES"]:
+        inv_list[col] = pd.to_numeric(inv_list[col], errors="coerce")
 
+    # Shift metrics
     total_var        = pareto["NET_VARIANCE"].sum()
     top1             = pareto.nsmallest(1, "NET_VARIANCE").iloc[0]
     top3             = pareto.nsmallest(3, "NET_VARIANCE")
@@ -339,34 +350,106 @@ if page == "Cash Integrity":
     last_var         = float(ts["VARIANCE_PCT"].iloc[-1])
     worsening        = last_var < first_var
 
-    st.markdown(
-        '<p style="font-size:11px;font-weight:800;letter-spacing:3px;text-transform:uppercase;'
-        'color:#0072CE;margin-bottom:4px">Xanalife · Cash &amp; Shifts</p>',
-        unsafe_allow_html=True)
-    st.caption("Sep 2025 – present · Closed shifts only · System/admin users excluded")
-    info_card(
-        "Note: supervisor accounts appear in raw shift data and are excluded from this analysis. "
-        "These records hold no cashier intelligence — flag to engineer for system cleanup.",
-        COLORS["muted"])
+    # Invoice metrics
+    inv_row           = inv_sum.iloc[0]
+    total_outstanding = float(inv_row["TOTAL_OUTSTANDING_KES"])
+    total_inv_count   = int(inv_row["UNIQUE_INVOICES"])
+    corp_kes          = float(inv_row["CORPORATE_KES"])
+    corp_count        = int(inv_row["CORPORATE_COUNT"])
+    cash_kes          = float(inv_row["CASH_PATIENT_KES"])
+    cash_count        = int(inv_row["CASH_PATIENT_COUNT"])
+    oldest_inv        = pd.to_datetime(inv_cred["OLDEST_INVOICE"], errors="coerce").min() if not inv_cred.empty else None
+    oldest_label      = oldest_inv.strftime("%b %Y") if pd.notna(oldest_inv) else "—"
 
+    st.markdown(
+        '<p style="font-size:13px;font-weight:800;letter-spacing:3px;text-transform:uppercase;'
+        'color:#0072CE;margin-bottom:4px">Xanalife · Cash &amp; Financial Controls</p>',
+        unsafe_allow_html=True)
+    st.caption("Sep 2025 – March 18 2026 · Outstanding invoices and cashier shift variance")
+
+    # ── Invoice KPIs ──────────────────────────────────────────────────────────
+    section_header("Outstanding Receivables")
+    i1, i2, i3, i4 = st.columns(4)
+    with i1:
+        kpi_card("Total Outstanding", fmt_ksh(total_outstanding),
+                 f"{total_inv_count} invoices — none collected", COLORS["danger"])
+    with i2:
+        kpi_card("Corporate Accounts", fmt_ksh(corp_kes),
+                 f"{corp_count} invoices — credit account debt", COLORS["warning"])
+    with i3:
+        kpi_card("Cash Patients", fmt_ksh(cash_kes),
+                 f"{cash_count} invoices — payer details not available", COLORS["warning"])
+    with i4:
+        kpi_card("Oldest Unpaid Invoice", oldest_label,
+                 "Earliest outstanding invoice still open", COLORS["muted"])
+
+    st.markdown("<div style='margin-bottom:16px'></div>", unsafe_allow_html=True)
+
+    # ── Shift KPIs ────────────────────────────────────────────────────────────
+    section_header("Cashier Shift Variance")
     c1, c2, c3, c4 = st.columns(4)
     with c1:
         kpi_card("Cash Shortfall", fmt_ksh(abs(total_var)),
-                 f"Top 3 cashiers = {top3_pct:.0f}% of all missing cash", COLORS["danger"])
+                 f"Top 3 stations account for {top3_pct:.0f}% of total variance", COLORS["danger"])
     with c2:
-        kpi_card("Problem Shifts", str(len(anomaly)),
-                 "Shifts where missing cash exceeded total sales — needs investigation", COLORS["danger"])
+        kpi_card("Flagged Shifts", str(len(anomaly)),
+                 "Shifts where reported variance exceeded total recorded sales", COLORS["danger"])
     with c3:
-        kpi_card("Shifts Never Closed", f"{unclosed_count:,}",
-                 f"{fmt_ksh(revenue_unclosed)} revenue with no closing record", COLORS["warning"])
+        kpi_card("Unclosed Shifts", f"{unclosed_count:,}",
+                 f"{fmt_ksh(revenue_unclosed)} in revenue without a closing record", COLORS["warning"])
     with c4:
         kpi_card("Shortfall Trend",
-                 "Getting Worse ↓" if worsening else "Stable / Improving",
+                 "Negative Trend ↓" if worsening else "Stable / Improving",
                  f"{first_var:.2f}% → {last_var:.2f}% since go-live",
                  COLORS["danger"] if worsening else COLORS["success"])
 
     st.markdown("<div style='margin-bottom:16px'></div>", unsafe_allow_html=True)
-    tab1, tab2, tab3 = st.tabs(["◉  Worst Offenders", "△  Month by Month", "∑  Shift Detail"])
+    tab0, tab1, tab2, tab3 = st.tabs([
+        "◉  Outstanding Invoices", "△  Variance by Cashier",
+        "∑  Month by Month",       "◎  Shift Audit"])
+
+    with tab0:
+        section_header("Receivables by Creditor")
+        info_card(
+            f"<b>{fmt_ksh(total_outstanding)}</b> in outstanding invoices across "
+            f"<b>{total_inv_count}</b> unique invoices has been verified against all available "
+            f"payment records — no matching payment found. Corporate account IDs are system "
+            f"references; exact company names require confirmation from the finance team.",
+            COLORS["warning"])
+
+        if not inv_cred.empty:
+            cred_sorted = inv_cred.sort_values("OUTSTANDING_KES", ascending=True)
+            bar_colors  = [COLORS["muted"] if r["FOR_CASH"] == 1 else COLORS["danger"]
+                           for _, r in cred_sorted.iterrows()]
+            fig_inv = go.Figure(go.Bar(
+                x=cred_sorted["OUTSTANDING_KES"],
+                y=cred_sorted["CREDITOR"],
+                orientation="h",
+                marker_color=bar_colors,
+                hovertemplate="%{y}<br>Outstanding: KSh %{x:,.0f}<extra></extra>"))
+            fig_inv.update_layout(**CHART_LAYOUT, height=max(240, len(inv_cred) * 36),
+                                  xaxis_title="Outstanding Balance (KSh)")
+            fig_inv.update_xaxes(tickprefix="KSh ", tickformat=",.0f")
+            st.plotly_chart(fig_inv, use_container_width=True, config={"displayModeBar": False})
+
+        section_header("Invoice Register", margin_top=16)
+        st.caption("All outstanding invoices since go-live, largest balance first.")
+        if not inv_list.empty:
+            inv_display = inv_list.rename(columns={
+                "INVOICE_ID":              "Invoice ID",
+                "INVOICE_NUMBER":          "Invoice No.",
+                "CREATED_DATE":            "Date",
+                "PAYER_TYPE":              "Payer Type",
+                "CORPORATE_ID":            "Account ID",
+                "AMOUNT_KES":              "Amount (KSh)",
+                "OUTSTANDING_BALANCE_KES": "Outstanding (KSh)"})
+            st.dataframe(inv_display, use_container_width=True, hide_index=True, height=400)
+
+        st.markdown("<div style='margin-bottom:8px'></div>", unsafe_allow_html=True)
+        st.download_button(
+            "⬇ Download invoice register (CSV)",
+            inv_list.to_csv(index=False),
+            "outstanding_invoices.csv", "text/csv")
 
     with tab1:
         section_header("Cash Shortfall by Cashier")
@@ -383,22 +466,16 @@ if page == "Cash Integrity":
         fig.update_xaxes(tickprefix="KSh ", tickformat=",.0f")
         st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
-        section_header("Action Required", margin_top=16)
+        section_header("Summary Findings", margin_top=16)
         decisions = [
             {"Severity": "Critical",
-             "Finding": f"User {top1['USER_ID']} — {fmt_ksh(abs(top1['NET_VARIANCE']))} shortfall ({abs(top1['PCT_OF_LOSS_POOL']):.0f}% of total losses)",
-             "Action": "Pull shift logs. Cross-reference opening balance against cash collected."},
+             "Finding": f"Station {top1['USER_ID']} — {fmt_ksh(abs(top1['NET_VARIANCE']))} variance ({abs(top1['PCT_OF_LOSS_POOL']):.0f}% of total)"},
             {"Severity": "Critical",
-             "Finding": f"{len(anomaly)} shifts where variance exceeded total sales",
-             "Action": "shift logs for all flagged shifts. Cross-reference opening balances."},
+             "Finding": f"{len(anomaly)} shifts where reported variance exceeded total recorded sales"},
             {"Severity": "High",
-             "Finding": f"{unclosed_count:,} shifts never closed — {fmt_ksh(revenue_unclosed)} unreconciled",
-             "Action": "Enforce: no new shift opens until prior shift is closed."},
+             "Finding": f"{unclosed_count:,} shifts with no closing record — {fmt_ksh(revenue_unclosed)} in unreconciled revenue"},
             {"Severity": "High" if worsening else "Monitor",
-             "Finding": f"Variance trend {first_var:.2f}% → {last_var:.2f}% ({'worsening' if worsening else 'stable'})",
-             "Action": ("Spot Audit Shift Records. "
-                        "Remove system test from the data.")
-             if worsening else "Reinforce current controls. Re-evaluate in 30 days."},
+             "Finding": f"Variance trend {first_var:.2f}% → {last_var:.2f}% ({'deteriorating' if worsening else 'stable'}) since go-live"},
         ]
         st.dataframe(pd.DataFrame(decisions), use_container_width=True, hide_index=True)
 
@@ -433,12 +510,12 @@ if page == "Cash Integrity":
         st.plotly_chart(fig3, use_container_width=True, config={"displayModeBar": False})
 
     with tab3:
-        section_header(f"Problem Shifts — {len(anomaly)}")
-        st.caption("Shifts where missing cash exceeded total sales. Share with HR and operations.")
+        section_header(f"Flagged Shifts — {len(anomaly)}")
+        st.caption("Shifts where reported variance exceeded total recorded sales for the period.")
         st.dataframe(anomaly, use_container_width=True, hide_index=True, height=250)
 
         section_header("Cashiers with Unclosed Shifts", margin_top=16)
-        st.caption("Cashiers with more than 30% of their shifts left unclosed need follow-up.")
+        st.caption("Stations with an unclosed shift rate above 30%.")
 
         if not by_user.empty:
             fig4 = go.Figure(go.Bar(
@@ -499,10 +576,10 @@ if page == "Stock Intelligence":
     top_cat      = cat_exp.iloc[0]["NAME"] if not cat_exp.empty else "—"
 
     st.markdown(
-        '<p style="font-size:11px;font-weight:800;letter-spacing:3px;text-transform:uppercase;'
+        '<p style="font-size:13px;font-weight:800;letter-spacing:3px;text-transform:uppercase;'
         'color:#0072CE;margin-bottom:4px">Xanalife · Stock Intelligence</p>',
         unsafe_allow_html=True)
-    st.caption("Out-of-stock gaps, what customers buy instead, and products running low · Sep 2025 – present")
+    st.caption("Sep 2025 – March 18 2026 · Stockout windows, substitution patterns, and depletion risk")
 
     c1, c2, c3, c4 = st.columns(4)
     with c1:
@@ -661,10 +738,10 @@ if page == "Revenue Intelligence":
                   if peak_row is not None else "—")
 
     st.markdown(
-        '<p style="font-size:11px;font-weight:800;letter-spacing:3px;text-transform:uppercase;'
+        '<p style="font-size:13px;font-weight:800;letter-spacing:3px;text-transform:uppercase;'
         'color:#0072CE;margin-bottom:4px">Xanalife · Revenue Intelligence</p>',
         unsafe_allow_html=True)
-    st.caption("Sep 2025 – present · POS sales · All stores")
+    st.caption("Sep 2025 – March 18 2026 · POS sales · All stores")
 
     c1, c2, c3, c4 = st.columns(4)
     with c1:
@@ -830,8 +907,8 @@ if page == "Revenue Intelligence":
             info_card(
                 f"<b>Your peak revenue slot is {peak_label}</b> — {fmt_ksh(float(peak_row['REVENUE']))} cumulative revenue. "
                 f"Second highest: {second_peak['DAY_NAME']} {int(second_peak['HOUR_OF_DAY']):02d}:00. "
-                f"These are the windows where a staffing gap or shift handover costs the most. "
-                f"Lock these slots — no shift changes, no training sessions, full coverage.",
+                f"These are the windows where coverage gaps have the highest revenue impact. "
+                f"Prioritise full staffing during these periods — avoid shift handovers and training at peak times.",
                 COLORS["purple"])
 
     with tab4:
@@ -1027,15 +1104,15 @@ if page == "Profit Margins":
     loss_count  = int(ov_row["LOSS_MAKING_TRANSACTIONS"])
 
     st.markdown(
-        '<p style="font-size:11px;font-weight:800;letter-spacing:3px;text-transform:uppercase;'
+        '<p style="font-size:13px;font-weight:800;letter-spacing:3px;text-transform:uppercase;'
         'color:#0072CE;margin-bottom:4px">Xanalife · Profit Margins</p>',
         unsafe_allow_html=True)
-    st.caption("Sep 2025 – present · Based on sales with complete cost data (98.6% coverage)")
+    st.caption("Sep 2025 – March 18 2026 · Based on sales with complete cost data (98.6% coverage)")
     info_card(
-        "This page shows not just your <i>average</i> margin, but your <i>worst-case</i> margin — "
-        "what happens at the bottom of the range. The <b>Worst-Case Margin (5%)</b> means: in the bottom 5% of sales, "
-        "margin drops to this level. A low number here means discounts, pricing errors, or specific products "
-        "are selling below cost. The average looks fine — this shows what's hiding underneath.",
+        f"Average transaction margin is <b>{avg_m:.1f}%</b>. Downside analysis shows margins compress to "
+        f"<b>{mvar5:.1f}%</b> in the weakest 5% of transactions — this is the margin floor. "
+        f"<b>{loss_count:,}</b> transactions were recorded below cost, directly eroding profitability. "
+        f"No pricing decision, discount, or promotion should push a transaction below the {mvar5:.1f}% threshold.",
         COLORS["muted"])
     st.markdown("<div style='margin-bottom:8px'></div>", unsafe_allow_html=True)
 

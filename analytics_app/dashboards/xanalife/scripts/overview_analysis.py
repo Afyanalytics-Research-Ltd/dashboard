@@ -104,11 +104,22 @@ WHERE s.quantity <= 0
 """
 
 SQL_INVOICES_SUMMARY = """
+WITH deduped AS (
+    SELECT
+        id,
+        MIN(TRY_TO_NUMBER(amount))  AS amount,
+        MIN(TRY_TO_NUMBER(balance)) AS balance
+    FROM hospitals.xanalife_clean.finance_invoices
+    WHERE TRY_TO_TIMESTAMP(created_at) >= '2025-09-01'
+      AND deleted_at IS NULL
+      AND TRY_TO_NUMBER(balance) > 0
+    GROUP BY id
+)
 SELECT
-    COUNT(*)                                    AS total_invoices,
-    ROUND(SUM(TRY_TO_NUMBER(amount)), 0)        AS total_amount,
-    ROUND(SUM(TRY_TO_NUMBER(balance)), 0)       AS total_balance
-FROM hospitals.xanalife_clean.finance_invoices
+    COUNT(*)                AS total_invoices,
+    ROUND(SUM(amount), 0)   AS total_amount,
+    ROUND(SUM(balance), 0)  AS total_balance
+FROM deduped
 """
 
 SQL_LOYALTY_SUMMARY = """

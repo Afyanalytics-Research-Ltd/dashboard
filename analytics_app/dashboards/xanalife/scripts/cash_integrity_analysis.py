@@ -194,6 +194,91 @@ ORDER BY hours_since_open DESC
 """
 
 
+# ── Invoice analyses ────────────────────────────────────────────────────────────
+
+SQL_INVOICE_SUMMARY = """
+WITH deduped AS (
+    SELECT
+        id,
+        MIN(TRY_TO_NUMBER(balance))  AS balance,
+        MAX(TRY_TO_NUMBER(amount))   AS amount,
+        MIN(FOR_CASH)                AS for_cash,
+        MIN(CORPORATE_ID)            AS corporate_id
+    FROM hospitals.xanalife_clean.finance_invoices
+    WHERE TRY_TO_NUMBER(balance) > 0
+      AND TRY_TO_TIMESTAMP(created_at) >= '2025-09-01'
+      AND deleted_at IS NULL
+    GROUP BY id
+)
+SELECT
+    COUNT(*)                                                            AS unique_invoices,
+    ROUND(SUM(balance), 0)                                              AS total_outstanding_kes,
+    ROUND(SUM(CASE WHEN for_cash = 0 THEN balance ELSE 0 END), 0)      AS corporate_kes,
+    COUNT(CASE WHEN for_cash = 0 THEN 1 END)                           AS corporate_count,
+    ROUND(SUM(CASE WHEN for_cash = 1 THEN balance ELSE 0 END), 0)      AS cash_patient_kes,
+    COUNT(CASE WHEN for_cash = 1 THEN 1 END)                           AS cash_patient_count
+FROM deduped
+"""
+
+SQL_INVOICE_BY_CREDITOR = """
+WITH deduped AS (
+    SELECT
+        id,
+        MIN(TRY_TO_NUMBER(balance))              AS balance,
+        MIN(FOR_CASH)                            AS for_cash,
+        MIN(CORPORATE_ID)                        AS corporate_id,
+        MIN(TRY_TO_TIMESTAMP(created_at))::DATE  AS invoice_date
+    FROM hospitals.xanalife_clean.finance_invoices
+    WHERE TRY_TO_NUMBER(balance) > 0
+      AND TRY_TO_TIMESTAMP(created_at) >= '2025-09-01'
+      AND deleted_at IS NULL
+    GROUP BY id
+)
+SELECT
+    CASE WHEN for_cash = 0 THEN COALESCE(CAST(corporate_id AS VARCHAR), 'Unknown')
+         ELSE 'Cash Patients' END               AS creditor,
+    for_cash,
+    corporate_id,
+    COUNT(*)                                    AS invoice_count,
+    ROUND(SUM(balance), 0)                      AS outstanding_kes,
+    MIN(invoice_date)                           AS oldest_invoice,
+    MAX(invoice_date)                           AS latest_invoice
+FROM deduped
+GROUP BY 1, 2, 3
+ORDER BY outstanding_kes DESC
+"""
+
+SQL_INVOICE_LIST = """
+WITH deduped AS (
+    SELECT
+        id,
+        MIN(invoice_no)                                 AS invoice_number,
+        MIN(TRY_TO_TIMESTAMP(created_at))::DATE         AS created_date,
+        MIN(store_code)                                 AS store,
+        MIN(for_cash)                                   AS for_cash,
+        MIN(corporate_id)                               AS corporate_id,
+        MAX(TRY_TO_NUMBER(amount))                      AS amount_kes,
+        MIN(TRY_TO_NUMBER(balance))                     AS outstanding_balance_kes
+    FROM hospitals.xanalife_clean.finance_invoices
+    WHERE TRY_TO_NUMBER(balance) > 0
+      AND TRY_TO_TIMESTAMP(created_at) >= '2025-09-01'
+      AND deleted_at IS NULL
+    GROUP BY id
+)
+SELECT
+    id                                                          AS invoice_id,
+    invoice_number,
+    created_date,
+    CASE WHEN for_cash = 0 THEN 'Corporate / Insurance'
+         ELSE 'Cash Patient' END                                AS payer_type,
+    COALESCE(CAST(corporate_id AS VARCHAR), '—')               AS corporate_id,
+    amount_kes,
+    outstanding_balance_kes
+FROM deduped
+ORDER BY outstanding_balance_kes DESC
+"""
+
+
 # ── Registry ────────────────────────────────────────────────────────────────────
 
 ANALYSES = [
@@ -206,6 +291,9 @@ ANALYSES = [
     ("Analysis 7 — Unclosed Shift Trend",      SQL_UNCLOSED_TREND),
     ("Analysis 8 — Long-Duration Open Shifts", SQL_LONG_OPEN),
     ("Analysis 9 — Daily Compliance Report",   SQL_DAILY_COMPLIANCE),
+    ("Invoice Summary",                        SQL_INVOICE_SUMMARY),
+    ("Invoice By Creditor",                    SQL_INVOICE_BY_CREDITOR),
+    ("Invoice List",                           SQL_INVOICE_LIST),
 ]
 
 

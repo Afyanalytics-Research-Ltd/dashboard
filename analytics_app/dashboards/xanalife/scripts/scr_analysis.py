@@ -35,8 +35,7 @@ def _store_clause(store_names, dis_col="d.store_product_id"):
 
 # ── SQL templates ──────────────────────────────────────────────────────────────
 # All SCR queries use dispensing (d.store_product_id) as the fact join point.
-# Store filter uses IN subquery — no direct inventory_stores join in the weekly CTE.
-# Previous hardcoded pharmacy exclusion removed; Division filter drives store selection.
+# Retail category (1887) excluded — it is supermarket retail, not FMCG dispensing.
 
 SQL_SCR_SUMMARY = """
 WITH weekly AS (
@@ -49,8 +48,10 @@ WITH weekly AS (
     FROM hospitals.xanalife_clean.inventory_inventory_dispensing d
     JOIN hospitals.xanalife_clean.inventory_store_products sp
         ON d.store_product_id = sp.id
-    WHERE TRY_TO_TIMESTAMP(d.created_at) >= '2025-09-01'
+    WHERE TRY_TO_TIMESTAMP(d.created_at) >= {start_date}
+      AND TRY_TO_TIMESTAMP(d.created_at) <= {end_date}
       AND sp.product_name IS NOT NULL
+      AND sp.product_category != 1887
       {store_filter}
     GROUP BY 1, 2, 3, 4
 ),
@@ -155,8 +156,10 @@ WITH weekly AS (
     FROM hospitals.xanalife_clean.inventory_inventory_dispensing d
     JOIN hospitals.xanalife_clean.inventory_store_products sp
         ON d.store_product_id = sp.id
-    WHERE TRY_TO_TIMESTAMP(d.created_at) >= '2025-09-01'
+    WHERE TRY_TO_TIMESTAMP(d.created_at) >= {start_date}
+      AND TRY_TO_TIMESTAMP(d.created_at) <= {end_date}
       AND sp.product_name IS NOT NULL
+      AND sp.product_category != 1887
       {store_filter}
     GROUP BY 1, 2, 3
 ),
@@ -188,6 +191,8 @@ ORDER BY 2 DESC
 LIMIT 10
 """
 
+# Depletion uses last-28-days velocity — start is intentionally dynamic (DATEADD).
+# {end_date} caps dispensing to the data window only.
 SQL_DEPLETION_RISK = """
 WITH velocity AS (
     SELECT
@@ -200,7 +205,9 @@ WITH velocity AS (
     JOIN hospitals.xanalife_clean.inventory_store_products sp
         ON d.store_product_id = sp.id
     WHERE TRY_TO_TIMESTAMP(d.created_at) >= DATEADD('day', -28, CURRENT_DATE())
+      AND TRY_TO_TIMESTAMP(d.created_at) <= {end_date}
       AND sp.product_name IS NOT NULL
+      AND sp.product_category != 1887
       {store_filter}
     GROUP BY 1, 2, 3
 ),
@@ -251,12 +258,14 @@ LIMIT 50
 
 # ── Analyses registry ──────────────────────────────────────────────────────────
 
-def get_analyses(store_names=None):
+def get_analyses(store_names=None, start_date='2025-09-01', end_date='2026-03-31'):
     sf = _store_clause(store_names, dis_col="d.store_product_id")
+    sd = f"'{start_date}'"
+    ed = f"'{end_date}'"
     return [
-        ("SCR Summary — Stockouts + Top Substitute",  SQL_SCR_SUMMARY.format(store_filter=sf)),
-        ("Category Exposure — Stockouts by Category", SQL_CATEGORY_EXPOSURE.format(store_filter=sf)),
-        ("Depletion Risk — Days Until Stockout",      SQL_DEPLETION_RISK.format(store_filter=sf)),
+        ("SCR Summary — Stockouts + Top Substitute",  SQL_SCR_SUMMARY.format(store_filter=sf, start_date=sd, end_date=ed)),
+        ("Category Exposure — Stockouts by Category", SQL_CATEGORY_EXPOSURE.format(store_filter=sf, start_date=sd, end_date=ed)),
+        ("Depletion Risk — Days Until Stockout",      SQL_DEPLETION_RISK.format(store_filter=sf, end_date=ed)),
     ]
 
 ANALYSES = get_analyses()

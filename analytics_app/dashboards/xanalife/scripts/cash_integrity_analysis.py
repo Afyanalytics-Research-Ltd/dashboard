@@ -6,10 +6,12 @@ import pandas as pd
 from connect_to_snowflake import run_query_
 
 
+
 # ── Config ─────────────────────────────────────────────────────────────────────
 
 SHIFTS   = "hospitals.xanalife_clean.reception_reception_shifts"
 GO_LIVE  = "'2025-09-01'"
+GO_END   = "'2026-03-31'"
 EXCL_SYS = "(5, 1719, 1741, 1744, 1746, 1739)"
 EXCL_SUP = "('sudo', 'Mrs. Xana  Admin', 'Mrs. Carole  Herzog')"
 
@@ -27,6 +29,7 @@ WITH user_variance AS (
               NULLIF(SUM(TRY_TO_NUMBER(system_closing_balance)), 0) * 100, 2)  AS variance_pct
     FROM {SHIFTS}
     WHERE TRY_TO_TIMESTAMP(created_at) >= {GO_LIVE}
+      AND TRY_TO_TIMESTAMP(created_at) <= {GO_END}
       AND closed_at IS NOT NULL AND closed_at != ''
       AND user_id NOT IN {EXCL_SYS}
       AND confirmed_by NOT IN {EXCL_SUP}
@@ -59,6 +62,7 @@ SELECT
           NULLIF(SUM(TRY_TO_NUMBER(system_closing_balance)),0)*100,2) AS variance_pct
 FROM {SHIFTS}
 WHERE TRY_TO_TIMESTAMP(created_at) >= {GO_LIVE}
+  AND TRY_TO_TIMESTAMP(created_at) <= {GO_END}
   AND closed_at IS NOT NULL AND closed_at != ''
   AND user_id NOT IN {EXCL_SYS}
   AND confirmed_by NOT IN {EXCL_SUP}
@@ -82,6 +86,7 @@ SELECT
     closed_at
 FROM {SHIFTS}
 WHERE TRY_TO_TIMESTAMP(created_at) >= {GO_LIVE}
+  AND TRY_TO_TIMESTAMP(created_at) <= {GO_END}
   AND closed_at IS NOT NULL AND closed_at != ''
   AND TRY_TO_NUMBER(cashier_closing_balance) > 0
   AND ABS(TRY_TO_NUMBER(closing_variance)) > ABS(TRY_TO_NUMBER(system_closing_balance))
@@ -98,6 +103,7 @@ SELECT
     SUM(TRY_TO_NUMBER(system_closing_balance))                       AS cash_at_risk_supervised
 FROM {SHIFTS}
 WHERE TRY_TO_TIMESTAMP(created_at) >= {GO_LIVE}
+  AND TRY_TO_TIMESTAMP(created_at) <= {GO_END}
   AND closed_at IS NOT NULL AND closed_at != ''
   AND user_id NOT IN {EXCL_SYS}
   AND confirmed_by NOT IN {EXCL_SUP}
@@ -114,6 +120,7 @@ SELECT
     COUNT(DISTINCT user_id)                               AS stations_with_unclosed
 FROM {SHIFTS}
 WHERE TRY_TO_TIMESTAMP(created_at) >= {GO_LIVE}
+  AND TRY_TO_TIMESTAMP(created_at) <= {GO_END}
   AND (closed_at IS NULL OR closed_at = '')
   AND user_id NOT IN {EXCL_SYS}
 """
@@ -134,6 +141,7 @@ SELECT
               THEN TRY_TO_NUMBER(total_sales) ELSE 0 END), 0)           AS revenue_unclosed_kes
 FROM {SHIFTS}
 WHERE TRY_TO_TIMESTAMP(created_at) >= {GO_LIVE}
+  AND TRY_TO_TIMESTAMP(created_at) <= {GO_END}
   AND user_id NOT IN {EXCL_SYS}
 GROUP BY user_id
 ORDER BY unclosed_rate_pct DESC
@@ -151,6 +159,7 @@ SELECT
               THEN TRY_TO_NUMBER(total_sales) ELSE 0 END), 0)           AS revenue_at_risk_kes
 FROM {SHIFTS}
 WHERE TRY_TO_TIMESTAMP(created_at) >= {GO_LIVE}
+  AND TRY_TO_TIMESTAMP(created_at) <= {GO_END}
   AND user_id NOT IN {EXCL_SYS}
 GROUP BY 1
 ORDER BY 1
@@ -170,6 +179,7 @@ SELECT
     confirmed_by                               AS supervisor
 FROM {SHIFTS}
 WHERE TRY_TO_TIMESTAMP(created_at) >= {GO_LIVE}
+  AND TRY_TO_TIMESTAMP(created_at) <= {GO_END}
   AND user_id NOT IN {EXCL_SYS}
   AND DATEDIFF('hour',
         TRY_TO_TIMESTAMP(opened_at),
@@ -207,6 +217,7 @@ WITH deduped AS (
     FROM hospitals.xanalife_clean.finance_invoices
     WHERE TRY_TO_NUMBER(balance) > 0
       AND TRY_TO_TIMESTAMP(created_at) >= '2025-09-01'
+      AND TRY_TO_TIMESTAMP(created_at) <= '2026-03-31'
       AND deleted_at IS NULL
     GROUP BY id
 )
@@ -231,6 +242,7 @@ WITH deduped AS (
     FROM hospitals.xanalife_clean.finance_invoices
     WHERE TRY_TO_NUMBER(balance) > 0
       AND TRY_TO_TIMESTAMP(created_at) >= '2025-09-01'
+      AND TRY_TO_TIMESTAMP(created_at) <= '2026-03-31'
       AND deleted_at IS NULL
     GROUP BY id
 )
@@ -262,6 +274,7 @@ WITH deduped AS (
     FROM hospitals.xanalife_clean.finance_invoices
     WHERE TRY_TO_NUMBER(balance) > 0
       AND TRY_TO_TIMESTAMP(created_at) >= '2025-09-01'
+      AND TRY_TO_TIMESTAMP(created_at) <= '2026-03-31'
       AND deleted_at IS NULL
     GROUP BY id
 )
@@ -281,20 +294,27 @@ ORDER BY outstanding_balance_kes DESC
 
 # ── Registry ────────────────────────────────────────────────────────────────────
 
-ANALYSES = [
-    ("Analysis 1 — Pareto by Station",         SQL_PARETO),
-    ("Analysis 2 — Monthly Variance Trend",    SQL_MONTHLY_TREND),
-    ("Analysis 3 — Anomalous Shifts",          SQL_ANOMALOUS),
-    ("Analysis 4 — Supervisor Correlation",    SQL_SUPERVISOR),
-    ("Analysis 5 — Unclosed Shift Exposure",   SQL_UNCLOSED_EXPOSURE),
-    ("Analysis 6 — Unclosed by Station",       SQL_UNCLOSED_BY_STATION),
-    ("Analysis 7 — Unclosed Shift Trend",      SQL_UNCLOSED_TREND),
-    ("Analysis 8 — Long-Duration Open Shifts", SQL_LONG_OPEN),
-    ("Analysis 9 — Daily Compliance Report",   SQL_DAILY_COMPLIANCE),
-    ("Invoice Summary",                        SQL_INVOICE_SUMMARY),
-    ("Invoice By Creditor",                    SQL_INVOICE_BY_CREDITOR),
-    ("Invoice List",                           SQL_INVOICE_LIST),
-]
+def get_analyses(start_date='2025-09-01', end_date='2026-03-31'):
+    sd = f"'{start_date}'"
+    ed = f"'{end_date}'"
+    def _sub(sql):
+        return sql.replace(GO_LIVE, sd).replace(GO_END, ed)
+    return [
+        ("Analysis 1 — Pareto by Station",         _sub(SQL_PARETO)),
+        ("Analysis 2 — Monthly Variance Trend",    _sub(SQL_MONTHLY_TREND)),
+        ("Analysis 3 — Anomalous Shifts",          _sub(SQL_ANOMALOUS)),
+        ("Analysis 4 — Supervisor Correlation",    _sub(SQL_SUPERVISOR)),
+        ("Analysis 5 — Unclosed Shift Exposure",   _sub(SQL_UNCLOSED_EXPOSURE)),
+        ("Analysis 6 — Unclosed by Station",       _sub(SQL_UNCLOSED_BY_STATION)),
+        ("Analysis 7 — Unclosed Shift Trend",      _sub(SQL_UNCLOSED_TREND)),
+        ("Analysis 8 — Long-Duration Open Shifts", _sub(SQL_LONG_OPEN)),
+        ("Analysis 9 — Daily Compliance Report",   _sub(SQL_DAILY_COMPLIANCE)),
+        ("Invoice Summary",                        _sub(SQL_INVOICE_SUMMARY)),
+        ("Invoice By Creditor",                    _sub(SQL_INVOICE_BY_CREDITOR)),
+        ("Invoice List",                           _sub(SQL_INVOICE_LIST)),
+    ]
+
+ANALYSES = get_analyses()
 
 
 def run_all() -> dict:
@@ -302,7 +322,6 @@ def run_all() -> dict:
     for label, sql in ANALYSES:
         print(f"\n{'='*60}\n  {label}\n{'='*60}")
         df = run_query_(sql)
-        df.columns = df.columns.str.upper()
         print(df.to_string(index=False))
         results[label] = df
     print("\n\nAll 9 analyses complete.")

@@ -107,6 +107,19 @@ KE_SCHOOL_TERMS = [
     ("2026-05-04", "2026-08-14", "Term 2 2026"),
 ]
 
+_MONTHS = [
+    ("Sep 2025", "2025-09-01", "2025-09-30"),
+    ("Oct 2025", "2025-10-01", "2025-10-31"),
+    ("Nov 2025", "2025-11-01", "2025-11-30"),
+    ("Dec 2025", "2025-12-01", "2025-12-31"),
+    ("Jan 2026", "2026-01-01", "2026-01-31"),
+    ("Feb 2026", "2026-02-01", "2026-02-28"),
+    ("Mar 2026", "2026-03-01", "2026-03-31"),
+]
+_MONTH_LABELS = [m[0] for m in _MONTHS]
+_MONTH_STARTS = {m[0]: m[1] for m in _MONTHS}
+_MONTH_ENDS   = {m[0]: m[2] for m in _MONTHS}
+
 # ── Session state ──────────────────────────────────────────────────────────────
 
 for key in ("ci_data", "scr_data", "sa_data", "ma_data", "ov_data", "stores_df"):
@@ -157,7 +170,13 @@ with st.sidebar:
         elif division == "Supermarket":
             _pool = _pool[~_pool["STORE_CODE"].isin(_PHARMACY_CODES)]
         _store_pool = _pool["STORE_NAME"].tolist()
-        selected_stores = st.multiselect("Stores", _store_pool, default=_store_pool)
+        all_stores_checked = st.checkbox("All Stores", value=True)
+        indiv = []
+        if not all_stores_checked:
+            for sn in _store_pool:
+                if st.checkbox(sn, value=True, key=f"chk_store_{sn}"):
+                    indiv.append(sn)
+        selected_stores = _store_pool[:] if all_stores_checked else indiv
         st.caption(
             "Applies to: Revenue · Basket · Margin · SCR · Stockout\n"
             "Not filterable: Cash Integrity · Invoices · Loyalty"
@@ -165,19 +184,30 @@ with st.sidebar:
     else:
         selected_stores = []
 
+    section_header("Date Range", margin_top=8)
+    from_label = st.selectbox("From", _MONTH_LABELS, index=0)
+    to_label   = st.selectbox("To",   _MONTH_LABELS, index=len(_MONTH_LABELS) - 1)
+    if _MONTH_LABELS.index(from_label) > _MONTH_LABELS.index(to_label):
+        st.warning("'From' is after 'To' — reset to full range.")
+        from_label = _MONTH_LABELS[0]
+        to_label   = _MONTH_LABELS[-1]
+    start_date = _MONTH_STARTS[from_label]
+    end_date   = _MONTH_ENDS[to_label]
+
 # ── Store filter — resolve defaults and compute cache key ─────────────────────
 
 if not selected_stores and st.session_state.stores_df is not None:
     selected_stores = st.session_state.stores_df["STORE_NAME"].tolist()
 
-filter_key = frozenset(selected_stores)
+store_key  = frozenset(selected_stores)
+filter_key = (store_key, (start_date, end_date))
 
 # When all stores are selected, pass [] to get_analyses — bypasses the IN subquery
-# and restores full revenue (51.11M). The IN subquery excludes ~231 transactions
+# and restores full revenue. The IN subquery excludes ~231 transactions
 # whose store_product_ids have no match in inventory_store_products (~1% of rows).
 _all_store_names = (frozenset(st.session_state.stores_df["STORE_NAME"].tolist())
                     if st.session_state.stores_df is not None else frozenset())
-effective_stores = [] if filter_key == _all_store_names else selected_stores
+effective_stores = [] if store_key == _all_store_names else selected_stores
 
 # ══════════════════════════════════════════════════════════════════════════════
 # OVERVIEW
@@ -185,13 +215,13 @@ effective_stores = [] if filter_key == _all_store_names else selected_stores
 
 if page == "Overview":
 
-    expected_ov = {label for label, _ in ov.get_analyses()}
+    expected_ov = {label for label, _ in ov.get_analyses(effective_stores, start_date, end_date)}
     if (not st.session_state.ov_data
             or st.session_state.ov_data.get("_filter_key") != filter_key
             or not expected_ov.issubset(st.session_state.ov_data.keys())):
         with st.spinner("Loading overview…"):
             st.session_state.ov_data = {"_filter_key": filter_key}
-            for label, sql in ov.get_analyses(effective_stores):
+            for label, sql in ov.get_analyses(effective_stores, start_date, end_date):
                 st.session_state.ov_data[label] = ov.run_query_(sql)
 
     O = st.session_state.ov_data
@@ -228,14 +258,36 @@ if page == "Overview":
     st.caption("Sep 2025 – March 18 2026 · Data cutoff")
     st.markdown("<div style='margin-bottom:16px'></div>", unsafe_allow_html=True)
 
+    _scr_key = "SCR Summary — Stockouts + Top Substitute"
+    _scr_ready = (
+        isinstance(st.session_state.scr_data, dict)
+        and st.session_state.scr_data.get("_filter_key") == filter_key
+        and _scr_key in st.session_state.scr_data
+    )
+    if not _scr_ready:
+        _scr_sql = dict(scr.get_analyses(effective_stores, start_date, end_date))[_scr_key]
+        if not isinstance(st.session_state.scr_data, dict) or st.session_state.scr_data.get("_filter_key") != filter_key:
+            st.session_state.scr_data = {"_filter_key": filter_key}
+        with st.spinner("Loading revenue at risk…"):
+            st.session_state.scr_data[_scr_key] = scr.run_query_(_scr_sql)
+    _scr_ov = st.session_state.scr_data.get(_scr_key)
+    if _scr_ov is not None and not _scr_ov.empty:
+        _scr_ov = _scr_ov.copy()
+        _scr_ov["REVENUE_AT_RISK_KES"] = pd.to_numeric(_scr_ov["REVENUE_AT_RISK_KES"], errors="coerce").fillna(0)
+        rar_kes   = float(_scr_ov["REVENUE_AT_RISK_KES"].sum())
+        rar_count = len(_scr_ov)
+    else:
+        rar_kes   = 0.0
+        rar_count = 0
+
     c1, c2, c3, c4, c5 = st.columns(5)
     with c1:
         kpi_card("Total Revenue (YTD)", fmt_ksh(rev["TOTAL_REVENUE"]),
                  f"{int(rev['TOTAL_TRANSACTIONS']):,} transactions", COLORS["primary"])
     with c2:
-        kpi_card(month_label, fmt_ksh(rev["REVENUE_THIS_MONTH"]),
-                 f"{'+' if mom_pct >= 0 else ''}{mom_pct:.1f}% vs prior month",
-                 COLORS["success"] if mom_pct >= 0 else COLORS["danger"])
+        kpi_card("Revenue at Risk (SCR)", fmt_ksh(rar_kes),
+                 f"Across {rar_count} products currently out of stock",
+                 COLORS["danger"] if rar_kes > 0 else COLORS["muted"])
     with c3:
         kpi_card("Avg Sale Margin", f"{avg_sale_margin_ov:.1f}%",
                  f"Portfolio margin (total profit ÷ total revenue): {portfolio_margin_ov:.1f}%",
@@ -301,11 +353,13 @@ if page == "Overview":
 
 if page == "Cash Integrity":
 
-    expected_ci = {label for label, _ in ci.ANALYSES}
-    if not st.session_state.ci_data or not expected_ci.issubset(st.session_state.ci_data.keys()):
+    expected_ci = {label for label, _ in ci.get_analyses()}
+    if (not st.session_state.ci_data
+            or st.session_state.ci_data.get("_filter_key") != filter_key
+            or not expected_ci.issubset(st.session_state.ci_data.keys())):
         with st.spinner("Loading…"):
-            st.session_state.ci_data = {}
-            for label, sql in ci.ANALYSES:
+            st.session_state.ci_data = {"_filter_key": filter_key}
+            for label, sql in ci.get_analyses(start_date, end_date):
                 st.session_state.ci_data[label] = ci.run_query_(sql)
 
     D        = st.session_state.ci_data
@@ -547,13 +601,13 @@ if page == "Cash Integrity":
 
 if page == "Stock Intelligence":
 
-    expected_scr = {label for label, _ in scr.get_analyses()}
+    expected_scr = {label for label, _ in scr.get_analyses(effective_stores, start_date, end_date)}
     if (not st.session_state.scr_data
             or st.session_state.scr_data.get("_filter_key") != filter_key
             or not expected_scr.issubset(st.session_state.scr_data.keys())):
         with st.spinner("Loading…"):
             st.session_state.scr_data = {"_filter_key": filter_key}
-            for label, sql in scr.get_analyses(effective_stores):
+            for label, sql in scr.get_analyses(effective_stores, start_date, end_date):
                 st.session_state.scr_data[label] = scr.run_query_(sql)
 
     S         = st.session_state.scr_data
@@ -690,13 +744,13 @@ if page == "Stock Intelligence":
 
 if page == "Revenue Intelligence":
 
-    expected_sa = {label for label, _ in sa.get_analyses()}
+    expected_sa = {label for label, _ in sa.get_analyses(effective_stores, start_date, end_date)}
     if (not st.session_state.sa_data
             or st.session_state.sa_data.get("_filter_key") != filter_key
             or not expected_sa.issubset(st.session_state.sa_data.keys())):
         with st.spinner("Loading…"):
             st.session_state.sa_data = {"_filter_key": filter_key}
-            for label, sql in sa.get_analyses(effective_stores):
+            for label, sql in sa.get_analyses(effective_stores, start_date, end_date):
                 st.session_state.sa_data[label] = sa.run_query_(sql)
 
     A              = st.session_state.sa_data
@@ -997,7 +1051,7 @@ if page == "Revenue Intelligence":
             "Negative gap = Katani stronger → growth opportunity at Syokimau.")
 
         if not loc_opp.empty:
-            _months = max((pd.Timestamp.now() - pd.Timestamp("2025-09-01")).days / 30.44, 1)
+            _months = max((pd.Timestamp(end_date) - pd.Timestamp(start_date)).days / 30.44, 1)
 
             opp_display = loc_opp.copy()
             opp_display["monthly_upside"] = (opp_display["GAP"].abs() / _months).round(0)
@@ -1065,13 +1119,13 @@ if page == "Revenue Intelligence":
 
 if page == "Profit Margins":
 
-    expected_ma = {label for label, _ in ma.get_analyses()}
+    expected_ma = {label for label, _ in ma.get_analyses(effective_stores, start_date, end_date)}
     if (not st.session_state.ma_data
             or st.session_state.ma_data.get("_filter_key") != filter_key
             or not expected_ma.issubset(st.session_state.ma_data.keys())):
         with st.spinner("Loading…"):
             st.session_state.ma_data = {"_filter_key": filter_key}
-            for label, sql in ma.get_analyses(effective_stores):
+            for label, sql in ma.get_analyses(effective_stores, start_date, end_date):
                 st.session_state.ma_data[label] = ma.run_query_(sql)
 
     M          = st.session_state.ma_data

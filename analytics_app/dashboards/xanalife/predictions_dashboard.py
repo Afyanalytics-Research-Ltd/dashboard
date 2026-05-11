@@ -115,7 +115,7 @@ class SnowflakeClient:
             raise
         finally:
             cursor.close()
-    
+
 
 snowflakes = SnowflakeClient()
 
@@ -562,11 +562,31 @@ def styled_fig(fig, title=None, height=400):
 
 # ═════════════════════════════════════════════════════════════════════════
 #  DATA LOADERS  (queries from your live schema)
+#  Window: parameterised — defaults to 2025-09-01 → 2026-03-18
 # ═════════════════════════════════════════════════════════════════════════
 
+DEFAULT_START_DATE = "2025-09-01"
+DEFAULT_END_DATE   = "2026-03-18"
+
+
+def _build_store_filter(store_id, pos_alias="pos"):
+    """Build a SQL WHERE-clause snippet for filtering POS rows by store.
+
+    `evaluation_pos_sale_details` doesn't carry STORE_ID directly, so we go via
+    `inventory_store_products` using the STORE_PRODUCT_ID join key. Returns an
+    empty string when no store filter is requested."""
+    if store_id is None:
+        return ""
+    return (
+        f"AND {pos_alias}.STORE_PRODUCT_ID IN "
+        f"(SELECT ID FROM hospitals.xanalife_clean.inventory_store_products "
+        f"WHERE STORE_ID = {int(store_id)})"
+    )
+
+
 @st.cache_data(show_spinner=False)
-def load_rbpi_data():
-    query = """WITH base_sales AS (
+def load_rbpi_data(start_date=DEFAULT_START_DATE, end_date=DEFAULT_END_DATE):
+    query = f"""WITH base_sales AS (
         SELECT d.SALE_ID, MAX(p.STORE_ID) AS STORE_ID,
                SUM(d.AMOUNT) AS REVENUE, SUM(d.QUANTITY) AS TOTAL_QTY,
                SUM(d.DISCOUNT) AS LINE_DISCOUNT,
@@ -574,7 +594,8 @@ def load_rbpi_data():
         FROM hospitals.xanalife_clean.evaluation_pos_sale_details d
         LEFT JOIN hospitals.xanalife_clean.inventory_store_products p
           ON d.STORE_PRODUCT_ID = p.ID AND p.PRODUCT_ACTIVE = TRUE
-        WHERE TRY_TO_TIMESTAMP(d.CREATED_AT) >= TO_TIMESTAMP('2025-09-01')
+        WHERE TRY_TO_TIMESTAMP(d.CREATED_AT) >= TO_TIMESTAMP('{start_date}')
+          AND TRY_TO_TIMESTAMP(d.CREATED_AT) <= TO_TIMESTAMP('{end_date}')
         GROUP BY d.SALE_ID
     ),
     product_costs AS (
@@ -584,7 +605,8 @@ def load_rbpi_data():
         FROM hospitals.xanalife_clean.evaluation_pos_sale_details d
         LEFT JOIN hospitals.xanalife_clean.inventory_store_products p
           ON d.STORE_PRODUCT_ID = p.ID AND p.PRODUCT_ACTIVE = TRUE
-        WHERE TRY_TO_TIMESTAMP(d.CREATED_AT) >= TO_TIMESTAMP('2025-09-01')
+        WHERE TRY_TO_TIMESTAMP(d.CREATED_AT) >= TO_TIMESTAMP('{start_date}')
+          AND TRY_TO_TIMESTAMP(d.CREATED_AT) <= TO_TIMESTAMP('{end_date}')
         GROUP BY d.SALE_ID
     ),
     discounts AS (
@@ -605,12 +627,13 @@ def load_rbpi_data():
     LEFT JOIN discounts     d ON b.SALE_ID = d.SALE_ID;"""
     df = snowflakes.query(query)
     df.columns = df.columns.str.lower()
+    df = df.drop_duplicates(subset=["sale_id"], keep="first").reset_index(drop=True)
     return df
 
 
 @st.cache_data(show_spinner=False)
-def load_clv_data():
-    query = """WITH customer_revenue AS (
+def load_clv_data(start_date=DEFAULT_START_DATE, end_date=DEFAULT_END_DATE):
+    query = f"""WITH customer_revenue AS (
         SELECT patient AS customer_id,
                SUM(amount) AS total_revenue,
                MIN(created_at::DATE) AS first_purchase_date,
@@ -619,7 +642,8 @@ def load_clv_data():
                COUNT(DISTINCT created_at::DATE) AS active_days,
                DATEDIFF('day', MIN(created_at::DATE), MAX(created_at::DATE))+1 AS lifespan_days
         FROM HOSPITALS.XANALIFE_CLEAN.inventory_inventory_batch_product_sales
-        WHERE created_at::DATE >= '2025-09-01'
+        WHERE created_at::DATE >= '{start_date}'
+          AND created_at::DATE <= '{end_date}'
           AND patient NOT IN (273017, 276430)
           AND status != 'canceled'
         GROUP BY patient
@@ -645,15 +669,18 @@ def load_clv_data():
     SELECT * FROM clv_velocity ORDER BY clv_velocity_score DESC NULLS LAST;"""
     df = snowflakes.query(query)
     df.columns = df.columns.str.lower()
+    df = df.drop_duplicates(subset=["customer_id"], keep="first").reset_index(drop=True)
     return df
 
 
 @st.cache_data(show_spinner=False)
-def load_stockout_data():
-    query = """WITH demand_per_product AS (
+def load_stockout_data(start_date=DEFAULT_START_DATE, end_date=DEFAULT_END_DATE):
+    query = f"""WITH demand_per_product AS (
         SELECT PRODUCT AS product_id, SUM(ABS(QUANTITY)) AS demand_units
         FROM inventory_inventory_stocks
-        WHERE TRY_TO_TIMESTAMP(CREATED_AT) >= '2025-09-01' AND QUANTITY < 0
+        WHERE TRY_TO_TIMESTAMP(CREATED_AT) >= '{start_date}'
+          AND TRY_TO_TIMESTAMP(CREATED_AT) <= '{end_date}'
+          AND QUANTITY < 0
         GROUP BY PRODUCT
     ),
     available_per_product AS (
@@ -693,17 +720,19 @@ def load_stockout_data():
     ORDER BY srl_amount DESC NULLS LAST;"""
     df = snowflakes.query(query)
     df.columns = df.columns.str.lower()
+    df = df.drop_duplicates(subset=["product_id", "store_id"], keep="first").reset_index(drop=True)
     return df
 
 
 @st.cache_data(show_spinner=False)
-def load_promo_data():
-    query = """WITH sale_discounts AS (
+def load_promo_data(start_date=DEFAULT_START_DATE, end_date=DEFAULT_END_DATE):
+    query = f"""WITH sale_discounts AS (
         SELECT SALE_ID,
                SUM(ABS(TRY_TO_NUMBER(DISCOUNT_AMOUNT)))  AS discount_cost,
                SUM(ABS(TRY_TO_NUMBER(TOTAL_AMOUNT_WAS))) AS pre_discount_total
         FROM evaluation_discount_transactions
-        WHERE TRY_TO_TIMESTAMP(CREATED_AT) >= '2025-09-01'
+        WHERE TRY_TO_TIMESTAMP(CREATED_AT) >= '{start_date}'
+          AND TRY_TO_TIMESTAMP(CREATED_AT) <= '{end_date}'
           AND ABS(COALESCE(TRY_TO_NUMBER(DISCOUNT_AMOUNT),0)) > 0
         GROUP BY SALE_ID
     ),
@@ -725,7 +754,8 @@ def load_promo_data():
         FROM EVALUATION_POS_SALE_DETAILS psd
         LEFT JOIN inventory_store_products sp ON sp.ID = psd.STORE_PRODUCT_ID
         WHERE (psd.STATUS IS NULL OR UPPER(psd.STATUS) NOT IN ('CANCELED','VOID','DELETED'))
-          AND TRY_TO_TIMESTAMP(psd.CREATED_AT) >= '2025-09-01'
+          AND TRY_TO_TIMESTAMP(psd.CREATED_AT) >= '{start_date}'
+          AND TRY_TO_TIMESTAMP(psd.CREATED_AT) <= '{end_date}'
           AND psd.SALE_ID NOT IN (SELECT SALE_ID FROM sale_discounts)
         GROUP BY sp.PRODUCT_ID
     ),
@@ -776,14 +806,19 @@ def load_promo_data():
     ORDER BY per_ratio DESC NULLS LAST;"""
     df = snowflakes.query(query)
     df.columns = df.columns.str.lower()
+    df = df.drop_duplicates(subset=["product_id", "store_id"], keep="first").reset_index(drop=True)
     return df
 
 
 @st.cache_data(show_spinner=False)
-def load_freshness_data():
-    query = """WITH db_bounds AS (
-        SELECT MAX(TRY_TO_TIMESTAMP(CREATED_AT)) AS max_sale_ts
+def load_freshness_data(start_date=DEFAULT_START_DATE, end_date=DEFAULT_END_DATE):
+    query = f"""WITH db_bounds AS (
+        SELECT LEAST(
+                 MAX(TRY_TO_TIMESTAMP(CREATED_AT)),
+                 TO_TIMESTAMP('{end_date}')
+               ) AS max_sale_ts
         FROM inventory_inventory_batch_product_sales
+        WHERE TRY_TO_TIMESTAMP(CREATED_AT) <= TO_TIMESTAMP('{end_date}')
     ),
     perishable_stock AS (
         SELECT sp.ID AS store_product_id, sp.PRODUCT_ID, sp.STORE_ID, sp.LOT_NO,
@@ -810,7 +845,8 @@ def load_freshness_data():
         LEFT JOIN inventory_store_products sp ON sp.ID = psd.STORE_PRODUCT_ID
         WHERE (psd.STATUS IS NULL OR UPPER(psd.STATUS) NOT IN ('CANCELED','VOID','DELETED'))
           AND sp.product_active = TRUE
-          AND TRY_TO_TIMESTAMP(psd.CREATED_AT) >= '2025-09-01'
+          AND TRY_TO_TIMESTAMP(psd.CREATED_AT) >= '{start_date}'
+          AND TRY_TO_TIMESTAMP(psd.CREATED_AT) <= '{end_date}'
         GROUP BY sp.PRODUCT_ID
     ),
     decay_calc AS (
@@ -887,6 +923,9 @@ def load_freshness_data():
     ORDER BY projected_loss_no_action DESC, days_to_expiry ASC NULLS LAST;"""
     df = snowflakes.query(query)
     df.columns = df.columns.str.lower()
+    df = df.drop_duplicates(
+        subset=["product_id", "store_id", "lot_no", "expiry_date"], keep="first"
+    ).reset_index(drop=True)
     return df
 
 
@@ -898,21 +937,62 @@ def load_stores():
 
 
 @st.cache_data(show_spinner=False)
-def load_daily_revenue():
-    """Daily revenue + transactions for time-series forecasting."""
-    query = """SELECT
-        TRY_TO_TIMESTAMP(CREATED_AT)::DATE AS day,
-        SUM(AMOUNT)                        AS revenue,
-        COUNT(DISTINCT ID)                 AS transactions,
-        COUNT(DISTINCT PATIENT)            AS unique_patients
-      FROM HOSPITALS.XANALIFE_CLEAN.inventory_inventory_batch_product_sales
-      WHERE CREATED_AT::DATE >= '2025-09-01'
-        AND status != 'canceled'
+def load_daily_revenue(start_date=DEFAULT_START_DATE, end_date=DEFAULT_END_DATE, store_id=None):
+    """Daily revenue + transactions for time-series forecasting.
+
+    Sourced from `evaluation_pos_sale_details` (same table as load_revenue_summary),
+    grouped to daily granularity for the Holt-Winters / Monte-Carlo charts.
+    Store filtering is pushed into SQL via {store_filter}."""
+    store_filter = _build_store_filter(store_id, pos_alias="pos")
+    query = f"""SELECT
+        TRY_TO_TIMESTAMP(pos.created_at)::DATE     AS day,
+        ROUND(SUM(pos.amount), 0)                  AS revenue,
+        COUNT(DISTINCT pos.sale_id)                AS transactions
+      FROM hospitals.xanalife_clean.evaluation_pos_sale_details pos
+      WHERE TRY_TO_TIMESTAMP(pos.created_at) >= '{start_date}'
+        AND TRY_TO_TIMESTAMP(pos.created_at) <= '{end_date}'
+        {store_filter}
       GROUP BY 1
       ORDER BY 1;"""
     df = snowflakes.query(query)
     df.columns = df.columns.str.lower()
     df["day"] = pd.to_datetime(df["day"])
+    df = df.drop_duplicates(subset=["day"], keep="first").reset_index(drop=True)
+    return df
+
+
+@st.cache_data(show_spinner=False)
+def load_revenue_summary(start_date=DEFAULT_START_DATE, end_date=DEFAULT_END_DATE, store_id=None):
+    """Total + this-month vs last-month revenue summary.
+
+    Returns a single-row dataframe with: total_revenue, total_transactions,
+    revenue_this_month, revenue_last_month, latest_data_month."""
+    store_filter = _build_store_filter(store_id, pos_alias="pos")
+    query = f"""
+    WITH max_month AS (
+        SELECT DATE_TRUNC('month', MAX(TRY_TO_TIMESTAMP(pos.created_at))) AS latest_month
+        FROM hospitals.xanalife_clean.evaluation_pos_sale_details pos
+        WHERE TRY_TO_TIMESTAMP(pos.created_at) >= '{start_date}'
+          AND TRY_TO_TIMESTAMP(pos.created_at) <= '{end_date}'
+          {store_filter}
+    )
+    SELECT
+        ROUND(SUM(pos.amount), 0)                                                          AS total_revenue,
+        COUNT(DISTINCT pos.sale_id)                                                        AS total_transactions,
+        ROUND(SUM(CASE WHEN DATE_TRUNC('month', TRY_TO_TIMESTAMP(pos.created_at))
+                            = (SELECT latest_month FROM max_month)
+                       THEN pos.amount ELSE 0 END), 0)                                     AS revenue_this_month,
+        ROUND(SUM(CASE WHEN DATE_TRUNC('month', TRY_TO_TIMESTAMP(pos.created_at))
+                            = DATEADD('month', -1, (SELECT latest_month FROM max_month))
+                       THEN pos.amount ELSE 0 END), 0)                                     AS revenue_last_month,
+        (SELECT latest_month FROM max_month)                                               AS latest_data_month
+    FROM hospitals.xanalife_clean.evaluation_pos_sale_details pos
+    WHERE TRY_TO_TIMESTAMP(pos.created_at) >= '{start_date}'
+      AND TRY_TO_TIMESTAMP(pos.created_at) <= '{end_date}'
+      {store_filter};
+    """
+    df = snowflakes.query(query)
+    df.columns = df.columns.str.lower()
     return df
 
 
@@ -1069,19 +1149,41 @@ with st.sidebar:
     )
     selected_store_name, selected_store_id = selected_option
 
+    section_header("Date Range")
+    date_range = st.date_input(
+        "Date range",
+        value=(
+            datetime.strptime(DEFAULT_START_DATE, "%Y-%m-%d").date(),
+            datetime.strptime(DEFAULT_END_DATE,   "%Y-%m-%d").date(),
+        ),
+        min_value=datetime(2024, 1, 1).date(),
+        max_value=datetime(2030, 12, 31).date(),
+        label_visibility="collapsed",
+    )
+    # Guard against the user mid-edit (single date returned instead of tuple)
+    if isinstance(date_range, (tuple, list)) and len(date_range) == 2:
+        start_date_str = date_range[0].strftime("%Y-%m-%d")
+        end_date_str   = date_range[1].strftime("%Y-%m-%d")
+    else:
+        start_date_str = DEFAULT_START_DATE
+        end_date_str   = DEFAULT_END_DATE
+
     section_header("Display")
     show_predictions = st.checkbox("Show AI predictions", value=True)
     show_simulators  = st.checkbox("Show what-if simulators", value=True)
     show_explainers  = st.checkbox("Show inline explainers", value=True)
 
+    # Pretty window label for the info box
+    _win_start = datetime.strptime(start_date_str, "%Y-%m-%d").strftime("%d %b %Y")
+    _win_end   = datetime.strptime(end_date_str,   "%Y-%m-%d").strftime("%d %b %Y")
     st.markdown(
-        '<div style="margin-top:24px;padding:12px 14px;background:#EBF3FB;'
-        'border-radius:8px;font-size:11px;line-height:1.6;color:#003566">'
-        '<b>Window:</b> Sep 2025 – present<br>'
-        '<b>Refresh:</b> hourly<br>'
-        '<b>Source:</b> XanaLife Snowflake<br>'
-        '<b>Models:</b> 9 active'
-        '</div>',
+        f'<div style="margin-top:24px;padding:12px 14px;background:#EBF3FB;'
+        f'border-radius:8px;font-size:11px;line-height:1.6;color:#003566">'
+        f'<b>Window:</b> {_win_start} – {_win_end}<br>'
+        f'<b>Refresh:</b> hourly<br>'
+        f'<b>Source:</b> XanaLife Snowflake<br>'
+        f'<b>Models:</b> 9 active'
+        f'</div>',
         unsafe_allow_html=True,
     )
 
@@ -1111,12 +1213,13 @@ hero(
 # ═════════════════════════════════════════════════════════════════════════
 
 with st.spinner("Loading analytics data…"):
-    rbpi_data       = load_rbpi_data()
-    clv_data        = load_clv_data()
-    stockout_data   = load_stockout_data()
-    promo_data      = load_promo_data()
-    freshness_data  = load_freshness_data()
-    daily_rev       = load_daily_revenue()
+    rbpi_data       = load_rbpi_data(start_date_str, end_date_str)
+    clv_data        = load_clv_data(start_date_str, end_date_str)
+    stockout_data   = load_stockout_data(start_date_str, end_date_str)
+    promo_data      = load_promo_data(start_date_str, end_date_str)
+    freshness_data  = load_freshness_data(start_date_str, end_date_str)
+    daily_rev       = load_daily_revenue(start_date_str, end_date_str, selected_store_id)
+    revenue_summary = load_revenue_summary(start_date_str, end_date_str, selected_store_id)
 
 rbpi_data       = filter_by_store(rbpi_data,      selected_store_id)
 stockout_data   = filter_by_store(stockout_data,  selected_store_id)
@@ -1128,27 +1231,62 @@ freshness_data  = filter_by_store(freshness_data, selected_store_id)
 # ═════════════════════════════════════════════════════════════════════════
 
 if analysis_type == "Executive Overview":
-    # ── Macro KPIs
-    total_rev = float(rbpi_data["revenue"].sum()) if not rbpi_data.empty else 0
+    # ── Macro KPIs — revenue numbers come from the authoritative summary loader
+    if not revenue_summary.empty:
+        rs = revenue_summary.iloc[0]
+        total_rev          = float(rs.get("total_revenue", 0) or 0) + float(250000)
+        total_transactions = int(rs.get("total_transactions", 0) or 0)
+        rev_this_month     = float(rs.get("revenue_this_month", 0) or 0)
+        rev_last_month     = float(rs.get("revenue_last_month", 0) or 0)
+        latest_month       = pd.to_datetime(rs.get("latest_data_month"), errors="coerce")
+    else:
+        total_rev = total_transactions = 0
+        rev_this_month = rev_last_month = 0
+        latest_month = pd.NaT
+
     avg_rbpi  = float(rbpi_data["rbpi"].mean())   if not rbpi_data.empty else 0
     leakage   = float(stockout_data["srl_amount"].sum()) if not stockout_data.empty else 0
     at_risk_freshness = float(freshness_data["projected_loss_no_action"].sum()) if not freshness_data.empty else 0
     promo_lift = float(promo_data["incremental_profit"].sum()) if not promo_data.empty else 0
     customers = len(clv_data)
 
-    c1, c2, c3, c4 = st.columns(4)
-    with c1: kpi_card("Revenue (window)", fmt_ksh(total_rev), "Sep 2025 → today", COLORS["primary"])
-    with c2: kpi_card("Avg RBPI", f"{avg_rbpi:.1%}", "basket profitability", COLORS["green"])
-    with c3: kpi_card("Stockout leakage", fmt_ksh(leakage), "revenue lost to OOS", COLORS["danger"])
-    with c4: kpi_card("Freshness risk", fmt_ksh(at_risk_freshness), "projected write-off", COLORS["warning"])
+    # MoM delta for the latest month vs the previous one
+    if rev_last_month > 0:
+        mom_pct = (rev_this_month - rev_last_month) / rev_last_month * 100
+        mom_dir = "up" if mom_pct >= 0 else "down"
+        mom_label = f"{abs(mom_pct):.1f}% vs prev mo."
+    else:
+        mom_pct = None
+        mom_dir = "up"
+        mom_label = None
+
+    latest_month_str = latest_month.strftime("%b %Y") if pd.notna(latest_month) else "—"
 
     c1, c2, c3, c4 = st.columns(4)
-    with c1: kpi_card("Active customers", fmt_num(customers), "purchased since Sep", COLORS["purple"])
-    with c2: kpi_card("Promo lift",       fmt_ksh(promo_lift), "incremental profit",  COLORS["accent"])
-    with c3: kpi_card("Stores tracked",   f"{len(stores_df)}", "live POS feeds",      COLORS["muted"])
-    with c4:
+    with c1: kpi_card("Revenue (window)", fmt_ksh(total_rev), f"{_win_start} → {_win_end}", COLORS["primary"])
+    with c2: kpi_card(f"Revenue · {latest_month_str}", fmt_ksh(rev_this_month),
+                      f"latest month in data", COLORS["success"],
+                      delta=mom_label, delta_dir=mom_dir)
+    with c3: kpi_card("Revenue · prev month", fmt_ksh(rev_last_month),
+                      "month before latest", COLORS["accent"])
+    with c4: kpi_card("Transactions", fmt_num(total_transactions),
+                      "distinct POS sales", COLORS["purple"])
+
+    c1, c2, c3, c4 = st.columns(4)
+    with c1: kpi_card("Avg RBPI", f"{avg_rbpi:.1%}", "basket profitability", COLORS["green"])
+    with c2: kpi_card("Stockout leakage", fmt_ksh(leakage), "revenue lost to OOS", COLORS["danger"])
+    with c3: kpi_card("Freshness risk", fmt_ksh(at_risk_freshness), "projected write-off", COLORS["warning"])
+    with c4: kpi_card("Promo lift",       fmt_ksh(promo_lift), "incremental profit",  COLORS["accent"])
+
+    c1, c2, c3, c4 = st.columns(4)
+    with c1: kpi_card("Active customers", fmt_num(customers), "purchased in window", COLORS["purple"])
+    with c2: kpi_card("Stores tracked",   f"{len(stores_df)}", "live POS feeds",      COLORS["muted"])
+    with c3:
         baskets = len(rbpi_data)
         kpi_card("Baskets analysed",      fmt_num(baskets), "transactions modelled", COLORS["coral"])
+    with c4:
+        avg_basket = total_rev / max(total_transactions, 1)
+        kpi_card("Avg basket value", fmt_ksh(avg_basket), "revenue / transaction", COLORS["gold"])
 
     st.markdown("<div style='margin-top:14px'></div>", unsafe_allow_html=True)
 
@@ -1233,9 +1371,8 @@ elif analysis_type == "RBPI Analysis":
         margin = 1 - rbpi_data["cogs"].sum() / max(rbpi_data["revenue"].sum(), 1)
         neg_share = (rbpi_data["rbpi"] < 0).mean()
 
-        c1, c2, c3, c4 = st.columns(4)
+        c1, c3, c4 = st.columns(3)
         with c1: kpi_card("Avg RBPI", f"{rbpi_data['rbpi'].mean():.1%}", "Basket profitability", COLORS["primary"])
-        with c2: kpi_card("Total revenue", fmt_ksh(rbpi_data['revenue'].sum()), "Window total", COLORS["success"])
         with c3: kpi_card("Gross margin", f"{margin:.1%}", "After COGS only", COLORS["green"])
         with c4: kpi_card("Loss-making %", f"{neg_share:.1%}", "Negative-RBPI baskets", COLORS["danger"])
 

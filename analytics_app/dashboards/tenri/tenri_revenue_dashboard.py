@@ -173,21 +173,36 @@ with st.sidebar:
     today = date.today()
     quick_pick = st.selectbox(
         "Period",
-        ["Last 30 days", "Last 90 days", "Last 6 months", "Last 12 months",
-         "Last 24 months", "Custom"],
-        index=3,
+        ["All time", "Last 30 days", "Last 90 days", "Last 6 months",
+        "Last 12 months", "Last 24 months", "Custom"],
+        index=0,
     )
-    end = today
+
     spans = {
         "Last 30 days": 30, "Last 90 days": 90, "Last 6 months": 183,
         "Last 12 months": 365, "Last 24 months": 730,
     }
-    if quick_pick != "Custom":
-        start = end - timedelta(days=spans[quick_pick])
-    else:
-        start = st.date_input("Start", end - timedelta(days=365))
-        end   = st.date_input("End",   today)
 
+    if quick_pick == "All time":
+        start = date(1970, 1, 1)
+        end   = date(2025, 9, 30)
+    elif quick_pick == "Custom":
+        start = st.date_input(
+            "Start",
+            value=date(1970, 1, 1),
+            min_value=date(1900, 1, 1),
+            max_value=date(2100, 12, 31),
+        )
+        end = st.date_input(
+            "End",
+            value=date(2025, 9, 30),
+            min_value=date(1900, 1, 1),
+            max_value=date(2100, 12, 31),
+        )
+    else:
+        end   = today
+        start = end - timedelta(days=spans[quick_pick])
+    
     section_header("Filters", margin_top=12)
     try:
         clinics_df = dl.list_clinics()
@@ -226,15 +241,15 @@ st.markdown(
 
 
 # ─── DATA FETCH ─────────────────────────────────────────────────────────────
-
-start_s = '1970-01-01'
+start_s = start.strftime("%Y-%m-%d")
 end_s   = (end + timedelta(days=1)).strftime("%Y-%m-%d")    # exclusive
 
 # All Snowflake calls happen here. If the connection fails, we surface a
 # clear error and stop — there is no silent fallback.
 try:
     daily        = dl.daily_revenue(start_s, end_s, clinic_filter)
-    sl_monthly   = dl.revenue_by_service_line(start_s, end_s)
+    sl_monthly   = dl.revenue_by_service_line(start_s, end_s, clinic_filter)
+    # sl_monthly.to_csv('service_line.csv', index=False)
     pay_mix_df   = dl.payment_mode_mix(start_s, end_s)
     payer_df     = dl.payer_performance(start_s, end_s)
     rfm_df       = dl.patient_rfm(start_s, end_s)
@@ -304,13 +319,13 @@ st.markdown("<div style='margin-bottom:20px'></div>", unsafe_allow_html=True)
 
 # ─── TABS ───────────────────────────────────────────────────────────────────
 
-tab1, tab2, tab3, tab4 = st.tabs([
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "◉  Revenue Pulse",
     "△  Forecast & Risk",
     "◇  Payer & Patient Mix",
     "∑  KPI Scorecard",
+    "⚙  Simulation",
 ])
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 1 — Revenue Pulse
@@ -343,32 +358,48 @@ with tab1:
     fig.update_layout(**CHART_LAYOUT, height=320, showlegend=False, hovermode="x unified")
     st.plotly_chart(fig, use_container_width=True)
 
-    col_l, col_r = st.columns([1.2, 1], gap="large")
-
+    
     # ── Service line treemap
-    with col_l:
-        section_header("Service line mix · selected period")
-        sl_total = (sl_monthly.groupby("service_line", as_index=False)["gross_revenue"]
-                    .sum().sort_values("gross_revenue", ascending=False))
-        if len(sl_total):
-            sl_total["share"] = 100 * sl_total["gross_revenue"] / sl_total["gross_revenue"].sum()
-            fig = go.Figure(go.Treemap(
-                labels=sl_total["service_line"],
-                parents=[""] * len(sl_total),
-                values=sl_total["gross_revenue"],
-                textinfo="label+percent parent",
-                texttemplate="<b>%{label}</b><br>%{percentParent}<br>%{value:,.0f}",
-                hovertemplate="<b>%{label}</b><br>%{value:,.0f} KSh<br>%{percentParent}<extra></extra>",
-                marker=dict(
-                    colors=[PALETTE[i % len(PALETTE)] for i in range(len(sl_total))],
-                    line=dict(color="#fff", width=2),
-                ),
-                textfont=dict(family="Montserrat", color="#fff", size=12),
-            ))
-            fig.update_layout(**{**CHART_LAYOUT, "margin": dict(l=0, r=0, t=10, b=10)}, height=360)
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("No service-line data for this window.")
+    section_header("Service line mix · selected period")
+    sl_total = (sl_monthly.groupby("service_line", as_index=False)["gross_revenue"]
+                .sum().sort_values("gross_revenue", ascending=False))
+    if len(sl_total):
+        import plotly.subplots as sp
+        import plotly.graph_objects as go
+
+        top   = sl_total.sort_values("gross_revenue", ascending=True)
+        rest  = sl_total[sl_total["service_line"] != "Investigation"].sort_values("gross_revenue", ascending=True)
+
+        fig = sp.make_subplots(
+            rows=1, cols=2,
+            subplot_titles=("All service lines", "Excluding Investigation"),
+            horizontal_spacing=0.18,
+        )
+        fig.add_trace(go.Bar(
+            x=top["gross_revenue"],
+            y=top["service_line"],
+            orientation="h",
+            marker_color="#0072CE",
+            text=top["gross_revenue"],          # raw numbers, no .apply()
+            texttemplate="%{text:,.2s}",        # d3-format, runs in the browser
+            textposition="outside",
+        ), row=1, col=1)
+
+        fig.add_trace(go.Bar(
+            x=rest["gross_revenue"],
+            y=rest["service_line"],
+            orientation="h",
+            marker_color="#5BA7E8",
+            text=rest["gross_revenue"],
+            texttemplate="%{text:,.2s}",
+            textposition="outside",
+        ), row=1, col=2)
+        fig.update_layout(showlegend=False, height=600, plot_bgcolor="white",
+                        margin=dict(l=180, r=80, t=60, b=40))
+        fig.update_xaxes(tickformat="~s")
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("No service-line data for this window.")
 
     
     # ── Hourly heatmap + payment mode area
@@ -376,11 +407,16 @@ with tab1:
 
     with col_a:
         section_header("Demand heatmap · hour × weekday")
+        hourly_df.to_csv('tenri_hourly_df.csv',index=False)
         if len(hourly_df):
+            day_map = {"Mon":"Monday","Tue":"Tuesday","Wed":"Wednesday","Thu":"Thursday",
+                    "Fri":"Friday","Sat":"Saturday","Sun":"Sunday"}
+            hourly_df["day_name"] = hourly_df["day_name"].map(day_map)
+
             order = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
             pivot = (hourly_df.pivot_table(index="day_name", columns="hour_of_day",
-                                           values="revenue", aggfunc="sum")
-                     .reindex(order))
+                                        values="revenue", aggfunc="sum")
+                            .reindex(order))
             fig = go.Figure(go.Heatmap(
                 z=pivot.values,
                 x=[f"{h:02d}" for h in pivot.columns],
@@ -421,32 +457,87 @@ with tab1:
     section_header("Top revenue items · Pareto", margin_top=8)
     if len(items_df):
         top = items_df.head(20).copy()
-        top["cum_share"] = 100 * top["gross_revenue"].cumsum() / items_df["gross_revenue"].sum()
-        fig = go.Figure()
-        fig.add_trace(go.Bar(
-            x=top["item_name"], y=top["gross_revenue"],
-            marker=dict(color=COLORS["primary"], line=dict(width=0)),
-            name="Revenue", yaxis="y",
-            hovertemplate="<b>%{x}</b><br>%{y:,.0f} KSh<extra></extra>",
-        ))
-        fig.add_trace(go.Scatter(
-            x=top["item_name"], y=top["cum_share"], mode="lines+markers",
+        total = items_df["gross_revenue"].sum()
+        top["cum_share"] = 100 * top["gross_revenue"].cumsum() / total
+
+        leader      = top.iloc[0]
+        leader_pct  = 100 * leader["gross_revenue"] / total
+        rest        = top.iloc[1:]            # ranks #2 – #20
+
+        col_l, col_r = st.columns([1, 3])
+
+        # ── Left: the dominant item as a KPI tile ───────────────────────────
+        with col_l:
+            st.markdown(
+                f"""
+                <div style="background:linear-gradient(135deg,#003467,#0072CE);
+                            color:white;border-radius:12px;padding:20px 18px;
+                            height:340px;display:flex;flex-direction:column;
+                            justify-content:center;">
+                    <div style="font-size:10px;letter-spacing:2px;
+                                text-transform:uppercase;opacity:0.7;">
+                        #1 revenue item
+                    </div>
+                    <div style="font-size:18px;font-weight:700;margin:6px 0 14px;
+                                line-height:1.2;">
+                        {leader['item_name']}
+                    </div>
+                    <div style="font-size:28px;font-weight:800;">
+                        KSh {leader['gross_revenue']:,.0f}
+                    </div>
+                    <div style="font-size:13px;margin-top:8px;opacity:0.85;">
+                        {leader_pct:.1f}% of top-20 revenue
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        # ── Right: ranks #2 – #20 on their own scale ────────────────────────
+        with col_r:
+            fig_rest = go.Figure()
+            fig_rest.add_trace(go.Bar(
+                x=rest["item_name"], y=rest["gross_revenue"],
+                marker=dict(color=COLORS["primary"], line=dict(width=0)),
+                hovertemplate="<b>%{x}</b><br>%{y:,.0f} KSh<extra></extra>",
+            ))
+            fig_rest.update_layout(
+                **{k: v for k, v in CHART_LAYOUT.items() if k not in ("xaxis", "yaxis", "margin")},
+                xaxis=dict(tickangle=-45, tickfont=dict(size=9, color="#6B8CAE")),
+                yaxis=dict(title="Revenue (KSh)", gridcolor="#EBF3FB",
+                        tickfont=dict(size=10, color="#6B8CAE")),
+                height=340, showlegend=False,
+                margin=dict(l=0, r=0, t=10, b=80),
+                title=dict(text="Items #2 – #20 by revenue",
+                        font=dict(size=13, color="#003467"), x=0, xanchor="left"),
+            )
+            st.plotly_chart(fig_rest, use_container_width=True)
+
+        # ── Cumulative-share Pareto line, full width below ──────────────────
+        fig_line = go.Figure()
+        fig_line.add_trace(go.Scatter(
+            x=top["item_name"], y=top["cum_share"],
+            mode="lines+markers",
             line=dict(color=COLORS["coral"], width=2.5, shape="spline"),
             marker=dict(size=6, color=COLORS["coral"]),
-            yaxis="y2", name="Cumulative %",
+            fill="tozeroy", fillcolor="rgba(255,127,80,0.08)",
             hovertemplate="<b>%{x}</b><br>Cumulative %{y:.1f}%<extra></extra>",
         ))
-        fig.update_layout(
+        fig_line.add_hline(
+            y=80, line_dash="dash", line_color="#6B8CAE", line_width=1,
+            annotation_text="80% threshold", annotation_position="right",
+            annotation_font_size=10, annotation_font_color="#6B8CAE",
+        )
+        fig_line.update_layout(
             **{k: v for k, v in CHART_LAYOUT.items() if k not in ("xaxis", "yaxis", "margin")},
             xaxis=dict(tickangle=-45, tickfont=dict(size=9, color="#6B8CAE")),
-            yaxis=dict(title="Revenue (KSh)", gridcolor="#EBF3FB",
-                    tickfont=dict(size=10, color="#6B8CAE")),
-            yaxis2=dict(title="Cumulative %", overlaying="y", side="right",
-                        range=[0, 105], gridcolor="rgba(0,0,0,0)",
-                        tickfont=dict(size=10, color=COLORS["coral"])),
-            height=380, showlegend=False, margin=dict(l=0, r=0, t=10, b=80),
+            yaxis=dict(title="Cumulative %", range=[0, 105], gridcolor="#EBF3FB",
+                    tickfont=dict(size=10, color=COLORS["coral"]), ticksuffix="%"),
+            height=300, showlegend=False, margin=dict(l=0, r=0, t=20, b=80),
+            title=dict(text="Cumulative share of top-20 revenue",
+                    font=dict(size=13, color="#003467"), x=0, xanchor="left"),
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig_line, use_container_width=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1504,6 +1595,365 @@ with tab4:
         st.plotly_chart(fig, use_container_width=True)
 
     
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 5 — Simulation (actionable recommendations)
+# ══════════════════════════════════════════════════════════════════════════════
+
+with tab5:
+    st.markdown(
+        '<p style="font-size:13px;color:#6B8CAE;margin:0 0 16px;line-height:1.5">'
+        'Three levers, ranked by where your data says they\'ll bite hardest. '
+        'Each panel detects the top performer in its category, then lets you '
+        'project the revenue impact of acting on it.'
+        '</p>',
+        unsafe_allow_html=True,
+    )
+
+    # ────────────────────────────────────────────────────────────────────────
+    # LEVER 1 — TOP DAY → Increase staffing / marketing
+    # ────────────────────────────────────────────────────────────────────────
+    section_header("Lever 1 · Top day → staffing & marketing push")
+
+    # Detect top day-of-week from the hourly heatmap (already loaded).
+    if not len(hourly_df) or "day_name" not in hourly_df.columns:
+        st.info("No hourly data available to identify the top day.")
+    else:
+        day_rev = (hourly_df.groupby("day_name", as_index=False)["revenue"].sum()
+                   .sort_values("revenue", ascending=False))
+        top_day_name      = day_rev.iloc[0]["day_name"]
+        top_day_revenue   = float(day_rev.iloc[0]["revenue"])
+        avg_other_days    = float(day_rev.iloc[1:]["revenue"].mean()) if len(day_rev) > 1 else 0
+        n_weeks_in_window = max((end - start).days / 7, 1)
+        top_day_per_week  = top_day_revenue / n_weeks_in_window
+
+        col_l, col_r = st.columns([1, 1.4], gap="large")
+
+        with col_l:
+            st.markdown(
+                f"""
+                <div style="background:linear-gradient(135deg,#003467,#0072CE);
+                            color:white;border-radius:12px;padding:20px 18px;
+                            height:280px;display:flex;flex-direction:column;
+                            justify-content:center;">
+                    <div style="font-size:10px;letter-spacing:2px;
+                                text-transform:uppercase;opacity:0.7;">
+                        Top revenue day
+                    </div>
+                    <div style="font-size:32px;font-weight:800;margin:8px 0 12px;">
+                        {top_day_name}
+                    </div>
+                    <div style="font-size:11px;opacity:0.75;margin-bottom:4px;">
+                        Weekly average on {top_day_name}s
+                    </div>
+                    <div style="font-size:22px;font-weight:700;">
+                        {fmt_ksh(top_day_per_week)}
+                    </div>
+                    <div style="font-size:12px;margin-top:10px;opacity:0.85;">
+                        +{((top_day_per_week / avg_other_days - 1) * 100) if avg_other_days else 0:.0f}%
+                        vs. average non-top day
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        with col_r:
+            st.markdown(f"**Tune the {top_day_name} intervention:**")
+            volume_lift_pct = st.slider(
+                f"Expected volume lift on {top_day_name}s (%)",
+                0, 40, 15, step=1, key="sim_day_volume",
+                help="Marketing or extra-staff capacity should drive incremental visits.",
+            )
+            campaign_cost   = st.number_input(
+                "Weekly intervention cost (KSh)",
+                min_value=0, value=15_000, step=1_000, key="sim_day_cost",
+                help="Combined cost of marketing + additional staff for one peak day.",
+            )
+            margin_pct      = st.slider(
+                "Contribution margin on incremental revenue (%)",
+                10, 80, 35, step=5, key="sim_day_margin",
+                help="What fraction of incremental revenue drops to bottom line.",
+            )
+
+            weekly_uplift_rev    = top_day_per_week * (volume_lift_pct / 100)
+            weekly_uplift_margin = weekly_uplift_rev * (margin_pct / 100)
+            weekly_net           = weekly_uplift_margin - campaign_cost
+            annual_net           = weekly_net * 52
+            payback_weeks        = (campaign_cost / weekly_uplift_margin
+                                    if weekly_uplift_margin > 0 else None)
+
+            m1, m2, m3 = st.columns(3)
+            with m1:
+                kpi_card("Weekly revenue lift", fmt_ksh(weekly_uplift_rev),
+                         f"On {top_day_name}s", COLORS["primary"])
+            with m2:
+                kpi_card("Weekly net contribution", fmt_ksh(weekly_net),
+                         "After intervention cost",
+                         COLORS["success"] if weekly_net > 0 else COLORS["danger"])
+            with m3:
+                kpi_card("Annualised net", fmt_ksh(annual_net),
+                         f"Payback: {payback_weeks:.1f} wks" if payback_weeks else "Negative ROI",
+                         COLORS["green"] if annual_net > 0 else COLORS["danger"])
+
+            info_card(
+                f"Adding <b>{volume_lift_pct}%</b> volume on {top_day_name}s yields "
+                f"<b>{fmt_ksh(weekly_uplift_rev)}</b>/week in revenue. "
+                f"At a {margin_pct}% margin and {fmt_ksh(campaign_cost)} weekly spend, "
+                f"net contribution is <b>{fmt_ksh(weekly_net)}</b>/week "
+                f"(<b>{fmt_ksh(annual_net)}</b> annualised).",
+                COLORS["success"] if weekly_net > 0 else COLORS["danger"],
+            )
+
+    # ────────────────────────────────────────────────────────────────────────
+    # LEVER 2 — TOP PRODUCT → Frequently-bought-together bundles
+    # ────────────────────────────────────────────────────────────────────────
+    section_header("Lever 2 · Top product → frequently-bought-together bundles",
+                   margin_top=12)
+
+    if not len(items_df):
+        st.info("No item-level data available to build bundles.")
+    else:
+        top_items_for_bundle = items_df.head(5).copy()
+        anchor_name      = top_items_for_bundle.iloc[0]["item_name"]
+        anchor_revenue   = float(top_items_for_bundle.iloc[0]["gross_revenue"])
+        # Use a representative unit price for the anchor (best-effort)
+        if "units_sold" in top_items_for_bundle.columns and \
+           top_items_for_bundle.iloc[0]["units_sold"]:
+            anchor_units = float(top_items_for_bundle.iloc[0]["units_sold"])
+            anchor_unit_price = anchor_revenue / max(anchor_units, 1)
+        else:
+            anchor_units = 0
+            anchor_unit_price = anchor_revenue / max(unique_pat or 1, 1)
+
+        col_l, col_r = st.columns([1, 1.4], gap="large")
+
+        with col_l:
+            st.markdown(
+                f"""
+                <div style="background:linear-gradient(135deg,#0BB99F,#1D9E75);
+                            color:white;border-radius:12px;padding:20px 18px;
+                            height:280px;display:flex;flex-direction:column;
+                            justify-content:center;">
+                    <div style="font-size:10px;letter-spacing:2px;
+                                text-transform:uppercase;opacity:0.7;">
+                        Anchor product
+                    </div>
+                    <div style="font-size:18px;font-weight:700;margin:6px 0 14px;
+                                line-height:1.2;">
+                        {anchor_name}
+                    </div>
+                    <div style="font-size:11px;opacity:0.75;">In-period revenue</div>
+                    <div style="font-size:22px;font-weight:800;">
+                        {fmt_ksh(anchor_revenue)}
+                    </div>
+                    <div style="font-size:11px;margin-top:10px;opacity:0.85;">
+                        Suggested attach candidates from the top-5:
+                        {", ".join(top_items_for_bundle["item_name"].iloc[1:4].tolist())}
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        with col_r:
+            st.markdown(f"**Bundle design around {anchor_name}:**")
+            attach_rate = st.slider(
+                "Bundle attach rate (% of anchor buyers who add the bundle)",
+                5, 70, 25, step=1, key="sim_bundle_attach",
+                help="Industry benchmark for retail-style attach is 15–30%.",
+            )
+            attach_avg_price = st.number_input(
+                "Average price of attached item (KSh)",
+                min_value=0, value=int(max(anchor_unit_price * 0.4, 200)),
+                step=50, key="sim_bundle_price",
+                help="Mean price of the 2–3 items bundled with the anchor.",
+            )
+            bundle_discount = st.slider(
+                "Bundle discount vs Bundling individual items, priced separately (%)",
+                0, 30, 10, step=1, key="sim_bundle_discount",
+                help="The price break that motivates the bundle uptake.",
+            )
+
+            # Anchor "transactions" approximated from receipt count / patient share
+            est_anchor_transactions = (
+                anchor_units if anchor_units > 0
+                else anchor_revenue / max(anchor_unit_price, 1)
+            )
+            bundle_attaches  = est_anchor_transactions * (attach_rate / 100)
+            attach_revenue   = bundle_attaches * attach_avg_price * (1 - bundle_discount / 100)
+            uplift_pct_total = 100 * attach_revenue / anchor_revenue if anchor_revenue else 0
+
+            m1, m2, m3 = st.columns(3)
+            with m1:
+                kpi_card("Bundle uptake",
+                         f"{int(bundle_attaches):,}",
+                         "Additional bundle attaches", COLORS["success"])
+            with m2:
+                kpi_card("Incremental revenue", fmt_ksh(attach_revenue),
+                         f"+{uplift_pct_total:.1f}% vs anchor",
+                         COLORS["primary"])
+            with m3:
+                annualised_bundle = attach_revenue * (365 / max((end - start).days, 1))
+                kpi_card("Annualised", fmt_ksh(annualised_bundle),
+                         "If pattern persists", COLORS["green"])
+
+            info_card(
+                f"At a <b>{attach_rate}%</b> attach rate and "
+                f"<b>{fmt_ksh(attach_avg_price)}</b> add-on price (after a "
+                f"{bundle_discount}% bundle discount), <b>{anchor_name}</b> "
+                f"transactions generate <b>{fmt_ksh(attach_revenue)}</b> of "
+                f"incremental bundle revenue in this window — "
+                f"<b>{fmt_ksh(annualised_bundle)}</b> annualised.",
+                COLORS["success"],
+            )
+
+    # ────────────────────────────────────────────────────────────────────────
+    # LEVER 3 — TOP SERVICE → Subscription / premium tier
+    # ────────────────────────────────────────────────────────────────────────
+    section_header("Lever 3 · Top service → subscription or premium tier",
+                   margin_top=12)
+
+    if not len(sl_monthly):
+        st.info("No service-line data available to size a subscription.")
+    else:
+        sl_total = (sl_monthly.groupby("service_line", as_index=False)["gross_revenue"]
+                    .sum().sort_values("gross_revenue", ascending=False))
+        top_service        = sl_total.iloc[0]["service_line"]
+        top_service_rev    = float(sl_total.iloc[0]["gross_revenue"])
+        # Estimate monthly run-rate for this service
+        months_in_window   = max((end - start).days / 30.0, 1)
+        service_monthly    = top_service_rev / months_in_window
+
+        col_l, col_r = st.columns([1, 1.4], gap="large")
+
+        with col_l:
+            st.markdown(
+                f"""
+                <div style="background:linear-gradient(135deg,#7F77DD,#0072CE);
+                            color:white;border-radius:12px;padding:20px 18px;
+                            height:280px;display:flex;flex-direction:column;
+                            justify-content:center;">
+                    <div style="font-size:10px;letter-spacing:2px;
+                                text-transform:uppercase;opacity:0.7;">
+                        Top service line
+                    </div>
+                    <div style="font-size:24px;font-weight:800;margin:6px 0 12px;">
+                        {top_service}
+                    </div>
+                    <div style="font-size:11px;opacity:0.75;">Monthly run-rate</div>
+                    <div style="font-size:22px;font-weight:700;">
+                        {fmt_ksh(service_monthly)}
+                    </div>
+                    <div style="font-size:11px;margin-top:10px;opacity:0.85;">
+                        Strong candidate for a recurring-revenue tier.
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        with col_r:
+            st.markdown(f"**Design a subscription/premium tier for {top_service}:**")
+            sub_price = st.number_input(
+                "Subscription price (KSh / month)",
+                min_value=0, value=2_500, step=100, key="sim_sub_price",
+                help="Monthly fee for the recurring/premium tier.",
+            )
+            conversion_pct = st.slider(
+                "Active-patient conversion rate (%)",
+                1, 30, 8, step=1, key="sim_sub_conversion",
+                help="Share of current active patients who'd subscribe in year 1.",
+            )
+            avg_retention_months = st.slider(
+                "Average subscriber retention (months)",
+                3, 36, 12, step=1, key="sim_sub_retention",
+                help="Lifetime of a subscriber before churn.",
+            )
+            cannibalisation_pct = st.slider(
+                "Cannibalisation of bundling individual items, priced separately (%)",
+                0, 50, 20, step=5, key="sim_sub_cannibal",
+                help="Share of subscription revenue that would have come in anyway.",
+            )
+
+            subscribers_y1   = (unique_pat or 0) * (conversion_pct / 100)
+            mrr              = subscribers_y1 * sub_price
+            arr_gross        = mrr * 12
+            ltv_per_sub      = sub_price * avg_retention_months
+            ltv_total        = subscribers_y1 * ltv_per_sub
+            arr_net          = arr_gross * (1 - cannibalisation_pct / 100)
+
+            m1, m2, m3 = st.columns(3)
+            with m1:
+                kpi_card("Year-1 subscribers", f"{int(subscribers_y1):,}",
+                         f"{conversion_pct}% of active base", COLORS["primary"])
+            with m2:
+                kpi_card("Annual recurring revenue", fmt_ksh(arr_net),
+                         f"Net of {cannibalisation_pct}% cannibalisation",
+                         COLORS["success"])
+            with m3:
+                kpi_card("Cohort lifetime value", fmt_ksh(ltv_total),
+                         f"At {avg_retention_months}-mo retention",
+                         COLORS["purple"])
+
+            info_card(
+                f"At <b>{conversion_pct}%</b> conversion of {int(unique_pat or 0):,} "
+                f"active patients, a <b>{fmt_ksh(sub_price)}/month</b> "
+                f"{top_service} subscription generates <b>{fmt_ksh(mrr)}</b> MRR — "
+                f"<b>{fmt_ksh(arr_net)}</b> net ARR after cannibalisation. "
+                f"Total cohort LTV: <b>{fmt_ksh(ltv_total)}</b>.",
+                COLORS["primary"],
+            )
+
+    # ────────────────────────────────────────────────────────────────────────
+    # COMBINED SUMMARY — all three levers stacked
+    # ────────────────────────────────────────────────────────────────────────
+    section_header("Combined annualised impact · all three levers", margin_top=12)
+
+    annual_day_lever      = locals().get("annual_net", 0) or 0
+    annual_bundle_lever   = locals().get("annualised_bundle", 0) or 0
+    annual_sub_lever      = locals().get("arr_net", 0) or 0
+    annual_total          = annual_day_lever + annual_bundle_lever + annual_sub_lever
+
+    fig = go.Figure(go.Waterfall(
+        orientation="v",
+        measure=["relative", "relative", "relative", "total"],
+        x=["Top-day push", "Bundle attach", "Subscription tier", "Combined uplift"],
+        y=[annual_day_lever, annual_bundle_lever, annual_sub_lever, 0],
+        text=[fmt_ksh(annual_day_lever), fmt_ksh(annual_bundle_lever),
+              fmt_ksh(annual_sub_lever), fmt_ksh(annual_total)],
+        textposition="outside",
+        textfont=dict(family="Montserrat", size=11, color=COLORS["navy"]),
+        cliponaxis=False,
+        connector=dict(line=dict(color="#C8D6E5", width=1, dash="dot")),
+        increasing=dict(marker=dict(color=COLORS["success"], line=dict(width=0))),
+        decreasing=dict(marker=dict(color=COLORS["danger"],  line=dict(width=0))),
+        totals    =dict(marker=dict(color=COLORS["primary"], line=dict(width=0))),
+        hovertemplate="<b>%{x}</b><br>%{y:,.0f} KSh / year<extra></extra>",
+    ))
+    fig.update_layout(
+        **{k: v for k, v in CHART_LAYOUT.items() if k not in ("xaxis", "yaxis", "margin")},
+        height=340,
+        margin=dict(l=10, r=10, t=30, b=40),
+        xaxis=dict(tickfont=dict(size=11, color=COLORS["navy"]),
+                   showgrid=False, zeroline=False),
+        yaxis=dict(title="Annualised KSh", gridcolor="#EBF3FB",
+                   tickfont=dict(size=10, color="#6B8CAE"),
+                   zeroline=False),
+        showlegend=False,
+        bargap=0.4,
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+    info_card(
+        f"If all three levers land at the configured assumptions, "
+        f"the combined annualised revenue uplift is <b>{fmt_ksh(annual_total)}</b>. "
+        f"Sliders are independent — adjust each lever to stress-test the plan.",
+        COLORS["primary"],
+    )
+
+
 # ─── Footer ─────────────────────────────────────────────────────────────────
 
 st.markdown(

@@ -34,36 +34,46 @@ from textwrap import dedent
 # ──────────────────────────────────────────────────────────────────────────────
 DAILY_REVENUE = dedent("""
     WITH paid AS (
+        SELECT
+            p.created_at::DATE                                          AS revenue_date,
+            v.CLINIC                                                    AS clinic_id,
+            'mixed'                                                     AS payment_mode,
+            CASE WHEN v.SCHEME IS NULL THEN 'cash' ELSE 'insurance' END AS payer_type,
+            SUM(COALESCE(p.AMOUNT, 0))                                  AS gross_amount,
+            SUM(COALESCE(p.DISCOUNT, 0))                                AS discount_amount,
+            0                                                           AS waiver_amount,
+            0                                                           AS vat_amount,
+            COUNT(DISTINCT p.PATIENT)                                   AS unique_patients,
+            COUNT(*)                                                    AS receipt_count
+        FROM FINANCE_EVALUATION_PAYMENTS p
+        LEFT JOIN (
+            SELECT PAYMENT, MIN(VISIT) AS VISIT
+            FROM FINANCE_EVALUATION_PAYMENT_DETAILS
+            WHERE VISIT IS NOT NULL
+            GROUP BY PAYMENT
+        ) pd ON pd.PAYMENT = p.ID
+        LEFT JOIN EVALUATION_VISITS v
+               ON v.ID = COALESCE(p.VISIT, pd.VISIT)
+        WHERE p.created_at >= '{start}'
+          AND p.created_at <  '{end}'
+          {clinic_filter}
+        GROUP BY 1, 2, 3, 4
+    )
     SELECT
-        p.created_at::DATE                                          AS revenue_date,
-        v.CLINIC                                                    AS clinic_id,
-        'mixed'                                                     AS payment_mode,
-        CASE WHEN v.SCHEME IS NULL THEN 'cash' ELSE 'insurance' END AS payer_type,
-        SUM(COALESCE(p.AMOUNT, 0))                                  AS gross_amount,
-        SUM(COALESCE(p.DISCOUNT, 0))                                AS discount_amount,
-        0                                                           AS waiver_amount,
-        0                                                           AS vat_amount,
-        COUNT(DISTINCT p.PATIENT)                                   AS unique_patients,
-        COUNT(*)                                                    AS receipt_count
-    FROM FINANCE_EVALUATION_PAYMENTS p
-    LEFT JOIN EVALUATION_VISITS      v ON v.ID = p.VISIT
-    GROUP BY 1, 2, 3, 4
-)
-SELECT
-    revenue_date,
-    clinic_id,
-    payment_mode,
-    payer_type,
-    gross_amount,
-    discount_amount,
-    waiver_amount,
-    vat_amount,
-    gross_amount - discount_amount - waiver_amount AS net_amount,
-    unique_patients,
-    receipt_count,
-    gross_amount / NULLIF(receipt_count, 0)        AS avg_receipt_value
-FROM paid
-ORDER BY revenue_date, clinic_id
+        revenue_date,
+        clinic_id,
+        payment_mode,
+        payer_type,
+        gross_amount,
+        discount_amount,
+        waiver_amount,
+        vat_amount,
+        gross_amount - discount_amount - waiver_amount AS net_amount,
+        unique_patients,
+        receipt_count,
+        gross_amount / NULLIF(receipt_count, 0)        AS avg_receipt_value
+    FROM paid
+    ORDER BY revenue_date, clinic_id
 """)
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -71,20 +81,25 @@ ORDER BY revenue_date, clinic_id
 # ──────────────────────────────────────────────────────────────────────────────
 REVENUE_BY_SERVICE_LINE = dedent("""
     SELECT
-    DATE_TRUNC('MONTH', i.CREATED_AT)::DATE              AS revenue_month,
-    COALESCE(INITCAP(ii.ITEM_TYPE), 'other')             AS service_line,
-    COUNT(DISTINCT i.ID)                                 AS invoices,
-    COUNT(DISTINCT i.PATIENT_ID)                         AS patients,
-    SUM(ii.AMOUNT)                                       AS gross_revenue,
-    SUM(ii.UNITS)                                        AS units_sold,
-    AVG(ii.PRICE)                                        AS avg_unit_price,
-    SUM(ii.AMOUNT)
-        / NULLIF(COUNT(DISTINCT i.PATIENT_ID), 0)        AS arpu
-FROM FINANCE_INVOICES      i
-JOIN FINANCE_INVOICE_ITEMS ii ON ii.INVOICE_ID = i.ID
-GROUP BY 1, 2
-HAVING revenue_month IS NOT NULL
-ORDER BY 1, gross_revenue DESC
+        DATE_TRUNC('MONTH', i.CREATED_AT)::DATE              AS revenue_month,
+        v.CLINIC                                             AS clinic_id,
+        COALESCE(INITCAP(ii.ITEM_TYPE), 'other')             AS service_line,
+        COUNT(DISTINCT i.ID)                                 AS invoices,
+        COUNT(DISTINCT i.PATIENT_ID)                         AS patients,
+        SUM(ii.AMOUNT)                                       AS gross_revenue,
+        SUM(ii.UNITS)                                        AS units_sold,
+        AVG(ii.PRICE)                                        AS avg_unit_price,
+        SUM(ii.AMOUNT)
+            / NULLIF(COUNT(DISTINCT i.PATIENT_ID), 0)        AS arpu
+    FROM FINANCE_INVOICES      i
+    JOIN FINANCE_INVOICE_ITEMS ii ON ii.INVOICE_ID = i.ID
+    LEFT JOIN EVALUATION_VISITS v  ON v.ID = i.VISIT
+    WHERE i.CREATED_AT >= '{start}'
+      AND i.CREATED_AT <  '{end}'
+      {clinic_filter}
+    GROUP BY 1, 2, 3
+    HAVING revenue_month IS NOT NULL
+    ORDER BY 1, gross_revenue DESC
 """)
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -371,6 +386,7 @@ REVENUE_AT_RISK = dedent("""
     GROUP BY age_bucket
     ORDER BY MIN(age_days)
 """)
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 17. WEEKLY GROSS PROFIT

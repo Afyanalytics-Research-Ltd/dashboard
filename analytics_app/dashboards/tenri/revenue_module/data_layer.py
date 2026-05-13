@@ -194,8 +194,8 @@ def daily_revenue(start: str, end: str, clinic_filter: str = "") -> pd.DataFrame
 
 
 @st.cache_data(ttl=900, show_spinner="Fetching service-line revenue…")
-def revenue_by_service_line(start: str, end: str) -> pd.DataFrame:
-    df = _run("revenue_by_service_line", start=start, end=end)
+def revenue_by_service_line(start: str, end: str, clinic_filter: str = "") -> pd.DataFrame:
+    df = _run("revenue_by_service_line", start=start, end=end, clinic_filter=clinic_filter)
     if "revenue_month" in df.columns:
         df["revenue_month"] = pd.to_datetime(df["revenue_month"], errors="coerce")
     return df
@@ -289,11 +289,11 @@ def revenue_at_risk(start: str, end: str) -> pd.DataFrame:
 # ─── Convenience: clinic dimension for the sidebar filter ──────────────────
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def list_clinics(schema: str = "KISUMU_CLEAN") -> pd.DataFrame:
+def list_clinics(schema: str = "TENRI") -> pd.DataFrame:
     sql = """
         SELECT ID AS clinic_id, NAME AS clinic_name, TOWN AS town
         FROM SETTINGS_CLINICS
-        WHERE STATUS = 'active' AND DELETED_AT IS NULL
+        WHERE STATUS = 'active' 
         ORDER BY clinic_name
     """
     label = _cyan(_bold("list_clinics".ljust(26)))

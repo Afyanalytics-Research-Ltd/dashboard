@@ -319,12 +319,13 @@ st.markdown("<div style='margin-bottom:20px'></div>", unsafe_allow_html=True)
 
 # ─── TABS ───────────────────────────────────────────────────────────────────
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "◉  Revenue Pulse",
     "△  Forecast & Risk",
     "◇  Payer & Patient Mix",
     "∑  KPI Scorecard",
     "⚙  Simulation",
+    "⚙ Payment Simulator"
 ])
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -917,43 +918,97 @@ with tab2:
 with tab3:
     section_header("Payer concentration · revenue share & cumulative")
     if len(concent_df):
-        fig = go.Figure()
-        fig.add_trace(go.Bar(
-            x=concent_df["payer"], y=concent_df["share_pct"],
-            name="Share %", marker=dict(color=COLORS["primary"], line=dict(width=0)),
-            hovertemplate="<b>%{x}</b><br>%{y:.1f}% share<extra></extra>",
-        ))
-        if "cumulative_pct" in concent_df.columns:
-            fig.add_trace(go.Scatter(
-                x=concent_df["payer"], y=concent_df["cumulative_pct"],
-                mode="lines+markers", name="Cumulative %",
-                line=dict(color=COLORS["coral"], width=2.5, shape="spline"),
-                marker=dict(size=7, color=COLORS["coral"]),
-                yaxis="y2",
-                hovertemplate="<b>%{x}</b><br>Cumulative %{y:.1f}%<extra></extra>",
+        # Split: top payer goes left, the rest go right (rescaled so small bars are visible)
+        top_row = concent_df.iloc[[0]].copy()
+        rest_df = concent_df.iloc[1:].copy()
+
+        # Rescale the "rest" so their shares sum to 100% within the right-hand chart
+        if len(rest_df):
+            rest_total = rest_df["share_pct"].sum()
+            if rest_total > 0:
+                rest_df["share_pct_rescaled"] = rest_df["share_pct"] / rest_total * 100
+                rest_df["cumulative_rescaled"] = rest_df["share_pct_rescaled"].cumsum()
+            else:
+                rest_df["share_pct_rescaled"] = rest_df["share_pct"]
+                rest_df["cumulative_rescaled"] = rest_df["share_pct"].cumsum()
+
+        col_left, col_right = st.columns([1, 3])
+
+        # ---- LEFT: dominant payer ----
+        with col_left:
+            top_payer = top_row["payer"].iloc[0]
+            top_share = float(top_row["share_pct"].iloc[0])
+            fig_top = go.Figure()
+            fig_top.add_trace(go.Bar(
+                x=[top_payer], y=[top_share],
+                marker=dict(color=COLORS["primary"], line=dict(width=0)),
+                hovertemplate="<b>%{x}</b><br>%{y:.1f}% share<extra></extra>",
+                text=[f"{top_share:.1f}%"], textposition="outside",
             ))
+            fig_top.update_layout(
+                **{k: v for k, v in CHART_LAYOUT.items() if k not in ("xaxis", "yaxis")},
+                xaxis=dict(tickfont=dict(size=11, color="#6B8CAE")),
+                yaxis=dict(title="Share %", gridcolor="#EBF3FB",
+                        range=[0, max(105, top_share * 1.15)],
+                        tickfont=dict(size=10, color="#6B8CAE")),
+                height=320, showlegend=False,
+                title=dict(text="Dominant payer", x=0.5, xanchor="center",
+                        font=dict(size=12, color="#6B8CAE")),
+            )
+            st.plotly_chart(fig_top, use_container_width=True)
+
+        # ---- RIGHT: remaining payers (rescaled) ----
+        with col_right:
+            if len(rest_df):
+                fig = go.Figure()
+                fig.add_trace(go.Bar(
+                    x=rest_df["payer"], y=rest_df["share_pct_rescaled"],
+                    name="Share % (of remainder)",
+                    marker=dict(color=COLORS["primary"], line=dict(width=0)),
+                    customdata=rest_df["share_pct"],
+                    hovertemplate=(
+                        "<b>%{x}</b><br>"
+                        "%{y:.1f}% of remainder<br>"
+                        "%{customdata:.1f}% of total<extra></extra>"
+                    ),
+                ))
+                fig.add_trace(go.Scatter(
+                    x=rest_df["payer"], y=rest_df["cumulative_rescaled"],
+                    mode="lines+markers", name="Cumulative %",
+                    line=dict(color=COLORS["coral"], width=2.5, shape="spline"),
+                    marker=dict(size=7, color=COLORS["coral"]),
+                    yaxis="y2",
+                    hovertemplate="<b>%{x}</b><br>Cumulative %{y:.1f}% of remainder<extra></extra>",
+                ))
+                fig.update_layout(
+                    **{k: v for k, v in CHART_LAYOUT.items() if k not in ("xaxis", "yaxis")},
+                    xaxis=dict(tickangle=-25, tickfont=dict(size=10, color="#6B8CAE")),
+                    yaxis=dict(title="Share % (of remainder)", gridcolor="#EBF3FB",
+                            tickfont=dict(size=10, color="#6B8CAE")),
+                    yaxis2=dict(title="Cumulative %", overlaying="y", side="right",
+                                range=[0, 105], gridcolor="rgba(0,0,0,0)",
+                                tickfont=dict(size=10, color=COLORS["coral"])),
+                    height=320, showlegend=False,
+                    title=dict(
+                        text=f"Remaining payers (excl. {top_payer} — {top_share:.0f}% of total)",
+                        x=0.5, xanchor="center", font=dict(size=12, color="#6B8CAE"),
+                    ),
+                )
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("Only one payer in the dataset.")
+
+        # ---- HHI verdict (unchanged, uses original concent_df) ----
         hhi = float(concent_df["hhi_index"].iloc[0]) if "hhi_index" in concent_df.columns else None
-        fig.update_layout(
-            **{k: v for k, v in CHART_LAYOUT.items() if k not in ("xaxis", "yaxis")},
-            xaxis=dict(tickangle=-25, tickfont=dict(size=10, color="#6B8CAE")),
-            yaxis=dict(title="Share %", gridcolor="#EBF3FB",
-                       tickfont=dict(size=10, color="#6B8CAE")),
-            yaxis2=dict(title="Cumulative %", overlaying="y", side="right",
-                        range=[0, 105], gridcolor="rgba(0,0,0,0)",
-                        tickfont=dict(size=10, color=COLORS["coral"])),
-            height=320, showlegend=False,
-        )
-        st.plotly_chart(fig, use_container_width=True)
         if hhi is not None:
             verdict = ("HIGHLY concentrated" if hhi > 2500
-                       else "moderately concentrated" if hhi > 1500
-                       else "competitive (well-diversified)")
+                    else "moderately concentrated" if hhi > 1500
+                    else "competitive (well-diversified)")
             info_card(
                 f"Herfindahl-Hirschman Index = <b>{hhi:.0f}</b> · payer mix is {verdict}. "
                 "Above 2500 indicates dangerous dependence on a single payer.",
                 COLORS["warning"] if hhi > 1500 else COLORS["green"],
             )
-
     # ── Payer scoreboard with DSO and AR ageing
     col_l, col_r = st.columns([1.4, 1], gap="large")
     with col_l:
@@ -1953,6 +2008,359 @@ with tab5:
         COLORS["primary"],
     )
 
+
+with tab6:
+    section_header("Payer simulator · what-if levers for revenue, mix & retention")
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # 0 · Baselines (pulled from the same frames the other tabs use)
+    # ──────────────────────────────────────────────────────────────────────────
+    have_payers   = "payer_df"   in dir() and len(payer_df)
+    have_concent  = "concent_df" in dir() and len(concent_df)
+    have_rfm      = "rfm_df"     in dir() and len(rfm_df)
+    have_cohort   = "cohort_df"  in dir() and len(cohort_df)
+
+    if not have_payers or not have_concent:
+        st.info("Payer simulator needs the payer scoreboard and concentration data.")
+        st.stop()
+
+    base = payer_df.copy()
+    for c in ("billed", "collected", "outstanding", "collection_rate_pct", "avg_dso"):
+        if c in base.columns:
+            base[c] = pd.to_numeric(base[c], errors="coerce").fillna(0)
+
+    # Align payer naming between concent_df ("payer") and payer_df ("payer_name")
+    payer_key_concent = "payer"
+    payer_key_score   = "payer_name"
+
+    baseline_total_billed     = float(base["billed"].sum())
+    baseline_total_collected  = float(base["collected"].sum())
+    baseline_total_outstanding = float(base["outstanding"].sum())
+    baseline_collection_rate  = (
+        100 * baseline_total_collected / baseline_total_billed
+        if baseline_total_billed else 0
+    )
+    baseline_dso = float((base["avg_dso"] * base["billed"]).sum() /
+                         max(baseline_total_billed, 1))
+
+    top_payer  = concent_df[payer_key_concent].iloc[0]
+    top_share  = float(concent_df["share_pct"].iloc[0])
+    baseline_hhi = (
+        float(concent_df["hhi_index"].iloc[0])
+        if "hhi_index" in concent_df.columns else
+        float((concent_df["share_pct"] ** 2).sum())
+    )
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # 1 · Levers (three columns, mapped to the three strategic goals)
+    # ──────────────────────────────────────────────────────────────────────────
+    st.markdown(
+        f"<div style='color:#6B8CAE;font-size:12px;margin-bottom:6px;'>"
+        f"Baseline: <b style='color:#0F2A47'>{fmt_ksh(baseline_total_billed)}</b> billed · "
+        f"<b style='color:#0F2A47'>{baseline_collection_rate:.1f}%</b> collected · "
+        f"DSO <b style='color:#0F2A47'>{baseline_dso:.0f}</b> days · "
+        f"HHI <b style='color:#0F2A47'>{baseline_hhi:.0f}</b>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+    lev1, lev2, lev3 = st.columns(3, gap="large")
+
+    with lev1:
+        st.markdown("**1 · Diversify payer mix**")
+        divert_pct = st.slider(
+            f"Shift % of {top_payer} revenue → other payers",
+            min_value=0, max_value=60, value=0, step=5,
+            help="Simulates targeted acquisition of underrepresented carriers.",
+        )
+        top_n_redistribute = st.slider(
+            "Spread across top-N alternative payers",
+            min_value=1, max_value=max(1, len(concent_df) - 1),
+            value=min(3, max(1, len(concent_df) - 1)), step=1,
+            help="Diverted revenue is distributed proportionally to these payers.",
+        )
+
+    with lev2:
+        st.markdown("**2 · Contract & denial levers**")
+        fee_uplift_pct = st.slider(
+            "Fee-schedule uplift on top-3 payers (%)",
+            0, 25, 0, step=1,
+            help="Renegotiated rates on highest-volume CPT/CDT codes.",
+        )
+        denial_reduction_pct = st.slider(
+            "Denial / write-off reduction (%)",
+            0, 80, 0, step=5,
+            help="Closes the gap between billed and collected.",
+        )
+        dso_reduction_days = st.slider(
+            "DSO reduction (days)",
+            0, 45, 0, step=1,
+            help="Faster cash conversion frees working capital.",
+        )
+
+    with lev3:
+        st.markdown("**3 · Patient retention levers**")
+        critical_n = (
+            int((risk["risk_band"] == "Critical").sum())
+            if "risk" in dir() and len(risk) else 0
+        )
+        churn_recovery_pct = st.slider(
+            f"Reactivate % of {critical_n:,} Critical-band patients",
+            0, 60, 0, step=5,
+            help="Re-engagement campaigns for high-value churned patients.",
+        )
+        m1_retention_uplift = st.slider(
+            "Month-1 cohort retention uplift (pp)",
+            0, 30, 0, step=2,
+            help="Better onboarding / first-visit experience.",
+        )
+        nrr_uplift_pct = st.slider(
+            "Net revenue retention uplift on active cohorts (%)",
+            0, 25, 0, step=1,
+            help="Cross-sell / upsell to existing patient cohorts.",
+        )
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # 2 · Apply levers
+    # ──────────────────────────────────────────────────────────────────────────
+    sim = base.copy()
+
+    # --- Lever 1: diversification (move share from top payer to top-N others) ---
+    sim_concent = concent_df.copy()
+    sim_concent["share_pct_sim"] = sim_concent["share_pct"].astype(float)
+    if divert_pct > 0 and len(sim_concent) > 1:
+        moved = sim_concent.loc[0, "share_pct_sim"] * (divert_pct / 100.0)
+        sim_concent.loc[0, "share_pct_sim"] -= moved
+        recipients = sim_concent.iloc[1:1 + top_n_redistribute]
+        if recipients["share_pct"].sum() > 0:
+            weights = recipients["share_pct"] / recipients["share_pct"].sum()
+            sim_concent.loc[recipients.index, "share_pct_sim"] += moved * weights.values
+    sim_concent["cumulative_sim"] = sim_concent["share_pct_sim"].cumsum()
+    sim_hhi = float((sim_concent["share_pct_sim"] ** 2).sum())
+
+    # --- Lever 2a: fee uplift on the top-3 payers by billed ---
+    top3 = sim.nlargest(3, "billed").index
+    sim.loc[top3, "billed"]    *= (1 + fee_uplift_pct / 100.0)
+    sim.loc[top3, "collected"] *= (1 + fee_uplift_pct / 100.0)
+
+    # --- Lever 2b: denial reduction (close billed-vs-collected gap) ---
+    gap = (sim["billed"] - sim["collected"]).clip(lower=0)
+    sim["collected"] += gap * (denial_reduction_pct / 100.0)
+
+    # --- Lever 2c: DSO reduction (compresses outstanding receivables) ---
+    if dso_reduction_days > 0 and baseline_dso > 0:
+        dso_factor = max(0.0, 1 - dso_reduction_days / baseline_dso)
+        sim["outstanding"] *= dso_factor
+
+    # --- Lever 3a: churn recovery → incremental collected revenue ---
+    median_ticket = (
+        float(pd.to_numeric(rfm_df["avg_ticket"], errors="coerce").median() or 0)
+        if have_rfm else 0
+    )
+    recovered_patients = critical_n * (churn_recovery_pct / 100.0)
+    churn_recovery_value = recovered_patients * median_ticket
+
+    # --- Lever 3b + 3c: cohort uplift (retention + NRR) ---
+    cohort_uplift_value = 0.0
+    if have_cohort:
+        ch = cohort_df.copy()
+        ch["revenue"] = pd.to_numeric(ch["revenue"], errors="coerce").fillna(0)
+        m1_rev = ch.loc[ch["month_offset"] == 1, "revenue"].sum()
+        active_rev = ch.loc[ch["month_offset"] >= 1, "revenue"].sum()
+        cohort_uplift_value = (
+            m1_rev * (m1_retention_uplift / 100.0) +
+            active_rev * (nrr_uplift_pct / 100.0)
+        )
+
+    # Distribute the patient-side uplift proportionally across payer mix
+    if (churn_recovery_value + cohort_uplift_value) > 0 and sim["collected"].sum() > 0:
+        weights = sim["collected"] / sim["collected"].sum()
+        sim["collected"] += (churn_recovery_value + cohort_uplift_value) * weights
+        sim["billed"]    += (churn_recovery_value + cohort_uplift_value) * weights
+
+    # Refresh derived columns
+    sim["collection_rate_pct"] = np.where(
+        sim["billed"] > 0, 100 * sim["collected"] / sim["billed"], 0
+    )
+    sim["avg_dso"] = sim["avg_dso"] * (
+        max(0.0, 1 - dso_reduction_days / baseline_dso) if baseline_dso else 1.0
+    )
+
+    sim_total_billed     = float(sim["billed"].sum())
+    sim_total_collected  = float(sim["collected"].sum())
+    sim_total_outstanding = float(sim["outstanding"].sum())
+    sim_collection_rate  = (
+        100 * sim_total_collected / sim_total_billed if sim_total_billed else 0
+    )
+    sim_dso = float((sim["avg_dso"] * sim["billed"]).sum() / max(sim_total_billed, 1))
+
+    delta_collected   = sim_total_collected - baseline_total_collected
+    delta_outstanding = sim_total_outstanding - baseline_total_outstanding
+    delta_rate_pp     = sim_collection_rate - baseline_collection_rate
+    delta_dso         = sim_dso - baseline_dso
+    delta_hhi         = sim_hhi - baseline_hhi
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # 3 · KPI strip (before → after)
+    # ──────────────────────────────────────────────────────────────────────────
+    def _kpi(label, before, after, delta, fmt="ksh", reverse=False):
+        if fmt == "ksh":
+            before_s, after_s = fmt_ksh(before), fmt_ksh(after)
+            delta_s = ("+" if delta >= 0 else "") + fmt_ksh(delta)
+        elif fmt == "pct":
+            before_s, after_s = f"{before:.1f}%", f"{after:.1f}%"
+            delta_s = f"{'+' if delta >= 0 else ''}{delta:.1f} pp"
+        elif fmt == "days":
+            before_s, after_s = f"{before:.0f} d", f"{after:.0f} d"
+            delta_s = f"{'+' if delta >= 0 else ''}{delta:.0f} d"
+        else:
+            before_s, after_s = f"{before:.0f}", f"{after:.0f}"
+            delta_s = f"{'+' if delta >= 0 else ''}{delta:.0f}"
+
+        good = (delta >= 0) ^ reverse
+        colour = COLORS["green"] if good else COLORS["danger"]
+        return (
+            f"<div style='border:1px solid #EBF3FB;border-radius:10px;"
+            f"padding:10px 12px;background:#FAFCFE;'>"
+            f"<div style='color:#6B8CAE;font-size:11px;text-transform:uppercase;"
+            f"letter-spacing:0.4px;'>{label}</div>"
+            f"<div style='color:#0F2A47;font-size:18px;font-weight:600;"
+            f"margin-top:2px;'>{after_s}</div>"
+            f"<div style='color:#6B8CAE;font-size:11px;margin-top:2px;'>"
+            f"baseline {before_s} · <span style='color:{colour};font-weight:600;'>"
+            f"{delta_s}</span></div>"
+            f"</div>"
+        )
+
+    k1, k2, k3, k4, k5 = st.columns(5)
+    k1.markdown(_kpi("Collected", baseline_total_collected, sim_total_collected,
+                     delta_collected, "ksh"), unsafe_allow_html=True)
+    k2.markdown(_kpi("Collection %", baseline_collection_rate, sim_collection_rate,
+                     delta_rate_pp, "pct"), unsafe_allow_html=True)
+    k3.markdown(_kpi("Outstanding", baseline_total_outstanding, sim_total_outstanding,
+                     delta_outstanding, "ksh", reverse=True), unsafe_allow_html=True)
+    k4.markdown(_kpi("Avg DSO", baseline_dso, sim_dso, delta_dso, "days",
+                     reverse=True), unsafe_allow_html=True)
+    k5.markdown(_kpi("HHI (mix risk)", baseline_hhi, sim_hhi, delta_hhi, "int",
+                     reverse=True), unsafe_allow_html=True)
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # 4 · Mix before/after + waterfall of uplift sources
+    # ──────────────────────────────────────────────────────────────────────────
+    col_mix, col_water = st.columns([1.2, 1], gap="large")
+
+    with col_mix:
+        section_header("Payer mix · baseline vs simulated", margin_top=8)
+        fig = go.Figure()
+        fig.add_trace(go.Bar(
+            name="Baseline share",
+            x=sim_concent[payer_key_concent],
+            y=sim_concent["share_pct"],
+            marker=dict(color="#D6E4F0", line=dict(width=0)),
+            hovertemplate="<b>%{x}</b><br>Baseline %{y:.1f}%<extra></extra>",
+        ))
+        fig.add_trace(go.Bar(
+            name="Simulated share",
+            x=sim_concent[payer_key_concent],
+            y=sim_concent["share_pct_sim"],
+            marker=dict(color=COLORS["primary"], line=dict(width=0)),
+            hovertemplate="<b>%{x}</b><br>Simulated %{y:.1f}%<extra></extra>",
+        ))
+        fig.update_layout(
+            **{k: v for k, v in CHART_LAYOUT.items() if k not in ("xaxis", "yaxis")},
+            barmode="group",
+            bargap=0.25,
+            height=340,
+            xaxis=dict(tickangle=-25, tickfont=dict(size=10, color="#6B8CAE")),
+            yaxis=dict(title="Share %", gridcolor="#EBF3FB",
+                       tickfont=dict(size=10, color="#6B8CAE")),
+            legend=dict(orientation="h", y=-0.25, x=0.5, xanchor="center",
+                        font=dict(size=10, color="#6B8CAE"),
+                        bgcolor="rgba(0,0,0,0)"),
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    with col_water:
+        section_header("Where the uplift comes from", margin_top=8)
+        # Approximate decomposition of the collected-revenue delta
+        contrib_fee   = baseline_total_collected * (fee_uplift_pct / 100.0)
+        contrib_deny  = (baseline_total_billed - baseline_total_collected) * \
+                        (denial_reduction_pct / 100.0)
+        contrib_churn = churn_recovery_value
+        contrib_cohort = cohort_uplift_value
+        labels  = ["Baseline", "Fee uplift", "Denial recovery",
+                   "Churn recovery", "Cohort uplift", "Simulated"]
+        values  = [baseline_total_collected, contrib_fee, contrib_deny,
+                   contrib_churn, contrib_cohort, sim_total_collected]
+        measure = ["absolute", "relative", "relative", "relative", "relative", "total"]
+
+        fig = go.Figure(go.Waterfall(
+            x=labels, y=values, measure=measure,
+            connector=dict(line=dict(color="#D6E4F0")),
+            increasing=dict(marker=dict(color=COLORS["green"])),
+            decreasing=dict(marker=dict(color=COLORS["danger"])),
+            totals=dict(marker=dict(color=COLORS["primary"])),
+            text=[fmt_ksh(v) for v in values], textposition="outside",
+            hovertemplate="<b>%{x}</b><br>%{y:,.0f} KSh<extra></extra>",
+        ))
+        fig.update_layout(
+            **{k: v for k, v in CHART_LAYOUT.items() if k not in ("xaxis", "yaxis")},
+            height=340,
+            xaxis=dict(tickfont=dict(size=10, color="#6B8CAE")),
+            yaxis=dict(title="KSh collected", gridcolor="#EBF3FB",
+                       tickfont=dict(size=10, color="#6B8CAE")),
+            showlegend=False,
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # 5 · Per-payer simulated scoreboard
+    # ──────────────────────────────────────────────────────────────────────────
+    section_header("Simulated payer scoreboard", margin_top=8)
+    delta_view = sim[[payer_key_score, "billed", "collected", "outstanding",
+                      "collection_rate_pct", "avg_dso"]].copy()
+    delta_view["Δ collected"] = sim["collected"].values - base["collected"].values
+    delta_view.columns = ["Payer", "Billed (KSh)", "Collected (KSh)",
+                          "Outstanding (KSh)", "Collection %", "Avg DSO",
+                          "Δ collected"]
+
+    st.dataframe(
+        delta_view.style.format({
+            "Billed (KSh)":      "{:,.0f}",
+            "Collected (KSh)":   "{:,.0f}",
+            "Outstanding (KSh)": "{:,.0f}",
+            "Collection %":      "{:.1f}%",
+            "Avg DSO":           "{:.0f}",
+            "Δ collected":       "{:+,.0f}",
+        }, na_rep="—")
+        .background_gradient(subset=["Δ collected"], cmap="Greens")
+        .background_gradient(subset=["Collection %"], cmap="RdYlGn"),
+        hide_index=True, use_container_width=True, height=320,
+    )
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # 6 · Verdict card
+    # ──────────────────────────────────────────────────────────────────────────
+    verdict_colour = (
+        COLORS["green"]   if sim_hhi < 1500 else
+        COLORS["warning"] if sim_hhi < 2500 else
+        COLORS["danger"]
+    )
+    verdict_label = (
+        "competitive (well-diversified)" if sim_hhi < 1500 else
+        "moderately concentrated"        if sim_hhi < 2500 else
+        "HIGHLY concentrated"
+    )
+    info_card(
+        f"With these levers, monthly collections move from "
+        f"<b>{fmt_ksh(baseline_total_collected)}</b> → "
+        f"<b>{fmt_ksh(sim_total_collected)}</b> "
+        f"(<b>{'+' if delta_collected >= 0 else ''}{fmt_ksh(delta_collected)}</b>). "
+        f"Outstanding AR falls by <b>{fmt_ksh(-delta_outstanding)}</b>, "
+        f"DSO shifts <b>{delta_dso:+.0f} days</b>, and the payer mix becomes "
+        f"<b>{verdict_label}</b> (HHI {baseline_hhi:.0f} → {sim_hhi:.0f}).",
+        verdict_colour,
+    )
 
 # ─── Footer ─────────────────────────────────────────────────────────────────
 

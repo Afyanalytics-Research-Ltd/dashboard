@@ -157,14 +157,14 @@
 </nav>
 
 <!-- MAIN CONTENT -->
-<div class="container main-container">
+<div class="{% block main_wrapper_class %}container main-container{% endblock %}">
 
     <!-- Page Header Slot -->
     {% block header %}
     {% endblock %}
 
     <!-- Main Content -->
-    <div class="mt-3">
+    <div class="{% block content_wrapper_class %}mt-3{% endblock %}">
         {% block content %}
         {% endblock %}
     </div>

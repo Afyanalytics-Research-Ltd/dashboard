@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(///wsl.localhost/Ubuntu/home/luther/**)",
+      "Bash(dir \"\\\\\\\\\\\\\\\\wsl.localhost\\\\\\\\Ubuntu\\\\\\\\home\\\\\\\\luther\\\\\\\\dashboard\\\\\\\\\")",
+      "Read(///wsl.localhost/Ubuntu/home/luther/dashboard/**)",
+      "Bash(dir /s /b \"\\\\\\\\\\\\\\\\wsl.localhost\\\\\\\\Ubuntu\\\\\\\\home\\\\\\\\luther\\\\\\\\dashboard\\\\\\\\templates\")",
+      "Bash(findstr iframe *)",
+      "Bash(find \"\\\\\\\\\\\\\\\\wsl.localhost\\\\\\\\Ubuntu\\\\\\\\home\\\\\\\\luther\\\\\\\\dashboard\\\\\\\\templates\" -name \"base.html\" 2>&1)"
+    ]
+  }
+}

@@ -3,6 +3,7 @@ from . import views
 
 urlpatterns = [
     path("snowflake/query/", views.snowflake_query_view, name="snowflake_query"),
+    path("report-missing/", views.report_missing_data, name="report-missing"),
     path("", views.index, name="warehouse_index"),
     path("<str:spreadsheet_id>/", views.detail, name="detail"),
 

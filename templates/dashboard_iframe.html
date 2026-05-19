@@ -5,6 +5,21 @@
 
 {% block content %}
 
+<style>
+    .ticker-track {
+        display: inline-block;
+        white-space: nowrap;
+        animation: ticker-scroll 40s linear infinite;
+    }
+    .ticker-track:hover {
+        animation-play-state: paused;
+    }
+    @keyframes ticker-scroll {
+        0%   { transform: translateX(100vw); }
+        100% { transform: translateX(-100%); }
+    }
+</style>
+
 <div id="iframe-container" class="d-flex flex-column">
 
     <!-- Toolbar -->
@@ -16,6 +31,33 @@
         <a href="{% url 'dashboard_home' %}" class="btn btn-outline-secondary btn-sm rounded-pill px-3">
             ← Back to Dashboards
         </a>
+    </div>
+
+    <!-- News Ticker -->
+    <div class="d-flex align-items-stretch overflow-hidden bg-dark border-bottom border-secondary" style="min-height:38px;">
+        <!-- Label -->
+        <div class="d-flex align-items-center px-3 gap-2 flex-shrink-0 bg-primary">
+            <span class="text-white fw-bold text-uppercase small letter-spacing-1">&#9733; Highlights</span>
+        </div>
+        <!-- Scrolling strip -->
+        <div class="flex-grow-1 overflow-hidden position-relative d-flex align-items-center">
+            <div class="ticker-track text-white small fw-medium">
+                <span class="me-5">📊&nbsp; Revenue up <strong>18 %</strong> QoQ across all facilities</span>
+                <span class="text-warning me-5">&#9679;</span>
+                <span class="me-5">🏥&nbsp; Patient throughput at <strong>94 %</strong> of capacity this month</span>
+                <span class="text-warning me-5">&#9679;</span>
+                <span class="me-5">💊&nbsp; Pharmacy fulfilment rate hit <strong>99.2 %</strong> — highest on record</span>
+                <span class="text-warning me-5">&#9679;</span>
+                <span class="me-5">📈&nbsp; NHIF claims processing improved by <strong>23 %</strong> since Q1</span>
+                <span class="text-warning me-5">&#9679;</span>
+                <span class="me-5">🔔&nbsp; Kisumu branch exceeded monthly revenue target by <strong>11 %</strong></span>
+                <span class="text-warning me-5">&#9679;</span>
+                <span class="me-5">🚑&nbsp; Average outpatient wait time reduced to <strong>14 min</strong></span>
+                <span class="text-warning me-5">&#9679;</span>
+                <span class="me-5">💡&nbsp; Operational costs down <strong>7 %</strong> YoY through procurement optimisation</span>
+                <span class="text-warning me-5">&#9679;</span>
+            </div>
+        </div>
     </div>
 
     <!-- IFRAME -->

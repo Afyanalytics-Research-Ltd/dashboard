@@ -6,7 +6,10 @@
       "Read(///wsl.localhost/Ubuntu/home/luther/dashboard/**)",
       "Bash(dir /s /b \"\\\\\\\\\\\\\\\\wsl.localhost\\\\\\\\Ubuntu\\\\\\\\home\\\\\\\\luther\\\\\\\\dashboard\\\\\\\\templates\")",
       "Bash(findstr iframe *)",
-      "Bash(find \"\\\\\\\\\\\\\\\\wsl.localhost\\\\\\\\Ubuntu\\\\\\\\home\\\\\\\\luther\\\\\\\\dashboard\\\\\\\\templates\" -name \"base.html\" 2>&1)"
+      "Bash(find \"\\\\\\\\\\\\\\\\wsl.localhost\\\\\\\\Ubuntu\\\\\\\\home\\\\\\\\luther\\\\\\\\dashboard\\\\\\\\templates\" -name \"base.html\" 2>&1)",
+      "Bash(grep -n \"EMAIL\\\\|email\\\\|MAIL\\\\|mail\" \"\\\\\\\\\\\\\\\\wsl.localhost\\\\\\\\Ubuntu\\\\\\\\home\\\\\\\\luther\\\\\\\\dashboard\\\\\\\\airflow_dashboard\\\\\\\\settings.py\" 2>/dev/null | head -30)",
+      "Read(///wsl.localhost/Ubuntu/home/luther/dashboard/airflow_dashboard/**)",
+      "Bash(find \"\\\\\\\\\\\\\\\\wsl.localhost\\\\\\\\Ubuntu\\\\\\\\home\\\\\\\\luther\\\\\\\\dashboard\\\\\\\\airflow_dashboard\" -name \"settings*.py\" 2>&1)"
     ]
   }
 }

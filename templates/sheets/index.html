@@ -3,6 +3,16 @@
 {% block title %}Warehouse Manager — Home{% endblock %}
 
 {% block content %}
+
+{% if messages %}
+  {% for msg in messages %}
+    <div class="alert alert-{{ msg.tags|default:'info' }} alert-dismissible fade show" role="alert">
+      {{ msg }}
+      <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+  {% endfor %}
+{% endif %}
+
 <div class="row g-4">
   <div class="col-md-6">
     <div class="card shadow-sm">
@@ -41,6 +51,91 @@
   </div>
 </div>
 
+<!-- ── Snowflake Schema Tables ─────────────────────────────────────── -->
+<div class="card shadow-sm mt-4">
+  <div class="card-header d-flex justify-content-between align-items-center bg-dark text-white">
+    <span>
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
+           class="bi bi-database me-1" viewBox="0 0 16 16">
+        <path d="M4.318 2.687C5.234 2.271 6.536 2 8 2s2.766.27 3.682.687C12.644 3.125 13 3.627 13 4c0 .374-.356.875-1.318 1.313C10.766 5.729 9.464 6 8 6s-2.766-.27-3.682-.687C3.356 4.875 3 4.373 3 4c0-.374.356-.875 1.318-1.313ZM13 5.698V7c0 .374-.356.875-1.318 1.313C10.766 8.729 9.464 9 8 9s-2.766-.27-3.682-.687C3.356 7.875 3 7.373 3 7V5.698c.271.202.58.378.904.525C4.978 6.711 6.427 7 8 7s3.022-.289 4.096-.777A4.92 4.92 0 0 0 13 5.698ZM14 4c0-1.007-.875-1.755-1.904-2.223C11.022 1.289 9.573 1 8 1s-3.022.289-4.096.777C2.875 2.245 2 2.993 2 4v9c0 1.007.875 1.755 1.904 2.223C4.978 15.71 6.427 16 8 16s3.022-.289 4.096-.777C13.125 14.755 14 14.007 14 13V4Zm-1 4.698V10c0 .374-.356.875-1.318 1.313C10.766 11.729 9.464 12 8 12s-2.766-.27-3.682-.687C3.356 10.875 3 10.373 3 10V8.698c.271.202.58.378.904.525C4.978 9.71 6.427 10 8 10s3.022-.289 4.096-.777A4.92 4.92 0 0 0 13 8.698Zm0 3V13c0 .374-.356.875-1.318 1.313C10.766 14.729 9.464 15 8 15s-2.766-.27-3.682-.687C3.356 13.875 3 13.373 3 13v-1.302c.271.202.58.378.904.525C4.978 12.71 6.427 13 8 13s3.022-.289 4.096-.777c.324-.147.633-.323.904-.525Z"/>
+      </svg>
+      Snowflake — All Schema Tables
+    </span>
+    <span class="badge bg-secondary rounded-pill">{{ schema_tables|length }} tables</span>
+  </div>
+
+  <div class="card-body p-0">
+    {% if sf_error %}
+      <div class="alert alert-warning m-3 mb-2 d-flex align-items-center gap-2">
+        <i class="bi bi-exclamation-triangle-fill text-warning"></i>
+        <span><strong>Snowflake unavailable:</strong> {{ sf_error }}</span>
+      </div>
+    {% elif schema_tables %}
+      <!-- search filter -->
+      <div class="px-3 pt-3 pb-2">
+        <input id="tableSearch" type="text" class="form-control form-control-sm"
+               placeholder="Filter by schema or table name…">
+      </div>
+      <div class="table-responsive">
+        <table class="table table-hover table-sm align-middle mb-0" id="schemaTable">
+          <thead class="table-dark">
+            <tr>
+              <th class="ps-3">Schema</th>
+              <th>Table</th>
+              <th>Type</th>
+              <th class="text-end">Rows</th>
+              <th class="text-end">Size</th>
+              <th>Last Altered</th>
+              <th class="pe-3"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for t in schema_tables %}
+            <tr>
+              <td class="ps-3">
+                <span class="badge rounded-pill text-bg-light border fw-normal">{{ t.SCHEMA_NAME }}</span>
+              </td>
+              <td><code class="small">{{ t.TABLE_NAME }}</code></td>
+              <td>
+                {% if t.TABLE_TYPE == "BASE TABLE" %}
+                  <span class="badge text-bg-success">Table</span>
+                {% elif t.TABLE_TYPE == "VIEW" %}
+                  <span class="badge text-bg-info">View</span>
+                {% else %}
+                  <span class="badge text-bg-secondary">{{ t.TABLE_TYPE }}</span>
+                {% endif %}
+              </td>
+              <td class="text-end text-muted small">
+                {% if t.ROW_COUNT is not None %}{{ t.ROW_COUNT }}{% else %}—{% endif %}
+              </td>
+              <td class="text-end text-muted small">
+                {% if t.BYTES is not None %}{{ t.BYTES|filesizeformat }}{% else %}—{% endif %}
+              </td>
+              <td class="text-muted small">
+                {% if t.LAST_ALTERED %}{{ t.LAST_ALTERED|date:"Y-m-d H:i" }}{% else %}—{% endif %}
+              </td>
+              <td class="text-end pe-3">
+                <button type="button"
+                        class="btn btn-sm btn-outline-danger report-btn"
+                        data-schema="{{ t.SCHEMA_NAME }}"
+                        data-table="{{ t.TABLE_NAME }}"
+                        data-bs-toggle="modal"
+                        data-bs-target="#reportModal">
+                  ⚠ Report
+                </button>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p class="text-muted m-3 mb-2">No tables found in Snowflake.</p>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ── Recent Spreadsheets ────────────────────────────────────────── -->
 <div class="card shadow-sm mt-4">
   <div class="card-header"><i class="bi bi-clock-history text-secondary"></i> Recent spreadsheets</div>
   <div class="card-body p-0">
@@ -74,4 +169,70 @@
     {% endif %}
   </div>
 </div>
+
+<!-- ── Report Missing Data Modal ─────────────────────────────────── -->
+<div class="modal fade" id="reportModal" tabindex="-1"
+     aria-labelledby="reportModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content shadow-lg border-0">
+      <form method="post" action="{% url 'report-missing' %}">
+        {% csrf_token %}
+        <div class="modal-header text-white" style="background:linear-gradient(90deg,#dc3545,#b02a37);">
+          <h5 class="modal-title" id="reportModalLabel">⚠ Report Missing Data</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-3 mb-3">
+            <div class="col-sm-5">
+              <label class="form-label fw-semibold small text-muted text-uppercase">Schema</label>
+              <input type="text" class="form-control form-control-sm bg-light"
+                     name="schema_name" id="modal-schema" readonly>
+            </div>
+            <div class="col-sm-7">
+              <label class="form-label fw-semibold small text-muted text-uppercase">Table</label>
+              <input type="text" class="form-control form-control-sm bg-light"
+                     name="table_name" id="modal-table" readonly>
+            </div>
+          </div>
+          <div class="mb-1">
+            <label class="form-label fw-semibold small text-muted text-uppercase">
+              Describe the missing or incorrect data
+            </label>
+            <textarea class="form-control" name="description" rows="5"
+                      placeholder="What data is missing or incorrect? Which date range? When was it last seen correctly?…"
+                      required></textarea>
+          </div>
+          <p class="text-muted small mt-2 mb-0">
+            This report will be sent to <strong>mbironga@afya.ai</strong>.
+          </p>
+        </div>
+        <div class="modal-footer border-0 pt-0">
+          <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-danger btn-sm px-4">
+            Send Report
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+  // Populate modal fields from the clicked row's data attributes
+  document.querySelectorAll('.report-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      document.getElementById('modal-schema').value = this.dataset.schema;
+      document.getElementById('modal-table').value  = this.dataset.table;
+    });
+  });
+
+  // Live filter on the schema table
+  document.getElementById('tableSearch').addEventListener('input', function () {
+    var q = this.value.toLowerCase();
+    document.querySelectorAll('#schemaTable tbody tr').forEach(function (row) {
+      row.style.display = row.textContent.toLowerCase().includes(q) ? '' : 'none';
+    });
+  });
+</script>
+
 {% endblock %}

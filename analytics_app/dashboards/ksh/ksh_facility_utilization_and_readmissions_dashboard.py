@@ -16,8 +16,8 @@ from streamlit_option_menu import option_menu
 import warnings
 warnings.filterwarnings("ignore")
 
-from m1_ward_forecast import get_forecast
-from queries import (
+from facility_utilization.m1_ward_forecast import get_forecast
+from facility_utilization.queries import (
     q_overview_gap, q_overview_alerts,
     q_leakage_gap, q_leakage_submission_rate, q_leakage_ksh_dispatch_trend,
     q_leakage_aging_dist, q_leakage_recovery_priority,
@@ -2507,7 +2507,7 @@ elif page == "Predictive Analytics":
         meta.columns = ["Series", "Model", "Holdout MAPE", "Status"]
         st.dataframe(meta, hide_index=True, use_container_width=True)
 
-        from m1_ward_forecast import VALIDATED_DATE, RETRAIN_DATE
+        from facility_utilization.m1_ward_forecast import VALIDATED_DATE, RETRAIN_DATE
         dq_note(
             f"Last validated: {VALIDATED_DATE.strftime('%Y-%m-%d')}  ·  "
             f"Retrain recommended by: {RETRAIN_DATE.strftime('%Y-%m-%d')}  ·  "

@@ -1,4 +1,4 @@
-from db import run_query_df
+from .db import run_query_df
 
 _VALID_FACILITIES = frozenset({"TENRI", "KISUMU_CLEAN"})
 

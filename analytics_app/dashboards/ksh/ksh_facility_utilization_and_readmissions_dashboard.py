@@ -16,8 +16,8 @@ from streamlit_option_menu import option_menu
 import warnings
 warnings.filterwarnings("ignore")
 
-from facility_utilization.m1_ward_forecast import get_forecast
-from facility_utilization.queries import (
+from ksh.facility_utilization.m1_ward_forecast import get_forecast
+from ksh.facility_utilization.queries import (
     q_overview_gap, q_overview_alerts,
     q_leakage_gap, q_leakage_submission_rate, q_leakage_ksh_dispatch_trend,
     q_leakage_aging_dist, q_leakage_recovery_priority,

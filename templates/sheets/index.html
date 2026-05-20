@@ -71,10 +71,16 @@
         <span><strong>Snowflake unavailable:</strong> {{ sf_error }}</span>
       </div>
     {% elif schema_tables %}
-      <!-- search filter -->
-      <div class="px-3 pt-3 pb-2">
-        <input id="tableSearch" type="text" class="form-control form-control-sm"
+      <!-- search + per-page controls -->
+      <div class="px-3 pt-3 pb-2 d-flex align-items-center gap-2">
+        <input id="tableSearch" type="text" class="form-control form-control-sm flex-grow-1"
                placeholder="Filter by schema or table name…">
+        <select id="perPageSelect" class="form-select form-select-sm" style="width:auto;">
+          <option value="10">10 / page</option>
+          <option value="20" selected>20 / page</option>
+          <option value="50">50 / page</option>
+          <option value="100">100 / page</option>
+        </select>
       </div>
       <div class="table-responsive">
         <table class="table table-hover table-sm align-middle mb-0" id="schemaTable">
@@ -128,6 +134,13 @@
             {% endfor %}
           </tbody>
         </table>
+      </div>
+      <!-- pagination footer -->
+      <div class="d-flex justify-content-between align-items-center px-3 py-2 border-top bg-light">
+        <span id="pageInfo" class="text-muted small"></span>
+        <nav aria-label="Table pagination">
+          <div id="tablePagination"></div>
+        </nav>
       </div>
     {% else %}
       <p class="text-muted m-3 mb-2">No tables found in Snowflake.</p>
@@ -218,7 +231,7 @@
 </div>
 
 <script>
-  // Populate modal fields from the clicked row's data attributes
+  // ── Modal population ──────────────────────────────────────────────
   document.querySelectorAll('.report-btn').forEach(function (btn) {
     btn.addEventListener('click', function () {
       document.getElementById('modal-schema').value = this.dataset.schema;
@@ -226,13 +239,103 @@
     });
   });
 
-  // Live filter on the schema table
-  document.getElementById('tableSearch').addEventListener('input', function () {
-    var q = this.value.toLowerCase();
-    document.querySelectorAll('#schemaTable tbody tr').forEach(function (row) {
-      row.style.display = row.textContent.toLowerCase().includes(q) ? '' : 'none';
+  // ── Pagination + filter ──────────────────────────────────────────
+  (function () {
+    var allRows     = Array.from(document.querySelectorAll('#schemaTable tbody tr'));
+    var filtered    = allRows.slice();   // rows matching current search
+    var perPage     = 20;
+    var currentPage = 1;
+
+    var pageInfoEl  = document.getElementById('pageInfo');
+    var paginationEl = document.getElementById('tablePagination');
+
+    if (!pageInfoEl) return;  // table not rendered (sf_error path)
+
+    // ── render a single page ──────────────────────────────────────
+    function showPage(page) {
+      currentPage = page;
+      var start = (page - 1) * perPage;
+      var end   = start + perPage;
+
+      allRows.forEach(function (r) { r.style.display = 'none'; });
+      filtered.slice(start, end).forEach(function (r) { r.style.display = ''; });
+
+      var total    = filtered.length;
+      var showFrom = total ? start + 1 : 0;
+      var showTo   = Math.min(end, total);
+      pageInfoEl.textContent =
+        'Showing ' + showFrom + '–' + showTo + ' of ' + total + ' tables';
+
+      buildPagination(page, Math.ceil(total / perPage));
+    }
+
+    // ── build Bootstrap pagination nav ──────────────────────────
+    function buildPagination(page, totalPages) {
+      if (totalPages <= 1) { paginationEl.innerHTML = ''; return; }
+
+      var html = '<ul class="pagination pagination-sm mb-0">';
+
+      // Prev
+      html += pageBtn(page - 1, '&laquo;', page <= 1);
+
+      // window of pages around current
+      var winStart = Math.max(1, Math.min(page - 2, totalPages - 4));
+      var winEnd   = Math.min(totalPages, winStart + 4);
+
+      if (winStart > 1) {
+        html += pageBtn(1, '1', false);
+        if (winStart > 2) html += '<li class="page-item disabled"><span class="page-link">&hellip;</span></li>';
+      }
+      for (var i = winStart; i <= winEnd; i++) {
+        html += '<li class="page-item' + (i === page ? ' active' : '') + '">'
+              + '<a class="page-link" href="#" data-p="' + i + '">' + i + '</a></li>';
+      }
+      if (winEnd < totalPages) {
+        if (winEnd < totalPages - 1) html += '<li class="page-item disabled"><span class="page-link">&hellip;</span></li>';
+        html += pageBtn(totalPages, totalPages, false);
+      }
+
+      // Next
+      html += pageBtn(page + 1, '&raquo;', page >= totalPages);
+      html += '</ul>';
+
+      paginationEl.innerHTML = html;
+
+      paginationEl.querySelectorAll('a[data-p]').forEach(function (a) {
+        a.addEventListener('click', function (e) {
+          e.preventDefault();
+          var p = parseInt(this.dataset.p, 10);
+          if (p >= 1 && p <= totalPages) showPage(p);
+        });
+      });
+    }
+
+    function pageBtn(p, label, disabled) {
+      return '<li class="page-item' + (disabled ? ' disabled' : '') + '">'
+           + (disabled
+               ? '<span class="page-link">' + label + '</span>'
+               : '<a class="page-link" href="#" data-p="' + p + '">' + label + '</a>')
+           + '</li>';
+    }
+
+    // ── search filter ────────────────────────────────────────────
+    document.getElementById('tableSearch').addEventListener('input', function () {
+      var q = this.value.toLowerCase();
+      filtered = q
+        ? allRows.filter(function (r) { return r.textContent.toLowerCase().includes(q); })
+        : allRows.slice();
+      showPage(1);
     });
-  });
+
+    // ── per-page selector ────────────────────────────────────────
+    document.getElementById('perPageSelect').addEventListener('change', function () {
+      perPage = parseInt(this.value, 10);
+      showPage(1);
+    });
+
+    // initial render
+    showPage(1);
+  })();
 </script>
 
 {% endblock %}

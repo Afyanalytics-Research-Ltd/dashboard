@@ -5,7 +5,7 @@ Run: streamlit run private_analysis/dashboard.py
 
 import sys
 import os
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.abspath('__file__')))
 
 import streamlit as st
 import pandas as pd
@@ -276,7 +276,7 @@ fac_key   = facility
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 
 with st.sidebar:
-    _logo = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ksh_logo.png")
+    _logo = os.path.join(os.path.dirname(os.path.abspath('__file__')), "ksh_logo.png")
     if os.path.exists(_logo):
         st.image(_logo, width=80)
     st.markdown(
@@ -1745,7 +1745,7 @@ elif page == "Readmissions":
                 mm_fig.update_layout(**cl(
                     height=320,
                     yaxis_title="30-Day Rate (%)",
-                    yaxis_range=[0, max(med_male["READMISSION_30DAY_RATE_PCT"].max() * 1.3, 35)],
+                    yaxis_range=[0, max(float(med_male["READMISSION_30DAY_RATE_PCT"].max()) * 1.3, 35)],
                     showlegend=False,
                 ))
                 st.plotly_chart(mm_fig, use_container_width=True, config={"displayModeBar": False})

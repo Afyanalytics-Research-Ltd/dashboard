@@ -11,7 +11,8 @@ Returns get_forecast() -> (df_hist, df_fcast)
 import pandas as pd
 import numpy as np
 from statsmodels.tsa.holtwinters import Holt
-from connect_to_snowflake import run_query
+from snowflake_service.snowflake_client import SnowflakeClient
+run_query = SnowflakeClient().query
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 MAPE_THRESHOLD   = 15.0

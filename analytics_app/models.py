@@ -2,7 +2,7 @@
 from django.db import models
 
 class Dashboard(models.Model):
-    name = models.CharField(max_length=1024)
+    name = models.CharField(max_length=2048)
     is_active = models.BooleanField(default=False)
     client = models.CharField(max_length=1024, null=True, blank=True)
     # THIS is the key part

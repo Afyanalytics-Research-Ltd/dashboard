@@ -57,24 +57,24 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'airflow_dashboard.wsgi.application'
 
-if DEBUG:
-    DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.sqlite3',
-            'NAME': BASE_DIR / 'db.sqlite3',
-        }
+# if DEBUG:
+#     DATABASES = {
+#         'default': {
+#             'ENGINE': 'django.db.backends.sqlite3',
+#             'NAME': BASE_DIR / 'db.sqlite3',
+#         }
+#     }
+# else:
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': os.environ.get('POSTGRES_DBNAME').strip(),
+        'USER': os.environ.get('POSTGRES_USERNAME').strip(),
+        'PASSWORD': os.environ.get('POSTGRES_PASSWORD').strip(),
+        'HOST': os.environ.get('POSTGRES_HOST').strip(),
+        'PORT': os.environ.get('POSTGRES_PORT').strip(),
     }
-else:
-    DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.postgresql',
-            'NAME': os.environ.get('POSTGRES_DBNAME').strip(),
-            'USER': os.environ.get('POSTGRES_USERNAME').strip(),
-            'PASSWORD': os.environ.get('POSTGRES_PASSWORD').strip(),
-            'HOST': os.environ.get('POSTGRES_HOST').strip(),
-            'PORT': os.environ.get('POSTGRES_PORT').strip(),
-        }
-    }
+}
 
 
 STATIC_URL = 'static/'

@@ -2,9 +2,9 @@
 from django.db import models
 
 class Dashboard(models.Model):
-    name = models.CharField(max_length=100)
+    name = models.CharField(max_length=1024)
     is_active = models.BooleanField(default=False)
-    client = models.CharField(max_length=200, null=True, blank=True)
+    client = models.CharField(max_length=1024, null=True, blank=True)
     # THIS is the key part
     streamlit_url = models.URLField()
     slug = models.SlugField()

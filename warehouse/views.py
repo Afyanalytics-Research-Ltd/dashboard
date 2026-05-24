@@ -4,10 +4,13 @@ from django.shortcuts import render
 from django.shortcuts import render
 from warehouse.services.snowflake import SnowflakeClient
 import pandas as pd
+from django.conf import settings
 from django.contrib import messages
+from django.core.mail import send_mail
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
+from django.utils import timezone
 from django.views.decorators.http import require_http_methods, require_POST
 
 from .forms import (
@@ -32,6 +35,28 @@ from .forms import (
 )
 from .models import TrackedSpreadsheet
 from .sheet_service import SheetsServiceError, get_service, hex_to_rgb01
+
+
+_SCHEMA_TABLES_SQL = """
+    SELECT
+        TABLE_SCHEMA  AS SCHEMA_NAME,
+        TABLE_NAME,
+        TABLE_TYPE,
+        ROW_COUNT,
+        BYTES,
+        LAST_ALTERED
+    FROM INFORMATION_SCHEMA.TABLES
+    WHERE TABLE_SCHEMA != 'INFORMATION_SCHEMA'
+    ORDER BY TABLE_SCHEMA, TABLE_NAME
+"""
+
+
+def _fetch_schema_tables():
+    """Return list-of-dicts from Snowflake INFORMATION_SCHEMA, or raise."""
+    sf = SnowflakeClient()
+    df = sf.query(_SCHEMA_TABLES_SQL)
+    df = df.where(pd.notnull(df), None)
+    return df.to_dict(orient="records")
 
 
 def snowflake_query_view(request):
@@ -105,7 +130,7 @@ def index(request: HttpRequest) -> HttpResponse:
                         title=result.get("properties", {}).get("title", ""),
                         web_view_link=result.get("spreadsheetUrl", ""),
                     )
-                    messages.success(request, f"Created “{create_form.cleaned_data['title']}”.")
+                    messages.success(request, f"Created {create_form.cleaned_data['title']}.")
                     return redirect(_detail_url(sid))
         elif action == "open":
             open_form = OpenSpreadsheetForm(request.POST)
@@ -113,12 +138,69 @@ def index(request: HttpRequest) -> HttpResponse:
                 sid = open_form.cleaned_data["id_or_url"]
                 return redirect(_detail_url(sid))
 
+    schema_tables = []
+    sf_error = None
+    try:
+        schema_tables = _fetch_schema_tables()
+    except Exception as exc:
+        sf_error = str(exc)
+
     recent = TrackedSpreadsheet.objects.all()[:25]
     return render(
         request,
         "sheets/index.html",
-        {"create_form": create_form, "open_form": open_form, "recent": recent},
+        {
+            "create_form": create_form,
+            "open_form": open_form,
+            "recent": recent,
+            "schema_tables": schema_tables,
+            "sf_error": sf_error,
+        },
     )
+
+
+# ============================================================ report missing data
+@require_POST
+def report_missing_data(request: HttpRequest) -> HttpResponse:
+    schema_name = request.POST.get("schema_name", "").strip()
+    table_name = request.POST.get("table_name", "").strip()
+    description = request.POST.get("description", "").strip()
+    reporter = request.user.username if request.user.is_authenticated else "Anonymous"
+    reported_at = timezone.now().strftime("%Y-%m-%d %H:%M UTC")
+
+    if not schema_name or not table_name:
+        messages.error(request, "Schema and table name are required.")
+        return redirect("warehouse_index")
+
+    subject = f"[Data Quality] Missing Data — {schema_name}.{table_name}"
+    body = (
+        f"Missing Data Report\n"
+        f"===================\n\n"
+        f"Reporter : {reporter}\n"
+        f"Schema   : {schema_name}\n"
+        f"Table    : {table_name}\n"
+        f"Reported : {reported_at}\n\n"
+        f"Description\n"
+        f"-----------\n"
+        f"{description or '(no description provided)'}\n"
+    )
+
+    try:
+        send_mail(
+            subject=subject,
+            message=body,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=["mbironga@afya.ai"],
+            fail_silently=False,
+        )
+        messages.success(
+            request,
+            f"Missing-data report for {schema_name}.{table_name} sent to mbironga@afya.ai.",
+        )
+    except Exception as exc:
+        messages.error(request, f"Failed to send report: {exc}")
+
+    return redirect("warehouse_index")
 
 
 # ============================================================ detail
@@ -304,7 +386,7 @@ def add_tab(request: HttpRequest, spreadsheet_id: str) -> HttpResponse:
         except SheetsServiceError as e:
             messages.error(request, f"Add tab failed: {e}")
         else:
-            messages.success(request, f"Added tab “{form.cleaned_data['title']}”.")
+            messages.success(request, f"Added tab {form.cleaned_data['title']}.")
     else:
         messages.error(request, "Add tab form invalid.")
     return redirect(_detail_url(spreadsheet_id))
@@ -323,7 +405,7 @@ def rename_tab(request: HttpRequest, spreadsheet_id: str) -> HttpResponse:
         except SheetsServiceError as e:
             messages.error(request, f"Rename failed: {e}")
         else:
-            messages.success(request, f"Renamed tab to “{form.cleaned_data['new_title']}”.")
+            messages.success(request, f"Renamed tab to {form.cleaned_data['new_title']}.")
     else:
         messages.error(request, "Rename tab form invalid.")
     return redirect(_detail_url(spreadsheet_id))

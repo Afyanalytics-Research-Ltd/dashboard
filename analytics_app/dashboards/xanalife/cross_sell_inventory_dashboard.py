@@ -90,7 +90,7 @@ with st.sidebar:
         section_header("About", margin_top=0)
         st.markdown(
             '<div style="font-size:11px;color:#8AABCC;line-height:2">'
-            'Data: Sep 2025 – Mar 2026<br>'
+            'Data: Sep 2025 – May 2026<br>'
             'Source: XanaLife POS &amp; Inventory<br>'
             'Refreshed every hour'
             '</div>',

@@ -52,7 +52,8 @@ SELECT
     COUNT(DISTINCT pos.sale_id)                          AS transactions,
     SUM(pos.amount)                                      AS daily_revenue
 FROM hospitals.xanalife_clean.evaluation_pos_sale_details pos
-WHERE TRY_TO_TIMESTAMP(pos.created_at) >= '2025-09-01'
+WHERE TRY_TO_TIMESTAMP(pos.created_at) >= {start_date}
+  AND TRY_TO_TIMESTAMP(pos.created_at) <= {end_date}
   {store_filter}
 GROUP BY 1
 ORDER BY 1
@@ -65,7 +66,8 @@ WITH basket AS (
         COUNT(*)        AS items,
         SUM(pos.amount) AS basket_value
     FROM hospitals.xanalife_clean.evaluation_pos_sale_details pos
-    WHERE TRY_TO_TIMESTAMP(pos.created_at) >= '2025-09-01'
+    WHERE TRY_TO_TIMESTAMP(pos.created_at) >= {start_date}
+      AND TRY_TO_TIMESTAMP(pos.created_at) <= {end_date}
       {store_filter}
     GROUP BY pos.sale_id
 )
@@ -86,7 +88,8 @@ SQL_BASKET_TOP_SINGLE_PRODUCTS = """
 WITH basket AS (
     SELECT pos.sale_id, COUNT(*) AS items
     FROM hospitals.xanalife_clean.evaluation_pos_sale_details pos
-    WHERE TRY_TO_TIMESTAMP(pos.created_at) >= '2025-09-01'
+    WHERE TRY_TO_TIMESTAMP(pos.created_at) >= {start_date}
+      AND TRY_TO_TIMESTAMP(pos.created_at) <= {end_date}
       {store_filter}
     GROUP BY pos.sale_id
 )
@@ -100,6 +103,7 @@ JOIN hospitals.xanalife_clean.inventory_store_products sp
 JOIN basket b
     ON b.sale_id = pos.sale_id AND b.items = 1
 WHERE sp.product_name IS NOT NULL
+  AND sp.product_category != 1887
   {store_filter}
 GROUP BY sp.product_name
 ORDER BY times_bought_alone DESC
@@ -122,7 +126,8 @@ WITH basket AS (
         FROM hospitals.xanalife_clean.inventory_stores
         GROUP BY id
     ) st ON sp.store_id = st.id
-    WHERE TRY_TO_TIMESTAMP(pos.created_at) >= '2025-09-01'
+    WHERE TRY_TO_TIMESTAMP(pos.created_at) >= {start_date}
+      AND TRY_TO_TIMESTAMP(pos.created_at) <= {end_date}
       {store_filter}
     GROUP BY pos.sale_id, st.name
 )
@@ -153,7 +158,8 @@ SELECT
     COUNT(DISTINCT pos.sale_id)                      AS transactions,
     ROUND(SUM(pos.amount), 0)                        AS revenue
 FROM hospitals.xanalife_clean.evaluation_pos_sale_details pos
-WHERE TRY_TO_TIMESTAMP(pos.created_at) >= '2025-09-01'
+WHERE TRY_TO_TIMESTAMP(pos.created_at) >= {start_date}
+  AND TRY_TO_TIMESTAMP(pos.created_at) <= {end_date}
   {store_filter}
 GROUP BY 1, 2, 3
 ORDER BY day_num, hour_of_day
@@ -183,7 +189,8 @@ SELECT
     COUNT(DISTINCT pos.sale_id) AS transactions
 FROM hospitals.xanalife_clean.evaluation_pos_sale_details pos
 JOIN sp_store ss ON pos.store_product_id = ss.store_product_id
-WHERE TRY_TO_TIMESTAMP(pos.created_at) >= '2025-09-01'
+WHERE TRY_TO_TIMESTAMP(pos.created_at) >= {start_date}
+  AND TRY_TO_TIMESTAMP(pos.created_at) <= {end_date}
   {store_filter}
 GROUP BY ss.store_name, ss.store_code
 ORDER BY revenue DESC
@@ -219,7 +226,8 @@ ranked AS (
         ) AS rn
     FROM hospitals.xanalife_clean.evaluation_pos_sale_details pos
     JOIN sp_store ss ON pos.store_product_id = ss.store_product_id
-    WHERE TRY_TO_TIMESTAMP(pos.created_at) >= '2025-09-01'
+    WHERE TRY_TO_TIMESTAMP(pos.created_at) >= {start_date}
+      AND TRY_TO_TIMESTAMP(pos.created_at) <= {end_date}
       AND ss.product_name IS NOT NULL
       {store_filter}
     GROUP BY ss.location, ss.product_name, ss.product_category
@@ -257,7 +265,8 @@ loc_revenue AS (
         ROUND(SUM(pos.amount), 0) AS revenue
     FROM hospitals.xanalife_clean.evaluation_pos_sale_details pos
     JOIN sp_store ss ON pos.store_product_id = ss.store_product_id
-    WHERE TRY_TO_TIMESTAMP(pos.created_at) >= '2025-09-01'
+    WHERE TRY_TO_TIMESTAMP(pos.created_at) >= {start_date}
+      AND TRY_TO_TIMESTAMP(pos.created_at) <= {end_date}
       AND ss.product_name IS NOT NULL
       {store_filter}
     GROUP BY ss.location, ss.product_name, ss.product_category
@@ -287,18 +296,20 @@ LIMIT 25
 
 # ── Analyses registry ──────────────────────────────────────────────────────────
 
-def get_analyses(store_names=None):
-    sf  = _store_clause(store_names)       # IN subquery — for total-aggregate queries
-    bsf = _by_store_clause(store_names)    # AND st.name IN (...) — for by-store queries
+def get_analyses(store_names=None, start_date='2025-09-01', end_date='2026-03-31'):
+    sf  = _store_clause(store_names)
+    bsf = _by_store_clause(store_names)
+    sd  = f"'{start_date}'"
+    ed  = f"'{end_date}'"
     return [
-        ("Daily Revenue",              SQL_DAILY_REVENUE.format(store_filter=sf)),
-        ("Basket Summary",             SQL_BASKET_SUMMARY.format(store_filter=sf)),
-        ("Top Single-Item Products",   SQL_BASKET_TOP_SINGLE_PRODUCTS.format(store_filter=sf)),
-        ("Basket by Store",            SQL_BASKET_BY_STORE.format(store_filter=bsf)),
-        ("Peak Revenue Heatmap",       SQL_PEAK_HEATMAP.format(store_filter=sf)),
-        ("Revenue by Store",           SQL_REVENUE_BY_STORE.format(store_filter=sf)),
-        ("Top Products by Location",   SQL_TOP_PRODUCTS_BY_LOCATION.format(store_filter=sf)),
-        ("Location Opportunity",       SQL_LOCATION_OPPORTUNITY.format(store_filter=sf)),
+        ("Daily Revenue",              SQL_DAILY_REVENUE.format(store_filter=sf, start_date=sd, end_date=ed)),
+        ("Basket Summary",             SQL_BASKET_SUMMARY.format(store_filter=sf, start_date=sd, end_date=ed)),
+        ("Top Single-Item Products",   SQL_BASKET_TOP_SINGLE_PRODUCTS.format(store_filter=sf, start_date=sd, end_date=ed)),
+        ("Basket by Store",            SQL_BASKET_BY_STORE.format(store_filter=bsf, start_date=sd, end_date=ed)),
+        ("Peak Revenue Heatmap",       SQL_PEAK_HEATMAP.format(store_filter=sf, start_date=sd, end_date=ed)),
+        ("Revenue by Store",           SQL_REVENUE_BY_STORE.format(store_filter=sf, start_date=sd, end_date=ed)),
+        ("Top Products by Location",   SQL_TOP_PRODUCTS_BY_LOCATION.format(store_filter=sf, start_date=sd, end_date=ed)),
+        ("Location Opportunity",       SQL_LOCATION_OPPORTUNITY.format(store_filter=sf, start_date=sd, end_date=ed)),
     ]
 
 ANALYSES = get_analyses()

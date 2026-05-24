@@ -24,16 +24,15 @@ def _store_clause(store_names, pos_col="pos.store_product_id"):
 
 
 # ── SQL templates ──────────────────────────────────────────────────────────────
-# Revenue + Stockout + Operating Margin: filterable via IN subquery — no fan-out.
+# Revenue + Operating Margin: filterable via IN subquery — no fan-out.
 # Invoices, Loyalty: not filterable (no store linkage).
 
-# Original structure preserved — no inventory_stores join in the main body.
-# {store_filter} uses IN subquery so no extra rows are introduced.
 SQL_REVENUE_SUMMARY = """
 WITH max_month AS (
     SELECT DATE_TRUNC('month', MAX(TRY_TO_TIMESTAMP(pos.created_at))) AS latest_month
     FROM hospitals.xanalife_clean.evaluation_pos_sale_details pos
-    WHERE TRY_TO_TIMESTAMP(pos.created_at) >= '2025-09-01'
+    WHERE TRY_TO_TIMESTAMP(pos.created_at) >= {start_date}
+      AND TRY_TO_TIMESTAMP(pos.created_at) <= {end_date}
       {store_filter}
 )
 SELECT
@@ -47,7 +46,8 @@ SELECT
                    THEN pos.amount ELSE 0 END), 0)                                     AS revenue_last_month,
     (SELECT latest_month FROM max_month)                                               AS latest_data_month
 FROM hospitals.xanalife_clean.evaluation_pos_sale_details pos
-WHERE TRY_TO_TIMESTAMP(pos.created_at) >= '2025-09-01'
+WHERE TRY_TO_TIMESTAMP(pos.created_at) >= {start_date}
+  AND TRY_TO_TIMESTAMP(pos.created_at) <= {end_date}
   {store_filter}
 """
 
@@ -71,7 +71,8 @@ WITH line_margins AS (
     FROM hospitals.xanalife_clean.evaluation_pos_sale_details pos
     JOIN hospitals.xanalife_clean.inventory_store_products sp
         ON pos.store_product_id = sp.id
-    WHERE TRY_TO_TIMESTAMP(pos.created_at) >= '2025-09-01'
+    WHERE TRY_TO_TIMESTAMP(pos.created_at) >= {start_date}
+      AND TRY_TO_TIMESTAMP(pos.created_at) <= {end_date}
       AND pos.status != 'canceled'
       AND sp.unit_cost > 0
       {store_filter}
@@ -85,7 +86,6 @@ WHERE revenue > 0
 """
 
 # COUNT(DISTINCT s.product) handles any fan-out from the product_id join.
-# Store filter uses IN subquery on product_id space.
 SQL_STOCKOUT_COUNT = """
 SELECT COUNT(DISTINCT s.product) AS products_at_zero_stock
 FROM hospitals.xanalife_clean.inventory_inventory_stocks s
@@ -110,7 +110,8 @@ WITH deduped AS (
         MIN(TRY_TO_NUMBER(amount))  AS amount,
         MIN(TRY_TO_NUMBER(balance)) AS balance
     FROM hospitals.xanalife_clean.finance_invoices
-    WHERE TRY_TO_TIMESTAMP(created_at) >= '2025-09-01'
+    WHERE TRY_TO_TIMESTAMP(created_at) >= {start_date}
+      AND TRY_TO_TIMESTAMP(created_at) <= {end_date}
       AND deleted_at IS NULL
       AND TRY_TO_NUMBER(balance) > 0
     GROUP BY id
@@ -122,6 +123,8 @@ SELECT
 FROM deduped
 """
 
+# Sep/Oct 2025 contain bulk-imported historical points (not organic activity).
+# loyalty_start is floored to 2025-11-01 inside get_analyses() — passed as {loyalty_start}.
 SQL_LOYALTY_SUMMARY = """
 SELECT
     SUM(CASE WHEN LOWER(type) = 'earned'   THEN points ELSE 0 END) AS total_earned,
@@ -129,16 +132,22 @@ SELECT
     SUM(CASE WHEN LOWER(type) = 'redeemed' THEN points ELSE 0 END) AS total_redeemed,
     COUNT(DISTINCT customer_id)                                     AS customers_with_points
 FROM hospitals.xanalife_clean.points
-WHERE TRY_TO_TIMESTAMP(created_at) >= '2025-09-01'
+WHERE TRY_TO_TIMESTAMP(created_at) >= {loyalty_start}
+  AND TRY_TO_TIMESTAMP(created_at) <= {end_date}
+  AND type IS NOT NULL AND TRIM(type) != ''
 """
 
 
 # ── Analyses registry ──────────────────────────────────────────────────────────
 
-def get_analyses(store_names=None):
+def get_analyses(store_names=None, start_date='2025-09-01', end_date='2026-03-31'):
     sf = _store_clause(store_names, pos_col="pos.store_product_id")
+    sd = f"'{start_date}'"
+    ed = f"'{end_date}'"
+    # Sep/Oct 2025 are bulk historical imports — loyalty always starts Nov 2025 minimum
+    loyalty_raw   = '2025-11-01' if start_date < '2025-11-01' else start_date
+    loyalty_start = f"'{loyalty_raw}'"
 
-    # Stockout uses product_id space — different placeholder name
     if store_names:
         names = ", ".join(f"'{n}'" for n in store_names)
         stockout_filter = f"AND st2.name IN ({names})"
@@ -146,12 +155,12 @@ def get_analyses(store_names=None):
         stockout_filter = ""
 
     return [
-        ("Revenue Summary",  SQL_REVENUE_SUMMARY.format(store_filter=sf)),
-        ("Revenue Trend",    SQL_REVENUE_TREND.format(store_filter=sf)),
-        ("Stockout Count",   SQL_STOCKOUT_COUNT.format(store_name_filter=stockout_filter)),
-        ("Invoices Summary", SQL_INVOICES_SUMMARY),
-        ("Loyalty Summary",  SQL_LOYALTY_SUMMARY),
-        ("Operating Margin", SQL_OPERATING_MARGIN.format(store_filter=sf)),
+        ("Revenue Summary",   SQL_REVENUE_SUMMARY.format(store_filter=sf, start_date=sd, end_date=ed)),
+        ("Revenue Trend",     SQL_REVENUE_TREND.format(store_filter=sf)),
+        ("Stockout Count",    SQL_STOCKOUT_COUNT.format(store_name_filter=stockout_filter)),
+        ("Invoices Summary",  SQL_INVOICES_SUMMARY.format(start_date=sd, end_date=ed)),
+        ("Loyalty Summary",   SQL_LOYALTY_SUMMARY.format(loyalty_start=loyalty_start, end_date=ed)),
+        ("Operating Margin",  SQL_OPERATING_MARGIN.format(store_filter=sf, start_date=sd, end_date=ed)),
     ]
 
 ANALYSES = get_analyses()

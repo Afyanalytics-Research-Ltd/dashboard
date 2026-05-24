@@ -1,29 +1,86 @@
 {% extends "base.html" %}
 
+{% block main_wrapper_class %}container-fluid p-0{% endblock %}
+{% block content_wrapper_class %}{% endblock %}
+
 {% block content %}
 
-<div class="container-fluid p-0">
+<style>
+    .ticker-track {
+        display: inline-block;
+        white-space: nowrap;
+        animation: ticker-scroll 40s linear infinite;
+    }
+    .ticker-track:hover {
+        animation-play-state: paused;
+    }
+    @keyframes ticker-scroll {
+        0%   { transform: translateX(100vw); }
+        100% { transform: translateX(-100%); }
+    }
+</style>
 
-    <!-- Header -->
-    <div class="d-flex justify-content-between align-items-center p-3 border-bottom">
-        <h5 class="mb-0">{{ dashboard.name }}</h5>
+<div id="iframe-container" class="d-flex flex-column">
 
-        <a href="{% url 'dashboard_home' %}" class="btn btn-outline-secondary btn-sm">
-            ← Back
+    <!-- Toolbar -->
+    <div class="d-flex justify-content-between align-items-center px-4 py-2 bg-white border-bottom shadow-sm">
+        <div class="d-flex align-items-center gap-3">
+            <span class="badge rounded-pill text-bg-primary px-3 py-2">Live</span>
+            <h6 class="mb-0 fw-semibold text-dark">{{ dashboard.name }}</h6>
+        </div>
+        <a href="{% url 'dashboard_home' %}" class="btn btn-outline-secondary btn-sm rounded-pill px-3">
+            ← Back to Dashboards
         </a>
+    </div>
+
+    <!-- News Ticker -->
+    <div class="d-flex align-items-stretch overflow-hidden bg-dark border-bottom border-secondary" style="min-height:38px;">
+        <!-- Label -->
+        <div class="d-flex align-items-center px-3 gap-2 flex-shrink-0 bg-primary">
+            <span class="text-white fw-bold text-uppercase small letter-spacing-1">&#9733; Highlights</span>
+        </div>
+        <!-- Scrolling strip -->
+        <div class="flex-grow-1 overflow-hidden position-relative d-flex align-items-center">
+            <div class="ticker-track text-white small fw-medium">
+                <span class="me-5">📊&nbsp; Revenue up <strong>18 %</strong> QoQ across all facilities</span>
+                <span class="text-warning me-5">&#9679;</span>
+                <span class="me-5">🏥&nbsp; Patient throughput at <strong>94 %</strong> of capacity this month</span>
+                <span class="text-warning me-5">&#9679;</span>
+                <span class="me-5">💊&nbsp; Pharmacy fulfilment rate hit <strong>99.2 %</strong> — highest on record</span>
+                <span class="text-warning me-5">&#9679;</span>
+                <span class="me-5">📈&nbsp; NHIF claims processing improved by <strong>23 %</strong> since Q1</span>
+                <span class="text-warning me-5">&#9679;</span>
+                <span class="me-5">🔔&nbsp; Kisumu branch exceeded monthly revenue target by <strong>11 %</strong></span>
+                <span class="text-warning me-5">&#9679;</span>
+                <span class="me-5">🚑&nbsp; Average outpatient wait time reduced to <strong>14 min</strong></span>
+                <span class="text-warning me-5">&#9679;</span>
+                <span class="me-5">💡&nbsp; Operational costs down <strong>7 %</strong> YoY through procurement optimisation</span>
+                <span class="text-warning me-5">&#9679;</span>
+            </div>
+        </div>
     </div>
 
     <!-- IFRAME -->
     <iframe
         src="{{ dashboard.streamlit_url }}"
-        style="width:100%; height:90vh; border:none;"
+        class="w-100 flex-grow-1 border-0"
         allowfullscreen>
     </iframe>
 
 </div>
 
 <script>
-    window.addEventListener('message', function(e) {
+    (function () {
+        var navbar = document.querySelector('.navbar');
+        var container = document.getElementById('iframe-container');
+        function resize() {
+            container.style.height = (window.innerHeight - navbar.offsetHeight) + 'px';
+        }
+        resize();
+        window.addEventListener('resize', resize);
+    })();
+
+    window.addEventListener('message', function (e) {
         if (e.data && e.data.navigate) {
             window.location.href = e.data.navigate;
         }

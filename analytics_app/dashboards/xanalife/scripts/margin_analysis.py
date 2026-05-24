@@ -44,7 +44,8 @@ WITH line_margins AS (
     FROM hospitals.xanalife_clean.evaluation_pos_sale_details s
     JOIN hospitals.xanalife_clean.inventory_store_products p
         ON s.store_product_id = p.id
-    WHERE TRY_TO_TIMESTAMP(s.created_at) >= '2025-09-01'
+    WHERE TRY_TO_TIMESTAMP(s.created_at) >= {start_date}
+      AND TRY_TO_TIMESTAMP(s.created_at) <= {end_date}
       AND s.status != 'canceled'
       AND p.unit_cost > 0
       {store_filter}
@@ -91,7 +92,8 @@ WITH line_margins AS (
         FROM hospitals.xanalife_clean.inventory_stores
         GROUP BY id
     ) st ON p.store_id = st.id
-    WHERE TRY_TO_TIMESTAMP(s.created_at) >= '2025-09-01'
+    WHERE TRY_TO_TIMESTAMP(s.created_at) >= {start_date}
+      AND TRY_TO_TIMESTAMP(s.created_at) <= {end_date}
       AND s.status != 'canceled'
       AND p.unit_cost > 0
       {store_filter}
@@ -127,7 +129,8 @@ WITH line_margins AS (
     FROM hospitals.xanalife_clean.evaluation_pos_sale_details s
     JOIN hospitals.xanalife_clean.inventory_store_products p
         ON s.store_product_id = p.id
-    WHERE TRY_TO_TIMESTAMP(s.created_at) >= '2025-09-01'
+    WHERE TRY_TO_TIMESTAMP(s.created_at) >= {start_date}
+      AND TRY_TO_TIMESTAMP(s.created_at) <= {end_date}
       AND s.status != 'canceled'
       AND p.unit_cost > 0
       {store_filter}
@@ -148,7 +151,7 @@ GROUP BY 1
 ORDER BY 1
 """
 
-
+# Sale-level breakdown of every transaction that sold below cost.
 SQL_LOSS_TRANSACTIONS = """
 WITH sale_margins AS (
     SELECT
@@ -162,7 +165,8 @@ WITH sale_margins AS (
     FROM hospitals.xanalife_clean.evaluation_pos_sale_details s
     JOIN hospitals.xanalife_clean.inventory_store_products p
         ON s.store_product_id = p.id
-    WHERE TRY_TO_TIMESTAMP(s.created_at) >= '2025-09-01'
+    WHERE TRY_TO_TIMESTAMP(s.created_at) >= {start_date}
+      AND TRY_TO_TIMESTAMP(s.created_at) <= {end_date}
       AND s.status != 'canceled'
       AND p.unit_cost > 0
       {store_filter}
@@ -183,14 +187,16 @@ ORDER BY margin_pct
 
 # ── Analyses registry ──────────────────────────────────────────────────────────
 
-def get_analyses(store_names=None):
-    sf  = _store_clause(store_names)       # IN subquery for filter-only queries
-    bsf = _by_store_clause(store_names)    # AND st.name IN (...) for by-store
+def get_analyses(store_names=None, start_date='2025-09-01', end_date='2026-03-31'):
+    sf  = _store_clause(store_names)
+    bsf = _by_store_clause(store_names)
+    sd  = f"'{start_date}'"
+    ed  = f"'{end_date}'"
     return [
-        ("MVaR — Overall",      SQL_MVAR_OVERALL.format(store_filter=sf)),
-        ("MVaR — By Store",     SQL_MVAR_BY_STORE.format(store_filter=bsf)),
-        ("MVaR — Distribution", SQL_MVAR_DISTRIBUTION.format(store_filter=sf)),
-        ("Loss Transactions",   SQL_LOSS_TRANSACTIONS.format(store_filter=sf)),
+        ("MVaR — Overall",       SQL_MVAR_OVERALL.format(store_filter=sf, start_date=sd, end_date=ed)),
+        ("MVaR — By Store",      SQL_MVAR_BY_STORE.format(store_filter=bsf, start_date=sd, end_date=ed)),
+        ("MVaR — Distribution",  SQL_MVAR_DISTRIBUTION.format(store_filter=sf, start_date=sd, end_date=ed)),
+        ("Loss Transactions",    SQL_LOSS_TRANSACTIONS.format(store_filter=sf, start_date=sd, end_date=ed)),
     ]
 
 ANALYSES = get_analyses()

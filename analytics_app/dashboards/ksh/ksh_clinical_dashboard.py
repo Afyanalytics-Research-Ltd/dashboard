@@ -14,6 +14,9 @@ Role visibility:
   Clinician:          All patients across facility + who treated them + patient card
 """
 
+import sys, os
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "clinical_module"))
+
 import streamlit as st
 import plotly.io as pio
 import plotly.graph_objects as go
@@ -367,18 +370,20 @@ def render_sidebar():
         # ── Hospital — fixed display names, no DB query ───────────────────
         with st.expander("🏥 Hospital", expanded=True):
             schema_opts = list(SCHEMA_DISPLAY.values())
+            _hosp_default = ["Kisumu Specialists"] if "Kisumu Specialists" in schema_opts else []
             selected_display = st.multiselect(
                 "Select hospital", options=schema_opts,
-                default=[], placeholder="All hospitals",
+                default=_hosp_default, placeholder="All hospitals",
                 label_visibility="collapsed")
             selected_schemas = _display_to_schemas(selected_display)
 
         # ── Facility — reads from clinic column ───────────────────────────
         with st.expander("🏢 Facility", expanded=True):
             facility_opts = _facility_options(selected_schemas)
+            _fac_default = ["1"] if "1" in facility_opts else (facility_opts[:1] if facility_opts else [])
             selected_facilities = st.multiselect(
                 "Select facilities", options=facility_opts,
-                default=[], placeholder="All facilities" if facility_opts else "Select a hospital first",
+                default=_fac_default, placeholder="All facilities" if facility_opts else "Select a hospital first",
                 label_visibility="collapsed",
                 disabled=not facility_opts)
 

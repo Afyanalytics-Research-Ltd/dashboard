@@ -87,7 +87,10 @@ def _get_client_obj(user):
         if not client_name:
             return None
         from core.models import Client
-        return Client.objects.filter(name__iexact=client_name).first()
+        return (
+            Client.objects.filter(name__iexact=client_name).first()
+            or Client.objects.filter(name__iexact=client_name.name).first()
+        )
     except Exception:
         return None
 

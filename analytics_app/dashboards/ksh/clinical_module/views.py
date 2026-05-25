@@ -139,10 +139,9 @@ def render_tab1_operations(filters: dict, run_query):
                 st.markdown("**Ward Summary**")
                 _pc(table_fig(
                     df_wb[["ward", "admissions", "pct_share", "avg_los_days",
-                            "avg_discharge_latency_hrs", "avg_admission_cost"]].head(12),
+                            "avg_admission_cost"]].head(12),
                     col_labels={"ward": "Ward", "admissions": "Admissions",
                                 "pct_share": "Share %", "avg_los_days": "Avg LOS (d)",
-                                "avg_discharge_latency_hrs": "Disch. Latency (h)",
                                 "avg_admission_cost": "Avg Cost"},
                     fmt={"avg_admission_cost": "KES", "pct_share": "pct"},
                     height=320,

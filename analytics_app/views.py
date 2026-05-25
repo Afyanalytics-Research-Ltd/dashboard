@@ -84,6 +84,7 @@ def _get_client_obj(user):
     try:
         profile = user.profile
         logging.warning(f"<-----{profile}-------->")
+        logging.warning(f"<-----{profile.client}-------->")
         client_name = profile.client.name if profile.client else profile.client
         if not client_name:
             return None

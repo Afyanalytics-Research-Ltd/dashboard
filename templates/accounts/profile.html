@@ -1,181 +1,270 @@
-
 {% extends "base.html" %}
 {% load role_tags %}
 
-{% block content %}
+{% block title %}My Profile — Afya DataHub{% endblock %}
 
+{% block extra_css %}
 <style>
-    .profile-page { max-width: 1100px; margin: 0 auto; }
+/* ------------------------------------------------------------------ */
+/* Page layout                                                          */
+/* ------------------------------------------------------------------ */
+.profile-page { max-width: 1120px; margin: 0 auto; }
 
-    .profile-hero {
-        position: relative;
-        border-radius: 18px;
-        overflow: hidden;
-        background: linear-gradient(135deg, #0d6efd 0%, #4e73df 60%, #6f42c1 100%);
-        color: #fff;
-        padding: 36px 40px 32px;
-        box-shadow: 0 12px 32px rgba(13, 110, 253, 0.18);
-    }
-    .profile-hero::before {
-        content: "";
-        position: absolute; inset: 0;
-        background-image:
-            radial-gradient(circle at 85% -10%, rgba(255,255,255,0.18), transparent 40%),
-            radial-gradient(circle at 10% 110%, rgba(255,255,255,0.10), transparent 35%);
-        pointer-events: none;
-    }
-    .profile-hero .hero-inner {
-        position: relative;
-        display: flex; align-items: center; gap: 22px; flex-wrap: wrap;
-    }
-    .avatar-wrap {
-        width: 96px; height: 96px;
-        border-radius: 50%;
-        background: rgba(255,255,255,0.18);
-        border: 3px solid rgba(255,255,255,0.35);
-        display: flex; align-items: center; justify-content: center;
-        overflow: hidden; flex-shrink: 0;
-        font-size: 34px; font-weight: 600; letter-spacing: 1px;
-        backdrop-filter: blur(2px);
-    }
-    .avatar-wrap img { width: 100%; height: 100%; object-fit: cover; }
-    .hero-name { font-size: 26px; font-weight: 600; margin: 0 0 4px; }
-    .hero-meta { opacity: 0.85; font-size: 14px; margin: 0; }
-    .hero-role-badge {
-        display: inline-block; margin-top: 10px;
-        padding: 5px 12px; font-size: 12px; font-weight: 500;
-        background: rgba(255,255,255,0.22); border-radius: 99px;
-        backdrop-filter: blur(2px);
-    }
+/* ------------------------------------------------------------------ */
+/* Hero banner                                                          */
+/* ------------------------------------------------------------------ */
+.profile-hero {
+    position: relative;
+    border-radius: 18px;
+    overflow: hidden;
+    background: linear-gradient(140deg, #003467 0%, #0072CE 55%, #0BB99F 100%);
+    color: #fff;
+    padding: 36px 40px 30px;
+    box-shadow: 0 12px 36px rgba(0, 52, 103, 0.22);
+    margin-bottom: 24px;
+}
+.profile-hero::before {
+    content: '';
+    position: absolute; inset: 0;
+    background-image:
+        radial-gradient(circle at 88% -10%, rgba(255,255,255,0.15), transparent 40%),
+        radial-gradient(circle at 8% 110%, rgba(255,255,255,0.08), transparent 35%);
+    pointer-events: none;
+}
+.hero-inner {
+    position: relative;
+    display: flex; align-items: center; gap: 24px; flex-wrap: wrap;
+}
+.avatar-wrap {
+    width: 90px; height: 90px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.18);
+    border: 3px solid rgba(255,255,255,0.35);
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden; flex-shrink: 0;
+    font-size: 30px; font-weight: 700; letter-spacing: 1px;
+    backdrop-filter: blur(4px);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.20);
+}
+.avatar-wrap img { width: 100%; height: 100%; object-fit: cover; }
+.hero-info { flex: 1; }
+.hero-name { font-size: 24px; font-weight: 700; margin: 0 0 3px; }
+.hero-meta { font-size: 13.5px; opacity: 0.82; margin: 0 0 8px; }
+.hero-badges { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.hero-badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 4px 12px; border-radius: 99px; font-size: 12px; font-weight: 500;
+    background: rgba(255,255,255,0.18); backdrop-filter: blur(2px);
+}
+.hero-meta-item { font-size: 13px; opacity: 0.75; }
+.hero-actions { margin-left: auto; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
+.hero-actions .btn-hero {
+    background: rgba(255,255,255,0.18); border: 1px solid rgba(255,255,255,0.30);
+    color: #fff; padding: 7px 16px; border-radius: 8px;
+    font-size: 13px; font-weight: 500; text-decoration: none;
+    backdrop-filter: blur(2px); transition: background 0.15s;
+    cursor: pointer;
+}
+.hero-actions .btn-hero:hover { background: rgba(255,255,255,0.28); color: #fff; }
 
-    .section-card {
-        background: #fff;
-        border: none; border-radius: 14px;
-        box-shadow: 0 4px 18px rgba(15, 23, 42, 0.05);
-        padding: 28px 30px;
-    }
-    .section-title {
-        font-size: 13px; font-weight: 600;
-        text-transform: uppercase; letter-spacing: 0.6px;
-        color: #6c757d; margin-bottom: 4px;
-    }
-    .section-subtitle {
-        font-size: 14px; color: #94a3b8; margin-bottom: 22px;
-    }
+/* Member-since chip */
+.member-since {
+    font-size: 11.5px; opacity: 0.60;
+    margin-top: 10px;
+}
 
-    .field-group { margin-bottom: 18px; }
-    .field-group label {
-        display: block; font-size: 13px; font-weight: 500;
-        color: #334155; margin-bottom: 6px;
-    }
-    .field-group .form-control,
-    .field-group .form-select {
-        border-radius: 10px;
-        border: 1px solid #e2e8f0;
-        padding: 10px 14px;
-        background: #f8fafc;
-        transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
-    }
-    .field-group .form-control:focus,
-    .field-group .form-select:focus {
-        background: #fff;
-        border-color: #93c5fd;
-        box-shadow: 0 0 0 4px rgba(13, 110, 253, 0.12);
-    }
-    .field-group .form-control[readonly] {
-        background: #f1f5f9; color: #64748b; cursor: not-allowed;
-    }
-    .field-hint { font-size: 12px; color: #94a3b8; margin-top: 4px; }
+/* ------------------------------------------------------------------ */
+/* Section cards                                                         */
+/* ------------------------------------------------------------------ */
+.section-card {
+    background: #fff;
+    border: none; border-radius: 14px;
+    box-shadow: 0 4px 18px rgba(15, 23, 42, 0.05);
+    padding: 26px 28px;
+    margin-bottom: 20px;
+}
+.section-card-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 6px;
+}
+.section-title {
+    font-size: 11.5px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.7px; color: #64748b;
+}
+.section-subtitle {
+    font-size: 13.5px; color: #94a3b8; margin-bottom: 22px;
+}
 
-    .avatar-upload {
-        display: flex; align-items: center; gap: 18px;
-        padding: 18px; border-radius: 12px;
-        background: #f8fafc; border: 1px dashed #cbd5e1;
-    }
-    .avatar-upload .preview {
-        width: 64px; height: 64px; border-radius: 50%;
-        background: linear-gradient(135deg, #dbeafe, #ede9fe);
-        display: flex; align-items: center; justify-content: center;
-        color: #4338ca; font-weight: 600; overflow: hidden;
-        flex-shrink: 0;
-    }
-    .avatar-upload .preview img { width: 100%; height: 100%; object-fit: cover; }
-    .avatar-upload input[type="file"] { font-size: 13px; }
+/* ------------------------------------------------------------------ */
+/* Fields                                                               */
+/* ------------------------------------------------------------------ */
+.field-group { margin-bottom: 16px; }
+.field-group label {
+    display: block; font-size: 13px; font-weight: 500;
+    color: #334155; margin-bottom: 6px;
+}
+.field-group .form-control,
+.field-group .form-select,
+.field-group textarea.form-control {
+    border-radius: 10px; border: 1.5px solid #e2e8f0;
+    padding: 10px 14px; background: #f8fafc;
+    font-size: 14px; color: #0f172a;
+    transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+}
+.field-group .form-control:focus,
+.field-group .form-select:focus {
+    background: #fff; border-color: #0072CE;
+    box-shadow: 0 0 0 4px rgba(0,114,206,0.11);
+    outline: none;
+}
+.field-group .form-control[readonly] {
+    background: #f1f5f9; color: #64748b; cursor: not-allowed;
+}
+.field-hint { font-size: 12px; color: #94a3b8; margin-top: 4px; }
+.field-error-msg { font-size: 12px; color: #dc2626; margin-top: 4px; }
 
-    .save-bar {
-        position: sticky; bottom: 16px; z-index: 5;
-        background: rgba(255,255,255,0.85);
-        backdrop-filter: blur(8px);
-        border: 1px solid #e2e8f0; border-radius: 14px;
-        padding: 14px 22px; margin-top: 26px;
-        display: flex; justify-content: space-between; align-items: center;
-        box-shadow: 0 6px 22px rgba(15, 23, 42, 0.08);
-    }
-    .save-bar .hint { font-size: 13px; color: #64748b; }
-    .btn-save {
-        background: linear-gradient(90deg, #0d6efd, #4e73df);
-        border: none; color: #fff;
-        padding: 10px 24px; border-radius: 10px; font-weight: 500;
-        transition: transform 0.1s ease, box-shadow 0.15s ease;
-    }
-    .btn-save:hover {
-        transform: translateY(-1px); color: #fff;
-        box-shadow: 0 6px 16px rgba(13, 110, 253, 0.32);
-    }
-    .btn-cancel {
-        background: transparent; color: #64748b;
-        border: 1px solid #e2e8f0; border-radius: 10px;
-        padding: 10px 18px;
-    }
-    .btn-cancel:hover { background: #f1f5f9; color: #1e293b; }
+/* ------------------------------------------------------------------ */
+/* Avatar upload card                                                    */
+/* ------------------------------------------------------------------ */
+.avatar-upload {
+    display: flex; align-items: center; gap: 16px;
+    padding: 16px; border-radius: 12px;
+    background: #f8fafc; border: 1.5px dashed #cbd5e1;
+}
+.avatar-upload .preview {
+    width: 60px; height: 60px; border-radius: 50%;
+    background: linear-gradient(135deg, #dbeafe, #ede9fe);
+    display: flex; align-items: center; justify-content: center;
+    color: #4338ca; font-weight: 700; font-size: 20px;
+    overflow: hidden; flex-shrink: 0;
+}
+.avatar-upload .preview img { width: 100%; height: 100%; object-fit: cover; }
 
-    .alert-stack .alert { border-radius: 12px; border: none; }
+/* ------------------------------------------------------------------ */
+/* Security card                                                         */
+/* ------------------------------------------------------------------ */
+.security-item {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 0; border-bottom: 1px solid #f1f5f9;
+}
+.security-item:last-child { border-bottom: none; }
+.security-item-info { font-size: 13.5px; }
+.security-item-label { font-weight: 500; color: #1e293b; }
+.security-item-detail { font-size: 12px; color: #94a3b8; margin-top: 1px; }
+
+/* ------------------------------------------------------------------ */
+/* Save bar                                                              */
+/* ------------------------------------------------------------------ */
+.save-bar {
+    position: sticky; bottom: 16px; z-index: 10;
+    background: rgba(255,255,255,0.92);
+    backdrop-filter: blur(12px);
+    border: 1px solid #e2e8f0; border-radius: 14px;
+    padding: 14px 22px; margin-top: 6px;
+    display: flex; justify-content: space-between; align-items: center;
+    box-shadow: 0 8px 28px rgba(15, 23, 42, 0.09);
+}
+.save-bar .hint { font-size: 13px; color: #64748b; }
+.btn-save {
+    background: linear-gradient(90deg, #0072CE, #003467);
+    border: none; color: #fff;
+    padding: 10px 26px; border-radius: 10px; font-weight: 600; font-size: 14px;
+    transition: transform 0.1s, box-shadow 0.15s;
+    cursor: pointer;
+}
+.btn-save:hover {
+    transform: translateY(-1px); color: #fff;
+    box-shadow: 0 6px 18px rgba(0, 114, 206, 0.32);
+}
+.btn-cancel {
+    background: transparent; color: #64748b;
+    border: 1.5px solid #e2e8f0; border-radius: 10px;
+    padding: 9px 18px; font-size: 14px; text-decoration: none;
+    transition: background 0.15s;
+}
+.btn-cancel:hover { background: #f1f5f9; color: #1e293b; }
+
+/* Org readonly chip */
+.org-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 14px; border-radius: 99px;
+    background: #f0f7ff; color: #0072CE;
+    font-size: 13px; font-weight: 500;
+    border: 1px solid #bfdbfe;
+}
 </style>
+{% endblock %}
 
+{% block breadcrumbs %}
+<nav aria-label="breadcrumb" class="mb-3">
+    <ol class="breadcrumb">
+        {% for crumb in breadcrumbs %}
+        <li class="breadcrumb-item {% if not crumb.url %}active{% endif %}"
+            {% if not crumb.url %}aria-current="page"{% endif %}>
+            {% if crumb.url %}<a href="{{ crumb.url }}">{{ crumb.label }}</a>
+            {% else %}{{ crumb.label }}{% endif %}
+        </li>
+        {% endfor %}
+    </ol>
+</nav>
+{% endblock %}
+
+{% block content %}
 <div class="profile-page">
 
-    {% if messages %}
-    <div class="alert-stack mb-3">
-        {% for message in messages %}
-        <div class="alert alert-{{ message.tags|default:'info' }} d-flex align-items-center" role="alert">
-            <span class="me-2">●</span>{{ message }}
-        </div>
-        {% endfor %}
-    </div>
-    {% endif %}
-
-    <!-- HERO -->
-    <div class="profile-hero mb-4">
+    <!-- ====== HERO ====== -->
+    <div class="profile-hero">
         <div class="hero-inner">
+
             <div class="avatar-wrap">
-                {% if profile.avatar %}
-                    <img src="{{ profile.avatar.url }}" alt="{{ user.username }}">
+                {% if user.profile.avatar %}
+                    <img src="{{ user.profile.avatar.url }}" alt="{{ user.profile.display_name }}">
                 {% else %}
-                    {{ user.first_name|slice:":1"|upper }}{{ user.last_name|slice:":1"|upper|default:user.username|slice:":1"|upper }}
+                    {{ user.profile.initials }}
                 {% endif %}
             </div>
 
-            <div class="flex-grow-1">
-                <h1 class="hero-name">
-                    {% if user.get_full_name %}{{ user.get_full_name }}{% else %}{{ user.username }}{% endif %}
-                </h1>
+            <div class="hero-info">
+                <h1 class="hero-name">{{ user.profile.display_name }}</h1>
                 <p class="hero-meta">
-                    {{ user.email|default:"No email on file" }}
-                    {% if profile.job_title %} &nbsp;·&nbsp; {{ profile.job_title }}{% endif %}
+                    {{ user.email }}
+                    {% if user.profile.job_title %}&nbsp;&middot;&nbsp;{{ user.profile.job_title }}{% endif %}
                 </p>
-                {% if user|is_client_admin %}
-                    <span class="hero-role-badge">Client Admin</span>
-                {% elif user|is_facilities_admin %}
-                    <span class="hero-role-badge">Facilities Admin</span>
-                {% elif user|is_facility_admin %}
-                    <span class="hero-role-badge">Facility Admin</span>
-                {% endif %}
+                <div class="hero-badges">
+                    <span class="hero-badge">
+                        <i class="bi bi-shield-check"></i>
+                        {% user_role_badge %}
+                    </span>
+                    {% if user.profile.client %}
+                    <span class="hero-badge">
+                        <i class="bi bi-building"></i>{{ user.profile.client }}
+                    </span>
+                    {% endif %}
+                    {% if user.profile.is_verified %}
+                    <span class="hero-badge" style="background:rgba(34,197,94,0.2);">
+                        <i class="bi bi-patch-check-fill"></i> Verified
+                    </span>
+                    {% endif %}
+                </div>
+                <div class="member-since">
+                    Member since {{ user.date_joined|date:"F Y" }}
+                </div>
             </div>
+
+            <div class="hero-actions">
+                <a href="{% url 'authentication:activity' %}" class="btn-hero">
+                    <i class="bi bi-clock-history me-1"></i>Activity
+                </a>
+                <a href="{% url 'authentication:notifications' %}" class="btn-hero">
+                    <i class="bi bi-bell me-1"></i>Notifications
+                </a>
+            </div>
+
         </div>
     </div>
 
-    <!-- FORM -->
-    <form method="post" enctype="multipart/form-data" novalidate>
+    <!-- ====== FORM ====== -->
+    <form method="post" enctype="multipart/form-data" novalidate id="profileForm">
         {% csrf_token %}
 
         <div class="row g-4">
@@ -183,108 +272,197 @@
             <!-- LEFT: Personal info -->
             <div class="col-lg-7">
                 <div class="section-card">
-                    <div class="section-title">Personal information</div>
+                    <div class="section-card-header">
+                        <div class="section-title">Personal information</div>
+                    </div>
                     <p class="section-subtitle">How you appear across the platform.</p>
 
                     <div class="row g-3">
-                        <div class="col-md-6 field-group">
+                        <div class="col-sm-6 field-group">
                             <label for="id_first_name">First name</label>
                             <input type="text" id="id_first_name" name="first_name"
-                                   value="{{ user.first_name }}" class="form-control">
+                                   value="{{ form.first_name.value|default:'' }}"
+                                   class="form-control" placeholder="Jane">
+                            {% if form.first_name.errors %}
+                            <div class="field-error-msg">{{ form.first_name.errors|join:", " }}</div>
+                            {% endif %}
                         </div>
-
-                        <div class="col-md-6 field-group">
+                        <div class="col-sm-6 field-group">
                             <label for="id_last_name">Last name</label>
                             <input type="text" id="id_last_name" name="last_name"
-                                   value="{{ user.last_name }}" class="form-control">
+                                   value="{{ form.last_name.value|default:'' }}"
+                                   class="form-control" placeholder="Mwangi">
+                            {% if form.last_name.errors %}
+                            <div class="field-error-msg">{{ form.last_name.errors|join:", " }}</div>
+                            {% endif %}
                         </div>
-
-                        <div class="col-md-6 field-group">
-                            <label for="id_username">Username</label>
-                            <input type="text" id="id_username"
-                                   value="{{ user.username }}" class="form-control" readonly>
-                            <div class="field-hint">Usernames can't be changed here.</div>
+                        <div class="col-sm-6 field-group">
+                            <label>Username</label>
+                            <input type="text" value="{{ user.username }}"
+                                   class="form-control" readonly>
+                            <div class="field-hint">Usernames cannot be changed here.</div>
                         </div>
-
-                        <div class="col-md-6 field-group">
-                            <label for="id_email">Email</label>
+                        <div class="col-sm-6 field-group">
+                            <label for="id_email">Email address</label>
                             <input type="email" id="id_email" name="email"
-                                   value="{{ user.email }}" class="form-control"
-                                   placeholder="you@example.com">
+                                   value="{{ form.email.value|default:'' }}"
+                                   class="form-control" placeholder="you@example.com">
+                            {% if form.email.errors %}
+                            <div class="field-error-msg">{{ form.email.errors|join:", " }}</div>
+                            {% endif %}
                         </div>
-
-                        <div class="col-md-6 field-group">
+                        <div class="col-sm-6 field-group">
                             <label for="id_phone_number">Phone</label>
                             <input type="tel" id="id_phone_number" name="phone_number"
-                                   value="{{ profile.phone_number }}" class="form-control"
-                                   placeholder="+254 700 000 000">
+                                   value="{{ form.phone_number.value|default:'' }}"
+                                   class="form-control" placeholder="+254 700 000 000">
                         </div>
-
-                        <div class="col-md-6 field-group">
+                        <div class="col-sm-6 field-group">
                             <label for="id_job_title">Job title</label>
                             <input type="text" id="id_job_title" name="job_title"
-                                   value="{{ profile.job_title }}" class="form-control"
-                                   placeholder="e.g. County Health Officer">
+                                   value="{{ form.job_title.value|default:'' }}"
+                                   class="form-control" placeholder="e.g. County Health Officer">
+                        </div>
+                        <div class="col-12 field-group">
+                            <label for="id_bio">Bio</label>
+                            <textarea id="id_bio" name="bio" class="form-control"
+                                      rows="3" placeholder="Tell us a little about yourself…"
+                                      maxlength="500">{{ form.bio.value|default:'' }}</textarea>
+                            <div class="field-hint">Max 500 characters.</div>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <!-- RIGHT: Avatar + organization -->
+            <!-- RIGHT: Avatar + Organization + Security -->
             <div class="col-lg-5">
 
-                <div class="section-card mb-4">
-                    <div class="section-title">Profile picture</div>
-                    <p class="section-subtitle">PNG or JPG, square images work best.</p>
+                <!-- Avatar upload -->
+                <div class="section-card">
+                    <div class="section-title mb-1">Profile picture</div>
+                    <p class="section-subtitle">PNG, JPG or WebP. Max 5 MB. Square images work best.</p>
 
                     <div class="avatar-upload">
-                        <div class="preview">
-                            {% if profile.avatar %}
-                                <img src="{{ profile.avatar.url }}" alt="">
+                        <div class="preview" id="avatarPreview">
+                            {% if user.profile.avatar %}
+                                <img src="{{ user.profile.avatar.url }}" alt="" id="avatarImg">
                             {% else %}
-                                {{ user.first_name|slice:":1"|upper|default:user.username|slice:":1"|upper }}
+                                <span id="avatarInitials">{{ user.profile.initials }}</span>
                             {% endif %}
                         </div>
                         <div class="flex-grow-1">
-                            <input type="file" name="avatar" accept="image/*" class="form-control form-control-sm">
-                            <div class="field-hint mt-1">Max 2 MB.</div>
+                            <input type="file" name="avatar" id="id_avatar"
+                                   accept="image/*" class="form-control form-control-sm"
+                                   onchange="previewAvatar(this)">
+                            <div class="field-hint mt-1">Click to select a new photo</div>
                         </div>
                     </div>
+                    {% if form.avatar.errors %}
+                    <div class="field-error-msg mt-2">{{ form.avatar.errors|join:", " }}</div>
+                    {% endif %}
                 </div>
 
+                <!-- Organization info -->
                 <div class="section-card">
-                    <div class="section-title">Organization</div>
-                    <p class="section-subtitle">Where you sit in the hierarchy.</p>
+                    <div class="section-title mb-1">Organisation</div>
+                    <p class="section-subtitle">Your position in the hierarchy.</p>
 
                     <div class="field-group">
-                        <label for="id_client">Client</label>
-                        <input type="text" id="id_client" name="client"
-                               value="{{ profile.client }}" class="form-control"
-                               placeholder="e.g. Ministry of Health">
+                        <label>Client</label>
+                        {% if user.profile.client %}
+                            <div class="org-chip">
+                                <i class="bi bi-building"></i>{{ user.profile.client }}
+                            </div>
+                        {% else %}
+                            <p class="text-muted small mb-0">Not assigned. Contact your administrator.</p>
+                        {% endif %}
                     </div>
 
-                    <div class="field-group">
-                        <label for="id_facility">Facility</label>
-                        <input type="text" id="id_facility" name="facility"
-                               value="{{ profile.facility }}" class="form-control"
-                               placeholder="e.g. Kenyatta National Hospital">
-                        <div class="field-hint">Facility Admins must have this set.</div>
+                    <div class="field-group mb-0">
+                        <label>Facility</label>
+                        {% if user.profile.facility %}
+                            <div class="org-chip">
+                                <i class="bi bi-hospital"></i>{{ user.profile.facility }}
+                            </div>
+                        {% else %}
+                            <p class="text-muted small mb-0">Not assigned. Contact your administrator.</p>
+                        {% endif %}
                     </div>
                 </div>
+
+                <!-- Account security -->
+                <div class="section-card">
+                    <div class="section-title mb-2">Account security</div>
+
+                    <div class="security-item">
+                        <div class="security-item-info">
+                            <div class="security-item-label">Password</div>
+                            <div class="security-item-detail">Last changed: unknown</div>
+                        </div>
+                        <a href="{% url 'authentication:password_change' %}"
+                           class="btn btn-sm btn-outline-primary" style="border-radius:8px;">
+                            <i class="bi bi-key me-1"></i>Change
+                        </a>
+                    </div>
+
+                    <div class="security-item">
+                        <div class="security-item-info">
+                            <div class="security-item-label">Last login IP</div>
+                            <div class="security-item-detail">
+                                {{ user.profile.last_login_ip|default:"Not recorded" }}
+                            </div>
+                        </div>
+                        <span class="badge bg-success-subtle text-success" style="border-radius:8px;font-size:11px;">
+                            <i class="bi bi-circle-fill me-1" style="font-size:7px;"></i>Active
+                        </span>
+                    </div>
+
+                    <div class="security-item">
+                        <div class="security-item-info">
+                            <div class="security-item-label">Account status</div>
+                            <div class="security-item-detail">Your account is in good standing</div>
+                        </div>
+                        {% if user.profile.is_verified %}
+                        <span class="badge bg-primary-subtle text-primary" style="border-radius:8px;font-size:11px;">
+                            <i class="bi bi-patch-check me-1"></i>Verified
+                        </span>
+                        {% else %}
+                        <span class="badge bg-warning-subtle text-warning" style="border-radius:8px;font-size:11px;">
+                            Unverified
+                        </span>
+                        {% endif %}
+                    </div>
+                </div>
+
             </div>
         </div>
 
-        <!-- SAVE BAR -->
+        <!-- ====== SAVE BAR ====== -->
         <div class="save-bar">
-            <div class="hint">Changes are saved to your profile only.</div>
+            <div class="hint"><i class="bi bi-info-circle me-1"></i>Changes are saved to your profile only.</div>
             <div class="d-flex gap-2">
-                <a href="/" class="btn btn-cancel">Cancel</a>
-                <button type="submit" class="btn btn-save">Save changes</button>
+                <a href="/" class="btn-cancel">Cancel</a>
+                <button type="submit" class="btn-save">
+                    <i class="bi bi-floppy me-1"></i>Save changes
+                </button>
             </div>
         </div>
 
     </form>
-
 </div>
+{% endblock %}
 
+{% block extra_js %}
+<script>
+function previewAvatar(input) {
+    if (input.files && input.files[0]) {
+        const reader = new FileReader();
+        const preview = document.getElementById('avatarPreview');
+        reader.onload = function (e) {
+            preview.innerHTML = '<img src="' + e.target.result + '" style="width:100%;height:100%;object-fit:cover;">';
+        };
+        reader.readAsDataURL(input.files[0]);
+    }
+}
+</script>
 {% endblock %}

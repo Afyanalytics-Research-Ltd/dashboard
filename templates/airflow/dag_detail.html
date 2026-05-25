@@ -1,0 +1,244 @@
+{% extends "base.html" %}
+
+{% block title %}{{ dag_id }} — DAG Detail{% endblock %}
+
+{% block page_header %}
+<div class="afya-page-header afya-content pb-0">
+    <div>
+        <h1 class="afya-page-title">
+            <i class="bi bi-diagram-3 me-2 text-afya-blue"></i>{{ dag_id }}
+        </h1>
+        <p class="afya-page-sub">Run history and execution statistics for this DAG.</p>
+    </div>
+    <div class="afya-page-actions">
+        <a href="{% url 'airflow:dashboard' %}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left me-1"></i>All Pipelines
+        </a>
+        <!-- Trigger button opens confirmation modal -->
+        <button type="button" class="btn btn-afya-teal btn-sm"
+                data-bs-toggle="modal" data-bs-target="#triggerModal">
+            <i class="bi bi-play-fill me-1"></i>Trigger Run
+        </button>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+
+<!-- Summary cards -->
+<div class="row g-3 mt-1 mb-4">
+    <div class="col-6 col-md-3">
+        <div class="stat-card">
+            <div class="stat-card-icon blue"><i class="bi bi-list-ol"></i></div>
+            <div>
+                <div class="stat-label">Total Runs</div>
+                <div class="stat-value">{{ total_runs }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="stat-card">
+            <div class="stat-card-icon teal"><i class="bi bi-check-circle"></i></div>
+            <div>
+                <div class="stat-label">Successful</div>
+                <div class="stat-value text-afya-teal">{{ successful_runs }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="stat-card">
+            <div class="stat-card-icon red"><i class="bi bi-x-circle"></i></div>
+            <div>
+                <div class="stat-label">Failed</div>
+                <div class="stat-value text-danger">{{ failed_runs }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="card p-3 h-100">
+            <div class="stat-label">Success Rate</div>
+            <div class="stat-value text-afya-teal" style="font-size:20px;">{{ success_rate }}%</div>
+            <div class="progress mt-2" style="height:6px;">
+                <div class="progress-bar progress-bar-teal" style="width:{{ success_rate }}%;"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- State filter tabs -->
+<div class="d-flex gap-2 mb-3">
+    <a href="{% url 'airflow:dag_detail' dag_id %}"
+       class="filter-pill {% if not current_state %}active{% endif %}">All</a>
+    <a href="?state=success"
+       class="filter-pill {% if current_state == 'success' %}active{% endif %}">Success</a>
+    <a href="?state=failed"
+       class="filter-pill {% if current_state == 'failed' %}active{% endif %}">Failed</a>
+    <a href="?state=running"
+       class="filter-pill {% if current_state == 'running' %}active{% endif %}">Running</a>
+</div>
+
+<!-- Runs table -->
+{% if page_obj %}
+<div class="afya-table-wrapper">
+    <div class="table-responsive">
+        <table class="table table-hover afya-table align-middle mb-0">
+            <thead>
+                <tr>
+                    <th>Run ID</th>
+                    <th>State</th>
+                    <th>Start Time</th>
+                    <th>Duration</th>
+                    <th>End Time</th>
+                    <th class="text-end">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for run in page_obj %}
+                <tr class="{% if run.state == 'failed' %}table-danger-subtle{% elif run.state == 'success' %}table-success-subtle{% endif %}">
+                    <!-- Run ID -->
+                    <td>
+                        <span class="fw-medium font-monospace" style="font-size:12px;">
+                            {{ run.dag_run_id|truncatechars:40 }}
+                        </span>
+                    </td>
+
+                    <!-- State -->
+                    <td>
+                        {% if run.state == 'success' %}
+                            <span class="badge status-badge badge-success">
+                                <i class="bi bi-check-circle me-1"></i>Success
+                            </span>
+                        {% elif run.state == 'failed' %}
+                            <span class="badge status-badge badge-failed">
+                                <i class="bi bi-x-circle me-1"></i>Failed
+                            </span>
+                        {% elif run.state == 'running' %}
+                            <span class="badge status-badge badge-running">
+                                <span class="pulse-dot"></span>Running
+                            </span>
+                        {% elif run.state == 'queued' %}
+                            <span class="badge status-badge badge-queued">
+                                <i class="bi bi-hourglass me-1"></i>Queued
+                            </span>
+                        {% else %}
+                            <span class="badge status-badge badge-unknown">{{ run.state|default:"—" }}</span>
+                        {% endif %}
+                    </td>
+
+                    <!-- Start Time -->
+                    <td class="text-muted" style="font-size:12px;">
+                        {{ run.start_date|default:"—" }}
+                    </td>
+
+                    <!-- Duration -->
+                    <td class="text-muted" style="font-size:12px;">
+                        {% if run.start_date and run.end_date %}
+                            <span>—</span>
+                        {% else %}
+                            —
+                        {% endif %}
+                    </td>
+
+                    <!-- End Time -->
+                    <td class="text-muted" style="font-size:12px;">
+                        {{ run.end_date|default:"—" }}
+                    </td>
+
+                    <!-- Actions -->
+                    <td class="text-end">
+                        <a href="{% url 'airflow:dag_run_detail' dag_id run.dag_run_id %}"
+                           class="btn btn-sm btn-outline-primary">
+                            View Tasks <i class="bi bi-arrow-right ms-1"></i>
+                        </a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Pagination -->
+    {% if is_paginated %}
+    <div class="afya-pagination">
+        <span class="text-muted">
+            Page {{ page_obj.number }} of {{ paginator.num_pages }}
+            &bull; {{ total_runs }} run{{ total_runs|pluralize }}
+        </span>
+        <ul class="pagination mb-0">
+            {% if page_obj.has_previous %}
+            <li class="page-item">
+                <a class="page-link" href="?page={{ page_obj.previous_page_number }}{% if current_state %}&state={{ current_state }}{% endif %}">
+                    <i class="bi bi-chevron-left"></i>
+                </a>
+            </li>
+            {% endif %}
+            {% for num in paginator.page_range %}
+            <li class="page-item {% if num == page_obj.number %}active{% endif %}">
+                <a class="page-link" href="?page={{ num }}{% if current_state %}&state={{ current_state }}{% endif %}">{{ num }}</a>
+            </li>
+            {% endfor %}
+            {% if page_obj.has_next %}
+            <li class="page-item">
+                <a class="page-link" href="?page={{ page_obj.next_page_number }}{% if current_state %}&state={{ current_state }}{% endif %}">
+                    <i class="bi bi-chevron-right"></i>
+                </a>
+            </li>
+            {% endif %}
+        </ul>
+    </div>
+    {% endif %}
+</div>
+
+{% else %}
+<div class="card">
+    <div class="card-body empty-state">
+        <div class="empty-state-icon"><i class="bi bi-clock-history"></i></div>
+        <div class="empty-state-title">No runs found</div>
+        <p class="empty-state-desc">
+            {% if current_state %}
+                No runs with state <strong>{{ current_state }}</strong>.
+                <a href="{% url 'airflow:dag_detail' dag_id %}">Show all</a>
+            {% else %}
+                This DAG has not been triggered yet.
+            {% endif %}
+        </p>
+        <button type="button" class="btn btn-afya-teal btn-sm mt-2"
+                data-bs-toggle="modal" data-bs-target="#triggerModal">
+            <i class="bi bi-play-fill me-1"></i>Trigger First Run
+        </button>
+    </div>
+</div>
+{% endif %}
+
+<!-- ====== Trigger Confirmation Modal ====== -->
+<div class="modal fade" id="triggerModal" tabindex="-1" aria-labelledby="triggerModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header modal-header-afya">
+                <h5 class="modal-title" id="triggerModalLabel">
+                    <i class="bi bi-play-fill me-2"></i>Trigger DAG Run
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body text-center py-4">
+                <i class="bi bi-lightning-charge text-afya-blue mb-3" style="font-size:40px;"></i>
+                <p class="fw-semibold mb-1">You are about to trigger:</p>
+                <p class="font-monospace bg-light p-2 rounded mb-3">{{ dag_id }}</p>
+                <p class="text-muted small">
+                    A new manual DAG run will be queued in Airflow. This may consume compute resources.
+                </p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <form method="post" action="{% url 'airflow:trigger_dag' dag_id %}" class="d-inline">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-afya-teal">
+                        <i class="bi bi-play-fill me-1"></i>Confirm Trigger
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}

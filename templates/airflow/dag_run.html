@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+
+{% block title %}Run {{ run_id|truncatechars:30 }}{% endblock %}
+
+{% block page_header %}
+<div class="afya-page-header afya-content pb-0">
+    <div>
+        <h1 class="afya-page-title">
+            <i class="bi bi-list-check me-2 text-afya-blue"></i>Run Detail
+        </h1>
+        <p class="afya-page-sub font-monospace" style="font-size:12px;">{{ run_id }}</p>
+    </div>
+    <div class="afya-page-actions">
+        <a href="{% url 'airflow:dag_detail' dag_id %}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left me-1"></i>Back to {{ dag_id }}
+        </a>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+
+<!-- Task summary cards -->
+<div class="row g-3 mt-1 mb-4">
+    <div class="col-6 col-md-3">
+        <div class="stat-card">
+            <div class="stat-card-icon blue"><i class="bi bi-list-task"></i></div>
+            <div>
+                <div class="stat-label">Total Tasks</div>
+                <div class="stat-value">{{ total_tasks }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="stat-card">
+            <div class="stat-card-icon teal"><i class="bi bi-check-circle"></i></div>
+            <div>
+                <div class="stat-label">Successful</div>
+                <div class="stat-value text-afya-teal">{{ successful_tasks }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="stat-card">
+            <div class="stat-card-icon red"><i class="bi bi-x-circle"></i></div>
+            <div>
+                <div class="stat-label">Failed</div>
+                <div class="stat-value text-danger">{{ failed_tasks }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="stat-card">
+            <div class="stat-card-icon orange"><i class="bi bi-arrow-repeat"></i></div>
+            <div>
+                <div class="stat-label">Running</div>
+                <div class="stat-value" style="color:var(--afya-blue);">{{ running_tasks }}</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Tasks table -->
+{% if tasks %}
+<div class="afya-table-wrapper">
+    <div class="table-responsive">
+        <table class="table table-hover afya-table align-middle mb-0" id="tasksTable">
+            <thead>
+                <tr>
+                    <th>Task ID</th>
+                    <th>State</th>
+                    <th>Start</th>
+                    <th>End</th>
+                    <th>Duration</th>
+                    <th>Tries</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for task in tasks %}
+                <tr>
+                    <!-- Task ID -->
+                    <td>
+                        <span class="fw-medium" style="font-size:13px;">{{ task.task_id }}</span>
+                    </td>
+
+                    <!-- State -->
+                    <td>
+                        {% if task.state == 'success' %}
+                            <span class="badge status-badge badge-success">
+                                <i class="bi bi-check-circle me-1"></i>Success
+                            </span>
+                        {% elif task.state == 'failed' %}
+                            <span class="badge status-badge badge-failed">
+                                <i class="bi bi-x-circle me-1"></i>Failed
+                            </span>
+                        {% elif task.state == 'running' %}
+                            <span class="badge status-badge badge-running">
+                                <span class="pulse-dot"></span>Running
+                            </span>
+                        {% elif task.state == 'up_for_retry' %}
+                            <span class="badge status-badge badge-queued">
+                                <i class="bi bi-arrow-repeat me-1"></i>Retrying
+                            </span>
+                        {% elif task.state == 'skipped' %}
+                            <span class="badge status-badge badge-paused">
+                                <i class="bi bi-skip-forward me-1"></i>Skipped
+                            </span>
+                        {% elif task.state == 'upstream_failed' %}
+                            <span class="badge status-badge badge-failed">
+                                <i class="bi bi-diagram-2 me-1"></i>Upstream Failed
+                            </span>
+                        {% else %}
+                            <span class="badge status-badge badge-unknown">{{ task.state|default:"—" }}</span>
+                        {% endif %}
+                    </td>
+
+                    <!-- Start -->
+                    <td class="text-muted" style="font-size:12px;">
+                        {{ task.start_date|default:"—" }}
+                    </td>
+
+                    <!-- End -->
+                    <td class="text-muted" style="font-size:12px;">
+                        {{ task.end_date|default:"—" }}
+                    </td>
+
+                    <!-- Duration -->
+                    <td class="text-muted" style="font-size:12px;">
+                        {{ task.duration|default:"—" }}
+                    </td>
+
+                    <!-- Tries -->
+                    <td>
+                        <span class="badge bg-light text-dark border">
+                            {{ task.try_number|default:"1" }}
+                        </span>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% else %}
+<div class="card">
+    <div class="card-body empty-state">
+        <div class="empty-state-icon"><i class="bi bi-list-task"></i></div>
+        <div class="empty-state-title">No task instances found</div>
+        <p class="empty-state-desc">
+            Task instances appear once the DAG run begins executing.
+        </p>
+    </div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+    'use strict';
+    // Live polling for running tasks
+    var hasRunning = {{ running_tasks }} > 0;
+    if (hasRunning) {
+        setTimeout(function () { location.reload(); }, 15000);
+    }
+})();
+</script>
+{% endblock %}

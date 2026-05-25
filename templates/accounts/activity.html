@@ -1,0 +1,284 @@
+{% extends "base.html" %}
+
+{% block title %}My Activity — Afya DataHub{% endblock %}
+
+{% block extra_css %}
+<style>
+.activity-page { max-width: 1000px; margin: 0 auto; }
+
+/* Header */
+.page-header-card {
+    background: linear-gradient(135deg, #003467, #0072CE);
+    border-radius: 16px; padding: 24px 28px;
+    display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; gap: 14px; margin-bottom: 22px;
+    box-shadow: 0 8px 28px rgba(0, 52, 103, 0.18);
+    color: #fff;
+}
+.page-header-card h4 { font-size: 20px; font-weight: 700; margin: 0 0 2px; }
+.page-header-card p  { font-size: 13px; opacity: 0.75; margin: 0; }
+
+/* Filter bar */
+.filter-bar {
+    display: flex; gap: 10px; flex-wrap: wrap;
+    margin-bottom: 18px; align-items: center;
+}
+.filter-bar form { display: flex; gap: 10px; flex-wrap: wrap; flex: 1; }
+.filter-bar input {
+    padding: 9px 16px 9px 40px; border: 1.5px solid #e2e8f0;
+    border-radius: 10px; font-size: 14px; background: #fff;
+    outline: none; min-width: 220px; flex: 1;
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+.filter-bar input:focus {
+    border-color: #0072CE; box-shadow: 0 0 0 3px rgba(0,114,206,0.10);
+}
+.search-wrap { position: relative; flex: 1; }
+.search-wrap .si {
+    position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+    color: #94a3b8; font-size: 15px; pointer-events: none;
+}
+.action-select {
+    padding: 9px 14px; border: 1.5px solid #e2e8f0; border-radius: 10px;
+    font-size: 13.5px; background: #fff; color: #475569; outline: none;
+    transition: border-color 0.15s;
+}
+.action-select:focus { border-color: #0072CE; }
+
+/* Table card */
+.table-card {
+    background: #fff; border-radius: 14px;
+    box-shadow: 0 4px 18px rgba(15, 23, 42, 0.05);
+    overflow: hidden;
+}
+.table-card table {
+    width: 100%; border-collapse: collapse;
+}
+.table-card thead {
+    background: #f8fafc; border-bottom: 1.5px solid #f1f5f9;
+}
+.table-card thead th {
+    padding: 13px 18px; font-size: 11.5px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.6px;
+    color: #64748b; white-space: nowrap;
+}
+.table-card tbody tr {
+    border-bottom: 1px solid #f8fafc;
+    transition: background 0.12s;
+}
+.table-card tbody tr:hover { background: #f8fafc; }
+.table-card tbody tr:last-child { border-bottom: none; }
+.table-card td {
+    padding: 13px 18px; font-size: 13.5px; color: #334155;
+    vertical-align: middle;
+}
+
+/* Action badge */
+.action-badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 3px 10px; border-radius: 99px; font-size: 11.5px; font-weight: 600;
+    white-space: nowrap;
+}
+.action-badge.login    { background: #dbeafe; color: #1d4ed8; }
+.action-badge.logout   { background: #f3f4f6; color: #6b7280; }
+.action-badge.create   { background: #dcfce7; color: #16a34a; }
+.action-badge.update   { background: #fef9c3; color: #ca8a04; }
+.action-badge.delete   { background: #fee2e2; color: #dc2626; }
+.action-badge.read     { background: #ede9fe; color: #7c3aed; }
+.action-badge.export   { background: #cffafe; color: #0891b2; }
+.action-badge.query    { background: #fce7f3; color: #be185d; }
+.action-badge.trigger  { background: #ffedd5; color: #c2410c; }
+.action-badge.share    { background: #f0fdf4; color: #15803d; }
+.action-badge.default  { background: #f1f5f9; color: #64748b; }
+
+/* Resource cell */
+.resource-cell { font-family: 'Courier New', monospace; font-size: 12.5px; }
+.detail-cell {
+    max-width: 260px; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
+    font-size: 12.5px; color: #64748b;
+}
+
+/* IP badge */
+.ip-chip {
+    font-size: 12px; background: #f8fafc; color: #475569;
+    padding: 3px 9px; border-radius: 99px;
+    border: 1px solid #e2e8f0; font-family: monospace;
+}
+
+/* Timestamp */
+.ts-cell { font-size: 12.5px; color: #94a3b8; white-space: nowrap; }
+
+/* Empty state */
+.empty-state {
+    text-align: center; padding: 60px 32px;
+}
+.empty-state .empty-icon { font-size: 52px; opacity: 0.2; margin-bottom: 16px; }
+.empty-state h5 { font-size: 18px; font-weight: 600; color: #334155; margin-bottom: 6px; }
+.empty-state p  { font-size: 14px; color: #94a3b8; }
+
+/* Pagination */
+.pagination-wrap { display: flex; justify-content: center; padding: 18px; gap: 6px; }
+.page-btn {
+    min-width: 36px; height: 36px; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    text-decoration: none; font-size: 13.5px; font-weight: 500;
+    border: 1.5px solid #e2e8f0; color: #475569; transition: all 0.15s;
+}
+.page-btn:hover { border-color: #0072CE; color: #0072CE; }
+.page-btn.active { background: #0072CE; color: #fff; border-color: #0072CE; }
+.page-btn.disabled { opacity: 0.4; pointer-events: none; }
+</style>
+{% endblock %}
+
+{% block breadcrumbs %}
+<nav aria-label="breadcrumb" class="mb-3">
+    <ol class="breadcrumb">
+        {% for crumb in breadcrumbs %}
+        <li class="breadcrumb-item {% if not crumb.url %}active{% endif %}"
+            {% if not crumb.url %}aria-current="page"{% endif %}>
+            {% if crumb.url %}<a href="{{ crumb.url }}">{{ crumb.label }}</a>
+            {% else %}{{ crumb.label }}{% endif %}
+        </li>
+        {% endfor %}
+    </ol>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="activity-page">
+
+    <!-- Header -->
+    <div class="page-header-card">
+        <div>
+            <h4><i class="bi bi-clock-history me-2"></i>My Activity</h4>
+            <p>A record of all your actions on the platform</p>
+        </div>
+    </div>
+
+    <!-- Filter bar -->
+    <div class="filter-bar">
+        <form method="get">
+            <div class="search-wrap">
+                <i class="bi bi-search si"></i>
+                <input type="text" name="q" placeholder="Search by resource…"
+                       value="{{ search_query }}">
+            </div>
+            <select name="action" class="action-select">
+                <option value="">All actions</option>
+                {% for val, label in action_choices %}
+                <option value="{{ val }}" {% if active_action == val %}selected{% endif %}>
+                    {{ label }}
+                </option>
+                {% endfor %}
+            </select>
+            <button type="submit" class="btn btn-primary" style="border-radius:10px;font-size:13.5px;">
+                <i class="bi bi-filter me-1"></i>Filter
+            </button>
+            {% if search_query or active_action %}
+            <a href="{% url 'authentication:activity' %}" class="btn btn-outline-secondary"
+               style="border-radius:10px;font-size:13.5px;">
+                Clear
+            </a>
+            {% endif %}
+        </form>
+    </div>
+
+    <!-- Table card -->
+    <div class="table-card">
+        {% if audit_logs %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Action</th>
+                    <th>Resource</th>
+                    <th>Detail</th>
+                    <th>IP Address</th>
+                    <th>Date / Time</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for log in audit_logs %}
+                <tr>
+                    <td>
+                        <span class="action-badge {{ log.action|default:'default' }}">
+                            {% if log.action == 'login' %}<i class="bi bi-box-arrow-in-right"></i>
+                            {% elif log.action == 'logout' %}<i class="bi bi-box-arrow-right"></i>
+                            {% elif log.action == 'create' %}<i class="bi bi-plus-circle"></i>
+                            {% elif log.action == 'update' %}<i class="bi bi-pencil"></i>
+                            {% elif log.action == 'delete' %}<i class="bi bi-trash"></i>
+                            {% elif log.action == 'export' %}<i class="bi bi-download"></i>
+                            {% elif log.action == 'query' %}<i class="bi bi-search"></i>
+                            {% elif log.action == 'trigger' %}<i class="bi bi-lightning"></i>
+                            {% else %}<i class="bi bi-dot"></i>{% endif %}
+                            {{ log.get_action_display }}
+                        </span>
+                    </td>
+                    <td class="resource-cell">{{ log.resource }}</td>
+                    <td class="detail-cell" title="{{ log.detail }}">
+                        {{ log.detail|truncatechars:60 }}
+                    </td>
+                    <td>
+                        {% if log.ip_address %}
+                        <span class="ip-chip">{{ log.ip_address }}</span>
+                        {% else %}
+                        <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+                    <td class="ts-cell">
+                        <span title="{{ log.timestamp|date:'Y-m-d H:i:s' }}">
+                            {{ log.timestamp|date:"M j, Y" }}<br>
+                            <small style="color:#b0bec5;">{{ log.timestamp|date:"H:i:s" }}</small>
+                        </span>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        <!-- Pagination -->
+        {% if is_paginated %}
+        <div class="pagination-wrap">
+            {% if page_obj.has_previous %}
+            <a href="?q={{ search_query }}&action={{ active_action }}&page={{ page_obj.previous_page_number }}"
+               class="page-btn"><i class="bi bi-chevron-left"></i></a>
+            {% else %}
+            <span class="page-btn disabled"><i class="bi bi-chevron-left"></i></span>
+            {% endif %}
+
+            {% for num in paginator.page_range %}
+                {% if page_obj.number == num %}
+                <span class="page-btn active">{{ num }}</span>
+                {% elif num > page_obj.number|add:'-3' and num < page_obj.number|add:'3' %}
+                <a href="?q={{ search_query }}&action={{ active_action }}&page={{ num }}"
+                   class="page-btn">{{ num }}</a>
+                {% endif %}
+            {% endfor %}
+
+            {% if page_obj.has_next %}
+            <a href="?q={{ search_query }}&action={{ active_action }}&page={{ page_obj.next_page_number }}"
+               class="page-btn"><i class="bi bi-chevron-right"></i></a>
+            {% else %}
+            <span class="page-btn disabled"><i class="bi bi-chevron-right"></i></span>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        {% else %}
+        <div class="empty-state">
+            <div class="empty-icon"><i class="bi bi-clock-history"></i></div>
+            <h5>No activity yet</h5>
+            <p>
+                {% if search_query or active_action %}
+                    No logs match your filters.
+                    <a href="{% url 'authentication:activity' %}">Clear filters</a>
+                {% else %}
+                    Your platform activity will appear here as you use Afya DataHub.
+                {% endif %}
+            </p>
+        </div>
+        {% endif %}
+    </div>
+
+</div>
+{% endblock %}

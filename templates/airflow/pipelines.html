@@ -1,0 +1,260 @@
+{% extends "base.html" %}
+
+{% block title %}Pipeline Monitor{% endblock %}
+
+{% block page_header %}
+<div class="afya-page-header afya-content pb-0">
+    <div>
+        <h1 class="afya-page-title">
+            <i class="bi bi-cpu me-2 text-afya-blue"></i>Pipeline Monitor
+        </h1>
+        <p class="afya-page-sub">Live view of all Airflow DAGs and their execution status.</p>
+    </div>
+    <div class="afya-page-actions">
+        <button onclick="location.reload()" class="btn btn-outline-secondary btn-sm" id="refreshBtn">
+            <i class="bi bi-arrow-clockwise me-1"></i>Refresh
+        </button>
+        <span class="text-muted small align-self-center" id="lastRefreshTime"></span>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+
+<!-- Stats cards -->
+<div class="row g-3 mt-1 mb-4">
+    <div class="col-6 col-md-3">
+        <div class="stat-card">
+            <div class="stat-card-icon blue"><i class="bi bi-diagram-3"></i></div>
+            <div>
+                <div class="stat-label">Total DAGs</div>
+                <div class="stat-value">{{ total_dags }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="stat-card">
+            <div class="stat-card-icon teal"><i class="bi bi-play-circle"></i></div>
+            <div>
+                <div class="stat-label">Active</div>
+                <div class="stat-value text-afya-teal">{{ active_dags }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="stat-card">
+            <div class="stat-card-icon orange"><i class="bi bi-pause-circle"></i></div>
+            <div>
+                <div class="stat-label">Paused</div>
+                <div class="stat-value" style="color:var(--afya-amber);">{{ paused_dags }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-md-3">
+        <div class="stat-card">
+            <div class="stat-card-icon red"><i class="bi bi-clock-history"></i></div>
+            <div>
+                <div class="stat-label">Last Refresh</div>
+                <div class="stat-value" style="font-size:13px;margin-top:4px;" id="refreshDisplay">Just now</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Search + filter -->
+<div class="card mb-3">
+    <div class="card-body py-3">
+        <form method="get" class="d-flex flex-wrap gap-3 align-items-center">
+            <div class="afya-search-bar" style="min-width:240px;">
+                <i class="bi bi-search search-icon"></i>
+                <input type="text" name="q" value="{{ current_q }}"
+                       class="form-control" placeholder="Search DAG ID…" autocomplete="off">
+            </div>
+            <div class="filter-pills">
+                <a href="{% url 'airflow:dashboard' %}{% if current_q %}?q={{ current_q }}{% endif %}"
+                   class="filter-pill {% if not current_state %}active{% endif %}">All</a>
+                <a href="?state=active{% if current_q %}&q={{ current_q }}{% endif %}"
+                   class="filter-pill {% if current_state == 'active' %}active{% endif %}">Active</a>
+                <a href="?state=paused{% if current_q %}&q={{ current_q }}{% endif %}"
+                   class="filter-pill {% if current_state == 'paused' %}active{% endif %}">Paused</a>
+            </div>
+            <button type="submit" class="btn btn-afya-primary btn-sm">
+                <i class="bi bi-search me-1"></i>Search
+            </button>
+            {% if current_q or current_state %}
+            <a href="{% url 'airflow:dashboard' %}" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-x me-1"></i>Clear
+            </a>
+            {% endif %}
+        </form>
+    </div>
+</div>
+
+<!-- DAG Table -->
+{% if page_obj %}
+<div class="afya-table-wrapper">
+    <div class="table-responsive">
+        <table class="table table-hover afya-table align-middle mb-0">
+            <thead>
+                <tr>
+                    <th>Pipeline Name</th>
+                    <th>Status</th>
+                    <th>Last Run</th>
+                    <th>Runs Today</th>
+                    <th>Success Rate</th>
+                    <th class="text-end">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for dag in page_obj %}
+                <tr>
+                    <!-- Pipeline Name -->
+                    <td>
+                        <div class="fw-semibold" style="font-size:13px;">{{ dag.dag_id }}</div>
+                        {% if dag.description %}
+                        <div class="text-muted" style="font-size:11px;">{{ dag.description|truncatechars:60 }}</div>
+                        {% endif %}
+                    </td>
+
+                    <!-- Status -->
+                    <td>
+                        {% if dag.is_paused %}
+                        <span class="badge status-badge badge-paused">
+                            <i class="bi bi-pause-circle me-1"></i>Paused
+                        </span>
+                        {% else %}
+                        <span class="badge status-badge badge-success">
+                            <i class="bi bi-check-circle me-1"></i>Active
+                        </span>
+                        {% endif %}
+                    </td>
+
+                    <!-- Last Run -->
+                    <td class="text-muted" style="font-size:12px;">
+                        {% if dag.latest_dag_run_start_date %}
+                            {{ dag.latest_dag_run_start_date|timesince }} ago
+                        {% else %}
+                            <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+
+                    <!-- Runs Today -->
+                    <td>
+                        <span class="badge bg-light text-dark border">
+                            {{ dag.next_dagrun|default:"—" }}
+                        </span>
+                    </td>
+
+                    <!-- Success Rate (placeholder without history) -->
+                    <td style="min-width:120px;">
+                        <div class="progress" style="height:6px;">
+                            <div class="progress-bar progress-bar-teal"
+                                 role="progressbar"
+                                 style="width:{{ dag.default_view|default:'0' }}%;">
+                            </div>
+                        </div>
+                        <div class="text-muted mt-1" style="font-size:11px;">N/A</div>
+                    </td>
+
+                    <!-- Actions -->
+                    <td class="text-end">
+                        <a href="{% url 'airflow:dag_detail' dag.dag_id %}"
+                           class="btn btn-sm btn-outline-primary">
+                            View <i class="bi bi-arrow-right ms-1"></i>
+                        </a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Pagination -->
+    {% if is_paginated %}
+    <div class="afya-pagination">
+        <span class="text-muted">
+            Page {{ page_obj.number }} of {{ paginator.num_pages }}
+            &bull; {{ total_dags }} DAG{{ total_dags|pluralize }}
+        </span>
+        <ul class="pagination mb-0">
+            {% if page_obj.has_previous %}
+            <li class="page-item">
+                <a class="page-link" href="?page={{ page_obj.previous_page_number }}{% if current_q %}&q={{ current_q }}{% endif %}{% if current_state %}&state={{ current_state }}{% endif %}">
+                    <i class="bi bi-chevron-left"></i>
+                </a>
+            </li>
+            {% endif %}
+            {% for num in paginator.page_range %}
+            <li class="page-item {% if num == page_obj.number %}active{% endif %}">
+                <a class="page-link" href="?page={{ num }}{% if current_q %}&q={{ current_q }}{% endif %}{% if current_state %}&state={{ current_state }}{% endif %}">{{ num }}</a>
+            </li>
+            {% endfor %}
+            {% if page_obj.has_next %}
+            <li class="page-item">
+                <a class="page-link" href="?page={{ page_obj.next_page_number }}{% if current_q %}&q={{ current_q }}{% endif %}{% if current_state %}&state={{ current_state }}{% endif %}">
+                    <i class="bi bi-chevron-right"></i>
+                </a>
+            </li>
+            {% endif %}
+        </ul>
+    </div>
+    {% endif %}
+</div>
+
+{% else %}
+<!-- Empty state -->
+<div class="card">
+    <div class="card-body empty-state">
+        <div class="empty-state-icon"><i class="bi bi-diagram-3"></i></div>
+        <div class="empty-state-title">No DAGs found</div>
+        <p class="empty-state-desc">
+            {% if current_q or current_state %}
+                No DAGs match your filters. <a href="{% url 'airflow:dashboard' %}">Clear filters</a>
+            {% else %}
+                The Airflow API returned no DAGs. Check your connection settings.
+            {% endif %}
+        </p>
+    </div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+    'use strict';
+
+    // Show last refresh time
+    var refreshDisplay = document.getElementById('refreshDisplay');
+    if (refreshDisplay) {
+        var loaded = new Date();
+        refreshDisplay.textContent = loaded.toLocaleTimeString();
+    }
+
+    // Auto-refresh every 30 seconds
+    var countdown = 30;
+    var lastRefresh = document.getElementById('lastRefreshTime');
+    var interval = setInterval(function () {
+        countdown -= 1;
+        if (lastRefresh) {
+            lastRefresh.textContent = 'Refreshing in ' + countdown + 's';
+        }
+        if (countdown <= 0) {
+            clearInterval(interval);
+            location.reload();
+        }
+    }, 1000);
+
+    // Manual refresh button resets timer
+    var refreshBtn = document.getElementById('refreshBtn');
+    if (refreshBtn) {
+        refreshBtn.addEventListener('click', function (e) {
+            e.preventDefault();
+            clearInterval(interval);
+            location.reload();
+        });
+    }
+})();
+</script>
+{% endblock %}

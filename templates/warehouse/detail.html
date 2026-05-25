@@ -1,0 +1,647 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title|default:spreadsheet_id }} — Data Warehouse{% endblock %}
+
+{% block extra_css %}
+<style>
+  :root {
+    --afya-blue: #0072CE;
+    --afya-teal: #0BB99F;
+    --afya-cool: #003467;
+    --afya-orange: #f5a623;
+  }
+  .meta-bar { background: #f8f9fa; border-radius: 8px; padding: .6rem 1rem; font-size: .82rem; color: #6c757d; }
+  .meta-bar code { color: var(--afya-blue); }
+  .nav-pills .nav-link { color: #495057; border-radius: 8px; padding: .4rem .9rem; font-size: .88rem; }
+  .nav-pills .nav-link.active { background: var(--afya-blue); }
+  .op-card { border: none; border-radius: 10px; box-shadow: 0 3px 12px rgba(0,0,0,.06); }
+  .op-card .card-header { font-weight: 600; font-size: .88rem; background: transparent; border-bottom: 2px solid #f0f2f5; }
+  .result-panel { background: #f8fbff; border-radius: 8px; padding: 1rem; margin-top: 1rem; border: 1px solid #dbeafe; }
+  .result-panel pre { max-height: 300px; overflow-y: auto; background: #fff; border-radius: 6px; padding: .75rem; font-size: .8rem; }
+  .toast-container { z-index: 9999; }
+  .page-breadcrumb { font-size: .85rem; color: #6c757d; }
+  .page-breadcrumb a { color: var(--afya-blue); text-decoration: none; }
+  .page-breadcrumb a:hover { text-decoration: underline; }
+  .tab-loading { opacity: .6; pointer-events: none; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+{# ── Toast container #}
+<div class="toast-container position-fixed top-0 end-0 p-3" id="toastArea"></div>
+
+{# ── Breadcrumbs #}
+<nav aria-label="breadcrumb" class="page-breadcrumb mb-2">
+  <ol class="breadcrumb mb-0">
+    <li class="breadcrumb-item"><a href="{% url 'analytics:home' %}">Home</a></li>
+    <li class="breadcrumb-item"><a href="{% url 'warehouse:index' %}">Data Warehouse</a></li>
+    <li class="breadcrumb-item active">{{ title|default:spreadsheet_id|truncatechars:40 }}</li>
+  </ol>
+</nav>
+
+{# ── Page header #}
+<div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+  <div>
+    <h3 class="mb-1 fw-bold">
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="#0BB99F"
+           class="bi bi-file-earmark-spreadsheet me-2" viewBox="0 0 16 16">
+        <path d="M14 14V4.5L9.5 0H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2zM9.5 3A1.5 1.5 0 0 0 11 4.5h2V9H3V2a1 1 0 0 1 1-1h5.5v2zM3 12v-2h2v2H3zm0 1h2v2H4a1 1 0 0 1-1-1v-1zm3 2v-2h3v2H6zm4 0v-2h3v1a1 1 0 0 1-1 1h-2zm3-3h-3v-2h3v2zm-7 0v-2h3v2H6z"/>
+      </svg>
+      {{ title|default:"(untitled)" }}
+    </h3>
+    <div class="meta-bar mt-1 d-inline-flex gap-3 flex-wrap">
+      <span>ID: <code>{{ spreadsheet_id }}</code></span>
+      {% if web_view_link %}
+        <span>&bull; <a href="{{ web_view_link }}" target="_blank" rel="noopener" class="text-primary">
+          Open in Google Sheets
+        </a></span>
+      {% endif %}
+    </div>
+  </div>
+  <div class="d-flex gap-2">
+    <a href="{% url 'warehouse:index' %}" class="btn btn-sm btn-outline-secondary">
+      &larr; Back
+    </a>
+    {% if web_view_link %}
+    <a href="{{ web_view_link }}" target="_blank" rel="noopener"
+       class="btn btn-sm btn-outline-success">
+      Google Sheets
+    </a>
+    {% endif %}
+    <button class="btn btn-sm btn-danger" id="btnDelete">
+      Delete
+    </button>
+  </div>
+</div>
+
+{% if meta.error %}
+<div class="alert alert-danger">
+  <strong>Could not load this spreadsheet.</strong> {{ meta.error }}
+  <hr>
+  Make sure the spreadsheet has been shared with the service account email (Editor or Viewer).
+</div>
+{% endif %}
+
+{# ── Nav pills #}
+<ul class="nav nav-pills mb-3" id="ops-tabs" role="tablist">
+  <li class="nav-item">
+    <button class="nav-link {% if active_tab == 'values' %}active{% endif %}"
+            data-bs-toggle="pill" data-bs-target="#tab-values" type="button"
+            data-tab="values">Values</button>
+  </li>
+  <li class="nav-item">
+    <button class="nav-link {% if active_tab == 'format' %}active{% endif %}"
+            data-bs-toggle="pill" data-bs-target="#tab-format" type="button"
+            data-tab="format">Format</button>
+  </li>
+  <li class="nav-item">
+    <button class="nav-link {% if active_tab == 'rows' %}active{% endif %}"
+            data-bs-toggle="pill" data-bs-target="#tab-rows" type="button"
+            data-tab="rows">Rows</button>
+  </li>
+  <li class="nav-item">
+    <button class="nav-link {% if active_tab == 'tabs' %}active{% endif %}"
+            data-bs-toggle="pill" data-bs-target="#tab-tabs" type="button"
+            data-tab="tabs">Sheets/Tabs</button>
+  </li>
+  <li class="nav-item">
+    <button class="nav-link {% if active_tab == 'share' %}active{% endif %}"
+            data-bs-toggle="pill" data-bs-target="#tab-share" type="button"
+            data-tab="share">Sharing</button>
+  </li>
+</ul>
+
+<div class="tab-content">
+
+{# ═════════════════════════ VALUES TAB ═════════════════════════ #}
+<div class="tab-pane fade {% if active_tab == 'values' %}show active{% endif %}" id="tab-values">
+  <div class="row g-3">
+
+    {# Read values #}
+    <div class="col-lg-6">
+      <div class="op-card card">
+        <div class="card-header">Read Values</div>
+        <div class="card-body">
+          <form id="form-read" data-url="{% url 'warehouse:read_values' spreadsheet_id %}" novalidate>
+            {% csrf_token %}
+            {% include "warehouse/_field.html" with field=read_form.range_notation %}
+            <button type="submit" class="btn btn-sm btn-primary">Read</button>
+          </form>
+          <div id="result-read" class="result-panel d-none">
+            <div class="d-flex justify-content-between mb-1">
+              <span class="text-muted small" id="result-read-meta"></span>
+            </div>
+            <div class="table-responsive" style="max-height:320px;">
+              <table class="table table-sm table-bordered mb-0" id="result-read-table"></table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {# Update values #}
+    <div class="col-lg-6">
+      <div class="op-card card">
+        <div class="card-header">Update Values</div>
+        <div class="card-body">
+          <form id="form-update" data-url="{% url 'warehouse:update_values' spreadsheet_id %}" novalidate>
+            {% csrf_token %}
+            {% include "warehouse/_field.html" with field=update_form.range_notation %}
+            {% include "warehouse/_field.html" with field=update_form.values %}
+            {% include "warehouse/_field.html" with field=update_form.value_input_option %}
+            <button type="submit" class="btn btn-sm btn-success">Update</button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    {# Append values #}
+    <div class="col-lg-6">
+      <div class="op-card card">
+        <div class="card-header">Append Rows</div>
+        <div class="card-body">
+          <form id="form-append" data-url="{% url 'warehouse:append_values' spreadsheet_id %}" novalidate>
+            {% csrf_token %}
+            {% include "warehouse/_field.html" with field=append_form.range_notation %}
+            {% include "warehouse/_field.html" with field=append_form.values %}
+            <div class="row">
+              <div class="col-md-6">{% include "warehouse/_field.html" with field=append_form.value_input_option %}</div>
+              <div class="col-md-6">{% include "warehouse/_field.html" with field=append_form.insert_data_option %}</div>
+            </div>
+            <button type="submit" class="btn btn-sm btn-success">Append</button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    {# Clear range #}
+    <div class="col-lg-6">
+      <div class="op-card card">
+        <div class="card-header">Clear Range</div>
+        <div class="card-body">
+          <form id="form-clear" data-url="{% url 'warehouse:clear_range' spreadsheet_id %}" novalidate>
+            {% csrf_token %}
+            {% include "warehouse/_field.html" with field=clear_form.range_notation %}
+            <button type="submit" class="btn btn-sm btn-warning">Clear</button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    {# Batch update #}
+    <div class="col-12">
+      <div class="op-card card">
+        <div class="card-header">Batch Update Many Ranges</div>
+        <div class="card-body">
+          <form id="form-batch" data-url="{% url 'warehouse:batch_update' spreadsheet_id %}" novalidate>
+            {% csrf_token %}
+            {% include "warehouse/_field.html" with field=batch_form.multi_block %}
+            {% include "warehouse/_field.html" with field=batch_form.value_input_option %}
+            <button type="submit" class="btn btn-sm btn-primary">Run Batch</button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+{# ═════════════════════════ FORMAT TAB ═════════════════════════ #}
+<div class="tab-pane fade {% if active_tab == 'format' %}show active{% endif %}" id="tab-format">
+  <div class="row g-3">
+
+    <div class="col-lg-8">
+      <div class="op-card card">
+        <div class="card-header">Format Cells</div>
+        <div class="card-body">
+          <form id="form-format" data-url="{% url 'warehouse:format_cells' spreadsheet_id %}" novalidate>
+            {% csrf_token %}
+            {% include "warehouse/_field.html" with field=format_form.sheet_id %}
+            <div class="row">
+              <div class="col">{% include "warehouse/_field.html" with field=format_form.start_row %}</div>
+              <div class="col">{% include "warehouse/_field.html" with field=format_form.end_row %}</div>
+              <div class="col">{% include "warehouse/_field.html" with field=format_form.start_col %}</div>
+              <div class="col">{% include "warehouse/_field.html" with field=format_form.end_col %}</div>
+            </div>
+            <div class="row">
+              <div class="col-md-3">{% include "warehouse/_field.html" with field=format_form.bold %}</div>
+              <div class="col-md-3">{% include "warehouse/_field.html" with field=format_form.italic %}</div>
+              <div class="col-md-3">{% include "warehouse/_field.html" with field=format_form.font_size %}</div>
+              <div class="col-md-3">{% include "warehouse/_field.html" with field=format_form.horizontal_alignment %}</div>
+            </div>
+            <div class="row">
+              <div class="col-md-6">{% include "warehouse/_field.html" with field=format_form.background_hex %}</div>
+              <div class="col-md-6">{% include "warehouse/_field.html" with field=format_form.foreground_hex %}</div>
+            </div>
+            <div class="row">
+              <div class="col-md-6">{% include "warehouse/_field.html" with field=format_form.number_format_type %}</div>
+              <div class="col-md-6">{% include "warehouse/_field.html" with field=format_form.number_format_pattern %}</div>
+            </div>
+            <button type="submit" class="btn btn-sm btn-primary">Apply Formatting</button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-lg-4">
+      <div class="op-card card">
+        <div class="card-header">Freeze Rows</div>
+        <div class="card-body">
+          <form id="form-freeze" data-url="{% url 'warehouse:freeze_rows' spreadsheet_id %}" novalidate>
+            {% csrf_token %}
+            {% include "warehouse/_field.html" with field=freeze_form.sheet_id %}
+            {% include "warehouse/_field.html" with field=freeze_form.row_count %}
+            <button type="submit" class="btn btn-sm btn-primary">Freeze</button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+{# ═════════════════════════ ROWS TAB ═════════════════════════ #}
+<div class="tab-pane fade {% if active_tab == 'rows' %}show active{% endif %}" id="tab-rows">
+  <div class="row g-3">
+
+    <div class="col-lg-6">
+      <div class="op-card card">
+        <div class="card-header">Insert Rows</div>
+        <div class="card-body">
+          <form id="form-insert-rows" data-url="{% url 'warehouse:insert_rows' spreadsheet_id %}" novalidate>
+            {% csrf_token %}
+            {% include "warehouse/_field.html" with field=insert_rows_form.sheet_id %}
+            <div class="row">
+              <div class="col">{% include "warehouse/_field.html" with field=insert_rows_form.start_row %}</div>
+              <div class="col">{% include "warehouse/_field.html" with field=insert_rows_form.count %}</div>
+            </div>
+            <button type="submit" class="btn btn-sm btn-success">Insert Rows</button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-lg-6">
+      <div class="op-card card">
+        <div class="card-header">Delete Rows</div>
+        <div class="card-body">
+          <form id="form-delete-rows" data-url="{% url 'warehouse:delete_rows' spreadsheet_id %}" novalidate>
+            {% csrf_token %}
+            {% include "warehouse/_field.html" with field=delete_rows_form.sheet_id %}
+            <div class="row">
+              <div class="col">{% include "warehouse/_field.html" with field=delete_rows_form.start_row %}</div>
+              <div class="col">{% include "warehouse/_field.html" with field=delete_rows_form.end_row %}</div>
+            </div>
+            <button type="submit" class="btn btn-sm btn-danger">Delete Rows</button>
+          </form>
+          <p class="form-text">Range is half-open: rows [start, end). Indices are 0-based.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+{# ═════════════════════════ TABS TAB ═════════════════════════ #}
+<div class="tab-pane fade {% if active_tab == 'tabs' %}show active{% endif %}" id="tab-tabs">
+  <div class="row g-3">
+
+    {# Existing tabs list #}
+    <div class="col-lg-6">
+      <div class="op-card card">
+        <div class="card-header">Existing Tabs</div>
+        <div class="card-body p-0">
+          {% if tabs %}
+          <table class="table table-sm mb-0 align-middle">
+            <thead class="table-light"><tr><th class="ps-3">Name</th><th>Sheet ID</th><th>Index</th><th class="pe-3"></th></tr></thead>
+            <tbody>
+              {% for t in tabs %}
+              <tr>
+                <td class="ps-3 fw-medium">{{ t.title }}</td>
+                <td><code class="small text-muted">{{ t.sheetId }}</code></td>
+                <td class="text-muted">{{ t.index }}</td>
+                <td class="text-end pe-3">
+                  <button type="button" class="btn btn-sm btn-outline-danger delete-tab-btn"
+                          data-sheet-id="{{ t.sheetId }}" data-sheet-title="{{ t.title|escapejs }}"
+                          data-url="{% url 'warehouse:delete_tab' spreadsheet_id %}">
+                    Delete
+                  </button>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          {% else %}
+          <p class="text-muted m-3">No tabs visible (or spreadsheet could not be loaded).</p>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    {# Add / Rename tabs #}
+    <div class="col-lg-3">
+      <div class="op-card card">
+        <div class="card-header">Add Tab</div>
+        <div class="card-body">
+          <form id="form-add-tab" data-url="{% url 'warehouse:add_tab' spreadsheet_id %}" novalidate>
+            {% csrf_token %}
+            {% include "warehouse/_field.html" with field=add_tab_form.tab_title %}
+            <button type="submit" class="btn btn-sm btn-success">Add Tab</button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-lg-3">
+      <div class="op-card card">
+        <div class="card-header">Rename Tab</div>
+        <div class="card-body">
+          <form id="form-rename-tab" data-url="{% url 'warehouse:rename_tab' spreadsheet_id %}" novalidate>
+            {% csrf_token %}
+            <div class="mb-3">
+              <label class="form-label small fw-semibold">Tab</label>
+              <select name="sheet_id" class="form-select">
+                {% for t in tabs %}<option value="{{ t.sheetId }}">{{ t.title }}</option>{% endfor %}
+              </select>
+            </div>
+            {% include "warehouse/_field.html" with field=rename_tab_form.new_title %}
+            <button type="submit" class="btn btn-sm btn-primary">Rename</button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+{# ═════════════════════════ SHARING TAB ═════════════════════════ #}
+<div class="tab-pane fade {% if active_tab == 'share' %}show active{% endif %}" id="tab-share">
+  <div class="row g-3">
+
+    <div class="col-lg-4">
+      <div class="op-card card">
+        <div class="card-header">Share With User</div>
+        <div class="card-body">
+          <form id="form-share" data-url="{% url 'warehouse:share' spreadsheet_id %}" novalidate>
+            {% csrf_token %}
+            {% include "warehouse/_field.html" with field=share_form.email %}
+            {% include "warehouse/_field.html" with field=share_form.role %}
+            {% include "warehouse/_field.html" with field=share_form.notify %}
+            <button type="submit" class="btn btn-sm btn-success">Share</button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-lg-8">
+      <div class="op-card card">
+        <div class="card-header">Current Permissions</div>
+        <div class="card-body p-0">
+          {% if permissions %}
+          <table class="table table-sm mb-0 align-middle">
+            <thead class="table-light">
+              <tr><th class="ps-3">Email / Name</th><th>Role</th><th>Type</th><th class="pe-3"></th></tr>
+            </thead>
+            <tbody>
+              {% for p in permissions %}
+              <tr>
+                <td class="ps-3">{{ p.emailAddress|default:p.displayName|default:p.id }}</td>
+                <td><span class="badge bg-secondary">{{ p.role }}</span></td>
+                <td class="text-muted small">{{ p.type }}</td>
+                <td class="text-end pe-3">
+                  {% if p.role != "owner" %}
+                  <button type="button" class="btn btn-sm btn-outline-danger remove-perm-btn"
+                          data-perm-id="{{ p.id }}"
+                          data-email="{{ p.emailAddress|default:p.displayName|default:'' }}"
+                          data-url="{% url 'warehouse:remove_permission' spreadsheet_id %}">
+                    Remove
+                  </button>
+                  {% else %}
+                  <span class="text-muted small">Owner</span>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          {% else %}
+          <p class="text-muted m-3">No permissions returned (may require Drive access).</p>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+</div>{# end tab-content #}
+
+{# ── Delete confirmation modal #}
+<div class="modal fade" id="deleteModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content border-0 shadow-lg">
+      <div class="modal-header bg-danger text-white">
+        <h5 class="modal-title fw-bold">Delete Spreadsheet</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p>This will permanently delete <strong>{{ title|default:spreadsheet_id }}</strong> from Google Drive.</p>
+        <p class="text-danger fw-semibold mb-0">This action cannot be undone.</p>
+        <form id="form-delete-spreadsheet"
+              data-url="{% url 'warehouse:delete_spreadsheet' spreadsheet_id %}"
+              class="mt-3">
+          {% csrf_token %}
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="confirmDelete" name="confirm" value="on">
+            <label class="form-check-label" for="confirmDelete">
+              Yes, I understand this is permanent.
+            </label>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-danger" id="btnConfirmDelete">Delete Forever</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// ── toast helper
+function showToast(msg, type) {
+  type = type || 'success';
+  var el = document.createElement('div');
+  el.className = 'toast align-items-center text-bg-' + type + ' border-0 show mb-2';
+  el.setAttribute('role', 'alert');
+  el.innerHTML = '<div class="d-flex"><div class="toast-body">' + msg + '</div>'
+               + '<button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button></div>';
+  document.getElementById('toastArea').appendChild(el);
+  var t = new bootstrap.Toast(el, { delay: 5000 });
+  t.show();
+  el.addEventListener('hidden.bs.toast', function () { el.remove(); });
+}
+
+// ── generic AJAX form submit
+function ajaxForm(formId, opts) {
+  var form = document.getElementById(formId);
+  if (!form) return;
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var btn = form.querySelector('[type=submit]');
+    if (btn) { btn.disabled = true; btn.textContent = 'Working...'; }
+
+    fetch(form.dataset.url, {
+      method: 'POST',
+      body: new FormData(form),
+      headers: { 'X-Requested-With': 'XMLHttpRequest' },
+    })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      if (data.success) {
+        showToast(opts.successMsg(data), 'success');
+        if (opts.onSuccess) opts.onSuccess(data);
+      } else {
+        var errTxt = data.error || JSON.stringify(data.errors || {});
+        showToast('Error: ' + errTxt, 'danger');
+      }
+    })
+    .catch(function (err) { showToast('Network error: ' + err, 'danger'); })
+    .finally(function () {
+      if (btn) { btn.disabled = false; btn.textContent = opts.btnLabel || 'Submit'; }
+    });
+  });
+}
+
+// ── Read values (shows result table)
+(function () {
+  var form = document.getElementById('form-read');
+  if (!form) return;
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var btn = form.querySelector('button[type=submit]');
+    if (btn) btn.disabled = true;
+
+    fetch(form.dataset.url, {
+      method: 'POST',
+      body: new FormData(form),
+      headers: { 'X-Requested-With': 'XMLHttpRequest' },
+    })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      var panel = document.getElementById('result-read');
+      var meta  = document.getElementById('result-read-meta');
+      var tbl   = document.getElementById('result-read-table');
+      if (data.success) {
+        panel.classList.remove('d-none');
+        meta.textContent = 'Range: ' + data.range + ' — ' + data.row_count + ' row(s)';
+        if (data.values && data.values.length > 0) {
+          var html = '<tbody>';
+          data.values.forEach(function (row) {
+            html += '<tr>' + row.map(function (c) { return '<td>' + String(c).replace(/</g,'&lt;') + '</td>'; }).join('') + '</tr>';
+          });
+          html += '</tbody>';
+          tbl.innerHTML = html;
+        } else {
+          tbl.innerHTML = '<tbody><tr><td class="text-muted">Range is empty.</td></tr></tbody>';
+        }
+      } else {
+        showToast('Read failed: ' + (data.error || 'Unknown error'), 'danger');
+      }
+    })
+    .catch(function (err) { showToast('Network error: ' + err, 'danger'); })
+    .finally(function () { if (btn) btn.disabled = false; });
+  });
+})();
+
+// ── Standard forms
+ajaxForm('form-update', { successMsg: function (d) { return 'Updated ' + d.updated_cells + ' cell(s) in ' + (d.updated_range || ''); }, btnLabel: 'Update' });
+ajaxForm('form-append', { successMsg: function (d) { return 'Appended ' + d.updated_rows + ' row(s).'; }, btnLabel: 'Append' });
+ajaxForm('form-clear',  { successMsg: function (d) { return 'Cleared ' + d.cleared_range + '.'; }, btnLabel: 'Clear' });
+ajaxForm('form-batch',  { successMsg: function (d) { return 'Batch update OK — ' + d.total_updated_cells + ' cell(s).'; }, btnLabel: 'Run Batch' });
+ajaxForm('form-format', { successMsg: function () { return 'Formatting applied.'; }, btnLabel: 'Apply Formatting' });
+ajaxForm('form-freeze', { successMsg: function (d) { return 'Frozen ' + d.row_count + ' row(s).'; }, btnLabel: 'Freeze' });
+ajaxForm('form-insert-rows', { successMsg: function (d) { return 'Inserted ' + d.rows_inserted + ' row(s).'; }, btnLabel: 'Insert Rows' });
+ajaxForm('form-delete-rows', { successMsg: function (d) { return 'Deleted ' + d.rows_deleted + ' row(s).'; }, btnLabel: 'Delete Rows' });
+ajaxForm('form-add-tab', { successMsg: function (d) { return 'Added tab "' + d.tab_title + '".'; }, btnLabel: 'Add Tab' });
+ajaxForm('form-rename-tab', { successMsg: function (d) { return 'Renamed tab to "' + d.new_title + '".'; }, btnLabel: 'Rename' });
+ajaxForm('form-share', { successMsg: function (d) { return 'Shared with ' + d.email + ' as ' + d.role + '.'; }, btnLabel: 'Share' });
+
+// ── Delete tab buttons
+document.querySelectorAll('.delete-tab-btn').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    var title = this.dataset.sheetTitle;
+    if (!confirm('Delete tab "' + title + '"? This cannot be undone.')) return;
+    var url = this.dataset.url;
+    var sheetId = this.dataset.sheetId;
+    var csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+    var fd = new FormData();
+    fd.append('sheet_id', sheetId);
+    fd.append('confirm', 'on');
+    fd.append('csrfmiddlewaretoken', csrfToken);
+    fetch(url, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      if (data.success) { showToast('Tab deleted.', 'success'); location.reload(); }
+      else { showToast('Error: ' + (data.error || ''), 'danger'); }
+    });
+  });
+});
+
+// ── Remove permission buttons
+document.querySelectorAll('.remove-perm-btn').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    var email = this.dataset.email || 'this permission';
+    if (!confirm('Remove ' + email + '?')) return;
+    var url    = this.dataset.url;
+    var permId = this.dataset.permId;
+    var csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+    var fd = new FormData();
+    fd.append('permission_id', permId);
+    fd.append('csrfmiddlewaretoken', csrfToken);
+    fetch(url, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      if (data.success) { showToast('Permission removed.', 'success'); location.reload(); }
+      else { showToast('Error: ' + (data.error || ''), 'danger'); }
+    });
+  });
+});
+
+// ── Delete spreadsheet
+document.getElementById('btnDelete').addEventListener('click', function () {
+  new bootstrap.Modal(document.getElementById('deleteModal')).show();
+});
+
+document.getElementById('btnConfirmDelete').addEventListener('click', function () {
+  var chk = document.getElementById('confirmDelete');
+  if (!chk.checked) { alert('Please check the confirmation box.'); return; }
+  var form = document.getElementById('form-delete-spreadsheet');
+  var csrfToken = form.querySelector('[name=csrfmiddlewaretoken]').value;
+  var fd = new FormData();
+  fd.append('confirm', 'on');
+  fd.append('csrfmiddlewaretoken', csrfToken);
+  fetch(form.dataset.url, { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+  .then(function (r) { return r.json(); })
+  .then(function (data) {
+    if (data.success) {
+      showToast('Spreadsheet deleted.', 'success');
+      setTimeout(function () { window.location.href = data.redirect_url; }, 1200);
+    } else {
+      showToast('Delete failed: ' + (data.error || ''), 'danger');
+    }
+  });
+});
+
+// ── Persist active tab in URL hash
+document.querySelectorAll('#ops-tabs button[data-tab]').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    history.replaceState(null, '', '?tab=' + this.dataset.tab);
+  });
+});
+</script>
+{% endblock %}

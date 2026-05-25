@@ -1,15 +1,16 @@
 """
-User profile model.
+User profile model for Afya DataHub.
 
-We don't subclass AbstractUser because the project is already running and
-auth.User is already migrated. Instead we hang an extensible UserProfile off
-the existing User via OneToOneField — adding new fields is then a normal
-makemigrations + migrate cycle, with no risk to existing user rows.
+We hang an extensible UserProfile off the existing auth.User via OneToOneField.
+Adding new fields is a normal makemigrations + migrate cycle.
 
-To add a new field: edit the class below, then run
-    python manage.py makemigrations accounts
-    python manage.py migrate accounts
+Role choices are stored directly on the profile for fast lookup without
+hitting the Groups M2M join. The user is ALSO added to the corresponding
+Django Group (via the post_save signal) so that Group-based permission
+checks (and the existing role decorators that use Groups) continue to work.
 """
+
+import logging
 
 from django.conf import settings
 from django.db import models
@@ -24,97 +25,154 @@ from authentication.roles import (
     user_roles,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class UserProfile(models.Model):
     """
     Extra fields attached to every user. One row per User; created
     automatically by the post_save signal below.
 
-    Add new fields directly to this class and run makemigrations.
-    Examples are listed (commented) at the bottom — uncomment as needed.
+    Role hierarchy (most → least privileged):
+        client_admin > facilities_admin > facility_admin
     """
+
+    ROLE_CHOICES = [
+        (ROLE_CLIENT_ADMIN, 'Client Admin'),
+        (ROLE_FACILITIES_ADMIN, 'Facilities Admin'),
+        (ROLE_FACILITY_ADMIN, 'Facility Admin'),
+    ]
+
+    ROLE_BADGE_COLORS = {
+        ROLE_CLIENT_ADMIN: 'primary',
+        ROLE_FACILITIES_ADMIN: 'info',
+        ROLE_FACILITY_ADMIN: 'secondary',
+    }
 
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
-        related_name="profile",
+        related_name='profile',
     )
 
-    # --- Contact -------------------------------------------------------------
+    # --- Contact ---------------------------------------------------------------
     phone_number = models.CharField(
         max_length=32,
         blank=True,
-        help_text="Primary contact number, including country code.",
+        help_text='Primary contact number, including country code.',
     )
 
-    # --- Tenancy / org context ----------------------------------------------
-    # These are typed as free-text so you don't have to introduce Client /
-    # Facility models right now. Replace with FK fields once those exist.
-    client = models.CharField(
-        max_length=120,
+    # --- Tenancy / org context -------------------------------------------------
+    client = models.ForeignKey(
+        'core.Client',
+        null=True,
         blank=True,
-        help_text="Client / organization the user belongs to.",
+        on_delete=models.SET_NULL,
+        related_name='users',
+        help_text='Client / organisation the user belongs to.',
     )
-    facility = models.CharField(
-        max_length=120,
+    facility = models.ForeignKey(
+        'core.Facility',
+        null=True,
         blank=True,
-        help_text="Facility the user is primarily assigned to. "
-                  "Leave blank for Facilities Admin / Client Admin.",
+        on_delete=models.SET_NULL,
+        related_name='users',
+        help_text='Facility the user is primarily assigned to.',
     )
 
-    # --- Misc profile fields ------------------------------------------------
+    # --- Profile ---------------------------------------------------------------
     job_title = models.CharField(max_length=120, blank=True)
-    avatar = models.ImageField(upload_to="avatars/", blank=True, null=True)
+    bio = models.TextField(blank=True, max_length=500)
+    avatar = models.ImageField(upload_to='avatars/%Y/%m/', blank=True, null=True)
 
-    # --- Audit --------------------------------------------------------------
+    # --- Role ------------------------------------------------------------------
+    role = models.CharField(
+        max_length=30,
+        choices=ROLE_CHOICES,
+        default=ROLE_FACILITY_ADMIN,
+        db_index=True,
+    )
+
+    # --- Security --------------------------------------------------------------
+    is_verified = models.BooleanField(default=False)
+    last_login_ip = models.GenericIPAddressField(null=True, blank=True)
+
+    # --- Audit -----------------------------------------------------------------
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    # --- Add more fields here as needed -------------------------------------
-    # Examples (uncomment and run makemigrations):
-    #
-    # date_of_birth   = models.DateField(blank=True, null=True)
-    # timezone        = models.CharField(max_length=64, blank=True, default="Africa/Nairobi")
-    # language        = models.CharField(max_length=8, blank=True, default="en")
-    # whatsapp_opt_in = models.BooleanField(default=False)
-    # last_login_ip   = models.GenericIPAddressField(blank=True, null=True)
-    # notes           = models.TextField(blank=True)
-
     class Meta:
-        verbose_name = "User profile"
-        verbose_name_plural = "User profiles"
+        verbose_name = 'User Profile'
+        verbose_name_plural = 'User Profiles'
+        ordering = ['-created_at']
 
-    def __str__(self):
-        return f"{self.user.username} profile"
+    def __str__(self) -> str:
+        return f'{self.display_name} ({self.get_role_display()})'
 
-    # --- Role helpers (wrap accounts.roles for convenience) -----------------
+    # --- Computed properties ---------------------------------------------------
+
+    @property
+    def display_name(self) -> str:
+        """Full name if set, otherwise username."""
+        return self.user.get_full_name() or self.user.username
+
+    @property
+    def initials(self) -> str:
+        """Up to two initials for avatar fallback."""
+        first = (self.user.first_name[:1] or self.user.username[:1]).upper()
+        last = (self.user.last_name[:1]).upper()
+        return first + last if last else first
+
+    @property
+    def is_client_admin(self) -> bool:
+        return self.role == ROLE_CLIENT_ADMIN or self.user.is_superuser
+
+    @property
+    def is_facilities_admin(self) -> bool:
+        return self.role in (ROLE_CLIENT_ADMIN, ROLE_FACILITIES_ADMIN) or self.user.is_superuser
+
+    @property
+    def role_display_badge(self) -> str:
+        """Bootstrap badge colour class for this role."""
+        return self.ROLE_BADGE_COLORS.get(self.role, 'secondary')
+
+    # --- Role helpers (delegate to authentication.roles) -----------------------
 
     @property
     def roles(self):
-        """Set of role names this user belongs to."""
+        """Set of Group-based role names this user belongs to."""
         return user_roles(self.user)
 
     @property
     def primary_role(self):
-        """
-        The single most-privileged role for display purposes
-        (Client Admin > Facilities Admin > Facility Admin).
-        Returns None if the user has no role group.
-        """
+        """Most-privileged role for display purposes."""
         for role in (ROLE_CLIENT_ADMIN, ROLE_FACILITIES_ADMIN, ROLE_FACILITY_ADMIN):
             if role in self.roles:
                 return role
         return None
 
-    def has_role(self, *roles):
+    def has_role(self, *roles) -> bool:
         return in_role(self.user, *roles)
 
 
-# --- Auto-create a profile whenever a User is created ------------------------
-
+# ---------------------------------------------------------------------------
+# Signals — auto-create a profile whenever a User is created
+# ---------------------------------------------------------------------------
 
 @receiver(post_save, sender=settings.AUTH_USER_MODEL)
 def _ensure_profile(sender, instance, created, **kwargs):
     """Every User gets a UserProfile, even ones created via createsuperuser."""
     if created:
         UserProfile.objects.get_or_create(user=instance)
+        logger.debug('UserProfile created for user pk=%s', instance.pk)
+
+
+@receiver(post_save, sender=settings.AUTH_USER_MODEL)
+def _save_profile(sender, instance, **kwargs):
+    """Propagate User saves to the profile (avoids stale cached data)."""
+    if not kwargs.get('created') and hasattr(instance, 'profile'):
+        try:
+            instance.profile.save()
+        except Exception:
+            # Profile may not exist yet during the created signal; ignore.
+            pass

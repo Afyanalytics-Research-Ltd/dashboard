@@ -1,0 +1,542 @@
+{% extends "base.html" %}
+
+{% block title %}Analytics Dashboards{% endblock %}
+
+{% block page_header %}
+<div class="afya-page-header afya-content pb-0">
+    <div>
+        <h1 class="afya-page-title">
+            <i class="bi bi-bar-chart-line me-2 text-afya-blue"></i>Analytics Dashboards
+            <span class="badge rounded-pill ms-2" style="background:var(--afya-blue);font-size:13px;">
+                {{ total_count }}
+            </span>
+        </h1>
+        <p class="afya-page-sub">Explore Streamlit and BI dashboards filtered to your organisation.</p>
+    </div>
+    <div class="afya-page-actions">
+        {% if request.user.is_superuser %}
+        <form method="post" action="{% url 'analytics:dashboard_sync' %}">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-outline-secondary btn-sm">
+                <i class="bi bi-arrow-clockwise me-1"></i>Sync
+            </button>
+        </form>
+        <a href="{% url 'analytics:dashboard_create' %}" class="btn btn-afya-primary btn-sm">
+            <i class="bi bi-plus-lg me-1"></i>Add Dashboard
+        </a>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Search + filter bar -->
+<div class="afya-content pt-3 pb-0">
+    <div class="d-flex flex-wrap gap-3 align-items-center">
+        <!-- Search -->
+        <form method="get" class="afya-search-bar" style="min-width:260px;">
+            <i class="bi bi-search search-icon"></i>
+            <input type="text" name="q" value="{{ current_q }}"
+                   class="form-control"
+                   placeholder="Search dashboards…"
+                   autocomplete="off">
+            {% if current_category %}
+            <input type="hidden" name="category" value="{{ current_category }}">
+            {% endif %}
+        </form>
+
+        <!-- Category filter pills -->
+        <div class="filter-pills">
+            <a href="{% url 'analytics:dashboard_list' %}{% if current_q %}?q={{ current_q }}{% endif %}"
+               class="filter-pill {% if not current_category %}active{% endif %}">All</a>
+            {% for cat_val, cat_label in categories %}
+            <a href="?category={{ cat_val }}{% if current_q %}&q={{ current_q }}{% endif %}"
+               class="filter-pill {% if current_category == cat_val %}active{% endif %}">
+                {{ cat_label }}
+            </a>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+
+{% if dashboards %}
+<div class="row g-3 mt-1">
+    {% for dashboard in dashboards %}
+    <div class="col-12 col-sm-6 col-xl-4">
+        <div class="dashboard-card position-relative">
+            {% if not dashboard.is_active %}
+            <div class="inactive-overlay">
+                <span class="badge bg-secondary">Inactive</span>
+            </div>
+            {% endif %}
+
+            <!-- Thumbnail -->
+            <div class="dashboard-card-thumbnail">
+                {% if dashboard.thumbnail %}
+                <img src="{{ dashboard.thumbnail.url }}" alt="{{ dashboard.name }} thumbnail">
+                {% else %}
+                <i class="bi bi-bar-chart-line thumb-icon"></i>
+                {% endif %}
+            </div>
+
+            <!-- Body -->
+            <div class="dashboard-card-body">
+                <div class="d-flex align-items-start justify-content-between gap-2 mb-1">
+                    <h3 class="dashboard-card-title">{{ dashboard.name }}</h3>
+                    <span class="badge rounded-pill badge-{{ dashboard.category }} flex-shrink-0">
+                        {{ dashboard.get_category_display }}
+                    </span>
+                </div>
+                <p class="dashboard-card-desc">
+                    {{ dashboard.description|default:"No description provided."|truncatechars:90 }}
+                </p>
+            </div>
+
+            <!-- Footer -->
+            <div class="dashboard-card-footer">
+                <span class="view-count">
+                    <i class="bi bi-eye me-1"></i>{{ dashboard.view_count }} view{{ dashboard.view_count|pluralize }}
+                </span>
+                <div class="d-flex gap-2">
+                    {% if request.user.is_superuser %}
+                    <a href="{% url 'analytics:dashboard_edit' dashboard.slug %}"
+                       class="btn btn-outline-secondary btn-sm"
+                       title="Edit">
+                        <i class="bi bi-pencil"></i>
+                    </a>
+                    {% endif %}
+                    <a href="{% url 'analytics:dashboard_view' dashboard.slug %}"
+                       class="btn btn-afya-primary btn-sm">
+                        Open <i class="bi bi-arrow-right ms-1"></i>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<!-- Pagination -->
+{% if is_paginated %}
+<div class="afya-pagination mt-4">
+    <span class="text-muted">
+        Page {{ page_obj.number }} of {{ paginator.num_pages }}
+    </span>
+    <ul class="pagination mb-0">
+        {% if page_obj.has_previous %}
+        <li class="page-item">
+            <a class="page-link" href="?page={{ page_obj.previous_page_number }}{% if current_q %}&q={{ current_q }}{% endif %}{% if current_category %}&category={{ current_category }}{% endif %}">
+                <i class="bi bi-chevron-left"></i>
+            </a>
+        </li>
+        {% endif %}
+        {% for num in paginator.page_range %}
+        <li class="page-item {% if num == page_obj.number %}active{% endif %}">
+            <a class="page-link" href="?page={{ num }}{% if current_q %}&q={{ current_q }}{% endif %}{% if current_category %}&category={{ current_category }}{% endif %}">{{ num }}</a>
+        </li>
+        {% endfor %}
+        {% if page_obj.has_next %}
+        <li class="page-item">
+            <a class="page-link" href="?page={{ page_obj.next_page_number }}{% if current_q %}&q={{ current_q }}{% endif %}{% if current_category %}&category={{ current_category }}{% endif %}">
+                <i class="bi bi-chevron-right"></i>
+            </a>
+        </li>
+        {% endif %}
+    </ul>
+</div>
+{% endif %}
+
+{% else %}
+<!-- Empty state -->
+<div class="card mt-3">
+    <div class="card-body empty-state">
+        <div class="empty-state-icon"><i class="bi bi-bar-chart-line"></i></div>
+        <div class="empty-state-title">No dashboards found</div>
+        <p class="empty-state-desc">
+            {% if current_q or current_category %}
+                Try adjusting your search or filter criteria.
+                <a href="{% url 'analytics:dashboard_list' %}">Clear filters</a>
+            {% else %}
+                No active dashboards are available for your organisation yet.
+            {% endif %}
+        </p>
+        {% if request.user.is_superuser %}
+        <form method="post" action="{% url 'analytics:dashboard_sync' %}" class="d-inline">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-afya-primary btn-sm">
+                <i class="bi bi-arrow-clockwise me-1"></i>Sync Dashboards
+            </button>
+        </form>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+<!-- Add this to your base.html or include in an extra block -->
+{% block extra_css %}
+<style>
+    /* Enhanced CSS for beautiful dashboard cards */
+    :root {
+        --afya-blue: #0d6efd;
+        --afya-blue-dark: #0a58ca;
+        --afya-glow: rgba(13, 110, 253, 0.15);
+        --card-radius: 1.25rem;
+        --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .afya-page-header {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1rem;
+    }
+
+    .afya-page-title {
+        font-weight: 700;
+        font-size: 2rem;
+        background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+        background-clip: text;
+        -webkit-background-clip: text;
+        color: transparent;
+        display: inline-flex;
+        align-items: center;
+    }
+
+    .afya-page-sub {
+        color: #64748b;
+        margin-top: 0.25rem;
+        font-size: 0.95rem;
+    }
+
+    .btn-afya-primary {
+        background: var(--afya-blue);
+        border: none;
+        color: white;
+        font-weight: 500;
+        padding: 0.5rem 1.25rem;
+        border-radius: 2rem;
+        transition: var(--transition-smooth);
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+
+    .btn-afya-primary:hover {
+        background: var(--afya-blue-dark);
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(13,110,253,0.3);
+        color: white;
+    }
+
+    .btn-afya-primary.btn-sm {
+        padding: 0.35rem 1rem;
+        font-size: 0.875rem;
+    }
+
+    .btn-outline-secondary {
+        border-radius: 2rem;
+        transition: var(--transition-smooth);
+    }
+
+    .btn-outline-secondary:hover {
+        transform: translateY(-1px);
+    }
+
+    /* Search Bar */
+    .afya-search-bar {
+        position: relative;
+        flex: 1;
+        max-width: 320px;
+    }
+
+    .afya-search-bar .search-icon {
+        position: absolute;
+        left: 16px;
+        top: 50%;
+        transform: translateY(-50%);
+        color: #94a3b8;
+        font-size: 1rem;
+        z-index: 2;
+        pointer-events: none;
+    }
+
+    .afya-search-bar input {
+        padding-left: 42px;
+        border-radius: 2rem;
+        border: 1px solid #e2e8f0;
+        background: white;
+        transition: var(--transition-smooth);
+        height: 44px;
+        font-size: 0.95rem;
+    }
+
+    .afya-search-bar input:focus {
+        border-color: var(--afya-blue);
+        box-shadow: 0 0 0 4px var(--afya-glow);
+        outline: none;
+    }
+
+    /* Filter Pills */
+    .filter-pills {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.6rem;
+    }
+
+    .filter-pill {
+        display: inline-block;
+        padding: 0.45rem 1.3rem;
+        background: white;
+        border-radius: 40px;
+        font-size: 0.875rem;
+        font-weight: 500;
+        color: #334155;
+        text-decoration: none;
+        transition: var(--transition-smooth);
+        border: 1px solid #e2e8f0;
+    }
+
+    .filter-pill:hover {
+        background: #f8fafc;
+        border-color: #cbd5e1;
+        color: #0f172a;
+        transform: translateY(-2px);
+        text-decoration: none;
+    }
+
+    .filter-pill.active {
+        background: var(--afya-blue);
+        border-color: var(--afya-blue);
+        color: white;
+        box-shadow: 0 4px 12px rgba(13,110,253,0.25);
+    }
+
+    /* Dashboard Cards */
+    .dashboard-card {
+        background: white;
+        border-radius: var(--card-radius);
+        overflow: hidden;
+        transition: var(--transition-smooth);
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05), 0 1px 2px rgba(0,0,0,0.03);
+        border: 1px solid rgba(203, 213, 225, 0.4);
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        position: relative;
+    }
+
+    .dashboard-card:hover {
+        transform: translateY(-8px);
+        box-shadow: 0 20px 35px -12px rgba(0, 0, 0, 0.15);
+        border-color: transparent;
+    }
+
+    /* Thumbnail */
+    .dashboard-card-thumbnail {
+        background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
+        height: 160px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .dashboard-card-thumbnail img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        transition: transform 0.4s ease;
+    }
+
+    .dashboard-card:hover .dashboard-card-thumbnail img {
+        transform: scale(1.05);
+    }
+
+    .thumb-icon {
+        font-size: 4.5rem;
+        color: var(--afya-blue);
+        opacity: 0.7;
+        transition: var(--transition-smooth);
+    }
+
+    .dashboard-card:hover .thumb-icon {
+        opacity: 1;
+        transform: scale(1.05);
+    }
+
+    /* Card Body */
+    .dashboard-card-body {
+        padding: 1.25rem 1.25rem 0.75rem;
+        flex: 1;
+    }
+
+    .dashboard-card-title {
+        font-size: 1.2rem;
+        font-weight: 700;
+        margin-bottom: 0.25rem;
+        color: #0f172a;
+        line-height: 1.3;
+    }
+
+    .dashboard-card-desc {
+        font-size: 0.875rem;
+        color: #64748b;
+        margin-top: 0.5rem;
+        line-height: 1.5;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
+
+    /* Badge colors */
+    .badge-operational {
+        background: #dbeafe;
+        color: #1e40af;
+        font-weight: 500;
+        padding: 0.35rem 0.85rem;
+    }
+    .badge-financial {
+        background: #fed7aa;
+        color: #9a3412;
+        font-weight: 500;
+        padding: 0.35rem 0.85rem;
+    }
+    .badge-clinical {
+        background: #d1fae5;
+        color: #065f46;
+        font-weight: 500;
+        padding: 0.35rem 0.85rem;
+    }
+    .badge-default {
+        background: #f1f5f9;
+        color: #475569;
+        font-weight: 500;
+        padding: 0.35rem 0.85rem;
+    }
+
+    /* Card Footer */
+    .dashboard-card-footer {
+        padding: 0.9rem 1.25rem 1.1rem;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        border-top: 1px solid #f1f5f9;
+        background: #fefefe;
+    }
+
+    .view-count {
+        font-size: 0.8rem;
+        color: #64748b;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+    }
+
+    .inactive-overlay {
+        position: absolute;
+        top: 12px;
+        left: 12px;
+        z-index: 3;
+    }
+
+    /* Pagination */
+    .afya-pagination {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 1rem;
+        background: white;
+        padding: 0.75rem 1.5rem;
+        border-radius: 3rem;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+
+    .page-item.active .page-link {
+        background-color: var(--afya-blue);
+        border-color: var(--afya-blue);
+    }
+
+    .page-link {
+        border-radius: 2rem;
+        margin: 0 0.2rem;
+        color: #1e293b;
+        border: none;
+        background: #f1f5f9;
+        transition: all 0.2s;
+        font-weight: 500;
+    }
+
+    .page-link:hover {
+        background: #e2e8f0;
+        transform: scale(1.05);
+    }
+
+    /* Empty State */
+    .empty-state {
+        text-align: center;
+        padding: 4rem 2rem;
+    }
+    .empty-state-icon {
+        font-size: 4rem;
+        color: #cbd5e1;
+        margin-bottom: 1rem;
+    }
+    .empty-state-title {
+        font-size: 1.5rem;
+        font-weight: 600;
+        margin-bottom: 0.75rem;
+        color: #0f172a;
+    }
+    .empty-state-desc {
+        color: #64748b;
+        max-width: 400px;
+        margin-left: auto;
+        margin-right: auto;
+        margin-bottom: 1.5rem;
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+        .afya-page-header {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 1rem;
+        }
+        .afya-page-title {
+            font-size: 1.5rem;
+        }
+        .afya-search-bar {
+            max-width: 100%;
+        }
+        .filter-pills {
+            width: 100%;
+            overflow-x: auto;
+            flex-wrap: nowrap;
+            padding-bottom: 0.5rem;
+        }
+    }
+
+    .text-afya-blue {
+        color: var(--afya-blue);
+    }
+</style>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    // Initialize any Bootstrap tooltips or popovers
+    document.addEventListener('DOMContentLoaded', function() {
+        // Enable Bootstrap tooltips if needed
+        var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
+        var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+            return new bootstrap.Tooltip(tooltipTriggerEl)
+        });
+    });
+</script>
+{% endblock %}

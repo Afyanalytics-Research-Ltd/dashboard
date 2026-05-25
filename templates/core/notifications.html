@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+
+{% block title %}Notifications{% endblock %}
+{% block page_title %}Notifications{% endblock %}
+
+{% block breadcrumbs %}
+<div class="afya-breadcrumb-bar">
+  <nav aria-label="breadcrumb">
+    <ol class="breadcrumb mb-0">
+      <li class="breadcrumb-item"><a href="{% url 'analytics:home' %}">Home</a></li>
+      <li class="breadcrumb-item active" aria-current="page">Notifications</li>
+    </ol>
+  </nav>
+</div>
+{% endblock %}
+
+{% block content %}
+
+<div class="page-header">
+  <div class="d-flex align-items-center justify-content-between flex-wrap gap-3">
+    <div>
+      <h1><i class="bi bi-bell me-2 text-afya-blue"></i>Notifications</h1>
+      <p class="lead">Your recent platform alerts and messages.</p>
+    </div>
+    {% if notifications %}
+    <form method="post" action="{% url 'core:notifications-mark-all-read' %}">
+      {% csrf_token %}
+      <button type="submit" class="btn btn-outline-secondary btn-sm">
+        <i class="bi bi-check2-all me-1"></i>Mark all as read
+      </button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card">
+  {% if notifications %}
+    {% for notif in notifications %}
+    <div class="setting-row d-flex align-items-start gap-3
+                {% if not notif.is_read %}
+                  {% if notif.notification_type == 'success' %}border-start border-3 border-success
+                  {% elif notif.notification_type == 'danger' %}border-start border-3 border-danger
+                  {% elif notif.notification_type == 'warning' %}border-start border-3 border-warning
+                  {% else %}border-start border-3{% endif %}
+                {% endif %}"
+         style="padding:16px 20px;border-bottom:1px solid var(--afya-border);
+                {% if not notif.is_read %}background:var(--afya-blue-light);{% endif %}">
+
+      <!-- Type icon -->
+      <div style="width:36px;height:36px;border-radius:50%;flex-shrink:0;
+                  display:flex;align-items:center;justify-content:center;font-size:16px;
+                  {% if notif.notification_type == 'success' %}background:#d1fae5;color:#065f46;
+                  {% elif notif.notification_type == 'danger' %}background:#fee2e2;color:#991b1b;
+                  {% elif notif.notification_type == 'warning' %}background:#fef3c7;color:#92400e;
+                  {% else %}background:var(--afya-blue-light);color:var(--afya-blue);{% endif %}">
+        <i class="bi
+          {% if notif.notification_type == 'success' %}bi-check-circle-fill
+          {% elif notif.notification_type == 'danger' %}bi-x-circle-fill
+          {% elif notif.notification_type == 'warning' %}bi-exclamation-triangle-fill
+          {% else %}bi-info-circle-fill{% endif %}">
+        </i>
+      </div>
+
+      <!-- Content -->
+      <div class="flex-grow-1">
+        <div class="d-flex align-items-center gap-2 mb-1">
+          <span style="font-size:14px;font-weight:600;color:var(--afya-text);">
+            {{ notif.title }}
+          </span>
+          {% if not notif.is_read %}
+          <span class="badge rounded-pill" style="background:var(--afya-blue);font-size:9px;">NEW</span>
+          {% endif %}
+        </div>
+        <div style="font-size:13px;color:var(--afya-muted);line-height:1.5;">
+          {{ notif.message }}
+        </div>
+        <div style="font-size:11px;color:#94a3b8;margin-top:6px;">
+          <i class="bi bi-clock me-1"></i>{{ notif.created_at|timesince }} ago
+          &bull; {{ notif.created_at|date:"d M Y, H:i" }}
+        </div>
+        {% if notif.link %}
+        <a href="{{ notif.link }}" class="btn btn-link btn-sm p-0 mt-1"
+           style="font-size:12px;">
+          View details <i class="bi bi-arrow-right ms-1"></i>
+        </a>
+        {% endif %}
+      </div>
+
+      <!-- Mark read button -->
+      {% if not notif.is_read %}
+      <button class="btn btn-sm btn-outline-secondary flex-shrink-0"
+              data-mark-read="{{ notif.pk }}"
+              title="Mark as read"
+              style="font-size:12px;">
+        <i class="bi bi-check2"></i>
+      </button>
+      {% endif %}
+    </div>
+    {% endfor %}
+  {% else %}
+    <div class="empty-state">
+      <div class="empty-state-icon"><i class="bi bi-bell-slash"></i></div>
+      <div class="empty-state-title">No notifications</div>
+      <div class="empty-state-desc">You're all caught up — no notifications to show.</div>
+    </div>
+  {% endif %}
+</div>
+
+{% endblock %}

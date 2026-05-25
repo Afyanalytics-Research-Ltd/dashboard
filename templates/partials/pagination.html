@@ -1,0 +1,110 @@
+{% comment %}
+Reusable pagination partial.
+
+Context variable:
+  page_obj   – Django Paginator Page object (from Paginator.page())
+
+Usage:
+  {% include "partials/pagination.html" %}
+{% endcomment %}
+{% if page_obj and page_obj.has_other_pages %}
+<div class="afya-pagination">
+  <!-- Entry count summary -->
+  <div class="text-muted" style="font-size:13px;">
+    Showing
+    <strong>{{ page_obj.start_index }}</strong>–<strong>{{ page_obj.end_index }}</strong>
+    of <strong>{{ page_obj.paginator.count }}</strong>
+    {% if page_obj.paginator.count == 1 %}entry{% else %}entries{% endif %}
+  </div>
+
+  <!-- Page number controls -->
+  <nav aria-label="Page navigation">
+    <ul class="pagination pagination-sm mb-0">
+
+      <!-- Previous -->
+      {% if page_obj.has_previous %}
+      <li class="page-item">
+        <a class="page-link" href="?page={{ page_obj.previous_page_number }}"
+           aria-label="Previous page">
+          <i class="bi bi-chevron-left"></i>
+        </a>
+      </li>
+      {% else %}
+      <li class="page-item disabled" aria-disabled="true">
+        <span class="page-link"><i class="bi bi-chevron-left"></i></span>
+      </li>
+      {% endif %}
+
+      {% comment %}
+      Show a sliding window of page numbers around the current page,
+      with ellipsis when there are many pages.
+      {% endcomment %}
+      {% with total=page_obj.paginator.num_pages current=page_obj.number %}
+
+        {% if total <= 7 %}
+          {% for p in page_obj.paginator.page_range %}
+          <li class="page-item {% if p == current %}active{% endif %}">
+            <a class="page-link" href="?page={{ p }}">{{ p }}</a>
+          </li>
+          {% endfor %}
+
+        {% else %}
+          {# Always show first two pages #}
+          {% for p in "12" %}
+          {% with pnum=forloop.counter %}
+          <li class="page-item {% if pnum == current %}active{% endif %}">
+            <a class="page-link" href="?page={{ pnum }}">{{ pnum }}</a>
+          </li>
+          {% endwith %}
+          {% endfor %}
+
+          {# Left ellipsis #}
+          {% if current > 4 %}
+          <li class="page-item disabled"><span class="page-link">…</span></li>
+          {% endif %}
+
+          {# Surrounding pages #}
+          {% for p in page_obj.paginator.page_range %}
+            {% if p >= current|add:"-1" and p <= current|add:"1" and p > 2 and p < total|add:"-1" %}
+            <li class="page-item {% if p == current %}active{% endif %}">
+              <a class="page-link" href="?page={{ p }}">{{ p }}</a>
+            </li>
+            {% endif %}
+          {% endfor %}
+
+          {# Right ellipsis #}
+          {% if current < total|add:"-3" %}
+          <li class="page-item disabled"><span class="page-link">…</span></li>
+          {% endif %}
+
+          {# Always show last two pages #}
+          {% with p1=total|add:"-1" %}
+          <li class="page-item {% if p1 == current %}active{% endif %}">
+            <a class="page-link" href="?page={{ p1 }}">{{ p1 }}</a>
+          </li>
+          {% endwith %}
+          <li class="page-item {% if total == current %}active{% endif %}">
+            <a class="page-link" href="?page={{ total }}">{{ total }}</a>
+          </li>
+
+        {% endif %}
+      {% endwith %}
+
+      <!-- Next -->
+      {% if page_obj.has_next %}
+      <li class="page-item">
+        <a class="page-link" href="?page={{ page_obj.next_page_number }}"
+           aria-label="Next page">
+          <i class="bi bi-chevron-right"></i>
+        </a>
+      </li>
+      {% else %}
+      <li class="page-item disabled" aria-disabled="true">
+        <span class="page-link"><i class="bi bi-chevron-right"></i></span>
+      </li>
+      {% endif %}
+
+    </ul>
+  </nav>
+</div>
+{% endif %}

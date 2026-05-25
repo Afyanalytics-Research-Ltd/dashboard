@@ -1,0 +1,376 @@
+{% extends "base.html" %}
+
+{% block title %}Snowflake Query Interface — Afya DataHub{% endblock %}
+
+{% block extra_css %}
+<style>
+  :root {
+    --afya-blue: #0072CE;
+    --afya-teal: #0BB99F;
+    --afya-cool: #003467;
+    --afya-amber: #D97706;
+  }
+  .sql-editor {
+    font-family: 'Fira Code', 'Consolas', 'Monaco', monospace;
+    font-size: .88rem;
+    resize: vertical;
+    min-height: 200px;
+    background: #1e1e2e;
+    color: #cdd6f4;
+    border: 1px solid #444;
+    border-radius: 8px;
+    padding: .75rem 1rem;
+    line-height: 1.6;
+  }
+  .sql-editor:focus { border-color: var(--afya-blue); outline: none; box-shadow: 0 0 0 .2rem rgba(0,114,206,.25); }
+  .result-table-wrap { max-height: 450px; overflow: auto; border: 1px solid #dee2e6; border-radius: 8px; }
+  #resultsTable thead { position: sticky; top: 0; background: var(--afya-cool); color: #fff; }
+  #resultsTable thead th { font-size: .8rem; padding: .5rem .75rem; white-space: nowrap; }
+  #resultsTable tbody td { font-size: .82rem; white-space: nowrap; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+  .stat-pill { background: #f0f4ff; border-radius: 20px; padding: .2rem .75rem; font-size: .8rem; color: #374151; }
+  .query-history-item { font-size: .8rem; padding: .5rem .75rem; border-radius: 6px; cursor: pointer; border: 1px solid #e5e7eb; margin-bottom: .4rem; background: #fff; transition: background .15s; }
+  .query-history-item:hover { background: #f0f7ff; border-color: var(--afya-blue); }
+  .query-history-item .ql-status { font-size: .7rem; font-weight: 600; }
+  .status-success { color: #16a34a; }
+  .status-error   { color: #dc2626; }
+  .status-pending { color: #d97706; }
+  .warning-banner { background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; padding: .75rem 1rem; font-size: .85rem; color: #92400e; }
+  .schema-browser { max-height: 500px; overflow-y: auto; }
+  .schema-browser .schema-item { font-size: .82rem; padding: .25rem .5rem; border-radius: 4px; }
+  .schema-browser .schema-item:hover { background: #f0f7ff; }
+  .page-breadcrumb { font-size: .85rem; color: #6c757d; }
+  .page-breadcrumb a { color: var(--afya-blue); text-decoration: none; }
+  .toast-container { z-index: 9999; }
+  .run-spinner { display: none; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<div class="toast-container position-fixed top-0 end-0 p-3"></div>
+
+{# ── Breadcrumbs #}
+<nav aria-label="breadcrumb" class="page-breadcrumb mb-2">
+  <ol class="breadcrumb mb-0">
+    <li class="breadcrumb-item"><a href="{% url 'analytics:home' %}">Home</a></li>
+    <li class="breadcrumb-item"><a href="{% url 'warehouse:index' %}">Data Warehouse</a></li>
+    <li class="breadcrumb-item active">Snowflake Query</li>
+  </ol>
+</nav>
+
+{# ── Page header #}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3 class="fw-bold mb-0">
+    <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" fill="var(--afya-teal)"
+         class="bi bi-snow me-2" viewBox="0 0 16 16">
+      <path d="M8 16a.5.5 0 0 1-.5-.5v-1.293l-.646.647a.5.5 0 0 1-.707-.708L7.5 12.793V8.866l-3.4 1.963-.496 1.85a.5.5 0 1 1-.966-.26l.237-.882-1.12.646a.5.5 0 0 1-.5-.866l1.12-.646-.882-.237a.5.5 0 1 1 .26-.966l1.85.496L7 8 3.6 6.037l-1.85.496a.5.5 0 1 1-.26-.966l.882-.237-1.12-.646a.5.5 0 1 1 .5-.866l1.12.646-.237-.882a.5.5 0 1 1 .966-.26l.496 1.85L7.5 7.134V3.207L6.147 1.854a.5.5 0 1 1 .707-.708l.646.647V.5a.5.5 0 0 1 1 0v1.293l.646-.647a.5.5 0 1 1 .707.708L8.5 3.207v3.927l3.4-1.963.496-1.85a.5.5 0 1 1 .966.26l-.237.882 1.12-.646a.5.5 0 1 1 .5.866l-1.12.646.882.237a.5.5 0 1 1-.26.966l-1.85-.496L9 8l3.4 1.963 1.85-.496a.5.5 0 1 1 .26.966l-.882.237 1.12.646a.5.5 0 1 1-.5.866l-1.12-.646.237.882a.5.5 0 1 1-.966.26l-.496-1.85L8.5 8.866v3.927l1.353 1.353a.5.5 0 0 1-.707.708l-.646-.647V15.5a.5.5 0 0 1-.5.5z"/>
+    </svg>
+    Snowflake Query Interface
+  </h3>
+  <a href="{% url 'warehouse:index' %}" class="btn btn-sm btn-outline-secondary">&larr; Warehouse</a>
+</div>
+
+<div class="row g-3">
+
+  {# ── Left: Editor #}
+  <div class="col-lg-7">
+
+    {# Warning banner #}
+    <div class="warning-banner mb-3">
+      <strong>Read-only access.</strong>
+      Destructive SQL keywords (DROP, DELETE, TRUNCATE, ALTER, etc.) are blocked.
+      Only SELECT queries are permitted.
+    </div>
+
+    <div class="card border-0 shadow-sm">
+      <div class="card-body">
+        <form method="post" id="queryForm" novalidate>
+          {% csrf_token %}
+          <div class="mb-2">
+            <label for="{{ form.query.id_for_label }}" class="form-label fw-semibold">
+              SQL Query
+              <span class="text-muted small fw-normal ms-2">Ctrl+Enter to run</span>
+            </label>
+            <textarea name="query" id="{{ form.query.id_for_label }}"
+                      class="sql-editor w-100"
+                      rows="12"
+                      spellcheck="false"
+                      placeholder="SELECT * FROM my_schema.my_table LIMIT 100">{{ form.query.value|default:'' }}</textarea>
+            {% for error in form.query.errors %}
+            <div class="invalid-feedback d-block mt-1">{{ error }}</div>
+            {% endfor %}
+          </div>
+          <div class="d-flex align-items-center gap-2">
+            <button type="submit" class="btn btn-primary" id="runBtn">
+              Run Query
+            </button>
+            <span class="run-spinner" id="runSpinner">
+              <span class="spinner-border spinner-border-sm" role="status"></span>
+              Running...
+            </span>
+            <button type="button" class="btn btn-outline-secondary btn-sm" id="clearBtn">
+              Clear
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    {# Error display #}
+    {% if error_msg %}
+    <div class="alert alert-danger mt-3">
+      <strong>Query Error:</strong>
+      <pre class="mb-0 mt-1" style="font-size:.85rem;white-space:pre-wrap;">{{ error_msg }}</pre>
+    </div>
+    {% endif %}
+
+    {# Results #}
+    {% if result_cols %}
+    <div class="card border-0 shadow-sm mt-3">
+      <div class="card-header d-flex justify-content-between align-items-center py-2"
+           style="background:var(--afya-cool);color:#fff;border-radius:8px 8px 0 0;">
+        <span class="fw-semibold">Query Results</span>
+        <div class="d-flex gap-2 align-items-center">
+          {% if exec_stats %}
+          <span class="stat-pill" style="background:rgba(255,255,255,.15);color:#fff;">
+            {{ exec_stats.rows_returned }} rows
+          </span>
+          <span class="stat-pill" style="background:rgba(255,255,255,.15);color:#fff;">
+            {{ exec_stats.execution_time_ms }} ms
+          </span>
+          {% if exec_stats.truncated %}
+          <span class="stat-pill" style="background:#D97706;color:#fff;">
+            Showing first 1,000 rows
+          </span>
+          {% endif %}
+          {% endif %}
+          <button type="button" class="btn btn-sm" style="background:#0BB99F;color:#fff;" id="exportCsvBtn">
+            Export CSV
+          </button>
+        </div>
+      </div>
+      <div class="card-body p-0">
+        <div class="px-3 pt-2 pb-1">
+          <input type="text" class="form-control form-control-sm" id="resultSearch"
+                 placeholder="Search results...">
+        </div>
+        <div class="result-table-wrap">
+          <table class="table table-sm table-hover mb-0" id="resultsTable">
+            <thead>
+              <tr>
+                {% for col in result_cols %}<th>{{ col }}</th>{% endfor %}
+              </tr>
+            </thead>
+            <tbody id="resultsTbody">
+              {% for row in result_rows %}
+              <tr>
+                {% for cell in row %}
+                <td title="{{ cell|default:'' }}">{{ cell|default:"" }}</td>
+                {% endfor %}
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {# Client-side pagination info #}
+        <div class="d-flex justify-content-between px-3 py-2 border-top bg-light">
+          <span class="text-muted small" id="resultPageInfo"></span>
+          <div id="resultPagination"></div>
+        </div>
+      </div>
+    </div>
+    {% elif not error_msg and request.method == 'POST' and form.is_valid %}
+    <div class="alert alert-info mt-3">Query returned no rows.</div>
+    {% endif %}
+
+  </div>
+
+  {# ── Right: History + Schema browser #}
+  <div class="col-lg-5">
+
+    {# Query history #}
+    {% if history %}
+    <div class="card border-0 shadow-sm mb-3">
+      <div class="card-header fw-semibold py-2">Recent Queries</div>
+      <div class="card-body py-2" style="max-height:220px;overflow-y:auto;">
+        {% for h in history %}
+        <div class="query-history-item" data-query="{{ h.query|escapejs }}">
+          <div class="d-flex justify-content-between mb-1">
+            <span class="ql-status status-{{ h.status }}">{{ h.get_status_display }}</span>
+            <span class="text-muted" style="font-size:.7rem;">{{ h.created_at|date:"m/d H:i" }}</span>
+          </div>
+          <div class="text-truncate text-muted">{{ h.query|truncatechars:80 }}</div>
+          {% if h.rows_returned %}
+          <div class="text-muted mt-1" style="font-size:.7rem;">
+            {{ h.rows_returned }} rows &bull; {{ h.execution_time_ms }}ms
+          </div>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {# Schema browser #}
+    <div class="card border-0 shadow-sm">
+      <div class="card-header fw-semibold py-2 d-flex justify-content-between">
+        <span>Table Schema Browser</span>
+        <span id="schemaBadge" class="badge" style="background:var(--afya-teal);">Loading</span>
+      </div>
+      <div class="card-body py-2">
+        <input type="text" class="form-control form-control-sm mb-2" id="schemaSearch"
+               placeholder="Search tables...">
+        <div class="schema-browser" id="schemaBrowser">
+          <div class="text-center text-muted py-3">
+            <div class="spinner-border spinner-border-sm"></div>
+            <p class="small mt-1 mb-0">Loading schema...</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// ── Keyboard shortcut Ctrl+Enter = submit
+document.getElementById('{{ form.query.id_for_label }}').addEventListener('keydown', function (e) {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+    document.getElementById('runBtn').click();
+  }
+});
+
+// ── Clear button
+document.getElementById('clearBtn').addEventListener('click', function () {
+  document.getElementById('{{ form.query.id_for_label }}').value = '';
+});
+
+// ── Show spinner on submit
+document.getElementById('queryForm').addEventListener('submit', function () {
+  document.getElementById('runBtn').disabled = true;
+  document.getElementById('runSpinner').style.display = 'inline-flex';
+});
+
+// ── History click → fill editor
+document.querySelectorAll('.query-history-item').forEach(function (item) {
+  item.addEventListener('click', function () {
+    document.getElementById('{{ form.query.id_for_label }}').value = this.dataset.query;
+  });
+});
+
+// ── Result search filter
+(function () {
+  var allRows = Array.from(document.querySelectorAll('#resultsTbody tr'));
+  var filtered = allRows.slice();
+  var perPage = 50;
+  var curPage = 1;
+
+  function renderPage() {
+    allRows.forEach(function (r) { r.style.display = 'none'; });
+    var start = (curPage - 1) * perPage;
+    filtered.slice(start, start + perPage).forEach(function (r) { r.style.display = ''; });
+    var total = filtered.length;
+    document.getElementById('resultPageInfo').textContent =
+      'Showing ' + (total ? start + 1 : 0) + '–' + Math.min(start + perPage, total) + ' of ' + total;
+    buildPagination(curPage, Math.ceil(total / perPage));
+  }
+
+  function buildPagination(page, totalPages) {
+    var el = document.getElementById('resultPagination');
+    if (!el || totalPages <= 1) { if (el) el.innerHTML = ''; return; }
+    var html = '<ul class="pagination pagination-sm mb-0">';
+    if (page > 1)          html += '<li class="page-item"><a class="page-link" href="#" data-p="' + (page-1) + '">&laquo;</a></li>';
+    for (var i = Math.max(1,page-2); i <= Math.min(totalPages,page+2); i++) {
+      html += '<li class="page-item' + (i===page?' active':'') + '"><a class="page-link" href="#" data-p="' + i + '">' + i + '</a></li>';
+    }
+    if (page < totalPages) html += '<li class="page-item"><a class="page-link" href="#" data-p="' + (page+1) + '">&raquo;</a></li>';
+    html += '</ul>';
+    el.innerHTML = html;
+    el.querySelectorAll('a[data-p]').forEach(function (a) {
+      a.addEventListener('click', function (e) {
+        e.preventDefault();
+        curPage = parseInt(this.dataset.p);
+        renderPage();
+      });
+    });
+  }
+
+  var searchInput = document.getElementById('resultSearch');
+  if (searchInput) {
+    searchInput.addEventListener('input', function () {
+      var q = this.value.toLowerCase();
+      filtered = q ? allRows.filter(function (r) { return r.textContent.toLowerCase().includes(q); })
+                   : allRows.slice();
+      curPage = 1;
+      renderPage();
+    });
+    if (allRows.length > 0) renderPage();
+  }
+
+  // ── CSV Export
+  document.getElementById('exportCsvBtn') && document.getElementById('exportCsvBtn').addEventListener('click', function () {
+    var headers = Array.from(document.querySelectorAll('#resultsTable thead th')).map(function (th) { return '"' + th.textContent.trim().replace(/"/g,'""') + '"'; });
+    var rows = Array.from(document.querySelectorAll('#resultsTbody tr')).map(function (tr) {
+      return Array.from(tr.querySelectorAll('td')).map(function (td) { return '"' + (td.textContent || '').replace(/"/g,'""') + '"'; }).join(',');
+    });
+    var csv = [headers.join(',')].concat(rows).join('\n');
+    var blob = new Blob([csv], { type: 'text/csv' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'snowflake_results.csv';
+    a.click();
+  });
+})();
+
+// ── Schema browser (lazy-loaded)
+(function () {
+  var browser = document.getElementById('schemaBrowser');
+  var badge   = document.getElementById('schemaBadge');
+  var search  = document.getElementById('schemaSearch');
+  var allTables = [];
+
+  function renderSchema(tables) {
+    var html = tables.map(function (t) {
+      return '<div class="schema-item" style="cursor:pointer;" data-schema="' + (t.SCHEMA_NAME||'') + '" data-table="' + (t.TABLE_NAME||'') + '">'
+           + '<span class="text-muted me-1" style="font-size:.72rem;">' + (t.SCHEMA_NAME||'') + '</span>'
+           + '<code style="font-size:.8rem;">' + (t.TABLE_NAME||'') + '</code>'
+           + '</div>';
+    }).join('');
+    browser.innerHTML = html || '<p class="text-muted small">No tables found.</p>';
+    browser.querySelectorAll('.schema-item').forEach(function (item) {
+      item.addEventListener('click', function () {
+        var q = 'SELECT * FROM "' + this.dataset.schema + '"."' + this.dataset.table + '" LIMIT 100';
+        document.getElementById('{{ form.query.id_for_label }}').value = q;
+      });
+    });
+  }
+
+  fetch('/api/v1/warehouse/snowflake/tables/', {
+    headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }
+  })
+  .then(function (r) { return r.json(); })
+  .then(function (data) {
+    allTables = data.tables || [];
+    badge.textContent = allTables.length + ' tables';
+    renderSchema(allTables);
+  })
+  .catch(function (err) {
+    browser.innerHTML = '<p class="text-danger small">Failed to load schema: ' + err.message + '</p>';
+    badge.textContent = 'Error';
+    badge.style.background = '#dc3545';
+  });
+
+  search && search.addEventListener('input', function () {
+    var q = this.value.toLowerCase().trim();
+    var filtered = q ? allTables.filter(function (t) {
+      return (t.TABLE_NAME||'').toLowerCase().includes(q) || (t.SCHEMA_NAME||'').toLowerCase().includes(q);
+    }) : allTables;
+    renderSchema(filtered);
+  });
+})();
+</script>
+{% endblock %}

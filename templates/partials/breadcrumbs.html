@@ -1,0 +1,21 @@
+{% comment %}
+Reusable breadcrumb partial.
+
+Context variable:
+  breadcrumbs  – list of dicts:
+                 {'label': str, 'url': str|None}
+                 url=None means this is the current (active) crumb.
+{% endcomment %}
+<ol class="breadcrumb" aria-label="breadcrumb">
+  {% for crumb in breadcrumbs %}
+    {% if crumb.url %}
+      <li class="breadcrumb-item">
+        <a href="{{ crumb.url }}">{{ crumb.label }}</a>
+      </li>
+    {% else %}
+      <li class="breadcrumb-item active" aria-current="page">
+        {{ crumb.label }}
+      </li>
+    {% endif %}
+  {% endfor %}
+</ol>

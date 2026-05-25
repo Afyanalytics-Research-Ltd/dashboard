@@ -1,0 +1,586 @@
+{% extends "base.html" %}
+
+{% block title %}Data Warehouse — Afya DataHub{% endblock %}
+
+{% block extra_css %}
+<style>
+  :root {
+    --afya-blue: #0072CE;
+    --afya-teal: #0BB99F;
+    --afya-cool: #003467;
+    --afya-orange: #f5a623;
+    --afya-amber: #D97706;
+  }
+  .warehouse-hero {
+    background: linear-gradient(135deg, var(--afya-cool) 0%, var(--afya-blue) 100%);
+    color: #fff;
+    border-radius: 12px;
+    padding: 1.5rem 2rem;
+    margin-bottom: 1.5rem;
+  }
+  .action-card { border: none; border-radius: 12px; box-shadow: 0 4px 16px rgba(0,0,0,.07); transition: box-shadow .2s; }
+  .action-card:hover { box-shadow: 0 6px 24px rgba(0,0,0,.12); }
+  .action-card .card-header { background: transparent; border-bottom: 2px solid #f0f0f0; font-weight: 600; }
+  .schema-badge { font-size: .75rem; font-family: monospace; }
+  #schemaTable tbody tr { transition: background .15s; }
+  #schemaTable tbody tr:hover { background: #f8fbff; }
+  .table-type-table { background: #d1f5ea; color: #0a6640; }
+  .table-type-view  { background: #dbeafe; color: #1e40af; }
+  .table-type-other { background: #f1f5f9; color: #475569; }
+  .spinner-overlay { display: none; text-align: center; padding: 2rem; }
+  .toast-container { z-index: 9999; }
+  /* breadcrumbs */
+  .page-breadcrumb { font-size: .85rem; color: #6c757d; }
+  .page-breadcrumb a { color: var(--afya-blue); text-decoration: none; }
+  .page-breadcrumb a:hover { text-decoration: underline; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+{# ── Toast container #}
+<div class="toast-container position-fixed top-0 end-0 p-3">
+  {% for msg in messages %}
+  <div class="toast align-items-center text-bg-{{ msg.tags|default:'info' }} border-0 show"
+       role="alert" aria-live="assertive" aria-atomic="true">
+    <div class="d-flex">
+      <div class="toast-body">{{ msg }}</div>
+      <button type="button" class="btn-close btn-close-white me-2 m-auto"
+              data-bs-dismiss="toast" aria-label="Close"></button>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{# ── Breadcrumbs #}
+<nav aria-label="breadcrumb" class="page-breadcrumb mb-2">
+  <ol class="breadcrumb mb-0">
+    <li class="breadcrumb-item"><a href="{% url 'analytics:home' %}">Home</a></li>
+    <li class="breadcrumb-item active">Data Warehouse</li>
+  </ol>
+</nav>
+
+{# ── Hero header #}
+<div class="warehouse-hero d-flex justify-content-between align-items-center flex-wrap gap-2">
+  <div>
+    <h3 class="mb-1 fw-bold">
+      <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" fill="currentColor"
+           class="bi bi-database me-2" viewBox="0 0 16 16">
+        <path d="M4.318 2.687C5.234 2.271 6.536 2 8 2s2.766.27 3.682.687C12.644 3.125 13 3.627 13 4c0 .374-.356.875-1.318 1.313C10.766 5.729 9.464 6 8 6s-2.766-.27-3.682-.687C3.356 4.875 3 4.373 3 4c0-.374.356-.875 1.318-1.313ZM13 5.698V7c0 .374-.356.875-1.318 1.313C10.766 8.729 9.464 9 8 9s-2.766-.27-3.682-.687C3.356 7.875 3 7.373 3 7V5.698c.271.202.58.378.904.525C4.978 6.711 6.427 7 8 7s3.022-.289 4.096-.777A4.92 4.92 0 0 0 13 5.698ZM14 4c0-1.007-.875-1.755-1.904-2.223C11.022 1.289 9.573 1 8 1s-3.022.289-4.096.777C2.875 2.245 2 2.993 2 4v9c0 1.007.875 1.755 1.904 2.223C4.978 15.71 6.427 16 8 16s3.022-.289 4.096-.777C13.125 14.755 14 14.007 14 13V4Zm-1 4.698V10c0 .374-.356.875-1.318 1.313C10.766 11.729 9.464 12 8 12s-2.766-.27-3.682-.687C3.356 10.875 3 10.373 3 10V8.698c.271.202.58.378.904.525C4.978 9.71 6.427 10 8 10s3.022-.289 4.096-.777A4.92 4.92 0 0 0 13 8.698Zm0 3V13c0 .374-.356.875-1.318 1.313C10.766 14.729 9.464 15 8 15s-2.766-.27-3.682-.687C3.356 13.875 3 13.373 3 13v-1.302c.271.202.58.378.904.525C4.978 12.71 6.427 13 8 13s3.022-.289 4.096-.777c.324-.147.633-.323.904-.525Z"/>
+      </svg>
+      Data Warehouse
+    </h3>
+    <p class="mb-0 opacity-75 small">Manage Google Sheets and query Snowflake data</p>
+  </div>
+  <div class="d-flex gap-2">
+    <a href="{% url 'warehouse:snowflake' %}" class="btn btn-light btn-sm">
+      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor"
+           class="bi bi-snow me-1" viewBox="0 0 16 16">
+        <path d="M8 16a.5.5 0 0 1-.5-.5v-1.293l-.646.647a.5.5 0 0 1-.707-.708L7.5 12.793V8.866l-3.4 1.963-.496 1.85a.5.5 0 1 1-.966-.26l.237-.882-1.12.646a.5.5 0 0 1-.5-.866l1.12-.646-.882-.237a.5.5 0 1 1 .26-.966l1.85.496L7 8 3.6 6.037l-1.85.496a.5.5 0 1 1-.26-.966l.882-.237-1.12-.646a.5.5 0 1 1 .5-.866l1.12.646-.237-.882a.5.5 0 1 1 .966-.26l.496 1.85L7.5 7.134V3.207L6.147 1.854a.5.5 0 1 1 .707-.708l.646.647V.5a.5.5 0 0 1 1 0v1.293l.646-.647a.5.5 0 1 1 .707.708L8.5 3.207v3.927l3.4-1.963.496-1.85a.5.5 0 1 1 .966.26l-.237.882 1.12-.646a.5.5 0 1 1 .5.866l-1.12.646.882.237a.5.5 0 1 1-.26.966l-1.85-.496L9 8l3.4 1.963 1.85-.496a.5.5 0 1 1 .26.966l-.882.237 1.12.646a.5.5 0 1 1-.5.866l-1.12-.646.237.882a.5.5 0 1 1-.966.26l-.496-1.85L8.5 8.866v3.927l1.353 1.353a.5.5 0 0 1-.707.708l-.646-.647V15.5a.5.5 0 0 1-.5.5z"/>
+      </svg>
+      Snowflake Query
+    </a>
+    <button class="btn btn-warning btn-sm" id="btnNewSheet"
+            data-bs-toggle="collapse" data-bs-target="#createCard">
+      + New Spreadsheet
+    </button>
+  </div>
+</div>
+
+{# ── Action cards row #}
+<div class="row g-3 mb-4">
+
+  {# Create card #}
+  <div class="col-lg-6">
+    <div class="action-card card collapse {% if create_form.errors %}show{% endif %}" id="createCard">
+      <div class="card-header">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="#0BB99F"
+             class="bi bi-file-earmark-plus me-2" viewBox="0 0 16 16">
+          <path d="M8 6.5a.5.5 0 0 1 .5.5v1.5H10a.5.5 0 0 1 0 1H8.5V11a.5.5 0 0 1-1 0V9.5H6a.5.5 0 0 1 0-1h1.5V7a.5.5 0 0 1 .5-.5z"/>
+          <path d="M14 4.5V14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V2a2 2 0 0 1 2-2h5.5L14 4.5zm-3 0A1.5 1.5 0 0 1 9.5 3V1H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V4.5h-2z"/>
+        </svg>
+        Create New Spreadsheet
+      </div>
+      <div class="card-body">
+        <form method="post" novalidate>
+          {% csrf_token %}
+          <input type="hidden" name="action" value="create">
+          {% include "warehouse/_field.html" with field=create_form.title %}
+          {% include "warehouse/_field.html" with field=create_form.sheet_titles %}
+          <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-sm" style="background:#0BB99F;color:#fff;">
+              Create Spreadsheet
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-secondary"
+                    data-bs-toggle="collapse" data-bs-target="#createCard">
+              Cancel
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  {# Open card #}
+  <div class="col-lg-6">
+    <div class="action-card card collapse {% if open_form.errors %}show{% endif %}" id="openCard">
+      <div class="card-header">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="#0072CE"
+             class="bi bi-folder2-open me-2" viewBox="0 0 16 16">
+          <path d="M1 3.5A1.5 1.5 0 0 1 2.5 2h2.764c.958 0 1.76.56 2.311 1.184C7.985 3.648 8.48 4 9 4h4.5A1.5 1.5 0 0 1 15 5.5v.64c.57.265.94.876.856 1.546l-.64 5.124A2.5 2.5 0 0 1 12.733 15H3.266a2.5 2.5 0 0 1-2.481-2.19l-.64-5.124A1.5 1.5 0 0 1 1 6.14V3.5zM2 6h12v-.5a.5.5 0 0 0-.5-.5H9c-.964 0-1.71-.629-2.174-1.154C6.374 3.334 5.82 3 5.264 3H2.5a.5.5 0 0 0-.5.5V6zm-.367 1a.5.5 0 0 0-.496.562l.64 5.124A1.5 1.5 0 0 0 3.266 14h9.468a1.5 1.5 0 0 0 1.489-1.314l.64-5.124A.5.5 0 0 0 14.367 7H1.633z"/>
+        </svg>
+        Open Existing Spreadsheet
+      </div>
+      <div class="card-body">
+        <form method="post" novalidate>
+          {% csrf_token %}
+          <input type="hidden" name="action" value="open">
+          {% include "warehouse/_field.html" with field=open_form.id_or_url %}
+          <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-sm btn-primary">
+              Open Spreadsheet
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-secondary"
+                    data-bs-toggle="collapse" data-bs-target="#openCard">
+              Cancel
+            </button>
+          </div>
+        </form>
+        <p class="text-muted small mt-2 mb-0">Paste the full Google Sheets URL — we'll extract the ID.</p>
+      </div>
+    </div>
+
+    {# Quick-access buttons when cards are collapsed #}
+    <div class="d-flex gap-2 mt-2" id="quickOpenBtn">
+      <button class="btn btn-sm btn-outline-primary"
+              data-bs-toggle="collapse" data-bs-target="#openCard">
+        Open Existing Sheet
+      </button>
+    </div>
+  </div>
+
+</div>
+
+{# ── Snowflake Schema Tables #}
+<div class="card shadow-sm mb-4" id="snowflakeSection">
+  <div class="card-header d-flex justify-content-between align-items-center py-3"
+       style="background:linear-gradient(90deg,#003467,#0072CE);color:#fff;border-radius:12px 12px 0 0;">
+    <span class="fw-semibold">
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="#0BB99F"
+           class="bi bi-snow me-2" viewBox="0 0 16 16">
+        <path d="M8 16a.5.5 0 0 1-.5-.5v-1.293l-.646.647a.5.5 0 0 1-.707-.708L7.5 12.793V8.866l-3.4 1.963-.496 1.85a.5.5 0 1 1-.966-.26l.237-.882-1.12.646a.5.5 0 0 1-.5-.866l1.12-.646-.882-.237a.5.5 0 1 1 .26-.966l1.85.496L7 8 3.6 6.037l-1.85.496a.5.5 0 1 1-.26-.966l.882-.237-1.12-.646a.5.5 0 1 1 .5-.866l1.12.646-.237-.882a.5.5 0 1 1 .966-.26l.496 1.85L7.5 7.134V3.207L6.147 1.854a.5.5 0 1 1 .707-.708l.646.647V.5a.5.5 0 0 1 1 0v1.293l.646-.647a.5.5 0 1 1 .707.708L8.5 3.207v3.927l3.4-1.963.496-1.85a.5.5 0 1 1 .966.26l-.237.882 1.12-.646a.5.5 0 1 1 .5.866l-1.12.646.882.237a.5.5 0 1 1-.26.966l-1.85-.496L9 8l3.4 1.963 1.85-.496a.5.5 0 1 1 .26.966l-.882.237 1.12.646a.5.5 0 1 1-.5.866l-1.12-.646.237.882a.5.5 0 1 1-.966.26l-.496-1.85L8.5 8.866v3.927l1.353 1.353a.5.5 0 0 1-.707.708l-.646-.647V15.5a.5.5 0 0 1-.5.5z"/>
+      </svg>
+      Snowflake Data Tables
+    </span>
+    <span id="tableBadge" class="badge rounded-pill" style="background:#0BB99F;">Loading...</span>
+  </div>
+
+  <div class="card-body p-0">
+    <div id="sfSpinner" class="spinner-overlay" style="display:block;">
+      <div class="spinner-border" style="color:#0072CE;" role="status"></div>
+      <p class="text-muted mt-2 small">Loading Snowflake schema...</p>
+    </div>
+    <div id="sfError" class="alert alert-warning m-3 d-none">
+      <strong>Snowflake unavailable:</strong> <span id="sfErrorMsg"></span>
+    </div>
+    <div id="sfTableWrap" class="d-none">
+      <div class="px-3 pt-3 pb-2 d-flex align-items-center gap-2 flex-wrap">
+        <input id="tableSearch" type="text" class="form-control form-control-sm flex-grow-1"
+               placeholder="Filter by schema or table name...">
+        <select id="perPageSelect" class="form-select form-select-sm" style="width:auto;">
+          <option value="10">10 / page</option>
+          <option value="25" selected>25 / page</option>
+          <option value="50">50 / page</option>
+          <option value="100">100 / page</option>
+        </select>
+      </div>
+      <div class="table-responsive">
+        <table class="table table-hover table-sm align-middle mb-0" id="schemaTable">
+          <thead class="table-dark">
+            <tr>
+              <th class="ps-3">Schema</th>
+              <th>Table Name</th>
+              <th>Type</th>
+              <th class="text-end">Est. Rows</th>
+              <th class="text-end">Size</th>
+              <th>Last Modified</th>
+              <th class="pe-3 text-end">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="sfTableBody"></tbody>
+        </table>
+      </div>
+      <div class="d-flex justify-content-between align-items-center px-3 py-2 border-top bg-light">
+        <span id="pageInfo" class="text-muted small"></span>
+        <nav><div id="tablePagination"></div></nav>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ── Recent Spreadsheets #}
+<div class="card shadow-sm mb-4">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span>
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
+           class="bi bi-clock-history text-secondary me-1" viewBox="0 0 16 16">
+        <path d="M8.515 1.019A7 7 0 0 0 8 1V0a8 8 0 0 1 .589.022l-.074.997zm2.004.45a7.003 7.003 0 0 0-.985-.299l.219-.976c.383.086.76.2 1.126.342l-.36.933zm1.37.71a7.01 7.01 0 0 0-.439-.27l.493-.87a8.025 8.025 0 0 1 .979.654l-.615.789a6.996 6.996 0 0 0-.418-.302zm1.834 1.79a6.99 6.99 0 0 0-.653-.796l.724-.69c.27.285.52.59.747.91l-.818.576zm.744 1.352a7.08 7.08 0 0 0-.214-.468l.893-.45a7.976 7.976 0 0 1 .45 1.088l-.95.313a7.023 7.023 0 0 0-.179-.483zm.53 2.507a6.991 6.991 0 0 0-.1-1.025l.985-.17c.067.386.106.778.116 1.17l-1 .025zm-.131 1.538c.033-.17.06-.339.081-.51l.993.123a7.957 7.957 0 0 1-.23 1.155l-.964-.267c.046-.165.086-.332.12-.501zm-.952 2.379c.184-.29.346-.594.486-.908l.914.405c-.16.36-.345.706-.555 1.038l-.845-.535zm-.964 1.205c.122-.122.239-.248.35-.378l.758.653a8.073 8.073 0 0 1-.401.432l-.707-.707z"/>
+        <path d="M8 1a7 7 0 1 0 4.95 11.95l.707.707A8.001 8.001 0 1 1 8 0v1z"/>
+        <path d="M7.5 3a.5.5 0 0 1 .5.5v5.21l3.248 1.856a.5.5 0 0 1-.496.868l-3.5-2A.5.5 0 0 1 7 9V3.5a.5.5 0 0 1 .5-.5z"/>
+      </svg>
+      Recent Spreadsheets
+    </span>
+    <form class="d-flex gap-1" method="get">
+      <input type="text" name="q" value="{{ search_q }}"
+             class="form-control form-control-sm" placeholder="Search..." style="width:180px;">
+      <button type="submit" class="btn btn-sm btn-outline-secondary">Search</button>
+      {% if search_q %}
+        <a href="{% url 'warehouse:index' %}" class="btn btn-sm btn-outline-danger">Clear</a>
+      {% endif %}
+    </form>
+  </div>
+  <div class="card-body p-0">
+    {% if recent_page.object_list %}
+      <div class="table-responsive">
+        <table class="table table-hover mb-0 align-middle">
+          <thead class="table-light">
+            <tr>
+              <th class="ps-3">Title</th>
+              <th>Spreadsheet ID</th>
+              <th>Created By</th>
+              <th>Last Modified</th>
+              <th class="pe-3 text-end">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in recent_page.object_list %}
+            <tr>
+              <td class="ps-3 fw-medium">{{ r.title|default:"(untitled)" }}</td>
+              <td><code class="small text-muted">{{ r.spreadsheet_id|truncatechars:30 }}</code></td>
+              <td class="text-muted small">{{ r.created_by.username|default:"—" }}</td>
+              <td class="text-muted small">{{ r.updated_at|date:"Y-m-d H:i" }}</td>
+              <td class="text-end pe-3">
+                <a href="{% url 'warehouse:detail' r.spreadsheet_id %}"
+                   class="btn btn-sm btn-outline-primary">Open</a>
+                {% if r.web_view_link %}
+                  <a href="{{ r.web_view_link }}" target="_blank" rel="noopener"
+                     class="btn btn-sm btn-outline-secondary">
+                    Google
+                  </a>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      {# Pagination #}
+      {% if recent_page.has_other_pages %}
+      <div class="d-flex justify-content-between align-items-center px-3 py-2 border-top bg-light">
+        <span class="text-muted small">
+          Page {{ recent_page.number }} of {{ recent_page.paginator.num_pages }}
+          &mdash; {{ recent_page.paginator.count }} spreadsheet{{ recent_page.paginator.count|pluralize }}
+        </span>
+        <nav>
+          <ul class="pagination pagination-sm mb-0">
+            {% if recent_page.has_previous %}
+            <li class="page-item">
+              <a class="page-link" href="?page={{ recent_page.previous_page_number }}{% if search_q %}&q={{ search_q }}{% endif %}">&laquo;</a>
+            </li>
+            {% endif %}
+            {% for num in recent_page.paginator.page_range %}
+              {% if recent_page.number == num %}
+                <li class="page-item active"><span class="page-link">{{ num }}</span></li>
+              {% elif num > recent_page.number|add:'-3' and num < recent_page.number|add:'3' %}
+                <li class="page-item">
+                  <a class="page-link" href="?page={{ num }}{% if search_q %}&q={{ search_q }}{% endif %}">{{ num }}</a>
+                </li>
+              {% endif %}
+            {% endfor %}
+            {% if recent_page.has_next %}
+            <li class="page-item">
+              <a class="page-link" href="?page={{ recent_page.next_page_number }}{% if search_q %}&q={{ search_q }}{% endif %}">&raquo;</a>
+            </li>
+            {% endif %}
+          </ul>
+        </nav>
+      </div>
+      {% endif %}
+
+    {% else %}
+      <div class="text-center py-5 text-muted">
+        <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="currentColor"
+             class="bi bi-file-earmark-spreadsheet opacity-25 mb-2" viewBox="0 0 16 16">
+          <path d="M14 14V4.5L9.5 0H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2zM9.5 3A1.5 1.5 0 0 0 11 4.5h2V9H3V2a1 1 0 0 1 1-1h5.5v2zM3 12v-2h2v2H3zm0 1h2v2H4a1 1 0 0 1-1-1v-1zm3 2v-2h3v2H6zm4 0v-2h3v1a1 1 0 0 1-1 1h-2zm3-3h-3v-2h3v2zm-7 0v-2h3v2H6z"/>
+        </svg>
+        <p class="mb-1">No spreadsheets yet.</p>
+        <p class="small">Create one or open an existing spreadsheet using the buttons above.</p>
+      </div>
+    {% endif %}
+  </div>
+</div>
+
+{# ── Report Missing Data Modal #}
+<div class="modal fade" id="reportModal" tabindex="-1"
+     aria-labelledby="reportModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content shadow-lg border-0">
+      <div class="modal-header text-white"
+           style="background:linear-gradient(90deg,#D97706,#f5a623);">
+        <h5 class="modal-title fw-bold" id="reportModalLabel">Report Missing Data</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3 mb-3">
+          <div class="col-sm-5">
+            <label class="form-label fw-semibold small text-muted text-uppercase">Schema</label>
+            <input type="text" class="form-control form-control-sm bg-light"
+                   id="modal-schema" readonly>
+          </div>
+          <div class="col-sm-7">
+            <label class="form-label fw-semibold small text-muted text-uppercase">Table</label>
+            <input type="text" class="form-control form-control-sm bg-light"
+                   id="modal-table" readonly>
+          </div>
+        </div>
+        <div class="mb-1">
+          <label class="form-label fw-semibold small text-muted text-uppercase">
+            Describe the missing or incorrect data
+          </label>
+          <textarea class="form-control" id="modal-description" rows="5"
+                    placeholder="What data is missing? Which date range? When was it last seen correctly?"
+                    required></textarea>
+        </div>
+        <div id="modal-feedback" class="mt-2 d-none"></div>
+      </div>
+      <div class="modal-footer border-0 pt-0">
+        <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-warning btn-sm px-4" id="submitReport">
+          Send Report
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// ── Toast auto-dismiss
+document.querySelectorAll('.toast').forEach(function (el) {
+  var t = new bootstrap.Toast(el, { delay: 5000 });
+  t.show();
+});
+
+// ── Lazy-load Snowflake tables via API
+(function () {
+  var spinner  = document.getElementById('sfSpinner');
+  var errBox   = document.getElementById('sfError');
+  var errMsg   = document.getElementById('sfErrorMsg');
+  var wrap     = document.getElementById('sfTableWrap');
+  var badge    = document.getElementById('tableBadge');
+  var tbody    = document.getElementById('sfTableBody');
+  var allRows  = [];
+  var filtered = [];
+  var perPage  = 25;
+  var curPage  = 1;
+
+  function formatBytes(b) {
+    if (!b && b !== 0) return '—';
+    if (b < 1024) return b + ' B';
+    if (b < 1024*1024) return (b/1024).toFixed(1) + ' KB';
+    if (b < 1024*1024*1024) return (b/1024/1024).toFixed(1) + ' MB';
+    return (b/1024/1024/1024).toFixed(2) + ' GB';
+  }
+
+  function typeBadge(t) {
+    if (t === 'BASE TABLE') return '<span class="badge table-type-table">Table</span>';
+    if (t === 'VIEW')       return '<span class="badge table-type-view">View</span>';
+    return '<span class="badge table-type-other">' + (t || '—') + '</span>';
+  }
+
+  function buildRows(tables) {
+    return tables.map(function (t) {
+      return [
+        (t.SCHEMA_NAME || '').toLowerCase(),
+        (t.TABLE_NAME  || '').toLowerCase(),
+        t,
+      ];
+    });
+  }
+
+  function renderPage() {
+    var start = (curPage - 1) * perPage;
+    var slice = filtered.slice(start, start + perPage);
+
+    tbody.innerHTML = slice.map(function (r) {
+      var t = r[2];
+      var row = '<tr>';
+      row += '<td class="ps-3"><span class="badge rounded-pill text-bg-light border fw-normal schema-badge">' + (t.SCHEMA_NAME || '') + '</span></td>';
+      row += '<td><code class="small">' + (t.TABLE_NAME || '') + '</code></td>';
+      row += '<td>' + typeBadge(t.TABLE_TYPE) + '</td>';
+      row += '<td class="text-end text-muted small">' + (t.ROW_COUNT != null ? t.ROW_COUNT.toLocaleString() : '—') + '</td>';
+      row += '<td class="text-end text-muted small">' + formatBytes(t.BYTES) + '</td>';
+      row += '<td class="text-muted small">' + (t.LAST_ALTERED ? t.LAST_ALTERED.toString().substring(0, 16) : '—') + '</td>';
+      row += '<td class="text-end pe-3"><button type="button" class="btn btn-sm btn-outline-warning report-btn"'
+           + ' data-schema="' + (t.SCHEMA_NAME || '') + '"'
+           + ' data-table="' + (t.TABLE_NAME || '') + '"'
+           + ' data-bs-toggle="modal" data-bs-target="#reportModal">Report</button></td>';
+      row += '</tr>';
+      return row;
+    }).join('');
+
+    // Rebind report buttons
+    tbody.querySelectorAll('.report-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        document.getElementById('modal-schema').value = this.dataset.schema;
+        document.getElementById('modal-table').value  = this.dataset.table;
+        document.getElementById('modal-description').value = '';
+        document.getElementById('modal-feedback').className = 'mt-2 d-none';
+      });
+    });
+
+    // Page info
+    var total = filtered.length;
+    var from  = total ? start + 1 : 0;
+    var to    = Math.min(start + perPage, total);
+    document.getElementById('pageInfo').textContent =
+      'Showing ' + from + '–' + to + ' of ' + total + ' tables';
+
+    buildPagination(curPage, Math.ceil(total / perPage));
+  }
+
+  function buildPagination(page, totalPages) {
+    var el = document.getElementById('tablePagination');
+    if (totalPages <= 1) { el.innerHTML = ''; return; }
+    var html = '<ul class="pagination pagination-sm mb-0">';
+    html += pageBtn(page - 1, '&laquo;', page <= 1);
+    var ws = Math.max(1, Math.min(page - 2, totalPages - 4));
+    var we = Math.min(totalPages, ws + 4);
+    if (ws > 1) { html += pageBtn(1, '1', false); if (ws > 2) html += '<li class="page-item disabled"><span class="page-link">&hellip;</span></li>'; }
+    for (var i = ws; i <= we; i++) {
+      html += '<li class="page-item' + (i === page ? ' active' : '') + '"><a class="page-link" href="#" data-p="' + i + '">' + i + '</a></li>';
+    }
+    if (we < totalPages) {
+      if (we < totalPages - 1) html += '<li class="page-item disabled"><span class="page-link">&hellip;</span></li>';
+      html += pageBtn(totalPages, totalPages, false);
+    }
+    html += pageBtn(page + 1, '&raquo;', page >= totalPages);
+    html += '</ul>';
+    el.innerHTML = html;
+    el.querySelectorAll('a[data-p]').forEach(function (a) {
+      a.addEventListener('click', function (e) {
+        e.preventDefault();
+        var p = parseInt(this.dataset.p, 10);
+        if (p >= 1 && p <= totalPages) { curPage = p; renderPage(); }
+      });
+    });
+  }
+
+  function pageBtn(p, label, disabled) {
+    return '<li class="page-item' + (disabled ? ' disabled' : '') + '">'
+         + (disabled
+             ? '<span class="page-link">' + label + '</span>'
+             : '<a class="page-link" href="#" data-p="' + p + '">' + label + '</a>')
+         + '</li>';
+  }
+
+  // Fetch tables
+  fetch('/api/v1/warehouse/snowflake/tables/', {
+    headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }
+  })
+  .then(function (r) { return r.json(); })
+  .then(function (data) {
+    spinner.style.display = 'none';
+    if (data.error) {
+      errMsg.textContent = data.error;
+      errBox.classList.remove('d-none');
+      badge.textContent = 'Unavailable';
+      badge.style.background = '#dc3545';
+      return;
+    }
+    allRows  = buildRows(data.tables || []);
+    filtered = allRows.slice();
+    badge.textContent = (data.count || 0) + ' tables';
+    wrap.classList.remove('d-none');
+    renderPage();
+  })
+  .catch(function (err) {
+    spinner.style.display = 'none';
+    errMsg.textContent = err.message;
+    errBox.classList.remove('d-none');
+    badge.textContent = 'Error';
+    badge.style.background = '#dc3545';
+  });
+
+  // Search filter
+  document.getElementById('tableSearch').addEventListener('input', function () {
+    var q = this.value.toLowerCase().trim();
+    filtered = q ? allRows.filter(function (r) { return r[0].includes(q) || r[1].includes(q); })
+                 : allRows.slice();
+    curPage = 1;
+    renderPage();
+  });
+
+  // Per-page selector
+  document.getElementById('perPageSelect').addEventListener('change', function () {
+    perPage = parseInt(this.value, 10);
+    curPage = 1;
+    renderPage();
+  });
+})();
+
+// ── Report missing data (AJAX)
+document.getElementById('submitReport').addEventListener('click', function () {
+  var schema      = document.getElementById('modal-schema').value;
+  var table       = document.getElementById('modal-table').value;
+  var description = document.getElementById('modal-description').value.trim();
+  var feedback    = document.getElementById('modal-feedback');
+
+  if (!description) {
+    feedback.className = 'alert alert-warning mt-2';
+    feedback.textContent = 'Please describe the missing data before submitting.';
+    return;
+  }
+
+  var btn = this;
+  btn.disabled = true;
+  btn.textContent = 'Sending...';
+
+  var fd = new FormData();
+  fd.append('schema_name', schema);
+  fd.append('table_name', table);
+  fd.append('description', description);
+  fd.append('csrfmiddlewaretoken', '{{ csrf_token }}');
+
+  fetch('{% url "warehouse:report_missing" %}', {
+    method: 'POST',
+    body: fd,
+    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+  })
+  .then(function (r) { return r.json(); })
+  .then(function (data) {
+    if (data.success) {
+      feedback.className = 'alert alert-success mt-2';
+      feedback.textContent = 'Report sent successfully. Thank you!';
+      setTimeout(function () {
+        bootstrap.Modal.getInstance(document.getElementById('reportModal')).hide();
+      }, 1500);
+    } else {
+      feedback.className = 'alert alert-danger mt-2';
+      feedback.textContent = data.error || 'Failed to send report.';
+    }
+  })
+  .catch(function () {
+    feedback.className = 'alert alert-danger mt-2';
+    feedback.textContent = 'Network error. Please try again.';
+  })
+  .finally(function () {
+    btn.disabled = false;
+    btn.textContent = 'Send Report';
+  });
+});
+</script>
+{% endblock %}

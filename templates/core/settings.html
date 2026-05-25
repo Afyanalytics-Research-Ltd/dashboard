@@ -1,0 +1,303 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}System Settings{% endblock %}
+{% block page_title %}System Settings{% endblock %}
+
+{% block breadcrumbs %}
+<div class="afya-breadcrumb-bar">
+  <nav aria-label="breadcrumb">
+    <ol class="breadcrumb mb-0">
+      <li class="breadcrumb-item"><a href="{% url 'analytics:home' %}">Home</a></li>
+      <li class="breadcrumb-item active" aria-current="page">System Settings</li>
+    </ol>
+  </nav>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+  .setting-row {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--afya-border);
+    transition: background 0.15s;
+  }
+  .setting-row:last-child { border-bottom: none; }
+  .setting-row:hover { background: var(--afya-bg); }
+
+  .setting-key {
+    font-size: 13px;
+    font-weight: 700;
+    font-family: 'Courier New', monospace;
+    color: var(--afya-cool-blue);
+  }
+
+  .setting-description {
+    font-size: 12px;
+    color: var(--afya-muted);
+    margin-top: 2px;
+  }
+
+  .setting-value-display {
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    color: var(--afya-text);
+    background: var(--afya-bg);
+    border-radius: 6px;
+    padding: 6px 10px;
+    max-width: 300px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .btn-edit-setting {
+    background: none;
+    border: 1px solid var(--afya-border);
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 12px;
+    color: var(--afya-muted);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .btn-edit-setting:hover {
+    background: var(--afya-blue-light);
+    border-color: var(--afya-blue);
+    color: var(--afya-blue);
+  }
+
+  /* Add / edit modal */
+  .modal-header { background: var(--afya-cool-blue); color: #fff; }
+  .modal-header .btn-close { filter: invert(1); }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- Page header -->
+<div class="page-header">
+  <div class="d-flex align-items-center justify-content-between flex-wrap gap-3">
+    <div>
+      <h1><i class="bi bi-gear me-2 text-afya-blue"></i>System Settings</h1>
+      <p class="lead">Manage platform-wide configuration keys.</p>
+    </div>
+    <button class="btn btn-afya-primary" data-bs-toggle="modal" data-bs-target="#addSettingModal">
+      <i class="bi bi-plus-lg me-2"></i>Add Setting
+    </button>
+  </div>
+</div>
+
+<!-- Search -->
+<div class="mb-3">
+  <div class="position-relative" style="max-width:360px;">
+    <i class="bi bi-search" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--afya-muted);"></i>
+    <input type="search" id="settingsSearch" class="form-control ps-5"
+           placeholder="Filter settings by key…" autocomplete="off" />
+  </div>
+</div>
+
+<!-- Settings table -->
+<div class="card">
+  <div class="card-header d-flex align-items-center justify-content-between">
+    <span><i class="bi bi-sliders me-2"></i>Configuration</span>
+    <span class="badge bg-secondary">{{ settings_list|length }} setting{{ settings_list|length|pluralize }}</span>
+  </div>
+
+  {% if settings_list %}
+  <div id="settingsContainer">
+    {% for setting in settings_list %}
+    <div class="setting-row d-flex align-items-center justify-content-between gap-3 flex-wrap"
+         data-key="{{ setting.key }}">
+      <div class="flex-grow-1">
+        <div class="d-flex align-items-center gap-2 mb-1">
+          <span class="setting-key">{{ setting.key }}</span>
+          {% if setting.is_public %}
+          <span class="badge rounded-pill" style="background:var(--afya-teal-light);color:var(--afya-teal);font-size:10px;">
+            Public
+          </span>
+          {% else %}
+          <span class="badge rounded-pill" style="background:#f1f5f9;color:var(--afya-muted);font-size:10px;">
+            Private
+          </span>
+          {% endif %}
+        </div>
+        {% if setting.description %}
+        <div class="setting-description">{{ setting.description }}</div>
+        {% endif %}
+        <div class="setting-value-display mt-1" title="{{ setting.value }}">
+          {{ setting.value|truncatechars:80 }}
+        </div>
+      </div>
+      <div class="d-flex align-items-center gap-2 flex-shrink-0">
+        <small class="text-muted" style="font-size:11px;">
+          {{ setting.updated_at|date:"d M Y" }}
+        </small>
+        <button class="btn-edit-setting"
+                data-key="{{ setting.key }}"
+                data-value="{{ setting.value|escapejs }}"
+                data-description="{{ setting.description|escapejs }}"
+                data-public="{{ setting.is_public|yesno:'true,false' }}"
+                onclick="openEditModal(this)">
+          <i class="bi bi-pencil me-1"></i>Edit
+        </button>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <div class="empty-state-icon"><i class="bi bi-sliders"></i></div>
+    <div class="empty-state-title">No settings configured</div>
+    <div class="empty-state-desc">Click <strong>Add Setting</strong> to create the first configuration key.</div>
+  </div>
+  {% endif %}
+</div>
+
+<!-- ====================================================================
+     ADD / EDIT SETTING MODAL
+     ==================================================================== -->
+<div class="modal fade" id="addSettingModal" tabindex="-1" aria-labelledby="addSettingModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="addSettingModalLabel">
+          <i class="bi bi-gear me-2"></i>
+          <span id="modalActionLabel">Add Setting</span>
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <form id="settingForm" novalidate>
+          {% csrf_token %}
+
+          <div class="mb-3">
+            <label for="settingKey" class="form-label">Key <span class="text-danger">*</span></label>
+            <input type="text" id="settingKey" name="key" class="form-control font-monospace"
+                   placeholder="e.g. feature_x_enabled"
+                   pattern="[a-z0-9_]+"
+                   required />
+            <div class="form-text">Lowercase letters, numbers, and underscores only.</div>
+          </div>
+
+          <div class="mb-3">
+            <label for="settingValue" class="form-label">Value <span class="text-danger">*</span></label>
+            <textarea id="settingValue" name="value" class="form-control font-monospace"
+                      rows="4" placeholder='JSON value or plain text, e.g. true, 42, "hello"'
+                      required></textarea>
+            <div class="form-text">Valid JSON is parsed automatically; otherwise stored as a string.</div>
+          </div>
+
+          <div class="mb-3">
+            <label for="settingDescription" class="form-label">Description</label>
+            <textarea id="settingDescription" name="description" class="form-control"
+                      rows="2" placeholder="What does this setting control?"></textarea>
+          </div>
+
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="settingPublic" name="is_public" />
+            <label class="form-check-label" for="settingPublic">
+              Public (visible to all authenticated users)
+            </label>
+          </div>
+        </form>
+        <div id="settingFormError" class="alert alert-danger mt-3 d-none"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-afya-primary" onclick="saveSetting()" id="saveBtnModal">
+          <span id="saveBtnText">Save Setting</span>
+          <span id="saveBtnSpinner" class="spinner-border spinner-border-sm ms-1 d-none"></span>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+
+{% block extra_js %}
+<script>
+  // Filter settings by key
+  document.getElementById('settingsSearch').addEventListener('input', function () {
+    const q = this.value.toLowerCase().trim();
+    document.querySelectorAll('.setting-row').forEach(function (row) {
+      const key = (row.dataset.key || '').toLowerCase();
+      row.style.display = (!q || key.includes(q)) ? '' : 'none';
+    });
+  });
+
+  // Open modal in edit mode
+  function openEditModal(btn) {
+    document.getElementById('modalActionLabel').textContent = 'Edit Setting';
+    document.getElementById('settingKey').value = btn.dataset.key;
+    document.getElementById('settingKey').readOnly = true;
+    document.getElementById('settingValue').value = btn.dataset.value;
+    document.getElementById('settingDescription').value = btn.dataset.description;
+    document.getElementById('settingPublic').checked = btn.dataset.public === 'true';
+    document.getElementById('settingFormError').classList.add('d-none');
+    new bootstrap.Modal(document.getElementById('addSettingModal')).show();
+  }
+
+  // Reset modal on close
+  document.getElementById('addSettingModal').addEventListener('hidden.bs.modal', function () {
+    document.getElementById('settingForm').reset();
+    document.getElementById('settingKey').readOnly = false;
+    document.getElementById('modalActionLabel').textContent = 'Add Setting';
+    document.getElementById('settingFormError').classList.add('d-none');
+  });
+
+  // Save setting via AJAX
+  function saveSetting() {
+    const form = document.getElementById('settingForm');
+    const errEl = document.getElementById('settingFormError');
+    errEl.classList.add('d-none');
+
+    const key   = document.getElementById('settingKey').value.trim();
+    const value = document.getElementById('settingValue').value.trim();
+    const description = document.getElementById('settingDescription').value.trim();
+
+    if (!key || !value) {
+      errEl.textContent = 'Key and Value are required.';
+      errEl.classList.remove('d-none');
+      return;
+    }
+
+    const btn = document.getElementById('saveBtnModal');
+    const txt = document.getElementById('saveBtnText');
+    const spn = document.getElementById('saveBtnSpinner');
+    btn.disabled = true; spn.classList.remove('d-none');
+
+    const body = new FormData();
+    body.append('key', key);
+    body.append('value', value);
+    body.append('description', description);
+    body.append('csrfmiddlewaretoken', '{{ csrf_token }}');
+
+    fetch("{% url 'core:settings' %}", {
+      method: 'POST',
+      body: body,
+      credentials: 'same-origin',
+    })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      if (data.ok) {
+        AfyaToast.show('Setting "' + data.key + '" saved successfully.', 'success');
+        bootstrap.Modal.getInstance(document.getElementById('addSettingModal')).hide();
+        setTimeout(function () { window.location.reload(); }, 600);
+      } else {
+        errEl.textContent = data.error || 'An error occurred.';
+        errEl.classList.remove('d-none');
+      }
+    })
+    .catch(function () {
+      errEl.textContent = 'Network error. Please try again.';
+      errEl.classList.remove('d-none');
+    })
+    .finally(function () {
+      btn.disabled = false; spn.classList.add('d-none');
+    });
+  }
+</script>
+{% endblock %}

@@ -380,7 +380,7 @@ AFYA_BRAND = {
         'orange': '#f5a623',
         'amber': '#D97706',
     },
-    'SUPPORT_EMAIL': 'support@afyaanalytics.com',
+    'SUPPORT_EMAIL': 'data@afya.ai',
     'VERSION': '2.0.0',
 }
 

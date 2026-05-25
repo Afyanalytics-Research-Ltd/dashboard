@@ -38,6 +38,7 @@ def _sync_dashboards_for_client(client_slug: str, client_obj) -> dict:
     folder = os.path.join(
         settings.BASE_DIR, 'analytics_app', 'dashboards', client_slug
     )
+    logging.warning(f"{folder} --------------------->")
     if not os.path.isdir(folder):
         folder = os.path.join(
             settings.BASE_DIR, 'analytics_app', 'dashboards', 'default'

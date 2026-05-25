@@ -7,6 +7,7 @@ import plotly.io as pio
 import plotly.graph_objects as go
 import pandas as pd
 from datetime import date, timedelta
+
 import ksh.clinical_module.queries as Q
 from ksh.clinical_module.queries import run_query
 import ksh.clinical_module.views as V

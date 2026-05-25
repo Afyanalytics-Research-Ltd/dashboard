@@ -27,7 +27,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 from typing import Optional
 
-from ui_template import (
+from ksh.clinical_module.ui_template import (
     AFYA_BLUE, TEAL, COOL_BLUE, ORANGE, CORAL, PURPLE, GRAY,
     CHART_LAYOUT, AXIS, SEQ, BG_LIGHT, BORDER,
 )

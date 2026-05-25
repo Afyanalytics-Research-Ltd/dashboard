@@ -18,9 +18,9 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import streamlit as st
 
-import queries as Q
-from ui_template import AFYA_BLUE, TEAL, COOL_BLUE, ORANGE, CORAL, PURPLE, GRAY, MUTED, BG_LIGHT, BORDER
-from charts import (
+import ksh.clinical_module.queries as Q
+from ksh.clinical_module.ui_template import AFYA_BLUE, TEAL, COOL_BLUE, ORANGE, CORAL, PURPLE, GRAY, MUTED, BG_LIGHT, BORDER
+from ksh.clinical_module.charts import (
     line_chart, bar_chart, hbar_chart, stacked_bar, stacked_area,
     funnel_chart, heatmap, scatter, donut, table_fig, bullet, sparkline,
     BURDEN_COLORS, LIFECYCLE_COLORS,

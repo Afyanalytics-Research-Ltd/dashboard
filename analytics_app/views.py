@@ -83,6 +83,7 @@ def _get_client_obj(user):
     """Return the Client FK for the user if profile has one, else None."""
     try:
         profile = user.profile
+        logging.warning(f"<-----{profile}-------->")
         client_name = profile.client or profile.client.name
         if not client_name:
             return None

@@ -5096,7 +5096,7 @@ def render_clinician_view(filters: dict, run_query):
     )
 
     if sel_schema:
-        _render_patient_card(selected, sel_schema, run_query)
+        _render_patient_card(selected, sel_schema, run_query, priority_row=sel_row_data)
 
 
 def _sec_header(icon: str, title: str, subtitle: str = ""):
@@ -5126,415 +5126,550 @@ def _stat_card(label: str, value: str, note: str = "", color: str = "#0072CE",
     )
 
 
-def _render_patient_card(patient_id: str, source_schema: str, run_query):
-    _gap(4)
+def _render_patient_card(patient_id: str, source_schema: str, run_query, priority_row=None):
+    import json
+    import streamlit.components.v1 as _components
 
-    tab_cadence, tab_illness, tab_vitals, tab_labs, tab_meds = st.tabs([
-        "📅  Visit Cadence", "🗂  Illness History", "❤️  Vitals", "🔬  Lab Tests", "💊  Medications"
-    ])
-
-    # ── TAB 1: VISIT CADENCE & RETURN PATTERN ────────────────────────────────
-    with tab_cadence:
-        _sec_header("📅", "Visit Cadence & Return Pattern",
-                    "Gap = days since previous visit")
+    def _fmt(dt):
         try:
-            cl_cad = Q.load_patient_visit_cadence(patient_id, source_schema, run_query)
-            if not cl_cad.empty:
-                cl_cad["gap_days"]   = pd.to_numeric(cl_cad["gap_days"],   errors="coerce")
-                cl_cad["visit_date"] = pd.to_datetime(cl_cad["visit_date"], errors="coerce")
-                # Floor to date so the timeline shows dates not intra-second timestamps
-                cl_cad["visit_date"] = cl_cad["visit_date"].dt.floor("D")
+            return pd.Timestamp(dt).strftime("%d %b %Y")
+        except Exception:
+            return "—"
 
-                total_visits = len(cl_cad)
-                avg_gap = cl_cad["gap_days"].dropna().mean()
-                max_gap = cl_cad["gap_days"].dropna().max()
-                last_dt = cl_cad["visit_date"].max()
-
-                s1, s2, s3, s4 = st.columns(4)
-                with s1:
-                    _stat_card("Total Visits", str(total_visits))
-                with s2:
-                    _stat_card("Avg Gap",
-                               f"{avg_gap:.0f}d" if pd.notna(avg_gap) else "—",
-                               color=CORAL if avg_gap and avg_gap > 90 else TEAL)
-                with s3:
-                    _stat_card("Longest Gap",
-                               f"{max_gap:.0f}d" if pd.notna(max_gap) else "—",
-                               color=CORAL if max_gap and max_gap > 180 else AFYA_BLUE)
-                with s4:
-                    _stat_card("Last Visit",
-                               last_dt.strftime("%d %b %Y") if pd.notna(last_dt) else "—")
-
-                _gap(12)
-                c_l, c_r = st.columns(2)
-                with c_l:
-                    st.markdown("**Visit timeline**")
-                    fig_cad = go.Figure()
-                    ip_mask = cl_cad["visit_type"] == "Inpatient"
-                    fig_cad.add_trace(go.Scatter(
-                        x=cl_cad.loc[~ip_mask, "visit_date"],
-                        y=[1] * (~ip_mask).sum(),
-                        mode="markers", name="Outpatient",
-                        marker=dict(color=TEAL, size=12, symbol="circle"),
-                        hovertemplate="<b>%{x|%d %b %Y}</b><br>Outpatient<extra></extra>",
-                    ))
-                    fig_cad.add_trace(go.Scatter(
-                        x=cl_cad.loc[ip_mask, "visit_date"],
-                        y=[1] * ip_mask.sum(),
-                    mode="markers", name="Inpatient",
-                    marker=dict(color=CORAL, size=14, symbol="diamond"),
-                    hovertemplate="<b>%{x|%d %b %Y}</b><br>Inpatient<extra></extra>",
-                ))
-                fig_cad.update_layout(
-                    height=100, margin=dict(l=0, r=0, t=10, b=20),
-                    plot_bgcolor="white", paper_bgcolor="white",
-                    showlegend=True, xaxis=dict(title="", tickformat="%b %Y"),
-                    yaxis=dict(visible=False),
-                    legend=dict(orientation="h", y=1.4, xanchor="right", x=1),
-                )
-                _pc(fig_cad)
-
-                with c_r:
-                    st.markdown("**Gap between visits (days)**")
-                    gap_df = cl_cad.dropna(subset=["gap_days"]).copy()
-                    if not gap_df.empty:
-                        gap_colors = [CORAL if g > 90 else ORANGE if g > 60 else TEAL
-                                      for g in gap_df["gap_days"]]
-                        fig_gap = go.Figure(go.Bar(
-                            x=gap_df["visit_date"],
-                            y=gap_df["gap_days"],
-                            marker_color=gap_colors,
-                            text=[f"{int(g)}d" for g in gap_df["gap_days"]],
-                            textposition="outside",
-                            hovertemplate="<b>%{x|%d %b %Y}</b><br>Gap: %{y:.0f} days<extra></extra>",
-                        ))
-                        fig_gap.update_layout(
-                            height=220, margin=dict(l=0, r=0, t=20, b=0),
-                            plot_bgcolor="white", paper_bgcolor="white",
-                            yaxis=dict(title="Days since previous visit", rangemode="tozero"),
-                            xaxis=dict(title="", tickformat="%b %Y"),
-                            showlegend=False,
-                        )
-                        _pc(fig_gap)
-                    else:
-                        st.info("Only one visit recorded — no gaps to show.")
-            else:
-                st.info("No visit cadence data found for this patient.")
-        except Exception as e:
-            st.warning(f"Visit cadence: {e}")
-
-    # ── TAB 2: ILLNESS HISTORY ────────────────────────────────────────────────
-    with tab_illness:
-        _sec_header("🗂", "Illness History",
-                    "Most recent first · Red = inpatient · Extended LOS flagged")
+    def _ms(dt):
         try:
-            cl4 = Q.load_patient_illness_history(patient_id, source_schema, run_query)
-            if not cl4.empty:
-                cl4["los_days"]   = pd.to_numeric(cl4.get("los_days"), errors="coerce")
-                cl4["visit_date"] = pd.to_datetime(cl4["visit_date"], errors="coerce")
+            return int(pd.Timestamp(dt).timestamp() * 1000)
+        except Exception:
+            return 0
 
-                _EXP_LOS = {
-                    "cardiovascular": 3, "diabetes": 4, "neurolog": 5,
-                    "mental": 7, "respiratory": 3, "renal": 5,
-                }
-                def _exp_los(burden):
-                    b = str(burden).lower()
-                    for k, v in _EXP_LOS.items():
-                        if k in b:
-                            return v
-                    return 3
+    # ── Build patient object ─────────────────────────────────────────────────
+    obj = {
+        "id": patient_id,
+        "priority": "monitor",
+        "condition": "—",
+        "gender": "—",
+        "age": "—",
+        "days": 0,
+        "date": "—",
+        "signal": "",
+        "firstSeen": "—",
+        "avgGap": "—",
+        "freq": "Once",
+        "freqSub": "—",
+        "medChanges": 0,
+        "visits": [],
+        "escalations": [],
+        "illnesses": [],
+        "vitals": {"bp_sys": [], "bp_dia": [], "hr": [], "sugar": []},
+        "haemo": {"wbc": None, "rbc": None, "hgb": None,
+                  "plt": None, "mcv": None, "mchc": None},
+        "meds": [],
+    }
 
-                cl4["exp_los"] = cl4.get("disease_burden_group_1", pd.Series()).apply(_exp_los)
-                cl4["los_status"] = cl4.apply(
-                    lambda r: (
-                        "Extended" if pd.notna(r["los_days"]) and r["los_days"] > r["exp_los"] + 1
-                        else "Normal" if pd.notna(r["los_days"]) else "—"
-                    ), axis=1
-                )
+    if priority_row is not None:
+        flag = str(priority_row.get("priority_flag", "MONITOR"))
+        obj["priority"] = ("high"   if flag == "HIGH"   else
+                           "medium" if flag == "MEDIUM" else "monitor")
+        obj["condition"] = str(priority_row.get("primary_condition") or "—")
+        obj["gender"]    = str(priority_row.get("gender")    or "—")
+        obj["age"]       = str(priority_row.get("age_group") or "—")
+        days = int(float(priority_row.get("days_since_last_visit") or 0))
+        obj["days"] = days
+        sigs = []
+        if days >= 90:
+            sigs.append("Long gap")
+        if priority_row.get("has_undetected_ncd"):
+            sigs.append("NCD undetected")
+        if float(priority_row.get("unique_clinicians") or 0) >= 3:
+            sigs.append("Irregular visits")
+        obj["signal"] = sigs[0] if sigs else ""
 
-                if "disease_group" in cl4.columns:
-                    dx_counts = cl4["disease_group"].dropna().value_counts()
-                    recurring = dx_counts[dx_counts >= 3].index.tolist()
-                    if recurring:
-                        st.markdown(
-                            f'<div style="background:#FEF3C7;border-left:4px solid {ORANGE};'
-                            f'border-radius:4px;padding:8px 14px;font-size:12px;margin-bottom:10px">'
-                            f'⚠ <b>Recurring diagnoses (3+ visits):</b> '
-                            f'{", ".join(str(r) for r in recurring[:4])} — '
-                            f'may indicate an unresolved underlying risk factor.</div>',
-                            unsafe_allow_html=True,
-                        )
-
-                if "disease_group" in cl4.columns and "visit_date" in cl4.columns:
-                    first_last = (
-                        cl4.dropna(subset=["disease_group"])
-                        .groupby("disease_group")["visit_date"]
-                        .agg(first_seen="min", last_seen="max", times="count")
-                        .reset_index().sort_values("times", ascending=False).head(8)
-                    )
-                    first_last["first_seen"] = first_last["first_seen"].dt.strftime("%d %b %Y")
-                    first_last["last_seen"]  = first_last["last_seen"].dt.strftime("%d %b %Y")
-                    st.markdown(
-                        '<p style="font-size:11px;font-weight:700;letter-spacing:1px;'
-                        'text-transform:uppercase;color:#6B8CAE;margin-bottom:6px">'
-                        'Condition history</p>',
-                        unsafe_allow_html=True,
-                    )
-                    st.dataframe(
-                        first_last.rename(columns={
-                            "disease_group": "Diagnosis", "first_seen": "First Seen",
-                            "last_seen": "Last Seen", "times": "Visits",
-                        }),
-                        use_container_width=True, hide_index=True, height=260,
-                        column_config={
-                            "Visits": st.column_config.NumberColumn("Visits", format="%d"),
-                        },
-                    )
-                    _gap(12)
-
-                st.markdown(
-                    '<p style="font-size:11px;font-weight:700;letter-spacing:1px;'
-                    'text-transform:uppercase;color:#6B8CAE;margin-bottom:6px">'
-                    'Full visit timeline</p>',
-                    unsafe_allow_html=True,
-                )
-                disp4 = cl4.copy()
-                disp4["Visit Date"] = disp4["visit_date"].dt.strftime("%d %b %Y")
-                disp4["Type"] = disp4["visit_type"].apply(
-                    lambda v: "🏥 Inpatient" if str(v).lower() == "inpatient" else "Outpatient"
-                )
-                disp4["LOS"] = disp4.apply(
-                    lambda r: (f"{int(r['los_days'])}d — {r['los_status']}"
-                               if pd.notna(r["los_days"]) else "—"), axis=1
-                )
-                cols4 = [c for c in ["Visit Date", "disease_group", "disease_burden_group_1",
-                                     "Type", "LOS", "payer"] if c in disp4.columns]
-                st.dataframe(
-                    disp4[cols4].rename(columns={
-                        "disease_group": "Diagnosis", "disease_burden_group_1": "Burden Group",
-                        "payer": "Payer",
-                    }).head(40),
-                    use_container_width=True, hide_index=True,
-                    height=min(500, len(cl4.head(40)) * 35 + 40),
-                )
+    # Visit cadence
+    try:
+        df_cad = Q.load_patient_visit_cadence(patient_id, source_schema, run_query)
+        if not df_cad.empty:
+            df_cad["visit_date"] = pd.to_datetime(
+                df_cad["visit_date"], errors="coerce").dt.floor("D")
+            df_cad["gap_days"] = pd.to_numeric(df_cad["gap_days"], errors="coerce")
+            df_cad = df_cad.sort_values("visit_date").reset_index(drop=True)
+            total  = len(df_cad)
+            gaps   = df_cad["gap_days"].dropna()
+            ag     = float(gaps.mean()) if len(gaps) > 0 else None
+            obj["firstSeen"] = _fmt(df_cad["visit_date"].min())
+            obj["date"]      = _fmt(df_cad["visit_date"].max())
+            if total == 1:
+                obj["avgGap"] = "—"; obj["freq"] = "Once"; obj["freqSub"] = "1 visit"
             else:
-                st.info("No illness history found for this patient.")
-        except Exception as e:
-            st.warning(f"Illness history: {e}")
+                obj["avgGap"]  = f"{ag:.0f}d" if ag else "—"
+                obj["freq"]    = ("Every ~1–2 wk"  if ag and ag < 14  else
+                                  "Every ~2–4 wk"  if ag and ag < 30  else
+                                  "Every ~1–2 mo"  if ag and ag < 60  else
+                                  "Every ~2–3 mo"  if ag and ag < 90  else
+                                  "Every ~3+ mo")
+                obj["freqSub"] = f"{total} visits"
+            cond = obj["condition"]
+            for idx, row in df_cad.iterrows():
+                dt = row["visit_date"]
+                if pd.isna(dt): continue
+                vt  = "IP" if str(row.get("visit_type","")).lower() == "inpatient" else "OP"
+                purp = "diagnosis" if idx == 0 else "follow-up"
+                obj["visits"].append({"type": vt, "purpose": purp,
+                                      "dateMs": _ms(dt), "dateStr": _fmt(dt), "dx": cond})
+    except Exception:
+        pass
 
-    # ── TAB 3: VITALS ─────────────────────────────────────────────────────────
-    with tab_vitals:
-        _sec_header("❤️", "Vitals Trend",
-                    "Last 6 readings · Trajectory over consecutive visits")
-        try:
-            cl2 = Q.load_patient_vitals_trend(patient_id, source_schema, run_query)
-            if not cl2.empty:
-                row0   = cl2.iloc[0]
-                signal = str(row0.get("clinical_signal", ""))
-                sig_color = (CORAL if "elevated" in signal.lower() or "rising" in signal.lower()
-                             else TEAL if "expected" in signal.lower() else ORANGE)
-                st.markdown(
-                    f'<div style="background:{sig_color};color:white;border-radius:8px;'
-                    f'padding:10px 16px;font-size:13px;font-weight:700;margin-bottom:16px;'
-                    f'letter-spacing:0.3px">🩺 {signal}</div>',
-                    unsafe_allow_html=True,
-                )
-                cv1, cv2, cv3 = st.columns(3)
-                for col, label, val_col, trend_col, vals_col in [
-                    (cv1, "BP Systolic",  "recent_sys",   "systolic_trend",  "bp_systolic"),
-                    (cv2, "BP Diastolic", "recent_dia",   "diastolic_trend", "bp_diastolic"),
-                    (cv3, "Blood Sugar",  "recent_sugar",  "sugar_trend",     "blood_sugar"),
-                ]:
-                    trend = str(row0.get(trend_col, ""))
-                    val   = row0.get(val_col)
-                    tc    = (TEAL if trend == "Improving" else CORAL if trend == "Worsening"
-                             else AFYA_BLUE)
-                    arrow = "↑" if trend == "Worsening" else "↓" if trend == "Improving" else "→"
-                    val_str = f"{float(val):.0f}" if val and str(val) not in ("nan","None","") else "—"
-                    with col:
-                        st.markdown(
-                            f'<div style="background:white;border:1px solid #E8F0FA;'
-                            f'border-top:3px solid {tc};border-radius:8px;padding:14px 16px">'
-                            f'<div style="font-size:10px;font-weight:700;color:#6B8CAE;'
-                            f'text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">'
-                            f'{label}</div>'
-                            f'<div style="font-size:28px;font-weight:800;color:{tc};line-height:1">'
-                            f'{val_str}</div>'
-                            f'<div style="font-size:12px;color:{tc};margin-top:4px;font-weight:600">'
-                            f'{arrow} {trend if trend else "Insufficient data"}</div>'
-                            f'</div>',
-                            unsafe_allow_html=True,
-                        )
-                        spark_vals = cl2[vals_col].dropna().tolist()
-                        if len(spark_vals) >= 2:
-                            _pc(sparkline(spark_vals[::-1], trend=trend, height=60))
-                        else:
-                            st.markdown(
-                                '<p style="font-size:10px;color:#9CA3AF;margin:4px 0 0 0">'
-                                '→ Insufficient data</p>',
-                                unsafe_allow_html=True,
-                            )
-            else:
-                st.info("No vitals recorded for this patient.")
-        except Exception as e:
-            st.warning(f"Vitals: {e}")
+    # Illness history + escalations
+    try:
+        df_ill = Q.load_patient_illness_history(patient_id, source_schema, run_query)
+        if not df_ill.empty:
+            df_ill["visit_date"] = pd.to_datetime(df_ill["visit_date"], errors="coerce")
+            df_ill = df_ill.sort_values("visit_date")
+            ill_map: dict = {}
+            for _, row in df_ill.iterrows():
+                grp = str(row.get("disease_group") or "Unspecified")
+                dt  = row["visit_date"]
+                if pd.isna(dt): continue
+                ill_map.setdefault(grp, []).append(_ms(dt))
+            obj["illnesses"] = [{"name": n, "dates": sorted(d)}
+                                 for n, d in ill_map.items() if d]
+            op_v = df_ill[df_ill["visit_type"] == "Outpatient"]
+            ip_v = df_ill[df_ill["visit_type"] == "Inpatient"]
+            for _, ip_row in ip_v.iterrows():
+                ip_dt = ip_row["visit_date"]; ip_dx = str(ip_row.get("disease_group") or "")
+                if pd.isna(ip_dt): continue
+                cands = op_v[
+                    (op_v["visit_date"] < ip_dt) &
+                    (op_v["visit_date"] >= ip_dt - pd.Timedelta(days=90)) &
+                    (op_v["disease_group"].astype(str) == ip_dx)
+                ]
+                if not cands.empty:
+                    op_dt = cands.iloc[-1]["visit_date"]
+                    gap   = int((ip_dt - op_dt).days)
+                    obj["escalations"].append({
+                        "dx":     ip_dx,
+                        "opDate": _fmt(op_dt),
+                        "ipDate": _fmt(ip_dt),
+                        "gap":    gap,
+                        "bucket": ("0–15 days"  if gap <= 15 else
+                                   "15–30 days" if gap <= 30 else "> 30 days"),
+                    })
+    except Exception:
+        pass
 
-    # ── TAB 4: LAB TESTS ──────────────────────────────────────────────────────
-    with tab_labs:
-        _sec_header("🔬", "Lab Tests & Investigations",
-                    "Abnormal flags highlighted · TAT = minutes order → result")
-        try:
-            cl_lab = Q.load_patient_lab_tests(patient_id, source_schema, run_query)
-            if not cl_lab.empty:
-                cl_lab["turnaround_mins"] = pd.to_numeric(cl_lab["turnaround_mins"], errors="coerce")
-                cl_lab["test_date"]       = pd.to_datetime(cl_lab["test_date"], errors="coerce")
+    # Vitals
+    try:
+        df_vit = Q.load_patient_vitals_trend(patient_id, source_schema, run_query)
+        if not df_vit.empty:
+            df_vit = df_vit.sort_values("reading_rank", ascending=False)
+            def _f(v): return float(v) if v is not None and not pd.isnull(v) else None
+            obj["vitals"]["bp_sys"] = [_f(v) for v in df_vit["bp_systolic"]]
+            obj["vitals"]["bp_dia"] = [_f(v) for v in df_vit["bp_diastolic"]]
+            obj["vitals"]["sugar"]  = [_f(v) for v in df_vit["blood_sugar"]]
+            obj["vitals"]["hr"]     = [None] * len(df_vit)
+    except Exception:
+        pass
 
-                abnormal_count = cl_lab["flag"].notna().sum() if "flag" in cl_lab.columns else 0
-                if abnormal_count > 0:
-                    st.markdown(
-                        f'<div style="background:#FEE2E2;border-left:4px solid {CORAL};'
-                        f'border-radius:4px;padding:8px 14px;font-size:12px;font-weight:600;'
-                        f'color:#991B1B;margin-bottom:12px">'
-                        f'⚠ {int(abnormal_count)} flagged result{"s" if abnormal_count > 1 else ""}. '
-                        f'Review alert level for critical values.</div>',
-                        unsafe_allow_html=True,
-                    )
+    # Medications
+    try:
+        df_med = Q.load_patient_medication_change_timeline(patient_id, source_schema, run_query)
+        if not df_med.empty:
+            df_med = df_med.sort_values("prescription_date")
+            meds_js: list = []; med_changes = 0
+            for _, row in df_med.iterrows():
+                drug = str(row.get("drug_name") or "Unknown")
+                prev = row.get("prev_drug")
+                is_new = int(row.get("is_new_drug") or 0)
+                date_s = _fmt(pd.to_datetime(row.get("prescription_date"), errors="coerce"))
+                if is_new and prev and str(prev) != drug:
+                    for m in reversed(meds_js):
+                        if m["name"] == str(prev) and m["status"] == "active":
+                            m["status"] = "changed"; m["change"] = drug
+                            med_changes += 1; break
+                meds_js.append({"name": drug, "date": date_s, "status": "active", "change": None})
+            obj["meds"]       = meds_js
+            obj["medChanges"] = med_changes
+    except Exception:
+        pass
 
-                type_summary = (
-                    cl_lab.groupby("investigation_type")
-                    .agg(count=("procedure_name", "count"),
-                         flagged=("flag", lambda x: x.notna().sum()))
-                    .reset_index().sort_values("count", ascending=False)
-                )
-                if not type_summary.empty:
-                    st.markdown(
-                        '<p style="font-size:11px;font-weight:700;letter-spacing:1px;'
-                        'text-transform:uppercase;color:#6B8CAE;margin-bottom:6px">'
-                        'Tests by category</p>',
-                        unsafe_allow_html=True,
-                    )
-                    st.dataframe(
-                        type_summary.rename(columns={
-                            "investigation_type": "Type",
-                            "count": "Tests Done", "flagged": "Flagged",
-                        }),
-                        use_container_width=True, hide_index=True, height=160,
-                    )
-                    _gap(12)
+    patient_json = json.dumps(obj, ensure_ascii=False, default=str)
 
-                disp_lab = cl_lab.copy()
-                disp_lab["Date"] = disp_lab["test_date"].dt.strftime("%d %b %Y")
-                disp_lab["TAT"]  = disp_lab["turnaround_mins"].apply(
-                    lambda v: f"{int(v)}m" if pd.notna(v) else "—"
-                )
-                disp_lab["Flag"] = disp_lab.apply(
-                    lambda r: (r.get("alert_level") or r.get("flag") or ""), axis=1
-                )
-                st.markdown(
-                    '<p style="font-size:11px;font-weight:700;letter-spacing:1px;'
-                    'text-transform:uppercase;color:#6B8CAE;margin-bottom:6px">'
-                    'All tests (most recent first)</p>',
-                    unsafe_allow_html=True,
-                )
-                st.dataframe(
-                    disp_lab[["Date", "investigation_type", "procedure_name", "TAT", "Flag"]].rename(
-                        columns={"investigation_type": "Type", "procedure_name": "Test"}
-                    ).head(50),
-                    use_container_width=True, hide_index=True,
-                    height=min(480, len(cl_lab.head(50)) * 35 + 40),
-                )
-            else:
-                st.info("No lab tests found for this patient.")
-        except Exception as e:
-            st.warning(f"Lab tests: {e}")
+    # ── HTML template ────────────────────────────────────────────────────────
+    html = f"""<!DOCTYPE html><html><head><meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{{box-sizing:border-box;margin:0;padding:0;}}
+body{{background:#f8fafc;font-family:'Montserrat',-apple-system,sans-serif;color:#1a1a2e;padding:0 0 24px 0;}}
+.dhdr{{padding:14px 16px;background:#fff;border:1px solid #e5e7eb;border-radius:10px;margin-bottom:12px;}}
+.dname-row{{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;}}
+.dname{{font-size:15px;font-weight:700;color:#111827;}}
+.dlv{{font-size:13px;font-weight:700;color:#b91c1c;text-align:right;}}
+.dld{{font-size:10px;color:#9ca3af;text-align:right;margin-top:2px;}}
+.dtags{{display:flex;gap:5px;flex-wrap:wrap;margin:5px 0;}}
+.tag{{font-size:10px;padding:2px 8px;border-radius:20px;background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;}}
+.tag-hi{{background:#fee2e2;color:#991b1b;border-color:#fca5a5;}}
+.tag-med{{background:#fef3c7;color:#92400e;border-color:#fcd34d;}}
+.tag-mon{{background:#d1fae5;color:#065f46;border-color:#6ee7b7;}}
+.sigpill{{display:inline-flex;align-items:center;gap:4px;background:#fef9c3;color:#713f12;font-size:10px;padding:2px 8px;border-radius:20px;font-weight:600;}}
+.dsec{{background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:14px 16px;margin-bottom:12px;}}
+.dslabel{{font-size:9px;font-weight:700;letter-spacing:0.08em;color:#9ca3af;text-transform:uppercase;margin-bottom:10px;display:flex;align-items:center;gap:6px;}}
+.dslabel::after{{content:'';flex:1;height:1px;background:#f3f4f6;}}
+.met3{{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px;}}
+.mc{{background:#f8fafc;border-radius:8px;padding:9px 12px;border:1px solid #f3f4f6;}}
+.mlabel{{font-size:9px;color:#9ca3af;margin-bottom:3px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;}}
+.mval{{font-size:15px;font-weight:700;color:#111827;}}
+.msub{{font-size:9px;color:#9ca3af;margin-top:2px;}}
+.tl-legend{{display:flex;gap:12px;margin-top:8px;flex-wrap:wrap;}}
+.vleg{{display:flex;align-items:center;gap:4px;font-size:10px;color:#6b7280;}}
+.vleg-dot{{width:8px;height:8px;border-radius:50%;}}
+.vleg-ring{{width:8px;height:8px;border-radius:50%;border:2px solid #3b82f6;background:transparent;}}
+.esc-group{{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px;}}
+.esc-pill{{font-size:10px;padding:3px 10px;border-radius:20px;border:1px solid #e5e7eb;color:#6b7280;background:#f9fafb;}}
+.esc-hi{{background:#fee2e2;color:#991b1b;border-color:#fca5a5;font-weight:600;}}
+.esc-am{{background:#fef9c3;color:#713f12;border-color:#fde047;font-weight:600;}}
+.esc-ok{{background:#d1fae5;color:#065f46;border-color:#6ee7b7;}}
+.esc-det{{font-size:10px;color:#6b7280;margin-top:4px;}}
+.radar-wrap{{display:grid;grid-template-columns:160px 1fr;gap:12px;align-items:start;}}
+.radar-solo{{display:flex;flex-direction:column;align-items:center;}}
+.radar-label{{font-size:9px;color:#9ca3af;margin-bottom:5px;text-align:center;}}
+.spark-grid{{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;}}
+.spark-card{{background:#f8fafc;border-radius:8px;padding:8px 10px;border:1px solid #f3f4f6;}}
+.spark-name{{font-size:9px;color:#9ca3af;margin-bottom:2px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;}}
+.spark-val{{font-size:16px;font-weight:700;color:#111827;}}
+.spark-unit{{font-size:9px;color:#9ca3af;}}
+.spark-ok{{font-size:9px;color:#059669;margin-top:2px;font-weight:600;}}
+.spark-warn{{font-size:9px;color:#dc2626;margin-top:2px;font-weight:600;}}
+.med-tl{{position:relative;padding-left:18px;}}
+.med-tl-line{{position:absolute;left:6px;top:0;bottom:0;width:1px;background:#e5e7eb;}}
+.med-ev{{position:relative;margin-bottom:14px;}}
+.med-ev-dot{{width:10px;height:10px;border-radius:50%;position:absolute;left:-21px;top:2px;border:2px solid #fff;}}
+.ev-active{{background:#10b981;outline:2px solid #10b981;}}
+.ev-stopped{{background:#9ca3af;outline:2px solid #9ca3af;}}
+.ev-changed{{background:#f59e0b;outline:2px solid #f59e0b;}}
+.med-name{{font-size:11px;font-weight:600;color:#111827;}}
+.med-meta{{font-size:10px;color:#9ca3af;margin-top:2px;}}
+.mbadge{{font-size:9px;padding:1px 7px;border-radius:20px;margin-left:6px;font-weight:600;}}
+.mb-a{{background:#d1fae5;color:#065f46;}}
+.mb-s{{background:#f3f4f6;color:#9ca3af;}}
+.mb-c{{background:#fef9c3;color:#713f12;}}
+.alert-s{{background:#fef9c3;border-left:3px solid #f59e0b;border-radius:0 6px 6px 0;padding:6px 10px;font-size:10px;color:#713f12;margin-bottom:10px;display:flex;align-items:center;gap:6px;font-weight:600;}}
+.lab-row{{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #f3f4f6;font-size:11px;}}
+.lab-ok{{color:#059669;font-weight:600;}}
+.lab-warn{{color:#dc2626;font-weight:600;}}
+</style></head><body>
+<div class="dhdr">
+  <div class="dname-row">
+    <div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;">
+        <span class="dname" id="dId"></span>
+        <span class="tag" id="pTag"></span>
+      </div>
+      <div class="dtags" id="dTags"></div>
+      <span class="sigpill" id="dSig" style="display:none"></span>
+    </div>
+    <div>
+      <div class="dlv" id="dDays"></div>
+      <div class="dld" id="dDate"></div>
+    </div>
+  </div>
+</div>
 
-    # ── TAB 5: MEDICATIONS ────────────────────────────────────────────────────
-    with tab_meds:
-        _sec_header("💊", "Medication History & Changes",
-                    "'Changed' = different drug from prior event")
-        try:
-            cl5 = Q.load_patient_medication_change_timeline(patient_id, source_schema, run_query)
-            if not cl5.empty:
-                cl5["is_new_drug"]        = pd.to_numeric(cl5.get("is_new_drug", 0), errors="coerce")
-                cl5["prescription_date"]  = pd.to_datetime(cl5["prescription_date"], errors="coerce")
+<div class="dsec">
+  <div class="dslabel">1 — Visit cadence</div>
+  <div class="met3">
+    <div class="mc"><div class="mlabel">Total visits</div><div class="mval" id="vTotal"></div></div>
+    <div class="mc"><div class="mlabel">Outpatient</div><div class="mval" id="vOP"></div></div>
+    <div class="mc"><div class="mlabel">Inpatient</div><div class="mval" id="vIP"></div></div>
+  </div>
+  <div class="met3">
+    <div class="mc"><div class="mlabel">First seen</div><div class="mval" style="font-size:11px" id="vFirst"></div></div>
+    <div class="mc"><div class="mlabel">Avg gap</div><div class="mval" id="vAvgGap"></div></div>
+    <div class="mc"><div class="mlabel">Frequency</div><div class="mval" style="font-size:11px" id="vFreq"></div><div class="msub" id="vFreqSub"></div></div>
+  </div>
+  <div style="font-size:9px;color:#9ca3af;margin-bottom:7px;margin-top:2px;">Visit purpose per date</div>
+  <canvas id="visitCanvas" height="100" style="width:100%;display:block;"></canvas>
+  <div class="tl-legend">
+    <span class="vleg"><span class="vleg-dot" style="background:#10b981;"></span>Outpatient</span>
+    <span class="vleg"><span class="vleg-ring"></span>Inpatient</span>
+    <span class="vleg"><span class="vleg-dot" style="background:#7c3aed;width:7px;height:7px;"></span>Diagnosis</span>
+    <span class="vleg"><span class="vleg-dot" style="background:#f59e0b;width:7px;height:7px;"></span>Follow-up</span>
+    <span class="vleg"><span class="vleg-dot" style="background:#9ca3af;width:7px;height:7px;"></span>Meds pickup</span>
+  </div>
+</div>
 
-                change_count = int(cl5["is_new_drug"].sum())
-                if change_count > 0:
-                    st.markdown(
-                        f'<div style="background:#EFF6FF;border-left:4px solid {AFYA_BLUE};'
-                        f'border-radius:4px;padding:10px 14px;font-size:12px;margin-bottom:12px">'
-                        f'💊 <b>{change_count} medication change{"s" if change_count > 1 else ""} detected.</b> '
-                        f'Cross-check with the Vitals tab to see if values stabilised after each switch.'
-                        f'</div>',
-                        unsafe_allow_html=True,
-                    )
+<div class="dsec">
+  <div class="dslabel">Escalation gap (OP → IP, same condition)</div>
+  <div class="esc-group" id="escGroup"></div>
+  <div class="esc-det" id="escDet"></div>
+</div>
 
-                cl5["Date"]   = cl5["prescription_date"].dt.strftime("%d %b %Y")
-                cl5["Status"] = cl5.apply(
-                    lambda r: (
-                        f"Changed from: {r.get('prev_drug','?')}"
-                        if r["is_new_drug"] == 1 and pd.notna(r.get("prev_drug"))
-                        else "New" if r["is_new_drug"] == 1
-                        else "Continued"
-                    ), axis=1
-                )
-                cl5["Gap"] = cl5["days_since_last_prescription"].apply(
-                    lambda v: f"{int(float(v))}d" if pd.notna(v) else "—"
-                )
-                st.markdown(
-                    '<p style="font-size:11px;font-weight:700;letter-spacing:1px;'
-                    'text-transform:uppercase;color:#6B8CAE;margin-bottom:6px">'
-                    'Prescription timeline</p>',
-                    unsafe_allow_html=True,
-                )
-                st.dataframe(
-                    cl5[["Date", "drug_name", "Status", "Gap"]].rename(
-                        columns={"drug_name": "Drug", "Gap": "Days Since Last Rx"}
-                    ).head(30),
-                    use_container_width=True, hide_index=True,
-                    height=min(480, len(cl5.head(30)) * 35 + 40),
-                    column_config={
-                        "Status": st.column_config.TextColumn("Status", width="large"),
-                    },
-                )
+<div class="dsec">
+  <div class="dslabel">2 — Illness history</div>
+  <div style="font-size:9px;color:#9ca3af;margin-bottom:7px;">Each row = one condition · Each dot = occurrence date</div>
+  <canvas id="illCanvas" style="width:100%;display:block;"></canvas>
+</div>
 
-                _gap(12)
-                st.markdown(
-                    '<p style="font-size:11px;font-weight:700;letter-spacing:1px;'
-                    'text-transform:uppercase;color:#6B8CAE;margin-bottom:6px">'
-                    'Current active medications</p>',
-                    unsafe_allow_html=True,
-                )
-                try:
-                    cl3 = Q.load_medication_continuity(patient_id, source_schema, run_query)
-                    if not cl3.empty:
-                        gaps = int(cl3["is_gap"].sum())
-                        if gaps > 0:
-                            st.markdown(
-                                f'<div style="background:#FEE2E2;border-left:4px solid {CORAL};'
-                                f'border-radius:4px;padding:8px 14px;font-size:12px;'
-                                f'font-weight:600;color:#991B1B;margin-bottom:8px">'
-                                f'⚠ {gaps} medication gap{"s" if gaps > 1 else ""} — '
-                                f'expected drug class not recently prescribed</div>',
-                                unsafe_allow_html=True,
-                            )
-                        st.dataframe(
-                            cl3[["condition", "expected_drug_class", "active_drug",
-                                  "days_since_prescribed", "continuity_status"]].rename(columns={
-                                "condition": "Condition",
-                                "expected_drug_class": "Expected Class",
-                                "active_drug": "Active Drug",
-                                "days_since_prescribed": "Days Since Rx",
-                                "continuity_status": "Status",
-                            }),
-                            use_container_width=True, hide_index=True,
-                            height=min(300, len(cl3) * 35 + 40),
-                        )
-                    else:
-                        st.info("No current medication continuity data.")
-                except Exception as e_cl3:
-                    st.warning(f"Medication continuity: {e_cl3}")
-            else:
-                st.info("No prescription history found for this patient.")
-        except Exception as e:
-            st.warning(f"Medication history: {e}")
+<div class="dsec">
+  <div class="dslabel">3 — Vitals</div>
+  <div class="radar-wrap">
+    <div class="radar-solo">
+      <div class="radar-label">Current vs reference range</div>
+      <canvas id="vitRadar" width="150" height="150"></canvas>
+    </div>
+    <div>
+      <div style="font-size:9px;color:#9ca3af;margin-bottom:7px;">Trend over visits</div>
+      <div class="spark-grid" id="sparkGrid"></div>
+    </div>
+  </div>
+</div>
+
+<div class="dsec">
+  <div class="dslabel">4 — Labs &amp; haemogram</div>
+  <div class="radar-wrap">
+    <div class="radar-solo">
+      <div class="radar-label">Haemogram vs reference</div>
+      <canvas id="haeRadar" width="150" height="150"></canvas>
+    </div>
+    <div id="labDetail" style="padding-top:12px;width:100%;"></div>
+  </div>
+</div>
+
+<div class="dsec">
+  <div class="dslabel">5 — Medication timeline</div>
+  <div class="alert-s" id="medAlert" style="display:none;">
+    ⚠ <span id="medAlertTxt"></span>
+  </div>
+  <div class="med-tl"><div class="med-tl-line"></div><div id="medEvents"></div></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+const patient = {patient_json};
+
+const PURPOSE_COLORS={{'diagnosis':'#7c3aed','follow-up':'#f59e0b','meds':'#9ca3af'}};
+const PURPOSE_ROWS={{'diagnosis':0,'follow-up':1,'meds':2}};
+const PURPOSE_LABELS=['Diagnosis','Follow-up','Meds pickup'];
+
+// ── Header ────────────────────────────────────────────────────────────────
+document.getElementById('dId').textContent='Patient '+patient.id;
+const pTag=document.getElementById('pTag');
+const pCls={{'high':'tag-hi','medium':'tag-med','monitor':'tag-mon'}};
+pTag.textContent=patient.priority.charAt(0).toUpperCase()+patient.priority.slice(1)+' priority';
+pTag.className='tag '+(pCls[patient.priority]||'');
+document.getElementById('dTags').innerHTML=
+  ['<span class="tag">'+patient.gender+'</span>',
+   '<span class="tag">'+patient.age+'</span>',
+   '<span class="tag">'+patient.condition+'</span>'].join('');
+const sigEl=document.getElementById('dSig');
+if(patient.signal){{sigEl.textContent='⏰ '+patient.signal;sigEl.style.display='inline-flex';}}
+document.getElementById('dDays').textContent=patient.days+'d ago';
+document.getElementById('dDate').textContent=patient.date;
+
+// ── Visit cadence metrics ─────────────────────────────────────────────────
+document.getElementById('vTotal').textContent=patient.visits.length;
+document.getElementById('vOP').textContent=patient.visits.filter(v=>v.type==='OP').length;
+document.getElementById('vIP').textContent=patient.visits.filter(v=>v.type==='IP').length;
+document.getElementById('vFirst').textContent=patient.firstSeen;
+document.getElementById('vAvgGap').textContent=patient.avgGap;
+document.getElementById('vFreq').textContent=patient.freq;
+document.getElementById('vFreqSub').textContent=patient.freqSub;
+
+// ── Visit scatter ─────────────────────────────────────────────────────────
+function drawVisitScatter(){{
+  const canvas=document.getElementById('visitCanvas');
+  const W=canvas.parentElement.clientWidth||380;
+  canvas.width=W;
+  const ROWS=3,ROW_H=26,PAD_T=8,PAD_B=28,PAD_L=76,PAD_R=12;
+  const H=PAD_T+ROWS*ROW_H+PAD_B; canvas.height=H;
+  const ctx=canvas.getContext('2d'); ctx.clearRect(0,0,W,H);
+  const gridC='rgba(0,0,0,0.06)'; const textC='#9ca3af';
+  const trackW=W-PAD_L-PAD_R;
+  const allMs=patient.visits.map(v=>v.dateMs);
+  const tMin=Math.min(...allMs),tMax=Math.max(...allMs),span=tMax-tMin||1;
+  function xPos(ms){{return patient.visits.length===1?PAD_L+trackW/2:PAD_L+((ms-tMin)/span)*trackW;}}
+  ctx.font='9px Montserrat,sans-serif';
+  PURPOSE_LABELS.forEach((lbl,ri)=>{{
+    const y=PAD_T+ri*ROW_H+ROW_H/2;
+    ctx.fillStyle=textC;ctx.textAlign='right';ctx.textBaseline='middle';
+    ctx.fillText(lbl,PAD_L-8,y);
+    ctx.strokeStyle=gridC;ctx.lineWidth=0.5;ctx.setLineDash([3,3]);
+    ctx.beginPath();ctx.moveTo(PAD_L,y);ctx.lineTo(W-PAD_R,y);ctx.stroke();
+    ctx.setLineDash([]);
+  }});
+  const datePositions=[];
+  patient.visits.forEach(v=>{{
+    const ri=PURPOSE_ROWS[v.purpose]??1;
+    const x=xPos(v.dateMs),y=PAD_T+ri*ROW_H+ROW_H/2;
+    const col=PURPOSE_COLORS[v.purpose]||'#9ca3af';
+    if(v.type==='IP'){{
+      ctx.strokeStyle='#3b82f6';ctx.lineWidth=2;
+      ctx.beginPath();ctx.arc(x,y,7,0,Math.PI*2);ctx.stroke();
+      ctx.fillStyle='rgba(59,130,246,0.12)';ctx.fill();
+      ctx.fillStyle='#3b82f6';ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.font='600 8px Montserrat,sans-serif';ctx.fillText('IP',x,y);
+    }}else{{
+      ctx.fillStyle=col;ctx.beginPath();ctx.arc(x,y,6,0,Math.PI*2);ctx.fill();
+    }}
+    datePositions.push({{x,ms:v.dateMs}});
+  }});
+  const merged=[];
+  datePositions.forEach(dp=>{{if(!merged.find(m=>Math.abs(m.x-dp.x)<20))merged.push(dp);}});
+  ctx.font='9px Montserrat,sans-serif';ctx.fillStyle=textC;ctx.textAlign='center';ctx.textBaseline='top';
+  merged.forEach(dp=>{{
+    ctx.fillText(new Intl.DateTimeFormat('en-GB',{{day:'numeric',month:'short'}}).format(new Date(dp.ms)),dp.x,H-PAD_B+6);
+  }});
+  ctx.strokeStyle=gridC;ctx.lineWidth=0.5;ctx.setLineDash([]);
+  ctx.beginPath();ctx.moveTo(PAD_L,H-PAD_B+2);ctx.lineTo(W-PAD_R,H-PAD_B+2);ctx.stroke();
+}}
+
+// ── Illness scatter ───────────────────────────────────────────────────────
+function drawIllnessScatter(){{
+  const ills=patient.illnesses;
+  if(!ills||!ills.length)return;
+  const canvas=document.getElementById('illCanvas');
+  const W=canvas.parentElement.clientWidth||380;
+  canvas.width=W;
+  const ROW_H=28,PAD_T=8,PAD_B=28,PAD_L=110,PAD_R=12;
+  const H=PAD_T+ills.length*ROW_H+PAD_B; canvas.height=H;
+  const ctx=canvas.getContext('2d'); ctx.clearRect(0,0,W,H);
+  const gridC='rgba(0,0,0,0.06)'; const textC='#9ca3af';
+  const trackW=W-PAD_L-PAD_R;
+  const allMs=ills.flatMap(il=>il.dates);
+  const tMin=Math.min(...allMs),tMax=Math.max(...allMs),span=tMax-tMin||1;
+  function xPos(ms){{return allMs.length===1?PAD_L+trackW/2:PAD_L+((ms-tMin)/span)*trackW;}}
+  const ILL_COLORS=['#10b981','#7c3aed','#ef4444','#f59e0b','#3b82f6','#ec4899'];
+  ctx.font='9px Montserrat,sans-serif';
+  const datePositions=[];
+  ills.forEach((ill,ri)=>{{
+    const y=PAD_T+ri*ROW_H+ROW_H/2; const col=ILL_COLORS[ri%ILL_COLORS.length];
+    ctx.fillStyle=textC;ctx.textAlign='right';ctx.textBaseline='middle';
+    const nm=ill.name.length>16?ill.name.slice(0,15)+'…':ill.name;
+    ctx.fillText(nm,PAD_L-8,y);
+    ctx.strokeStyle=gridC;ctx.lineWidth=0.5;ctx.setLineDash([3,3]);
+    ctx.beginPath();ctx.moveTo(PAD_L,y);ctx.lineTo(W-PAD_R,y);ctx.stroke();
+    ctx.setLineDash([]);
+    if(ill.dates.length>1){{
+      const xs=ill.dates.map(xPos);
+      ctx.strokeStyle=col;ctx.globalAlpha=0.2;ctx.lineWidth=1.5;
+      ctx.beginPath();ctx.moveTo(xs[0],y);xs.slice(1).forEach(x=>ctx.lineTo(x,y));ctx.stroke();
+      ctx.globalAlpha=1;
+    }}
+    ill.dates.forEach((ms,di)=>{{
+      const x=xPos(ms);
+      ctx.fillStyle=col;ctx.beginPath();ctx.arc(x,y,5,0,Math.PI*2);ctx.fill();
+      if(di===0){{ctx.strokeStyle='rgba(255,255,255,0.8)';ctx.lineWidth=1.5;ctx.beginPath();ctx.arc(x,y,5,0,Math.PI*2);ctx.stroke();}}
+      datePositions.push({{x,ms}});
+    }});
+  }});
+  const merged=[];
+  datePositions.forEach(dp=>{{if(!merged.find(m=>Math.abs(m.x-dp.x)<22))merged.push(dp);}});
+  ctx.font='9px Montserrat,sans-serif';ctx.fillStyle=textC;ctx.textAlign='center';ctx.textBaseline='top';
+  merged.forEach(dp=>{{ctx.fillText(new Intl.DateTimeFormat('en-GB',{{day:'numeric',month:'short'}}).format(new Date(dp.ms)),dp.x,H-PAD_B+6);}});
+  ctx.strokeStyle=gridC;ctx.lineWidth=0.5;ctx.beginPath();ctx.moveTo(PAD_L,H-PAD_B+2);ctx.lineTo(W-PAD_R,H-PAD_B+2);ctx.stroke();
+}}
+
+// ── Radar helper ──────────────────────────────────────────────────────────
+let vitChart=null,haeChart=null;
+function drawRadar(canvasId,labels,data,refMin,refMax,existing){{
+  const ctx=document.getElementById(canvasId).getContext('2d');
+  if(existing)existing.destroy();
+  const norm=data.map((v,i)=>{{
+    if(v===null||v===undefined)return 0;
+    const mid=(refMin[i]+refMax[i])/2,range=refMax[i]-refMin[i];
+    return Math.max(0,Math.round(100-Math.min(100,Math.abs(v-mid)/(range*0.5)*100)));
+  }});
+  return new Chart(ctx,{{type:'radar',data:{{labels,datasets:[{{data:norm,backgroundColor:'rgba(16,185,129,0.15)',borderColor:'#10b981',borderWidth:1.5,pointBackgroundColor:'#10b981',pointRadius:3}}]}},options:{{responsive:false,scales:{{r:{{min:0,max:100,ticks:{{display:false}},grid:{{color:'rgba(0,0,0,0.07)'}},angleLines:{{color:'rgba(0,0,0,0.07)'}},pointLabels:{{color:'#9ca3af',font:{{size:9,family:'Montserrat,sans-serif'}}}}}}}},plugins:{{legend:{{display:false}}}}}}}});
+}}
+
+// ── Sparkline helper ──────────────────────────────────────────────────────
+function drawSparkline(canvas,data,refMin,refMax){{
+  const ctx=canvas.getContext('2d'); const w=canvas.width,h=canvas.height;
+  ctx.clearRect(0,0,w,h);
+  const valid=data.filter(v=>v!==null&&v!==undefined);
+  if(valid.length<2)return;
+  const mn=Math.min(...valid)*0.95,mx=Math.max(...valid)*1.05;
+  const pts=valid.map((v,i)=>{{return {{x:i*(w/(valid.length-1)),y:h-(((v-mn)/(mx-mn))*h*0.8+h*0.1)}};}});
+  const inR=valid.every(v=>v>=refMin&&v<=refMax);
+  ctx.strokeStyle=inR?'#10b981':'#ef4444';ctx.lineWidth=1.5;ctx.lineJoin='round';ctx.lineCap='round';
+  ctx.beginPath();pts.forEach((p,i)=>i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y));ctx.stroke();
+  pts.forEach(p=>{{ctx.beginPath();ctx.arc(p.x,p.y,2.5,0,Math.PI*2);ctx.fillStyle=inR?'#10b981':'#ef4444';ctx.fill();}});
+}}
+
+// ── Escalations ───────────────────────────────────────────────────────────
+const eg=document.getElementById('escGroup');
+const ed=document.getElementById('escDet');
+if(patient.escalations&&patient.escalations.length>0){{
+  const b={{'0–15 days':[],'15–30 days':[],'> 30 days':[]}};
+  patient.escalations.forEach(e=>{{if(b[e.bucket])b[e.bucket].push(e);}});
+  const cls={{'0–15 days':'esc-hi','15–30 days':'esc-am','> 30 days':'esc-ok'}};
+  Object.entries(b).forEach(([k,arr])=>{{
+    if(arr.length){{const s=document.createElement('span');s.className='esc-pill '+cls[k];s.textContent=k+': '+arr.length;eg.appendChild(s);}}
+  }});
+  ed.innerHTML=patient.escalations.map(e=>`<div style="margin-bottom:3px;">· ${{e.dx}} — OP ${{e.opDate}} → IP ${{e.ipDate}} (${{e.gap}}d)</div>`).join('');
+}}else{{
+  const s=document.createElement('span');s.className='esc-pill esc-ok';s.textContent='No escalations recorded';eg.appendChild(s);
+}}
+
+// ── Vitals ────────────────────────────────────────────────────────────────
+const vit=patient.vitals;
+vitChart=drawRadar('vitRadar',['BP Sys','BP Dia','Heart rate','Blood sugar'],
+  [vit.bp_sys.at(-1),vit.bp_dia.at(-1),vit.hr.at(-1),vit.sugar.at(-1)],
+  [90,60,60,3.9],[120,80,100,5.6],vitChart);
+const sg=document.getElementById('sparkGrid');sg.innerHTML='';
+[{{name:'BP Systolic',unit:'mmHg',data:vit.bp_sys,min:90,max:120}},
+ {{name:'BP Diastolic',unit:'mmHg',data:vit.bp_dia,min:60,max:80}},
+ {{name:'Heart rate',unit:'bpm',data:vit.hr,min:60,max:100}},
+ {{name:'Blood sugar',unit:'mmol/L',data:vit.sugar,min:3.9,max:5.6}}
+].forEach(s=>{{
+  const valid=s.data.filter(v=>v!==null);
+  const last=valid.length?valid.at(-1):null;
+  const inR=last!==null&&last>=s.min&&last<=s.max;
+  const cid='sp_'+s.name.replace(/\s/g,'_');
+  const card=document.createElement('div');card.className='spark-card';
+  card.innerHTML=`<div class="spark-name">${{s.name}}</div><div class="spark-val">${{last!==null?last:'—'}}</div><div class="spark-unit">${{s.unit}}</div><div class="${{inR?'spark-ok':'spark-warn'}}">${{last===null?'No data':inR?'✓ In range':'⚠ Out of range'}}</div><canvas id="${{cid}}" width="90" height="32"></canvas>`;
+  sg.appendChild(card);
+  setTimeout(()=>{{const c=document.getElementById(cid);if(c)drawSparkline(c,s.data,s.min,s.max);}},120);
+}});
+
+// ── Haemogram ─────────────────────────────────────────────────────────────
+const hae=patient.haemo;
+const hLabels=['WBC','RBC','Hgb','Platelets','MCV','MCHC'];
+const hData=[hae.wbc,hae.rbc,hae.hgb,hae.plt,hae.mcv,hae.mchc];
+const hMin=[4.0,4.5,12.0,150,80,32],hMax=[11.0,5.5,16.0,400,100,36];
+const hHasData=hData.some(v=>v!==null&&v!==undefined);
+if(hHasData){{
+  haeChart=drawRadar('haeRadar',hLabels,hData,hMin,hMax,haeChart);
+  document.getElementById('labDetail').innerHTML=hLabels.map((l,i)=>{{
+    const v=hData[i];if(v===null||v===undefined)return '';
+    const ok=v>=hMin[i]&&v<=hMax[i];
+    return `<div class="lab-row"><span style="color:#6b7280;">${{l}}</span><span class="${{ok?'lab-ok':'lab-warn'}}">${{v}} ${{ok?'✓':'!'}} </span></div>`;
+  }}).join('');
+}}else{{
+  document.getElementById('haeRadar').parentElement.innerHTML='<div style="font-size:10px;color:#9ca3af;text-align:center;padding:24px 0;">No haemogram data recorded</div>';
+  document.getElementById('labDetail').innerHTML='<div style="font-size:10px;color:#9ca3af;padding:24px 0;">Lab values not available</div>';
+}}
+
+// ── Medications ───────────────────────────────────────────────────────────
+const ma=document.getElementById('medAlert');
+if(patient.medChanges>0){{
+  ma.style.display='flex';
+  document.getElementById('medAlertTxt').textContent=patient.medChanges+' medication change'+(patient.medChanges>1?'s':'')+' detected — verify vitals stabilised after each switch.';
+}}
+const me=document.getElementById('medEvents');me.innerHTML='';
+patient.meds.slice().reverse().forEach(m=>{{
+  const div=document.createElement('div');div.className='med-ev';
+  const ec=m.status==='active'?'ev-active':m.status==='stopped'?'ev-stopped':'ev-changed';
+  const bc=m.status==='active'?'mb-a':m.status==='stopped'?'mb-s':'mb-c';
+  const lbl=m.status==='active'?'Active':m.status==='stopped'?'Stopped':`Changed → ${{m.change}}`;
+  div.innerHTML=`<div class="med-ev-dot ${{ec}}"></div><div class="med-name">${{m.name}}<span class="mbadge ${{bc}}">${{lbl}}</span></div><div class="med-meta">${{m.date}}</div>`;
+  me.appendChild(div);
+}});
+
+// ── Draw canvases after layout ────────────────────────────────────────────
+setTimeout(()=>{{drawVisitScatter();drawIllnessScatter();}},80);
+</script></body></html>"""
+
+    n_ill = len(obj.get("illnesses", []))
+    card_height = 1500 + n_ill * 30
+    _components.html(html, height=card_height, scrolling=True)
+

@@ -539,18 +539,21 @@ def render_tab1_operations(filters: dict, run_query):
                 df_vol["visit_month"], errors="coerce"
             ).dt.strftime("%Y-%m")
 
+            # Drop the first partial month from chart — it skews visuals
+            df_chart = df_vol[df_vol["month_type"] != "Partial"].copy()
+
             avg_vol = float(df_vol["avg_vol"].iloc[0])
             sd_vol  = float(df_vol["sd_vol"].iloc[0])
 
-            spikes = df_vol[df_vol["month_type"] == "Spike"]
-            dips   = df_vol[df_vol["month_type"] == "Dip"]
+            spikes = df_chart[df_chart["month_type"] == "Spike"]
+            dips   = df_chart[df_chart["month_type"] == "Dip"]
 
             # Fallback: no months cross 1.0 SD → use top-2 / bottom-2
             use_fallback = spikes.empty and dips.empty
             if use_fallback:
-                spikes = df_vol.nlargest(2, "total_visits").copy()
+                spikes = df_chart.nlargest(2, "total_visits").copy()
                 spikes["month_type"] = "Highest"
-                dips = df_vol.nsmallest(2, "total_visits").copy()
+                dips = df_chart.nsmallest(2, "total_visits").copy()
                 dips["month_type"] = "Lowest"
                 _note(
                     "No months exceeded ±1 SD from the mean. "
@@ -560,7 +563,7 @@ def render_tab1_operations(filters: dict, run_query):
             # ── Time-series bar chart ──────────────────────────────────────
             type_color = {"Spike": ORANGE, "Dip": CORAL,
                           "Highest": ORANGE, "Lowest": CORAL, "Normal": AFYA_BLUE}
-            bar_colors = [type_color.get(t, AFYA_BLUE) for t in df_vol["month_type"]]
+            bar_colors = [type_color.get(t, AFYA_BLUE) for t in df_chart["month_type"]]
 
             fig_vol = go.Figure()
 
@@ -591,8 +594,8 @@ def render_tab1_operations(filters: dict, run_query):
             )
 
             fig_vol.add_trace(go.Bar(
-                x=df_vol["month_label"],
-                y=df_vol["total_visits"],
+                x=df_chart["month_label"],
+                y=df_chart["total_visits"],
                 marker_color=bar_colors,
                 hovertemplate=(
                     "<b>%{x}</b><br>Visits: %{y:,}<extra></extra>"
@@ -638,7 +641,7 @@ def render_tab1_operations(filters: dict, run_query):
             except Exception:
                 df_dx = pd.DataFrame()
 
-            normal_months = df_vol[df_vol["month_type"] == "Normal"]["visit_month"].tolist()
+            normal_months = df_chart[df_chart["month_type"] == "Normal"]["visit_month"].tolist()
             if not df_dx.empty and normal_months:
                 baseline_new = (df_dx[df_dx["visit_month"].isin(normal_months)]
                                 .groupby("visit_month")["new_patients"].sum().mean())

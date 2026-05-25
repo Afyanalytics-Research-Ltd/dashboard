@@ -1032,33 +1032,42 @@ monthly_vol AS (
     {wh}
     GROUP BY 1
 ),
-stats AS (
+ranked AS (
     SELECT
         visit_month,
         total_visits,
-        ROUND(AVG(total_visits) OVER (), 0)    AS avg_vol,
-        ROUND(STDDEV(total_visits) OVER (), 0) AS sd_vol,
-        LAG(total_visits) OVER (ORDER BY visit_month) AS prev_visits
+        LAG(total_visits) OVER (ORDER BY visit_month) AS prev_visits,
+        ROW_NUMBER() OVER (ORDER BY visit_month)       AS rn
     FROM monthly_vol
+),
+-- compute avg/sd only on full months (exclude rn=1 which may be a partial start month)
+baseline AS (
+    SELECT
+        ROUND(AVG(total_visits), 0)    AS avg_vol,
+        ROUND(STDDEV(total_visits), 0) AS sd_vol
+    FROM ranked
+    WHERE rn > 1
 )
 SELECT
-    visit_month,
-    total_visits,
-    avg_vol,
-    sd_vol,
-    ROUND(DIV0(total_visits - avg_vol, NULLIF(sd_vol, 0)), 2) AS z_score,
+    r.visit_month,
+    r.total_visits,
+    b.avg_vol,
+    b.sd_vol,
+    ROUND(DIV0(r.total_visits - b.avg_vol, NULLIF(b.sd_vol, 0)), 2) AS z_score,
     CASE
-        WHEN total_visits > avg_vol + 1.0 * sd_vol THEN 'Spike'
-        WHEN total_visits < avg_vol - 1.0 * sd_vol THEN 'Dip'
+        WHEN r.rn = 1                                        THEN 'Partial'
+        WHEN r.total_visits > b.avg_vol + 1.0 * b.sd_vol   THEN 'Spike'
+        WHEN r.total_visits < b.avg_vol - 1.0 * b.sd_vol   THEN 'Dip'
         ELSE 'Normal'
     END AS month_type,
     CASE
-        WHEN prev_visits IS NOT NULL
-        THEN ROUND(DIV0(total_visits - prev_visits, NULLIF(prev_visits, 0)) * 100, 1)
+        WHEN r.prev_visits IS NOT NULL
+        THEN ROUND(DIV0(r.total_visits - r.prev_visits, NULLIF(r.prev_visits, 0)) * 100, 1)
         ELSE NULL
     END AS mom_pct,
-    CASE WHEN prev_visits IS NULL THEN 1 ELSE 0 END AS first_in_range
-FROM stats
+    CASE WHEN r.rn = 1 THEN 1 ELSE 0 END AS first_in_range
+FROM ranked r
+CROSS JOIN baseline b
 ORDER BY 1
 """
     return run_query(sql)

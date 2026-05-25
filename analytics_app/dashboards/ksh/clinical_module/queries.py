@@ -126,6 +126,10 @@ def _w(filters: dict, alias: str = "v") -> str:
     if facilities:
         quoted = ", ".join(f"'{f}'" for f in facilities)
         parts.append(f"AND {alias}.clinic IN ({quoted})")
+    if filters.get("date_from"):
+        parts.append(f"AND {alias}.created_at >= '{filters['date_from']}'")
+    if filters.get("date_to"):
+        parts.append(f"AND {alias}.created_at <= '{filters['date_to']}'")
     return "\n    ".join(parts)
 
 
@@ -141,6 +145,10 @@ def _w_adm(filters: dict, alias: str = "a") -> str:
         parts.append(
             f"AND REPLACE(LOWER({alias}.source_schema), '_clean', '') IN ({quoted})"
         )
+    if filters.get("date_from"):
+        parts.append(f"AND {alias}.admitted_at >= '{filters['date_from']}'")
+    if filters.get("date_to"):
+        parts.append(f"AND {alias}.admitted_at <= '{filters['date_to']}'")
     return "\n    ".join(parts)
 
 
@@ -148,18 +156,28 @@ def _wsa(filters: dict) -> str:
     """Schema-only filter for schema_anchor CTEs.
     Restricts MAX(created_at) to selected schemas so the date anchor is correct
     and the INNER JOIN naturally excludes every other schema from all downstream CTEs."""
+    parts = []
     schemas = filters.get("source_schemas") or (
         [filters["schema"]] if filters.get("schema") else []
     )
     if schemas:
         quoted = ", ".join(f"'{s}'" for s in schemas)
-        return f"WHERE source_schema IN ({quoted})"
+        parts.append(f"source_schema IN ({quoted})")
+    if filters.get("date_from"):
+        parts.append(f"created_at >= '{filters['date_from']}'")
+    if filters.get("date_to"):
+        parts.append(f"created_at <= '{filters['date_to']}'")
+    if parts:
+        return "WHERE " + "\n    AND ".join(parts)
     return ""
 
 
 def _mo(filters: dict) -> int:
     if filters.get("months_back"):
         return int(filters["months_back"])
+    # Custom date range: use a large window — _w() applies the exact date_from/date_to
+    if filters.get("date_range") == "Custom" or filters.get("date_from"):
+        return 999
     mapping = {
         "Last 12 months": 12,
         "Last 6 months":  6,

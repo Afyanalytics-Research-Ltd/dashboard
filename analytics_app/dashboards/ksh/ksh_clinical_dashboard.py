@@ -352,18 +352,25 @@ def render_sidebar():
         with st.expander("📅 Date range", expanded=True):
             col_from, col_to = st.columns(2)
             with col_from:
-                date_from = st.date_input("From", value=None, key="date_from",
+                date_from = st.date_input("From", value=date(2024, 9, 1), key="date_from",
                                           label_visibility="visible")
             with col_to:
                 date_to = st.date_input("To", value=None, key="date_to",
                                         label_visibility="visible")
             quick = st.radio("Quick range",
                 ["Last 12 months", "Last 6 months", "Last 90 days", "Custom"],
-                index=0, label_visibility="collapsed")
-            if quick != "Custom":
-                effective_from = None
+                index=3, label_visibility="collapsed")
+            _today = date.today()
+            if quick == "Last 12 months":
+                effective_from = str(_today - timedelta(days=365))
                 effective_to   = None
-            else:
+            elif quick == "Last 6 months":
+                effective_from = str(_today - timedelta(days=182))
+                effective_to   = None
+            elif quick == "Last 90 days":
+                effective_from = str(_today - timedelta(days=90))
+                effective_to   = None
+            else:  # Custom
                 effective_from = str(date_from) if date_from else None
                 effective_to   = str(date_to)   if date_to   else None
 
@@ -424,9 +431,11 @@ def render_sidebar():
                 "source_schemas": [], "schema_display": [], "facilities": [],
                 "visit_type": "All", "payer_type": "All",
                 "age_group": "All", "disease_group": "All",
-                "date_range": "Last 12 months",
-                "date_from": None, "date_to": None,
+                "date_range": "Custom",
+                "date_from": "2024-09-01", "date_to": None,
             }
+            st.session_state.pop("date_from", None)
+            st.session_state.pop("date_to", None)
             st.rerun()
 
     filters = {

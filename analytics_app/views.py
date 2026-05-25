@@ -38,7 +38,7 @@ def _sync_dashboards_for_client(client_slug: str, client_obj) -> dict:
     folder = os.path.join(
         settings.BASE_DIR, 'analytics_app', 'dashboards', client_slug
     )
-    logging.warning(f"{folder} --------------------->")
+    logging.warning(f"{folder} --------->")
     if not os.path.isdir(folder):
         folder = os.path.join(
             settings.BASE_DIR, 'analytics_app', 'dashboards', 'default'
@@ -83,14 +83,11 @@ def _get_client_obj(user):
     """Return the Client FK for the user if profile has one, else None."""
     try:
         profile = user.profile
-        client_name = profile.client
+        client_name = profile.client or profile.client.name
         if not client_name:
             return None
         from core.models import Client
-        return (
-            Client.objects.filter(name__iexact=client_name).first()
-            or Client.objects.filter(name__iexact=client_name.name).first()
-        )
+        return Client.objects.filter(name__iexact=client_name).first()
     except Exception:
         return None
 

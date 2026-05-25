@@ -106,6 +106,7 @@ class HomeView(LoginRequiredMixin, TemplateView):
         ctx = super().get_context_data(**kwargs)
         user = self.request.user
         client_obj = _get_client_obj(user)
+        logging.warning(f"<------------------{client_obj}--------------------------------->")
 
         qs = Dashboard.objects.filter(is_active=True)
         if client_obj:

@@ -2357,14 +2357,26 @@ WITH schema_anchor AS (
 pp AS (
     SELECT v.source_schema, v.patient,
         UPPER(COALESCE(p.sex, 'Unknown')) AS sex,
-        CASE
+           CASE
             WHEN p.dob IS NULL THEN 'Unknown'
-            WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 18  THEN 'Paediatric (<18)'
-            WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 35  THEN 'Young Adult (18–34)'
-            WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 55  THEN 'Adult (35–54)'
-            WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 65  THEN 'Older Adult (55–64)'
+            WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 5
+                THEN 'Toddler (0–4)'
+            WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 13
+                THEN 'Child (5–12)'
+            WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 18
+                THEN 'Adolescent (13–17)'
+            WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 25
+                THEN 'Youth (18–24)'
+            WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 35
+                THEN 'Young Adult (25–34)'
+            WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 45
+                THEN 'Adult (35–44)'
+            WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 55
+                THEN 'Middle Age (45–54)'
+            WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 65
+                THEN 'Older Adult (55–64)'
             ELSE 'Senior (65+)'
-        END AS age_group,
+        END                                             AS age_group,
         MAX(CASE
             WHEN dx.is_chronic_1 = 1 OR dx.is_chronic_2 = 1
               OR n.diagnosis ILIKE '%hypertension%'
@@ -2450,13 +2462,26 @@ atf AS (
     FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS GROUP BY 1, 2
 )
 SELECT
-    CASE
-        WHEN p.dob IS NULL THEN 'Unknown'
-        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 18 THEN 'Paediatric (<18)'
-        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 35 THEN 'Young Adult (18–34)'
-        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 55 THEN 'Adult (35–54)'
-        ELSE 'Senior (55+)'
-    END                                                             AS age_group,
+   CASE
+            WHEN p.dob IS NULL THEN 'Unknown'
+            WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 5
+                THEN 'Toddler (0–4)'
+            WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 13
+                THEN 'Child (5–12)'
+            WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 18
+                THEN 'Adolescent (13–17)'
+            WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 25
+                THEN 'Youth (18–24)'
+            WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 35
+                THEN 'Young Adult (25–34)'
+            WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 45
+                THEN 'Adult (35–44)'
+            WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 55
+                THEN 'Middle Age (45–54)'
+            WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 65
+                THEN 'Older Adult (55–64)'
+            ELSE 'Senior (65+)'
+        END                                             AS age_group,
     CASE WHEN a.visit_id IS NOT NULL THEN 'Inpatient' ELSE 'Outpatient'
     END                                                             AS visit_type,
     CASE
@@ -2562,10 +2587,15 @@ WITH schema_anchor AS (
 SELECT
     CASE
         WHEN p.dob IS NULL THEN 'Unknown'
-        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 18 THEN 'Paediatric (<18)'
-        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 35 THEN 'Young Adult (18–34)'
-        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 55 THEN 'Adult (35–54)'
-        ELSE 'Senior (55+)'
+        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 5  THEN 'Toddler (0–4)'
+        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 13 THEN 'Child (5–12)'
+        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 18 THEN 'Adolescent (13–17)'
+        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 25 THEN 'Youth (18–24)'
+        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 35 THEN 'Young Adult (25–34)'
+        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 45 THEN 'Adult (35–44)'
+        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 55 THEN 'Middle Age (45–54)'
+        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 65 THEN 'Older Adult (55–64)'
+        ELSE 'Senior (65+)'
     END                                                     AS age_group,
     CASE
         WHEN LOWER(v.payment_mode) IN ('nhif','shif','sha','national scheme')
@@ -2844,10 +2874,15 @@ SELECT
     DATE_TRUNC('month', v.created_at)   AS visit_month,
     CASE
         WHEN p.dob IS NULL THEN 'Unknown'
-        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 18 THEN 'Paediatric (<18)'
-        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 35 THEN 'Young Adult (18–34)'
-        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 55 THEN 'Adult (35–54)'
-        ELSE 'Senior (55+)'
+        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 5  THEN 'Toddler (0–4)'
+        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 13 THEN 'Child (5–12)'
+        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 18 THEN 'Adolescent (13–17)'
+        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 25 THEN 'Youth (18–24)'
+        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 35 THEN 'Young Adult (25–34)'
+        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 45 THEN 'Adult (35–44)'
+        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 55 THEN 'Middle Age (45–54)'
+        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 65 THEN 'Older Adult (55–64)'
+        ELSE 'Senior (65+)'
     END                                 AS age_cohort,
     COUNT(DISTINCT v.patient)           AS patient_count
 FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
@@ -4103,10 +4138,15 @@ WITH schema_anchor AS (
 elevated AS (
     SELECT DISTINCT v.source_schema, v.id AS visit_id,
         CASE WHEN p.dob IS NULL THEN 'Unknown'
-             WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 18 THEN 'Paediatric (<18)'
-             WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 35 THEN 'Young Adult (18–34)'
-             WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 55 THEN 'Adult (35–54)'
-             ELSE 'Senior (55+)'
+             WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 5  THEN 'Toddler (0–4)'
+             WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 13 THEN 'Child (5–12)'
+             WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 18 THEN 'Adolescent (13–17)'
+             WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 25 THEN 'Youth (18–24)'
+             WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 35 THEN 'Young Adult (25–34)'
+             WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 45 THEN 'Adult (35–44)'
+             WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 55 THEN 'Middle Age (45–54)'
+             WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 65 THEN 'Older Adult (55–64)'
+             ELSE 'Senior (65+)'
         END AS age_group,
         UPPER(COALESCE(p.sex, 'Unknown')) AS sex
     FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
@@ -4245,9 +4285,13 @@ WITH schema_anchor AS (
 )
 SELECT
     CASE WHEN p.dob IS NULL THEN 'Unknown'
-         WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 18 THEN 'Paediatric (<18)'
-         WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 35 THEN 'Young Adult (18–34)'
-         WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 55 THEN 'Adult (35–54)'
+         WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 5  THEN 'Toddler (0–4)'
+         WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 13 THEN 'Child (5–12)'
+         WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 18 THEN 'Adolescent (13–17)'
+         WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 25 THEN 'Youth (18–24)'
+         WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 35 THEN 'Young Adult (25–34)'
+         WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 45 THEN 'Adult (35–44)'
+         WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 55 THEN 'Middle Age (45–54)'
          WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 65 THEN 'Older Adult (55–64)'
          ELSE 'Senior (65+)'
     END                                                     AS age_group,

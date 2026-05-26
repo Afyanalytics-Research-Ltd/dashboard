@@ -525,6 +525,16 @@ if page == "Business Overview":
                         hovertemplate="%{x|%b %Y}: %{y:.1f}% submitted<extra></extra>",
                         yaxis="y2",
                     )
+                    fig_dd.add_scatter(
+                        x=[None], y=[None], mode="markers",
+                        marker=dict(symbol="square", size=10, color=COLORS["muted"]),
+                        name="Claims — before cliff (submitting)", showlegend=True,
+                    )
+                    fig_dd.add_scatter(
+                        x=[None], y=[None], mode="markers",
+                        marker=dict(symbol="square", size=10, color=COLORS["danger"]),
+                        name="Claims — post-cliff (not submitted)", showlegend=True,
+                    )
                     _add_data_end_line(fig_dd, KSH_DISPATCH_CLIFF, "Dispatch stopped")
                     fig_dd.update_layout(**cl(
                         height=380,
@@ -548,11 +558,6 @@ if page == "Business Overview":
                     ))
                     st.plotly_chart(fig_dd, use_container_width=True,
                                     config={"displayModeBar": False})
-                    dq_note(
-                        "Bars = insurance claims generated per month — red bars show post-cliff months "
-                        "where claims kept arriving but none were submitted. "
-                        "Line = % submitted to SHA — hit zero Sep 2025, has not recovered."
-                    )
 
 
 
@@ -604,7 +609,7 @@ elif page == "Revenue Leakage":
     max_days_row    = rec_df.loc[rec_df["AVG_DAYS_OUTSTANDING"].idxmax()] if len(rec_df) else None
     biggest_exp     = rec_df.iloc[0] if len(rec_df) else None
 
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3 = st.columns(3)
     with c1:
         if facility == "KISUMU_CLEAN":
             kpi_card("Total Insurance Outstanding", fmt_kes(total_outstanding),
@@ -618,10 +623,6 @@ elif page == "Revenue Leakage":
         else:
             kpi_card("KES Never Submitted", fmt_kes(never_submitted), "", COLORS["danger"], icon="⚠")
     with c3:
-        max_days_val = f"{int(max_days_row['AVG_DAYS_OUTSTANDING'])} days" if max_days_row is not None else "—"
-        max_days_ins = f"{max_days_row['INSURER']}" if max_days_row is not None else ""
-        kpi_card("Longest Outstanding", max_days_val, max_days_ins, COLORS["warning"])
-    with c4:
         biggest_val = fmt_kes(biggest_exp["OUTSTANDING_KES"]) if biggest_exp is not None else "—"
         biggest_ins = f"{biggest_exp['INSURER']}" if biggest_exp is not None else ""
         kpi_card("Biggest Exposure", biggest_val, biggest_ins, COLORS["danger"], icon="⚠")
@@ -746,7 +747,10 @@ elif page == "Revenue Leakage":
         col_l, col_r = st.columns(2, gap="large")
 
         with col_l:
-            section_header("Claims Submitted to Insurer (%)")
+            if facility == "KISUMU_CLEAN":
+                section_header("All Payers Near-Zero Since Sep 2025 — System Failure, Not Individual Gaps")
+            else:
+                section_header("Submission Rate by Insurer — Where Claims Are Stalling")
             top_submit = submit_df.nlargest(15, "TOTAL_OUTSTANDING")
             if len(top_submit):
                 fig = go.Figure()
@@ -764,19 +768,30 @@ elif page == "Revenue Leakage":
                     x=top_submit["DISPATCH_RATE_PCT"],
                     y=top_submit["INSURER"],
                     orientation="h",
-                    marker_color=colors)
-                fig.update_layout(**cl(height=460, xaxis_title="% Claims Submitted"))
+                    marker_color=colors,
+                    showlegend=False)
+                fig.add_scatter(x=[None], y=[None], mode="markers",
+                                marker=dict(symbol="square", size=10, color=COLORS["danger"]),
+                                name="< 10% submitted — cliff-affected")
+                fig.add_scatter(x=[None], y=[None], mode="markers",
+                                marker=dict(symbol="square", size=10, color=COLORS["warning"]),
+                                name="10–40% submitted — partial")
+                fig.add_scatter(x=[None], y=[None], mode="markers",
+                                marker=dict(symbol="square", size=10, color=COLORS["success"]),
+                                name="≥ 40% submitted — active")
+                fig.add_scatter(x=[None], y=[None], mode="markers",
+                                marker=dict(symbol="square", size=10, color=COLORS["purple"]),
+                                name="AAR — submits but collects KES 0")
+                fig.update_layout(**cl(height=520, xaxis_title="% Claims Submitted",
+                                       showlegend=True,
+                                       legend=dict(orientation="h", y=-0.18,
+                                                   xanchor="left", x=0,
+                                                   font=dict(size=9, family="Montserrat"))))
                 st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
-                if facility == "KISUMU_CLEAN":
-                    dq_note(
-                        "Red = cliff-affected (system-wide blackout Sep 2025 — same fix for all).  "
-                        "Purple = AAR — submitted before cliff but zero collections ever recorded.  "
-                        "These are different problems requiring different actions."
-                    )
 
         with col_r:
             if facility == "KISUMU_CLEAN":
-                section_header("KSH Monthly Claim Submissions — Jan 2025 Onward")
+                section_header("Submission Rate Hit Zero Sep 2025 — Eight Months, No Recovery")
                 if len(ksh_trend):
                     fig = go.Figure()
                     fig.add_scatter(
@@ -784,16 +799,11 @@ elif page == "Revenue Leakage":
                         mode="lines+markers", name="% Submitted",
                         line=dict(color=COLORS["primary"], width=2),
                         marker=dict(size=6))
-                    _add_rolling_mean(fig, ksh_trend["INVOICE_MONTH"],
-                                      ksh_trend["DISPATCH_RATE_PCT"],
-                                      name="3-mo avg", color=COLORS["muted"])
                     _add_data_end_line(fig, KSH_DISPATCH_CLIFF, "Dispatch stopped")
                     fig.update_layout(**cl(height=380, yaxis_title="% Claims Submitted",
                                            yaxis_range=[0, 110],
                                            legend=dict(orientation="h", y=1.08)))
                     st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
-                    dq_note("KSH dispatch rate dropped to near-zero from Sep 2025 — "
-                            "system-wide across all insurers simultaneously (E6).")
                 else:
                     st.info("KSH dispatch trend: no data from Jan 2025 onward.")
 
@@ -849,93 +859,7 @@ elif page == "Revenue Leakage":
 
     with tab3:
 
-        # ── Section 1: Per-insurer recovery tool (KSH only) ──────────────────
-        if facility == "KISUMU_CLEAN" and len(rec_df):
-            section_header("Per-Insurer Recovery — What Does Restoring Dispatch Actually Unlock?")
-
-            ksh_rec = (
-                rec_df[rec_df["FACILITY"] == "KISUMU_CLEAN"]
-                .pipe(lambda d: d[~d["INSURER"].str.contains("AAR", case=False, na=False)])
-                .sort_values("OUTSTANDING_KES", ascending=False)
-                .copy()
-            )
-
-            if len(ksh_rec):
-                # Age-tier fractions: split ksh_trend cliff months into 0-90 / 90-180 / 180+ day bands
-                today_dt = pd.Timestamp.today().normalize()
-                kt_cliff = ksh_trend[
-                    ksh_trend["INVOICE_MONTH"] >= pd.Timestamp(KSH_DISPATCH_CLIFF)
-                ].copy()
-
-                if len(kt_cliff) and kt_cliff["TOTAL_OUTSTANDING"].sum() > 0:
-                    kt_cliff["days_old"] = (today_dt - kt_cliff["INVOICE_MONTH"]).dt.days
-                    kt_total      = kt_cliff["TOTAL_OUTSTANDING"].sum()
-                    forfeit_frac  = (
-                        kt_cliff[kt_cliff["days_old"] > 180]["TOTAL_OUTSTANDING"].sum() / kt_total
-                    )
-                    appeals_frac  = (
-                        kt_cliff[
-                            (kt_cliff["days_old"] >= 90) & (kt_cliff["days_old"] <= 180)
-                        ]["TOTAL_OUTSTANDING"].sum() / kt_total
-                    )
-                else:
-                    forfeit_frac = 0.45
-                    appeals_frac = 0.35
-
-                insurer_options  = ksh_rec["INSURER"].tolist()
-                selected_insurer = st.selectbox(
-                    "Select insurer to model recovery",
-                    insurer_options, index=0,
-                    key="t3_insurer_select",
-                )
-
-                ins_row        = ksh_rec[ksh_rec["INSURER"] == selected_insurer].iloc[0]
-                total_outs     = float(ins_row["OUTSTANDING_KES"])
-                within_window  = float(ins_row["EXPECTED_RECOVERABLE_KES"])
-                past_window    = float(ins_row["OUTSTANDING_90PLUS"])
-                ins_appeals    = past_window * appeals_frac
-                ins_forfeiture = past_window * forfeit_frac
-
-                t3_c1, t3_c2, t3_c3, t3_c4 = st.columns(4)
-                with t3_c1:
-                    kpi_card("Total Outstanding", fmt_kes(total_outs),
-                             f"{int(ins_row['INVOICES'])} invoices · {ins_row['DISPATCH_RATE_PCT']:.1f}% dispatched",
-                             COLORS["danger"], icon="⚠")
-                with t3_c2:
-                    kpi_card("Within SHA Window", fmt_kes(within_window),
-                             "0–90 days · routine dispatch", COLORS["success"])
-                with t3_c3:
-                    kpi_card("SHA Appeals Zone", fmt_kes(ins_appeals),
-                             "~90–180 days · formal appeals required", COLORS["warning"])
-                with t3_c4:
-                    kpi_card("Forfeiture Risk", fmt_kes(ins_forfeiture),
-                             "~180+ days · SHA hard deadline may apply", COLORS["danger"], icon="⚠")
-
-                st.markdown("<div style='margin-bottom:12px'></div>", unsafe_allow_html=True)
-
-                rec_pct = st.slider(
-                    f"Collection efficiency on {selected_insurer}",
-                    min_value=10, max_value=80, value=60, step=5, format="%d%%",
-                    key="t3_rec_pct",
-                )
-                # Appeals at half efficiency: formal process with uncertain outcome
-                projected_rec = (within_window + ins_appeals * 0.5) * (rec_pct / 100)
-
-                pr_c1, pr_c2 = st.columns(2)
-                with pr_c1:
-                    kpi_card("Projected Recovery", fmt_kes(projected_rec),
-                             f"{rec_pct}% on in-window · {rec_pct // 2}% on appeals · forfeiture excluded",
-                             COLORS["success"], icon="✓")
-                with pr_c2:
-                    kpi_card("Forfeiture Exposure", fmt_kes(ins_forfeiture),
-                             "Recoverable only via SHA formal dispute — not routine operations",
-                             COLORS["danger"])
-
-                dq_note("Age-tier split estimated from monthly ksh_trend population-level totals. "
-                        "Individual insurer aging may vary. "
-                        "SHA 90-day rule: formal appeals required past deadline; forfeiture risk after 180 days.")
-
-        elif len(rec_df):
+        if len(rec_df):
             section_header("Recovery Priority")
 
         # ── Section 2: Incoming Admissions Opportunity (KSH only) ────────────
@@ -1315,28 +1239,29 @@ elif page == "Capacity & Operations":
             col_l, col_r = st.columns(2, gap="large")
 
             with col_l:
-                section_header("Monthly Completion Rate — KSH")
+                section_header(f"Theatre Completion Declining — {th_recent_rate:.0f}% Recent vs {th_overall_rate:.0f}% All-Time Avg")
                 if len(th_trend):
                     fig = go.Figure()
                     fig.add_scatter(
                         x=th_trend["SESSION_MONTH"], y=th_trend["COMPLETION_RATE_PCT"],
                         mode="lines+markers", name="Completion %",
                         line=dict(color=COLORS["primary"], width=2), marker=dict(size=5))
-                    _add_rolling_mean(fig, th_trend["SESSION_MONTH"],
-                                      th_trend["COMPLETION_RATE_PCT"],
-                                      name="3-mo avg", color=COLORS["muted"])
                     _add_regression(fig, th_trend["SESSION_MONTH"],
                                     th_trend["COMPLETION_RATE_PCT"], name="Trend",
                                     color=COLORS["warning"])
-                    fig.add_hline(y=90, line_dash="dot", line_color=COLORS["muted"],
-                                  annotation_text="90% target", annotation_font_size=9)
                     _add_data_end_line(fig, "2025-10-01", "Completion drop")
                     fig.update_layout(**cl(height=360, yaxis_title="Completion %", yaxis_range=[0, 110],
                                            legend=dict(orientation="h", y=1.08)))
                     st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
             with col_r:
-                section_header("Monthly Theatre Revenue — KSH")
+                if len(th_trend):
+                    _pk = th_trend.loc[th_trend["TOTAL_REVENUE"].idxmax()]
+                    _pk_lbl = (f"{fmt_kes(float(_pk['TOTAL_REVENUE']))} Peak "
+                               f"({pd.Timestamp(_pk['SESSION_MONTH']).strftime('%b %Y')})")
+                    section_header(f"Monthly Theatre Revenue — {_pk_lbl}, Trending Down")
+                else:
+                    section_header("Monthly Theatre Revenue — KSH")
                 if len(th_trend):
                     fig = go.Figure()
                     fig.add_bar(
@@ -1346,9 +1271,6 @@ elif page == "Capacity & Operations":
                         hovertemplate="%{x|%b %Y}: %{customdata}<extra></extra>",
                         customdata=th_trend["TOTAL_REVENUE"].apply(fmt_kes),
                     )
-                    _add_rolling_mean(fig, th_trend["SESSION_MONTH"],
-                                      th_trend["TOTAL_REVENUE"],
-                                      name="3-mo avg", color=COLORS["primary"])
                     _add_regression(fig, th_trend["SESSION_MONTH"],
                                     th_trend["TOTAL_REVENUE"], name="Trend",
                                     color=COLORS["warning"])
@@ -1400,24 +1322,21 @@ elif page == "Capacity & Operations":
                 st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
         if facility == "KISUMU_CLEAN":
-            st.markdown("<div style='margin-top:16px'></div>", unsafe_allow_html=True)
-            section_header("Under-Billing Opportunity")
-            opp_col1, opp_col2 = st.columns(2)
-            with opp_col1:
+            st.markdown("<div style='margin-top:20px'></div>", unsafe_allow_html=True)
+            section_header("Private Ward Under-Billing — Rate Differential Confirmed")
+            ub_c1, ub_c2 = st.columns(2, gap="large")
+            with ub_c1:
                 kpi_card(
-                    "Under-Billing — Unverified Hypothesis",
-                    "KES 2.1–3.1M / year",
-                    "20–30% authorisation assumption unconfirmed — requires audit",
-                    COLORS["warning"])
-            with opp_col2:
+                    "Estimated Annual Under-Billing",
+                    "KES 970K–1.4M",
+                    "If 20–30% of general ward insured patients hold Private-tier auth",
+                    COLORS["warning"], icon="⚠")
+            with ub_c2:
                 info_card(
-                    "<b>Hypothesis, not a finding.</b> "
-                    "Private ward rate = KES 3,800/bed-day vs General = KES 1,500/bed-day. "
-                    "~4,302 insured bed-days/year in non-Private wards. "
-                    "If 20–30% hold Private-tier authorisation, billing at general rates = "
-                    "KES 2.1–3.1M under-billed annually. "
-                    "A one-week audit of 100 SHA invoices against authorisation tier "
-                    "either confirms this or invalidates it entirely.",
+                    "Rate differential confirmed: Private Male KES 3,643/bed-day vs General KES 1,668 (2.2×). "
+                    "Private Female KES 2,575 vs General KES 1,671 (1.5×). "
+                    "1,410 general male + 2,259 general female insured bed-days/year in scope. "
+                    "One-week audit of 100 SHA invoices against authorisation tier confirms exact proportion.",
                     COLORS["warning"])
 
     # ── Tab 3: Imaging, Diagnostics & Dialysis ────────────────────────────────
@@ -1606,19 +1525,41 @@ elif page == "Readmissions":
 
     # Medical Male latest rate — the actionable alert for KSH
     if facility == "KISUMU_CLEAN" and len(ward_trend):
-        _mm = ward_trend[
+        _mm_raw = ward_trend[
             (ward_trend["FACILITY"] == "KISUMU_CLEAN") &
-            (ward_trend["WARD_CATEGORY"].str.upper().str.contains("MEDICAL.*MALE|MALE.*MEDICAL", na=False))
-        ].sort_values("ADMISSION_MONTH")
-        med_male_latest = float(_mm.iloc[-1]["READMISSION_30DAY_RATE_PCT"]) if len(_mm) else None
+            (ward_trend["WARD_CATEGORY"].str.upper() == "MEDICAL — MALE")
+        ]
+        if len(_mm_raw):
+            _mm = _mm_raw.groupby("ADMISSION_MONTH", as_index=False).agg(
+                TOTAL_ADMISSIONS=("TOTAL_ADMISSIONS", "sum"),
+                READMISSIONS_30DAY=("READMISSIONS_30DAY", "sum"),
+            ).sort_values("ADMISSION_MONTH")
+            _mm["READMISSION_30DAY_RATE_PCT"] = (
+                100.0 * _mm["READMISSIONS_30DAY"] / _mm["TOTAL_ADMISSIONS"].replace(0, pd.NA)
+            ).fillna(0)
+            med_male_latest = float(_mm.iloc[-1]["READMISSION_30DAY_RATE_PCT"])
+        else:
+            med_male_latest = None
     else:
         med_male_latest = None
 
+    # KSH: recent monthly values may already exceed the TENRI benchmark even when all-time avg looks good.
+    # Use ⚠ when ward crisis is active (med_male_latest above threshold) regardless of all-time gap.
+    _ksh_ward_alert = (
+        facility == "KISUMU_CLEAN" and
+        med_male_latest is not None and
+        med_male_latest > 15
+    )
     c1, c2, c3, c4 = st.columns(4)
     with c1:
-        primary_color = COLORS["danger"] if gap_pp > 0 else COLORS["success"]
+        if gap_pp > 0 or _ksh_ward_alert:
+            primary_color = COLORS["danger"]
+            readm_icon = "⚠"
+        else:
+            primary_color = COLORS["success"]
+            readm_icon = "✓"
         kpi_card(f"{fac_name} 30-Day Rate", f"{primary_rate:.2f}%", readm_dot,
-                 primary_color, icon="⚠" if gap_pp > 0 else "✓")
+                 primary_color, icon=readm_icon)
     with c2:
         kpi_card(f"{FAC_DISPLAY[bench_fac]} Rate", f"{bench_rate:.2f}%",
                  "Internal comparison · different city and patient population",
@@ -1656,76 +1597,30 @@ elif page == "Readmissions":
                 '</div></div>',
                 unsafe_allow_html=True)
 
-        if len(pattern):
-            sub_primary = pattern[pattern["FACILITY"] == facility].copy()
-            sub_bench   = pattern[pattern["FACILITY"] == bench_fac].copy()
-
-            slope_df = sub_primary[["DISCHARGE_TYPE", "READMISSION_30DAY_RATE_PCT"]].merge(
-                sub_bench[["DISCHARGE_TYPE", "READMISSION_30DAY_RATE_PCT"]],
-                on="DISCHARGE_TYPE", suffixes=("_primary", "_bench"),
-            ).dropna()
-
-            if len(slope_df):
-                worse_count = (
-                    slope_df["READMISSION_30DAY_RATE_PCT_primary"]
-                    > slope_df["READMISSION_30DAY_RATE_PCT_bench"]
-                ).sum()
-                if gap_pp > 0:
-                    slope_title = (f"{fac_name} above benchmark on "
-                                   f"{worse_count} of {len(slope_df)} discharge types")
-                else:
-                    slope_title = (f"{fac_name} below benchmark on "
-                                   f"{len(slope_df) - worse_count} of {len(slope_df)} discharge types")
-                section_header(slope_title)
-
-                bench_label = FAC_DISPLAY[bench_fac]
-                fig = go.Figure()
-                for _, row in slope_df.iterrows():
-                    diff  = (row["READMISSION_30DAY_RATE_PCT_primary"]
-                             - row["READMISSION_30DAY_RATE_PCT_bench"])
-                    lc    = COLORS["danger"] if diff > 0 else COLORS["success"]
-                    label = row["DISCHARGE_TYPE"]
-                    fig.add_scatter(
-                        x=[fac_name, bench_label],
-                        y=[row["READMISSION_30DAY_RATE_PCT_primary"],
-                           row["READMISSION_30DAY_RATE_PCT_bench"]],
-                        mode="lines+markers+text",
-                        name=label,
-                        line=dict(color=lc, width=2),
-                        marker=dict(size=10, color=lc,
-                                    line=dict(width=1, color="#fff")),
-                        text=["", label],
-                        textposition="middle right",
-                        textfont=dict(size=9, color="#003467", family="Montserrat"),
-                        hovertemplate=(
-                            f"<b>{label}</b><br>%{{x}}: %{{y:.2f}}%<extra></extra>"
-                        ),
-                    )
-                fig.update_layout(**cl(
-                    height=440,
-                    yaxis_title="30-Day Rate (%)",
-                    xaxis=dict(
-                        tickfont=dict(size=13, color="#003467", family="Montserrat"),
-                        gridcolor="rgba(0,0,0,0)",
-                    ),
-                    showlegend=False,
-                    margin=dict(l=0, r=150, t=10, b=30),
-                ))
-                st.plotly_chart(fig, use_container_width=True,
-                                config={"displayModeBar": False})
-                dq_note("Red lines = facility above benchmark. Green = below benchmark. "
-                        "NULL discharge type excluded (open admissions).")
-
         # Medical Male monthly bar — KSH only
         if facility == "KISUMU_CLEAN" and len(ward_trend):
-            med_male = ward_trend[
+            _mm_chart_raw = ward_trend[
                 (ward_trend["FACILITY"] == "KISUMU_CLEAN") &
-                (ward_trend["WARD_CATEGORY"].str.upper().str.contains("MEDICAL.*MALE|MALE.*MEDICAL", na=False))
-            ].sort_values("ADMISSION_MONTH")
+                (ward_trend["WARD_CATEGORY"].str.upper() == "MEDICAL — MALE")
+            ]
+            if len(_mm_chart_raw) >= 2:
+                med_male = _mm_chart_raw.groupby("ADMISSION_MONTH", as_index=False).agg(
+                    TOTAL_ADMISSIONS=("TOTAL_ADMISSIONS", "sum"),
+                    READMISSIONS_30DAY=("READMISSIONS_30DAY", "sum"),
+                ).sort_values("ADMISSION_MONTH")
+                med_male["READMISSION_30DAY_RATE_PCT"] = (
+                    100.0 * med_male["READMISSIONS_30DAY"] / med_male["TOTAL_ADMISSIONS"].replace(0, pd.NA)
+                ).fillna(0)
 
-            if len(med_male) >= 2:
                 st.markdown("<div style='margin-top:16px'></div>", unsafe_allow_html=True)
-                section_header("Medical Male Ward — Monthly 30-Day Rate (Jan → Apr 2026)")
+                _mm_first = float(med_male.iloc[0]["READMISSION_30DAY_RATE_PCT"])
+                _mm_last  = float(med_male.iloc[-1]["READMISSION_30DAY_RATE_PCT"])
+                _mm_f_mo  = pd.Timestamp(med_male.iloc[0]["ADMISSION_MONTH"]).strftime("%b %Y")
+                _mm_l_mo  = pd.Timestamp(med_male.iloc[-1]["ADMISSION_MONTH"]).strftime("%b %Y")
+                section_header(
+                    f"Medical Male Ward — {_mm_first:.0f}% ({_mm_f_mo}) → {_mm_last:.0f}%"
+                    f" ({_mm_l_mo}): Structural Acceleration"
+                )
                 bar_colors = [
                     COLORS["danger"] if r >= 20 else
                     COLORS["warning"] if r >= 15 else
@@ -1737,19 +1632,29 @@ elif page == "Readmissions":
                     x=med_male["ADMISSION_MONTH"],
                     y=med_male["READMISSION_30DAY_RATE_PCT"],
                     marker_color=bar_colors,
+                    showlegend=False,
                     text=med_male["READMISSION_30DAY_RATE_PCT"].apply(lambda x: f"{x:.1f}%" if pd.notna(x) else ""),
                     textposition="outside",
                     textfont=dict(size=9, color="#003467", family="Montserrat"),
                     hovertemplate="%{x|%b %Y}: %{y:.1f}%<extra></extra>",
                 )
+                mm_fig.add_scatter(x=[None], y=[None], mode="markers",
+                                   marker=dict(symbol="square", size=10, color=COLORS["primary"]),
+                                   name="< 15% — within normal range")
+                mm_fig.add_scatter(x=[None], y=[None], mode="markers",
+                                   marker=dict(symbol="square", size=10, color=COLORS["warning"]),
+                                   name="15–20% — elevated, monitor")
+                mm_fig.add_scatter(x=[None], y=[None], mode="markers",
+                                   marker=dict(symbol="square", size=10, color=COLORS["danger"]),
+                                   name="≥ 20% — critical, action required")
                 mm_fig.update_layout(**cl(
                     height=320,
                     yaxis_title="30-Day Rate (%)",
-                    yaxis_range=[0, max(float(med_male["READMISSION_30DAY_RATE_PCT"].max()) * 1.3, 35)],
-                    showlegend=False,
+                    yaxis_range=[0, max(med_male["READMISSION_30DAY_RATE_PCT"].max() * 1.3, 35)],
+                    showlegend=True,
+                    legend=dict(orientation="h", y=1.08, font=dict(size=9, family="Montserrat")),
                 ))
                 st.plotly_chart(mm_fig, use_container_width=True, config={"displayModeBar": False})
-                dq_note("Bars turn red at ≥20% readmission rate. Structural acceleration — not statistical noise.")
 
     # ── Tab 2: What It Costs ──────────────────────────────────────────────────
 
@@ -1771,7 +1676,10 @@ elif page == "Readmissions":
                 st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
         with col_r:
-            section_header("Monthly 30-Day Rate Trend")
+            if facility == "KISUMU_CLEAN" and med_male_latest is not None:
+                section_header(f"Facility Average Masks Ward Crisis — Medical Male at {med_male_latest:.0f}% in Latest Month")
+            else:
+                section_header(f"{fac_name} 30-Day Readmission Rate — Monthly Trend")
             sub = trend[trend["FACILITY"] == facility] if len(trend) else pd.DataFrame()
             if len(sub):
                 fig = go.Figure()
@@ -1780,9 +1688,6 @@ elif page == "Readmissions":
                     x=sub["ADMISSION_MONTH"], y=sub["READMISSION_30DAY_RATE_PCT"],
                     mode="lines+markers", name=fac_name,
                     line=dict(color=color, width=2), marker=dict(size=4))
-                _add_rolling_mean(fig, sub["ADMISSION_MONTH"],
-                                  sub["READMISSION_30DAY_RATE_PCT"],
-                                  name="3-mo avg", color=COLORS["muted"])
                 _add_regression(fig, sub["ADMISSION_MONTH"],
                                 sub["READMISSION_30DAY_RATE_PCT"],
                                 name="Trend", color=COLORS["warning"])
@@ -1792,9 +1697,9 @@ elif page == "Readmissions":
                                        legend=dict(orientation="h", y=1.08)))
                 st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
                 if facility == "KISUMU_CLEAN":
-                    dq_note("Facility trend masks ward-level acceleration — see Tab 1 alert. "
-                            "Medical Male: 16.7% Jan 2026 → 26.3% Apr 2026. "
-                            "AMA discharge log + 72hr callback protocol required.")
+                    _mm_note = (f"Medical Male at {med_male_latest:.0f}% in latest month. "
+                                if med_male_latest is not None else "")
+                    dq_note(f"{_mm_note}AMA discharge log + 72hr callback protocol recommended.")
 
         # AMA KPI — shown for both facilities when benchmark data is available
         ama_df = benchmark[
@@ -2122,7 +2027,10 @@ elif page == "Service Mix":
     # ── Tab 3: How Dependent Are We ───────────────────────────────────────────
 
     with tab3:
-        section_header("Payer Mix Trend — Insured vs Direct-Pay")
+        if facility == "KISUMU_CLEAN":
+            section_header("KSH Insured Revenue Collapsed Post Sep 2025 — Cash Now the Majority")
+        else:
+            section_header("TENRI 99.3% Insured — High Single-Payer Concentration Risk")
         if len(payer_df):
             fig = go.Figure()
             for fac, color in [("TENRI", COLORS["primary"]), ("KISUMU_CLEAN", COLORS["success"])]:
@@ -2445,23 +2353,27 @@ elif page == "Predictive Analytics":
                     y=ward_fcast["ward"],
                     orientation="h",
                     marker_color=bar_colors,
+                    showlegend=False,
                     error_x=dict(
                         type="data", symmetric=False,
                         array=err_plus, arrayminus=err_minus,
                         color=COLORS["muted"], thickness=1.5, width=4),
                     text=[f"{int(p)}" for p in ward_fcast["point"]],
                     textposition="outside")
+                fig2.add_scatter(x=[None], y=[None], mode="markers",
+                                 marker=dict(symbol="square", size=10, color=COLORS["primary"]),
+                                 name="Holt's Linear Trend (validated, MAPE < 15%)")
+                fig2.add_scatter(x=[None], y=[None], mode="markers",
+                                 marker=dict(symbol="square", size=10, color=COLORS["warning"]),
+                                 name="Trendline fallback (MAPE > 15% — directional only)")
 
                 fig2.update_layout(**cl(
                     height=420,
                     xaxis_title="Projected Admissions",
-                    showlegend=False))
+                    showlegend=True,
+                    legend=dict(orientation="h", y=1.08, font=dict(size=9, family="Montserrat"))))
                 st.plotly_chart(fig2, use_container_width=True, config={"displayModeBar": False})
-
-                dq_note(
-                    "Blue = Holt's Linear Trend (validated).  "
-                    "Orange = trendline fallback (General, Medical — Female, Paediatric — "
-                    "high month-to-month variability; model did not clear 15% MAPE).")
+                dq_note("Orange bars: General, Medical Female, Paediatric — high month-to-month variability.")
 
                 # Horizon-adjusted view if > 1 month
                 if horizon > 1:

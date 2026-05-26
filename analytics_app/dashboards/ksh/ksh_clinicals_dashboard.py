@@ -1,11 +1,13 @@
 import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath('__file__')), "clinical_module"))
+# Add dashboards/ to path so 'import ksh.clinical_module.X' resolves correctly
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import streamlit as st
 import plotly.io as pio
 import plotly.graph_objects as go
 import pandas as pd
 from datetime import date, timedelta
+
 import ksh.clinical_module.queries as Q
 from ksh.clinical_module.queries import run_query
 import ksh.clinical_module.views as V

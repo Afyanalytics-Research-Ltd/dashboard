@@ -163,10 +163,6 @@ def _wsa(filters: dict) -> str:
     if schemas:
         quoted = ", ".join(f"'{s}'" for s in schemas)
         parts.append(f"source_schema IN ({quoted})")
-    if filters.get("date_from"):
-        parts.append(f"created_at >= '{filters['date_from']}'")
-    if filters.get("date_to"):
-        parts.append(f"created_at <= '{filters['date_to']}'")
     if parts:
         return "WHERE " + "\n    AND ".join(parts)
     return ""
@@ -295,8 +291,8 @@ visit_base AS (
         FROM HOSPITALS.STAGING.STG_EVALUATION_INVESTIGATIONS
         WHERE (cancelled IS NULL OR cancelled = 0)
           AND (remove_from_report IS NULL OR remove_from_report = 0)
-          AND LOWER(TRIM(investigation_type))
-              IN ('laboratory', 'lab', 'radiology', 'ultrasound')
+          AND (procedure_clinical_division IN ('Pathology / Laboratory Medicine', 'Radiology & Imaging')
+               OR LOWER(TRIM(investigation_type)) IN ('laboratory', 'lab', 'radiology', 'ultrasound'))
     ) inv ON v.id = inv.visit_id AND v.source_schema = inv.source_schema
     LEFT JOIN (
         SELECT DISTINCT visit_id, source_schema
@@ -422,11 +418,26 @@ monthly AS (
 ),
 top_wards AS (
     SELECT ward FROM monthly GROUP BY ward ORDER BY SUM(admissions) DESC LIMIT 6
+),
+filtered AS (
+    SELECT m.visit_month, m.ward, m.admissions
+    FROM monthly m
+    INNER JOIN top_wards tw ON m.ward = tw.ward
 )
-SELECT m.visit_month, m.ward, m.admissions
-FROM monthly m
-INNER JOIN top_wards tw ON m.ward = tw.ward
-ORDER BY 1, 2
+SELECT
+    visit_month,
+    ward,
+    admissions,
+    CASE
+        WHEN ROW_NUMBER() OVER (PARTITION BY ward ORDER BY visit_month) < 3 THEN NULL
+        ELSE ROUND(
+            AVG(admissions) OVER (
+                PARTITION BY ward ORDER BY visit_month
+                ROWS BETWEEN 2 PRECEDING AND CURRENT ROW
+            ), 1)
+    END AS admissions_3mo_avg
+FROM filtered
+ORDER BY ward, visit_month
 """
     return run_query(sql)
 
@@ -1333,7 +1344,8 @@ lab_inv AS (
            MIN(result_created_at)        AS first_result_at
     FROM HOSPITALS.STAGING.STG_EVALUATION_INVESTIGATIONS
     WHERE (cancelled IS NULL OR cancelled = 0)
-      AND LOWER(TRIM(investigation_type)) IN ('laboratory', 'lab')
+      AND (procedure_clinical_division = 'Pathology / Laboratory Medicine'
+           OR LOWER(TRIM(investigation_type)) IN ('laboratory', 'lab'))
     GROUP BY 1, 2
 ),
 journey_durations AS (
@@ -1401,6 +1413,12 @@ SELECT
     -- Coverage rates
     ROUND(100.0 * COUNT(hrs_to_triage)         / NULLIF(COUNT(*), 0), 1)  AS pct_triage_recorded,
     ROUND(100.0 * COUNT(hrs_triage_to_consult) / NULLIF(COUNT(*), 0), 1)  AS pct_consult_recorded,
+    ROUND(100.0 * COUNT(hrs_consult_to_lab)    / NULLIF(COUNT(*), 0), 1)  AS pct_lab_recorded,
+    -- Exceeding targets (per-visit-type thresholds: IP triage=30 min, OP triage=15 min)
+    ROUND(100.0 * COUNT(CASE WHEN hrs_to_triage > IFF(visit_type='Inpatient', 0.5, 0.25) THEN 1 END)
+          / NULLIF(COUNT(hrs_to_triage), 0), 1)       AS pct_exceeding_triage_target,
+    ROUND(100.0 * COUNT(CASE WHEN hrs_triage_to_consult > 1.0 THEN 1 END)
+          / NULLIF(COUNT(hrs_triage_to_consult), 0), 1) AS pct_exceeding_consult_target,
     COUNT(*) AS total_visits
 FROM journey_durations
 GROUP BY 1
@@ -1428,84 +1446,12 @@ ORDER BY ORDINAL_POSITION
 def load_lab_turnaround_by_discipline(filters: dict, run_query, name_col: str = "") -> pd.DataFrame:
     """Lab/investigation turnaround by clinical discipline.
 
-    If `name_col` is a column that holds procedure-level detail (e.g. 'name',
-    'description', 'investigation_name'), it is used to map tests to clinical
-    disciplines via keyword matching.  Falls back to investigation_type grouping
-    when no detailed column is available.
+    Uses procedure_clinical_division and procedure_discipline columns directly.
+    The name_col parameter is retained for backward compatibility but no longer used.
     """
     wh = _w(filters, alias="v")
     wsa = _wsa(filters)
     mo = _mo(filters)
-
-    if name_col:
-        raw_expr = f"UPPER(TRIM(i.{name_col}))"
-    else:
-        raw_expr = "UPPER(TRIM(i.investigation_type))"
-
-    discipline_case = f"""
-        CASE
-            -- Haematology
-            WHEN {raw_expr} LIKE '%HAEMATOL%' OR {raw_expr} LIKE '%HEMATOL%'
-              OR {raw_expr} LIKE '%FULL BLOOD%' OR {raw_expr} LIKE '%CBC%'
-              OR {raw_expr} LIKE '%HAEMOGLOBIN%' OR {raw_expr} LIKE '%HEMOGLOBIN%'
-              OR {raw_expr} LIKE '%BLOOD GROUP%' OR {raw_expr} LIKE '%BLOOD FILM%'
-              OR {raw_expr} LIKE '%ESR%' OR {raw_expr} LIKE '%PLATELET%'
-              OR {raw_expr} LIKE '%WHITE CELL%' OR {raw_expr} LIKE '%WBC%'
-              OR {raw_expr} LIKE '%RBC%' OR {raw_expr} LIKE '%COAGUL%'
-              OR {raw_expr} LIKE '%PT%INR%' OR {raw_expr} LIKE '%APTT%'
-                THEN 'Haematology'
-            -- Clinical Chemistry / Biochemistry
-            WHEN {raw_expr} LIKE '%CHEM%' OR {raw_expr} LIKE '%BIOCHEM%'
-              OR {raw_expr} LIKE '%GLUCOSE%' OR {raw_expr} LIKE '%RBS%'
-              OR {raw_expr} LIKE '%FBS%' OR {raw_expr} LIKE '%HBA1C%'
-              OR {raw_expr} LIKE '%LIPID%' OR {raw_expr} LIKE '%CHOLESTEROL%'
-              OR {raw_expr} LIKE '%CREATININE%' OR {raw_expr} LIKE '%UREA%'
-              OR {raw_expr} LIKE '%BUN%' OR {raw_expr} LIKE '%ELECTROLYTE%'
-              OR {raw_expr} LIKE '%SODIUM%' OR {raw_expr} LIKE '%POTASSIUM%'
-              OR {raw_expr} LIKE '%LIVER%' OR {raw_expr} LIKE '%LFT%'
-              OR {raw_expr} LIKE '%ALT%' OR {raw_expr} LIKE '%AST%'
-              OR {raw_expr} LIKE '%TSH%' OR {raw_expr} LIKE '%THYROID%'
-              OR {raw_expr} LIKE '%PSA%' OR {raw_expr} LIKE '%URIC ACID%'
-              OR {raw_expr} LIKE '%AMYLASE%' OR {raw_expr} LIKE '%TROPONIN%'
-                THEN 'Clinical Chemistry'
-            -- Microbiology
-            WHEN {raw_expr} LIKE '%MICROBIO%' OR {raw_expr} LIKE '%CULTURE%'
-              OR {raw_expr} LIKE '%SENSITIV%' OR {raw_expr} LIKE '%C&S%'
-              OR {raw_expr} LIKE '%AFB%' OR {raw_expr} LIKE '%TB%'
-              OR {raw_expr} LIKE '%MALARIA%' OR {raw_expr} LIKE '%GRAM STAIN%'
-              OR {raw_expr} LIKE '%MRSA%' OR {raw_expr} LIKE '%GeneXpert%'
-              OR {raw_expr} LIKE '%XPERT%' OR {raw_expr} LIKE '%STOOL%'
-              OR {raw_expr} LIKE '%SWAB%'
-                THEN 'Microbiology'
-            -- Immunology / Serology
-            WHEN {raw_expr} LIKE '%IMMUNOL%' OR {raw_expr} LIKE '%SEROL%'
-              OR {raw_expr} LIKE '%HIV%' OR {raw_expr} LIKE '%HEPATITIS%'
-              OR {raw_expr} LIKE '%HBsAg%' OR {raw_expr} LIKE '%HCV%'
-              OR {raw_expr} LIKE '%SYPHILIS%' OR {raw_expr} LIKE '%VDRL%'
-              OR {raw_expr} LIKE '%RPR%' OR {raw_expr} LIKE '%BRUCELLA%'
-              OR {raw_expr} LIKE '%WIDAL%' OR {raw_expr} LIKE '%ELISA%'
-              OR {raw_expr} LIKE '%RAPID TEST%' OR {raw_expr} LIKE '%ANTIGEN%'
-              OR {raw_expr} LIKE '%ANTIBODY%' OR {raw_expr} LIKE '%COVID%'
-                THEN 'Immunology / Serology'
-            -- Urinalysis
-            WHEN {raw_expr} LIKE '%URINAL%' OR {raw_expr} LIKE '%URINE%'
-              OR {raw_expr} LIKE '%DIPSTICK%' OR {raw_expr} LIKE '%URINE M%'
-                THEN 'Urinalysis'
-            -- Pathology / Cytology / Histology
-            WHEN {raw_expr} LIKE '%PATHOL%' OR {raw_expr} LIKE '%HISTOL%'
-              OR {raw_expr} LIKE '%BIOPSY%' OR {raw_expr} LIKE '%CYTOL%'
-              OR {raw_expr} LIKE '%PAP%' OR {raw_expr} LIKE '%FNAC%'
-              OR {raw_expr} LIKE '%SMEAR%'
-                THEN 'Pathology & Cytology'
-            -- Radiology / Imaging
-            WHEN {raw_expr} LIKE '%RADIOL%' OR {raw_expr} LIKE '%IMAGING%'
-              OR {raw_expr} LIKE '%X-RAY%' OR {raw_expr} LIKE '%XRAY%'
-              OR {raw_expr} LIKE '%ULTRASOUND%' OR {raw_expr} LIKE '%ECHO%'
-              OR {raw_expr} LIKE '%CT SCAN%' OR {raw_expr} LIKE '%MRI%'
-              OR {raw_expr} LIKE '%MAMMOGRAM%' OR {raw_expr} LIKE '%SCAN%'
-                THEN 'Radiology & Imaging'
-            ELSE 'Other / Unclassified'
-        END"""
 
     sql = f"""
 WITH schema_anchor AS (
@@ -1515,8 +1461,9 @@ WITH schema_anchor AS (
     GROUP BY source_schema
 )
 SELECT
-    {discipline_case}                                                AS discipline,
-    INITCAP(TRIM(i.investigation_type))                             AS investigation_type,
+    COALESCE(NULLIF(TRIM(i.procedure_discipline), 'Unclassified'), 'Other / Unclassified')      AS discipline,
+    COALESCE(NULLIF(TRIM(i.procedure_clinical_division), 'Unclassified'), 'Other')              AS clinical_division,
+    COALESCE(NULLIF(TRIM(i.procedure_name), ''), INITCAP(TRIM(i.investigation_type)))           AS test_name,
     COUNT(*)                                                        AS test_count,
     ROUND(AVG(CASE
         WHEN i.result_created_at > i.investigation_created_at
@@ -1538,11 +1485,9 @@ INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_VISITS v
 INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
 WHERE (i.cancelled IS NULL OR i.cancelled = 0)
   AND (i.remove_from_report IS NULL OR i.remove_from_report = 0)
-  AND i.investigation_type IS NOT NULL
-  AND TRIM(i.investigation_type) != ''
   AND v.created_at >= DATEADD('month', -{mo}, sa.max_date)
   {wh}
-GROUP BY 1, 2
+GROUP BY 1, 2, 3
 HAVING test_count >= 3
 ORDER BY discipline, avg_turnaround_hrs DESC NULLS LAST
 """
@@ -1631,16 +1576,16 @@ inv_ordered AS (
     FROM HOSPITALS.STAGING.STG_EVALUATION_INVESTIGATIONS
     WHERE (cancelled IS NULL OR cancelled = 0)
       AND (remove_from_report IS NULL OR remove_from_report = 0)
-      AND LOWER(TRIM(investigation_type))
-          IN ('laboratory', 'lab', 'radiology', 'ultrasound')
+      AND (procedure_clinical_division IN ('Pathology / Laboratory Medicine', 'Radiology & Imaging')
+           OR LOWER(TRIM(investigation_type)) IN ('laboratory', 'lab', 'radiology', 'ultrasound'))
 ),
 inv_resulted_24h AS (
     SELECT DISTINCT visit_id, source_schema
     FROM HOSPITALS.STAGING.STG_EVALUATION_INVESTIGATIONS
     WHERE (cancelled IS NULL OR cancelled = 0)
       AND (remove_from_report IS NULL OR remove_from_report = 0)
-      AND LOWER(TRIM(investigation_type))
-          IN ('laboratory', 'lab', 'radiology', 'ultrasound')
+      AND (procedure_clinical_division IN ('Pathology / Laboratory Medicine', 'Radiology & Imaging')
+           OR LOWER(TRIM(investigation_type)) IN ('laboratory', 'lab', 'radiology', 'ultrasound'))
       AND result_created_at IS NOT NULL
       AND DATEDIFF('hour', investigation_created_at, result_created_at) <= 24
       AND result_created_at > investigation_created_at
@@ -2195,7 +2140,8 @@ offpeak_visits AS (
     {wh}
 )
 SELECT
-    INITCAP(TRIM(i.investigation_type)) AS discipline,
+    COALESCE(NULLIF(TRIM(i.procedure_discipline), 'Unclassified'),
+             INITCAP(TRIM(i.investigation_type))) AS discipline,
     ov.visit_type,
     COUNT(*)                            AS inv_count
 FROM offpeak_visits ov
@@ -2203,7 +2149,6 @@ INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_INVESTIGATIONS i
     ON ov.visit_id = i.visit_id
    AND (i.cancelled IS NULL OR i.cancelled = 0)
    AND (i.remove_from_report IS NULL OR i.remove_from_report = 0)
-   AND i.investigation_type IS NOT NULL
 GROUP BY 1, 2
 ORDER BY inv_count DESC
 """
@@ -2357,14 +2302,26 @@ WITH schema_anchor AS (
 pp AS (
     SELECT v.source_schema, v.patient,
         UPPER(COALESCE(p.sex, 'Unknown')) AS sex,
-        CASE
+           CASE
             WHEN p.dob IS NULL THEN 'Unknown'
-            WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 18  THEN 'Paediatric (<18)'
-            WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 35  THEN 'Young Adult (18–34)'
-            WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 55  THEN 'Adult (35–54)'
-            WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 65  THEN 'Older Adult (55–64)'
+            WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 5
+                THEN 'Toddler (0–4)'
+            WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 13
+                THEN 'Child (5–12)'
+            WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 18
+                THEN 'Adolescent (13–17)'
+            WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 25
+                THEN 'Youth (18–24)'
+            WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 35
+                THEN 'Young Adult (25–34)'
+            WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 45
+                THEN 'Adult (35–44)'
+            WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 55
+                THEN 'Middle Age (45–54)'
+            WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 65
+                THEN 'Older Adult (55–64)'
             ELSE 'Senior (65+)'
-        END AS age_group,
+        END                                             AS age_group,
         MAX(CASE
             WHEN dx.is_chronic_1 = 1 OR dx.is_chronic_2 = 1
               OR n.diagnosis ILIKE '%hypertension%'
@@ -2390,7 +2347,7 @@ SELECT age_group, sex,
     SUM(is_chronic)                             AS chronic,
     COUNT(DISTINCT patient) - SUM(is_chronic)   AS non_chronic
 FROM pp
-WHERE age_group != 'Unknown' AND sex NOT IN ('UNKNOWN', 'Unknown')
+WHERE age_group != 'Unknown' AND sex NOT IN ('UNKNOWN', 'Unknown') AND sex != ''
 GROUP BY 1, 2
 ORDER BY 1, 2
 """
@@ -2450,13 +2407,26 @@ atf AS (
     FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS GROUP BY 1, 2
 )
 SELECT
-    CASE
-        WHEN p.dob IS NULL THEN 'Unknown'
-        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 18 THEN 'Paediatric (<18)'
-        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 35 THEN 'Young Adult (18–34)'
-        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 55 THEN 'Adult (35–54)'
-        ELSE 'Senior (55+)'
-    END                                                             AS age_group,
+   CASE
+            WHEN p.dob IS NULL THEN 'Unknown'
+            WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 5
+                THEN 'Toddler (0–4)'
+            WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 13
+                THEN 'Child (5–12)'
+            WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 18
+                THEN 'Adolescent (13–17)'
+            WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 25
+                THEN 'Youth (18–24)'
+            WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 35
+                THEN 'Young Adult (25–34)'
+            WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 45
+                THEN 'Adult (35–44)'
+            WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 55
+                THEN 'Middle Age (45–54)'
+            WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 65
+                THEN 'Older Adult (55–64)'
+            ELSE 'Senior (65+)'
+        END                                             AS age_group,
     CASE WHEN a.visit_id IS NOT NULL THEN 'Inpatient' ELSE 'Outpatient'
     END                                                             AS visit_type,
     CASE
@@ -2562,10 +2532,15 @@ WITH schema_anchor AS (
 SELECT
     CASE
         WHEN p.dob IS NULL THEN 'Unknown'
-        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 18 THEN 'Paediatric (<18)'
-        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 35 THEN 'Young Adult (18–34)'
-        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 55 THEN 'Adult (35–54)'
-        ELSE 'Senior (55+)'
+        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 5  THEN 'Toddler (0–4)'
+        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 13 THEN 'Child (5–12)'
+        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 18 THEN 'Adolescent (13–17)'
+        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 25 THEN 'Youth (18–24)'
+        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 35 THEN 'Young Adult (25–34)'
+        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 45 THEN 'Adult (35–44)'
+        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 55 THEN 'Middle Age (45–54)'
+        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 65 THEN 'Older Adult (55–64)'
+        ELSE 'Senior (65+)'
     END                                                     AS age_group,
     CASE
         WHEN LOWER(v.payment_mode) IN ('nhif','shif','sha','national scheme')
@@ -2844,10 +2819,15 @@ SELECT
     DATE_TRUNC('month', v.created_at)   AS visit_month,
     CASE
         WHEN p.dob IS NULL THEN 'Unknown'
-        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 18 THEN 'Paediatric (<18)'
-        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 35 THEN 'Young Adult (18–34)'
-        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 55 THEN 'Adult (35–54)'
-        ELSE 'Senior (55+)'
+        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 5  THEN 'Toddler (0–4)'
+        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 13 THEN 'Child (5–12)'
+        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 18 THEN 'Adolescent (13–17)'
+        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 25 THEN 'Youth (18–24)'
+        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 35 THEN 'Young Adult (25–34)'
+        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 45 THEN 'Adult (35–44)'
+        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 55 THEN 'Middle Age (45–54)'
+        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 65 THEN 'Older Adult (55–64)'
+        ELSE 'Senior (65+)'
     END                                 AS age_cohort,
     COUNT(DISTINCT v.patient)           AS patient_count
 FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
@@ -4103,10 +4083,15 @@ WITH schema_anchor AS (
 elevated AS (
     SELECT DISTINCT v.source_schema, v.id AS visit_id,
         CASE WHEN p.dob IS NULL THEN 'Unknown'
-             WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 18 THEN 'Paediatric (<18)'
-             WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 35 THEN 'Young Adult (18–34)'
-             WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 55 THEN 'Adult (35–54)'
-             ELSE 'Senior (55+)'
+             WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 5  THEN 'Toddler (0–4)'
+             WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 13 THEN 'Child (5–12)'
+             WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 18 THEN 'Adolescent (13–17)'
+             WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 25 THEN 'Youth (18–24)'
+             WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 35 THEN 'Young Adult (25–34)'
+             WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 45 THEN 'Adult (35–44)'
+             WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 55 THEN 'Middle Age (45–54)'
+             WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 65 THEN 'Older Adult (55–64)'
+             ELSE 'Senior (65+)'
         END AS age_group,
         UPPER(COALESCE(p.sex, 'Unknown')) AS sex
     FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
@@ -4135,7 +4120,7 @@ SELECT age_group,
 FROM elevated ev
 LEFT JOIN ncd_coded nc
     ON ev.visit_id = nc.visit_id AND ev.source_schema = nc.source_schema
-WHERE age_group != 'Unknown'
+WHERE age_group != 'Unknown' AND  sex NOT IN ('UNKNOWN', 'Unknown') AND sex != ''
 GROUP BY 1
 ORDER BY undetected_pct DESC
 """
@@ -4245,9 +4230,13 @@ WITH schema_anchor AS (
 )
 SELECT
     CASE WHEN p.dob IS NULL THEN 'Unknown'
-         WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 18 THEN 'Paediatric (<18)'
-         WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 35 THEN 'Young Adult (18–34)'
-         WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 55 THEN 'Adult (35–54)'
+         WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 5  THEN 'Toddler (0–4)'
+         WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 13 THEN 'Child (5–12)'
+         WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 18 THEN 'Adolescent (13–17)'
+         WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 25 THEN 'Youth (18–24)'
+         WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 35 THEN 'Young Adult (25–34)'
+         WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 45 THEN 'Adult (35–44)'
+         WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 55 THEN 'Middle Age (45–54)'
          WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 65 THEN 'Older Adult (55–64)'
          ELSE 'Senior (65+)'
     END                                                     AS age_group,

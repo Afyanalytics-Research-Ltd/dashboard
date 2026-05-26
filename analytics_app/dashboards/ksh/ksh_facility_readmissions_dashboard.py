@@ -2419,7 +2419,7 @@ elif page == "Predictive Analytics":
         meta.columns = ["Series", "Model", "Holdout MAPE", "Status"]
         st.dataframe(meta, hide_index=True, use_container_width=True)
 
-        from facility_utilization.m1_ward_forecast import VALIDATED_DATE, RETRAIN_DATE
+        from ksh.facility_utilization.m1_ward_forecast import VALIDATED_DATE, RETRAIN_DATE
         dq_note(
             f"Last validated: {VALIDATED_DATE.strftime('%Y-%m-%d')}  ·  "
             f"Retrain recommended by: {RETRAIN_DATE.strftime('%Y-%m-%d')}  ·  "

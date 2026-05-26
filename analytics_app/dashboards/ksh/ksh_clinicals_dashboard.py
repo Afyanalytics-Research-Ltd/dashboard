@@ -1,7 +1,7 @@
 import sys
 import os
 # Add dashboards/ to path so 'import ksh.clinical_module.X' resolves correctly
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath('__file__'))))
 import streamlit as st
 import plotly.io as pio
 import plotly.graph_objects as go

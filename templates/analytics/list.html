@@ -2,541 +2,932 @@
 
 {% block title %}Analytics Dashboards{% endblock %}
 
-{% block page_header %}
-<div class="afya-page-header afya-content pb-0">
-    <div>
-        <h1 class="afya-page-title">
-            <i class="bi bi-bar-chart-line me-2 text-afya-blue"></i>Analytics Dashboards
-            <span class="badge rounded-pill ms-2" style="background:var(--afya-blue);font-size:13px;">
-                {{ total_count }}
-            </span>
-        </h1>
-        <p class="afya-page-sub">Explore Streamlit and BI dashboards filtered to your organisation.</p>
-    </div>
-    <div class="afya-page-actions">
-        {% if request.user.is_superuser %}
-        <form method="post" action="{% url 'analytics:dashboard_sync' %}">
-            {% csrf_token %}
-            <button type="submit" class="btn btn-outline-secondary btn-sm">
-                <i class="bi bi-arrow-clockwise me-1"></i>Sync
-            </button>
-        </form>
-        <a href="{% url 'analytics:dashboard_create' %}" class="btn btn-afya-primary btn-sm">
-            <i class="bi bi-plus-lg me-1"></i>Add Dashboard
-        </a>
-        {% endif %}
-    </div>
-</div>
+{% block page_header %}{% endblock %}
+{% block breadcrumbs %}{% endblock %}
 
-<!-- Search + filter bar -->
-<div class="afya-content pt-3 pb-0">
-    <div class="d-flex flex-wrap gap-3 align-items-center">
-        <!-- Search -->
-        <form method="get" class="afya-search-bar" style="min-width:260px;">
-            <i class="bi bi-search search-icon"></i>
-            <input type="text" name="q" value="{{ current_q }}"
-                   class="form-control"
-                   placeholder="Search dashboards…"
-                   autocomplete="off">
-            {% if current_category %}
-            <input type="hidden" name="category" value="{{ current_category }}">
-            {% endif %}
-        </form>
-
-        <!-- Category filter pills -->
-        <div class="filter-pills">
-            <a href="{% url 'analytics:dashboard_list' %}{% if current_q %}?q={{ current_q }}{% endif %}"
-               class="filter-pill {% if not current_category %}active{% endif %}">All</a>
-            {% for cat_val, cat_label in categories %}
-            <a href="?category={{ cat_val }}{% if current_q %}&q={{ current_q }}{% endif %}"
-               class="filter-pill {% if current_category == cat_val %}active{% endif %}">
-                {{ cat_label }}
-            </a>
-            {% endfor %}
-        </div>
-    </div>
-</div>
-{% endblock %}
-
-{% block content %}
-
-{% if dashboards %}
-<div class="row g-3 mt-1">
-    {% for dashboard in dashboards %}
-    <div class="col-12 col-sm-6 col-xl-4">
-        <div class="dashboard-card position-relative">
-            {% if not dashboard.is_active %}
-            <div class="inactive-overlay">
-                <span class="badge bg-secondary">Inactive</span>
-            </div>
-            {% endif %}
-
-            <!-- Thumbnail -->
-            <div class="dashboard-card-thumbnail">
-                {% if dashboard.thumbnail %}
-                <img src="{{ dashboard.thumbnail.url }}" alt="{{ dashboard.name }} thumbnail">
-                {% else %}
-                <i class="bi bi-bar-chart-line thumb-icon"></i>
-                {% endif %}
-            </div>
-
-            <!-- Body -->
-            <div class="dashboard-card-body">
-                <div class="d-flex align-items-start justify-content-between gap-2 mb-1">
-                    <h3 class="dashboard-card-title">{{ dashboard.name }}</h3>
-                    <span class="badge rounded-pill badge-{{ dashboard.category }} flex-shrink-0">
-                        {{ dashboard.get_category_display }}
-                    </span>
-                </div>
-                <p class="dashboard-card-desc">
-                    {{ dashboard.description|default:"No description provided."|truncatechars:90 }}
-                </p>
-            </div>
-
-            <!-- Footer -->
-            <div class="dashboard-card-footer">
-                <span class="view-count">
-                    <i class="bi bi-eye me-1"></i>{{ dashboard.view_count }} view{{ dashboard.view_count|pluralize }}
-                </span>
-                <div class="d-flex gap-2">
-                    {% if request.user.is_superuser %}
-                    <a href="{% url 'analytics:dashboard_edit' dashboard.slug %}"
-                       class="btn btn-outline-secondary btn-sm"
-                       title="Edit">
-                        <i class="bi bi-pencil"></i>
-                    </a>
-                    {% endif %}
-                    <a href="{% url 'analytics:dashboard_view' dashboard.slug %}"
-                       class="btn btn-afya-primary btn-sm">
-                        Open <i class="bi bi-arrow-right ms-1"></i>
-                    </a>
-                </div>
-            </div>
-        </div>
-    </div>
-    {% endfor %}
-</div>
-
-<!-- Pagination -->
-{% if is_paginated %}
-<div class="afya-pagination mt-4">
-    <span class="text-muted">
-        Page {{ page_obj.number }} of {{ paginator.num_pages }}
-    </span>
-    <ul class="pagination mb-0">
-        {% if page_obj.has_previous %}
-        <li class="page-item">
-            <a class="page-link" href="?page={{ page_obj.previous_page_number }}{% if current_q %}&q={{ current_q }}{% endif %}{% if current_category %}&category={{ current_category }}{% endif %}">
-                <i class="bi bi-chevron-left"></i>
-            </a>
-        </li>
-        {% endif %}
-        {% for num in paginator.page_range %}
-        <li class="page-item {% if num == page_obj.number %}active{% endif %}">
-            <a class="page-link" href="?page={{ num }}{% if current_q %}&q={{ current_q }}{% endif %}{% if current_category %}&category={{ current_category }}{% endif %}">{{ num }}</a>
-        </li>
-        {% endfor %}
-        {% if page_obj.has_next %}
-        <li class="page-item">
-            <a class="page-link" href="?page={{ page_obj.next_page_number }}{% if current_q %}&q={{ current_q }}{% endif %}{% if current_category %}&category={{ current_category }}{% endif %}">
-                <i class="bi bi-chevron-right"></i>
-            </a>
-        </li>
-        {% endif %}
-    </ul>
-</div>
-{% endif %}
-
-{% else %}
-<!-- Empty state -->
-<div class="card mt-3">
-    <div class="card-body empty-state">
-        <div class="empty-state-icon"><i class="bi bi-bar-chart-line"></i></div>
-        <div class="empty-state-title">No dashboards found</div>
-        <p class="empty-state-desc">
-            {% if current_q or current_category %}
-                Try adjusting your search or filter criteria.
-                <a href="{% url 'analytics:dashboard_list' %}">Clear filters</a>
-            {% else %}
-                No active dashboards are available for your organisation yet.
-            {% endif %}
-        </p>
-        {% if request.user.is_superuser %}
-        <form method="post" action="{% url 'analytics:dashboard_sync' %}" class="d-inline">
-            {% csrf_token %}
-            <button type="submit" class="btn btn-afya-primary btn-sm">
-                <i class="bi bi-arrow-clockwise me-1"></i>Sync Dashboards
-            </button>
-        </form>
-        {% endif %}
-    </div>
-</div>
-{% endif %}
-
-{% endblock %}
-
-<!-- Add this to your base.html or include in an extra block -->
 {% block extra_css %}
 <style>
-    /* Enhanced CSS for beautiful dashboard cards */
-    :root {
-        --afya-blue: #0d6efd;
-        --afya-blue-dark: #0a58ca;
-        --afya-glow: rgba(13, 110, 253, 0.15);
-        --card-radius: 1.25rem;
-        --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    }
+/* ==============================================
+   DASHBOARD LIST  —  AFYA DATAHUB
+   ============================================== */
 
-    .afya-page-header {
-        display: flex;
-        flex-wrap: wrap;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 1rem;
-    }
+:root {
+  --dl-blue:      #0072CE;
+  --dl-teal:      #0BB99F;
+  --dl-dark:      #0a1628;
+  --dl-ease:      cubic-bezier(0.4, 0, 0.2, 1);
+  --dl-radius:    1.4rem;
+}
 
-    .afya-page-title {
-        font-weight: 700;
-        font-size: 2rem;
-        background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
-        background-clip: text;
-        -webkit-background-clip: text;
-        color: transparent;
-        display: inline-flex;
-        align-items: center;
-    }
+/* ---- HERO ---- */
+.dl-hero {
+  position: relative;
+  background: linear-gradient(145deg, #001a3d 0%, #002f6c 45%, #004e9a 100%);
+  padding: 2.75rem 2.5rem 2.25rem;
+  overflow: hidden;
+  color: #fff;
+  border-radius: 0 0 2.75rem 2.75rem;
+  margin-bottom: 0;
+}
 
-    .afya-page-sub {
-        color: #64748b;
-        margin-top: 0.25rem;
-        font-size: 0.95rem;
-    }
+/* Grid lines overlay */
+.dl-hero::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255,255,255,.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,.03) 1px, transparent 1px);
+  background-size: 40px 40px;
+  pointer-events: none;
+}
 
-    .btn-afya-primary {
-        background: var(--afya-blue);
-        border: none;
-        color: white;
-        font-weight: 500;
-        padding: 0.5rem 1.25rem;
-        border-radius: 2rem;
-        transition: var(--transition-smooth);
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-    }
+/* Coloured glow orbs */
+.dl-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(72px);
+  pointer-events: none;
+  animation: orb-drift 10s ease-in-out infinite;
+}
+.dl-orb-1 {
+  width: 480px; height: 480px;
+  background: radial-gradient(circle, rgba(0,114,206,.35), transparent 65%);
+  top: -160px; right: -80px;
+  animation-delay: 0s;
+}
+.dl-orb-2 {
+  width: 300px; height: 300px;
+  background: radial-gradient(circle, rgba(11,185,159,.25), transparent 65%);
+  bottom: -60px; left: 8%;
+  animation-delay: -4s;
+}
+.dl-orb-3 {
+  width: 200px; height: 200px;
+  background: radial-gradient(circle, rgba(96,198,255,.2), transparent 65%);
+  top: 40%; left: 45%;
+  animation-delay: -7s;
+}
 
-    .btn-afya-primary:hover {
-        background: var(--afya-blue-dark);
-        transform: translateY(-2px);
-        box-shadow: 0 6px 20px rgba(13,110,253,0.3);
-        color: white;
-    }
+@keyframes orb-drift {
+  0%,100% { transform: translate(0,0) scale(1); }
+  33%      { transform: translate(18px,-18px) scale(1.06); }
+  66%      { transform: translate(-12px,12px) scale(.95); }
+}
 
-    .btn-afya-primary.btn-sm {
-        padding: 0.35rem 1rem;
-        font-size: 0.875rem;
-    }
+.dl-hero-inner {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1.5rem;
+}
 
-    .btn-outline-secondary {
-        border-radius: 2rem;
-        transition: var(--transition-smooth);
-    }
+.dl-hero-label {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  font-size: .7rem;
+  font-weight: 800;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: rgba(96,198,255,.9);
+  margin-bottom: .6rem;
+}
 
-    .btn-outline-secondary:hover {
-        transform: translateY(-1px);
-    }
+.dl-hero-title {
+  font-size: clamp(1.8rem, 4vw, 2.8rem);
+  font-weight: 900;
+  letter-spacing: -.04em;
+  line-height: 1.05;
+  margin-bottom: .6rem;
+}
 
-    /* Search Bar */
-    .afya-search-bar {
-        position: relative;
-        flex: 1;
-        max-width: 320px;
-    }
+.dl-hero-title .accent {
+  background: linear-gradient(135deg, #60c6ff 0%, #0BB99F 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
 
-    .afya-search-bar .search-icon {
-        position: absolute;
-        left: 16px;
-        top: 50%;
-        transform: translateY(-50%);
-        color: #94a3b8;
-        font-size: 1rem;
-        z-index: 2;
-        pointer-events: none;
-    }
+.dl-hero-sub {
+  font-size: .95rem;
+  color: rgba(255,255,255,.55);
+  max-width: 460px;
+  line-height: 1.55;
+  margin-bottom: 1.6rem;
+}
 
-    .afya-search-bar input {
-        padding-left: 42px;
-        border-radius: 2rem;
-        border: 1px solid #e2e8f0;
-        background: white;
-        transition: var(--transition-smooth);
-        height: 44px;
-        font-size: 0.95rem;
-    }
+/* Stat chips */
+.dl-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .65rem;
+}
 
-    .afya-search-bar input:focus {
-        border-color: var(--afya-blue);
-        box-shadow: 0 0 0 4px var(--afya-glow);
-        outline: none;
-    }
+.dl-stat {
+  display: inline-flex;
+  align-items: center;
+  gap: .5rem;
+  padding: .45rem 1.05rem;
+  background: rgba(255,255,255,.07);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 999px;
+  font-size: .8rem;
+  color: rgba(255,255,255,.8);
+  transition: all .22s var(--dl-ease);
+  cursor: default;
+}
+.dl-stat:hover {
+  background: rgba(255,255,255,.13);
+  transform: translateY(-2px);
+}
+.dl-stat-num {
+  font-weight: 800;
+  font-size: .9rem;
+  color: #60c6ff;
+}
 
-    /* Filter Pills */
-    .filter-pills {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.6rem;
-    }
+/* Superuser actions */
+.dl-hero-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: .65rem;
+}
 
-    .filter-pill {
-        display: inline-block;
-        padding: 0.45rem 1.3rem;
-        background: white;
-        border-radius: 40px;
-        font-size: 0.875rem;
-        font-weight: 500;
-        color: #334155;
-        text-decoration: none;
-        transition: var(--transition-smooth);
-        border: 1px solid #e2e8f0;
-    }
+.btn-hero-white {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  background: white;
+  color: var(--dl-blue);
+  font-weight: 700;
+  font-size: .82rem;
+  padding: .5rem 1.3rem;
+  border-radius: 999px;
+  border: none;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all .25s var(--dl-ease);
+  white-space: nowrap;
+}
+.btn-hero-white:hover {
+  background: #eff8ff;
+  color: var(--dl-blue);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(0,0,0,.18);
+  text-decoration: none;
+}
 
-    .filter-pill:hover {
-        background: #f8fafc;
-        border-color: #cbd5e1;
-        color: #0f172a;
-        transform: translateY(-2px);
-        text-decoration: none;
-    }
+.btn-hero-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  background: rgba(255,255,255,.09);
+  backdrop-filter: blur(8px);
+  color: rgba(255,255,255,.9);
+  font-weight: 600;
+  font-size: .82rem;
+  padding: .5rem 1.3rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.22);
+  cursor: pointer;
+  transition: all .25s var(--dl-ease);
+  white-space: nowrap;
+}
+.btn-hero-ghost:hover {
+  background: rgba(255,255,255,.16);
+  color: white;
+  transform: translateY(-2px);
+}
 
-    .filter-pill.active {
-        background: var(--afya-blue);
-        border-color: var(--afya-blue);
-        color: white;
-        box-shadow: 0 4px 12px rgba(13,110,253,0.25);
-    }
+/* ---- FILTER BAR ---- */
+.dl-filter-wrap {
+  padding: 0 2rem;
+  margin-top: -1.4rem;
+  position: relative;
+  z-index: 20;
+}
 
-    /* Dashboard Cards */
-    .dashboard-card {
-        background: white;
-        border-radius: var(--card-radius);
-        overflow: hidden;
-        transition: var(--transition-smooth);
-        box-shadow: 0 1px 3px rgba(0,0,0,0.05), 0 1px 2px rgba(0,0,0,0.03);
-        border: 1px solid rgba(203, 213, 225, 0.4);
-        height: 100%;
-        display: flex;
-        flex-direction: column;
-        position: relative;
-    }
+.dl-filter-bar {
+  background: white;
+  border-radius: 1.5rem;
+  padding: 1rem 1.25rem;
+  box-shadow: 0 8px 32px rgba(0,0,0,.1);
+  border: 1px solid rgba(226,232,240,.8);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .85rem;
+}
 
-    .dashboard-card:hover {
-        transform: translateY(-8px);
-        box-shadow: 0 20px 35px -12px rgba(0, 0, 0, 0.15);
-        border-color: transparent;
-    }
+/* Search */
+.dl-search {
+  position: relative;
+  flex: 1;
+  min-width: 180px;
+  max-width: 340px;
+}
 
-    /* Thumbnail */
-    .dashboard-card-thumbnail {
-        background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
-        height: 160px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        position: relative;
-        overflow: hidden;
-    }
+.dl-search .si {
+  position: absolute;
+  left: .95rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #94a3b8;
+  font-size: .95rem;
+  pointer-events: none;
+  z-index: 2;
+  transition: color .2s;
+}
 
-    .dashboard-card-thumbnail img {
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-        transition: transform 0.4s ease;
-    }
+.dl-search input {
+  width: 100%;
+  padding: .55rem .9rem .55rem 2.5rem;
+  height: 44px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 999px;
+  background: #f8fafc;
+  font-size: .875rem;
+  color: #0f172a;
+  transition: all .25s var(--dl-ease);
+}
 
-    .dashboard-card:hover .dashboard-card-thumbnail img {
-        transform: scale(1.05);
-    }
+.dl-search input:focus {
+  border-color: var(--dl-blue);
+  box-shadow: 0 0 0 4px rgba(0,114,206,.1);
+  background: white;
+  outline: none;
+}
 
-    .thumb-icon {
-        font-size: 4.5rem;
-        color: var(--afya-blue);
-        opacity: 0.7;
-        transition: var(--transition-smooth);
-    }
+.dl-search:focus-within .si { color: var(--dl-blue); }
 
-    .dashboard-card:hover .thumb-icon {
-        opacity: 1;
-        transform: scale(1.05);
-    }
+/* Category pills */
+.dl-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .45rem;
+  flex: 1;
+}
 
-    /* Card Body */
-    .dashboard-card-body {
-        padding: 1.25rem 1.25rem 0.75rem;
-        flex: 1;
-    }
+.dl-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  padding: .38rem 1rem;
+  border-radius: 999px;
+  font-size: .78rem;
+  font-weight: 600;
+  color: #475569;
+  background: #f1f5f9;
+  border: 1.5px solid transparent;
+  text-decoration: none;
+  transition: all .2s var(--dl-ease);
+  white-space: nowrap;
+}
+.dl-pill:hover {
+  background: #e2e8f0;
+  color: #0f172a;
+  transform: translateY(-2px);
+  text-decoration: none;
+}
+.dl-pill.active {
+  background: linear-gradient(135deg, #0072CE, #0094e8);
+  color: white;
+  border-color: transparent;
+  box-shadow: 0 4px 14px rgba(0,114,206,.3);
+}
 
-    .dashboard-card-title {
-        font-size: 1.2rem;
-        font-weight: 700;
-        margin-bottom: 0.25rem;
-        color: #0f172a;
-        line-height: 1.3;
-    }
+.cat-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+.cat-dot-clinical    { background: #10b981; }
+.cat-dot-financial   { background: #f59e0b; }
+.cat-dot-operational { background: #3b82f6; }
+.cat-dot-reporting   { background: #8b5cf6; }
+.cat-dot-analytics   { background: #ef4444; }
 
-    .dashboard-card-desc {
-        font-size: 0.875rem;
-        color: #64748b;
-        margin-top: 0.5rem;
-        line-height: 1.5;
-        display: -webkit-box;
-        -webkit-line-clamp: 2;
-        -webkit-box-orient: vertical;
-        overflow: hidden;
-    }
+.dl-result-info {
+  font-size: .76rem;
+  color: #94a3b8;
+  font-weight: 500;
+  white-space: nowrap;
+  margin-left: auto;
+}
 
-    /* Badge colors */
-    .badge-operational {
-        background: #dbeafe;
-        color: #1e40af;
-        font-weight: 500;
-        padding: 0.35rem 0.85rem;
-    }
-    .badge-financial {
-        background: #fed7aa;
-        color: #9a3412;
-        font-weight: 500;
-        padding: 0.35rem 0.85rem;
-    }
-    .badge-clinical {
-        background: #d1fae5;
-        color: #065f46;
-        font-weight: 500;
-        padding: 0.35rem 0.85rem;
-    }
-    .badge-default {
-        background: #f1f5f9;
-        color: #475569;
-        font-weight: 500;
-        padding: 0.35rem 0.85rem;
-    }
+/* ---- GRID ---- */
+.dl-grid-wrap {
+  padding: 2rem 2rem 3rem;
+}
 
-    /* Card Footer */
-    .dashboard-card-footer {
-        padding: 0.9rem 1.25rem 1.1rem;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        border-top: 1px solid #f1f5f9;
-        background: #fefefe;
-    }
+/* ---- CARDS ---- */
+.dl-col {
+  animation: card-rise .55s var(--dl-ease) both;
+}
 
-    .view-count {
-        font-size: 0.8rem;
-        color: #64748b;
-        display: flex;
-        align-items: center;
-        gap: 5px;
-    }
+@keyframes card-rise {
+  from { opacity: 0; transform: translateY(28px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
 
-    .inactive-overlay {
-        position: absolute;
-        top: 12px;
-        left: 12px;
-        z-index: 3;
-    }
+.dl-card {
+  background: white;
+  border-radius: var(--dl-radius);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  border: 1.5px solid #f1f5f9;
+  box-shadow: 0 2px 10px rgba(0,0,0,.04);
+  transition: all .38s var(--dl-ease);
+  position: relative;
+}
 
-    /* Pagination */
-    .afya-pagination {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        flex-wrap: wrap;
-        gap: 1rem;
-        background: white;
-        padding: 0.75rem 1.5rem;
-        border-radius: 3rem;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-    }
+.dl-card:hover {
+  transform: translateY(-10px);
+  box-shadow: 0 28px 56px rgba(0,0,0,.13);
+  border-color: rgba(0,114,206,.12);
+}
 
-    .page-item.active .page-link {
-        background-color: var(--afya-blue);
-        border-color: var(--afya-blue);
-    }
+/* Coloured top accent */
+.dl-card::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  z-index: 3;
+  transition: height .3s var(--dl-ease);
+  border-radius: var(--dl-radius) var(--dl-radius) 0 0;
+}
+.dl-card:hover::after { height: 4px; }
 
-    .page-link {
-        border-radius: 2rem;
-        margin: 0 0.2rem;
-        color: #1e293b;
-        border: none;
-        background: #f1f5f9;
-        transition: all 0.2s;
-        font-weight: 500;
-    }
+.dl-card[data-cat="clinical"]    ::after,
+.dl-card[data-cat="clinical"]::after    { background: linear-gradient(90deg,#10b981,#34d399); }
+.dl-card[data-cat="financial"]::after   { background: linear-gradient(90deg,#f59e0b,#fbbf24); }
+.dl-card[data-cat="operational"]::after { background: linear-gradient(90deg,#3b82f6,#60a5fa); }
+.dl-card[data-cat="reporting"]::after   { background: linear-gradient(90deg,#8b5cf6,#a78bfa); }
+.dl-card[data-cat="analytics"]::after   { background: linear-gradient(90deg,#ef4444,#f87171); }
 
-    .page-link:hover {
-        background: #e2e8f0;
-        transform: scale(1.05);
-    }
+/* Hover overlay tint */
+.dl-card-tint {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, transparent 55%, rgba(0,114,206,.04) 100%);
+  opacity: 0;
+  transition: opacity .35s var(--dl-ease);
+  pointer-events: none;
+  z-index: 1;
+}
+.dl-card:hover .dl-card-tint { opacity: 1; }
 
-    /* Empty State */
-    .empty-state {
-        text-align: center;
-        padding: 4rem 2rem;
-    }
-    .empty-state-icon {
-        font-size: 4rem;
-        color: #cbd5e1;
-        margin-bottom: 1rem;
-    }
-    .empty-state-title {
-        font-size: 1.5rem;
-        font-weight: 600;
-        margin-bottom: 0.75rem;
-        color: #0f172a;
-    }
-    .empty-state-desc {
-        color: #64748b;
-        max-width: 400px;
-        margin-left: auto;
-        margin-right: auto;
-        margin-bottom: 1.5rem;
-    }
+/* Thumbnail */
+.dl-thumb {
+  height: 175px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  position: relative;
+  flex-shrink: 0;
+}
 
-    /* Responsive */
-    @media (max-width: 768px) {
-        .afya-page-header {
-            flex-direction: column;
-            align-items: flex-start;
-            gap: 1rem;
-        }
-        .afya-page-title {
-            font-size: 1.5rem;
-        }
-        .afya-search-bar {
-            max-width: 100%;
-        }
-        .filter-pills {
-            width: 100%;
-            overflow-x: auto;
-            flex-wrap: nowrap;
-            padding-bottom: 0.5rem;
-        }
-    }
+.dl-card[data-cat="clinical"]    .dl-thumb { background: linear-gradient(135deg,#d1fae5,#a7f3d0); }
+.dl-card[data-cat="financial"]   .dl-thumb { background: linear-gradient(135deg,#fef3c7,#fde68a); }
+.dl-card[data-cat="operational"] .dl-thumb { background: linear-gradient(135deg,#dbeafe,#bfdbfe); }
+.dl-card[data-cat="reporting"]   .dl-thumb { background: linear-gradient(135deg,#ede9fe,#ddd6fe); }
+.dl-card[data-cat="analytics"]   .dl-thumb { background: linear-gradient(135deg,#fee2e2,#fecaca); }
+.dl-thumb-default                           { background: linear-gradient(135deg,#f1f5f9,#e2e8f0); }
 
-    .text-afya-blue {
-        color: var(--afya-blue);
-    }
+.dl-thumb img {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  transition: transform .5s var(--dl-ease);
+}
+.dl-card:hover .dl-thumb img { transform: scale(1.07); }
+
+.dl-thumb-icon {
+  font-size: 3.8rem;
+  opacity: .4;
+  transition: all .4s var(--dl-ease);
+}
+.dl-card[data-cat="clinical"]    .dl-thumb-icon { color: #065f46; }
+.dl-card[data-cat="financial"]   .dl-thumb-icon { color: #92400e; }
+.dl-card[data-cat="operational"] .dl-thumb-icon { color: #1e3a8a; }
+.dl-card[data-cat="reporting"]   .dl-thumb-icon { color: #4c1d95; }
+.dl-card[data-cat="analytics"]   .dl-thumb-icon { color: #7f1d1d; }
+.dl-card:hover .dl-thumb-icon { opacity: .75; transform: scale(1.18) rotate(-6deg); }
+
+.dl-inactive-tag {
+  position: absolute;
+  top: 10px; left: 10px;
+  z-index: 4;
+  background: rgba(0,0,0,.55);
+  backdrop-filter: blur(8px);
+  color: white;
+  font-size: .65rem;
+  font-weight: 800;
+  padding: .2rem .6rem;
+  border-radius: 999px;
+  letter-spacing: .8px;
+  text-transform: uppercase;
+}
+
+/* Body */
+.dl-card-body {
+  padding: 1.1rem 1.2rem .7rem;
+  flex: 1;
+  position: relative;
+  z-index: 2;
+}
+
+.dl-cat-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  font-size: .7rem;
+  font-weight: 700;
+  padding: .22rem .7rem;
+  border-radius: 999px;
+  margin-bottom: .6rem;
+  letter-spacing: .3px;
+}
+.cat-b-clinical    { background:#d1fae5; color:#065f46; }
+.cat-b-financial   { background:#fef3c7; color:#92400e; }
+.cat-b-operational { background:#dbeafe; color:#1e3a8a; }
+.cat-b-reporting   { background:#ede9fe; color:#4c1d95; }
+.cat-b-analytics   { background:#fee2e2; color:#7f1d1d; }
+.cat-b-default     { background:#f1f5f9; color:#475569; }
+
+.dl-card-name {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 1.3;
+  margin-bottom: .4rem;
+}
+
+.dl-card-desc {
+  font-size: .8rem;
+  color: #64748b;
+  line-height: 1.55;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Footer */
+.dl-card-foot {
+  padding: .8rem 1.2rem 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-top: 1px solid #f1f5f9;
+  position: relative;
+  z-index: 2;
+}
+
+.dl-views {
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+  font-size: .75rem;
+  color: #94a3b8;
+  font-weight: 500;
+}
+
+.dl-actions {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+}
+
+/* Open button  */
+.dl-btn-open {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  background: linear-gradient(135deg, #0072CE, #0094e8);
+  color: white;
+  font-size: .77rem;
+  font-weight: 700;
+  padding: .4rem 1.05rem;
+  border-radius: 999px;
+  text-decoration: none;
+  border: none;
+  cursor: pointer;
+  transition: all .25s var(--dl-ease);
+  position: relative;
+  overflow: hidden;
+  letter-spacing: .2px;
+  white-space: nowrap;
+}
+.dl-btn-open::before {
+  content: '';
+  position: absolute;
+  top: 0; left: -100%; width: 100%; height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.25), transparent);
+  transition: left .45s var(--dl-ease);
+}
+.dl-btn-open:hover {
+  color: white;
+  transform: translateY(-2px);
+  box-shadow: 0 8px 22px rgba(0,114,206,.42);
+  text-decoration: none;
+}
+.dl-btn-open:hover::before { left: 100%; }
+
+/* Edit button */
+.dl-btn-edit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px; height: 32px;
+  border-radius: 9px;
+  background: #f1f5f9;
+  color: #475569;
+  border: 1.5px solid #e2e8f0;
+  text-decoration: none;
+  font-size: .82rem;
+  transition: all .2s var(--dl-ease);
+}
+.dl-btn-edit:hover {
+  background: #e2e8f0;
+  color: #0f172a;
+  text-decoration: none;
+}
+
+/* ---- EMPTY ---- */
+.dl-empty {
+  text-align: center;
+  padding: 5rem 2rem;
+  background: white;
+  border-radius: 1.5rem;
+  border: 2px dashed #e2e8f0;
+}
+.dl-empty-icon {
+  font-size: 4.5rem;
+  background: linear-gradient(135deg, var(--dl-blue), var(--dl-teal));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  opacity: .5;
+  display: block;
+  margin-bottom: 1.25rem;
+}
+.dl-empty-title {
+  font-size: 1.45rem;
+  font-weight: 800;
+  color: #0f172a;
+  margin-bottom: .6rem;
+}
+.dl-empty-desc {
+  font-size: .9rem;
+  color: #64748b;
+  max-width: 360px;
+  margin: 0 auto 1.5rem;
+  line-height: 1.6;
+}
+
+/* ---- PAGINATION ---- */
+.dl-pager {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 1.25rem;
+  margin-top: 3rem;
+  flex-wrap: wrap;
+}
+
+.dl-pager-info {
+  font-size: .82rem;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.pagination { gap: .3rem; margin: 0; }
+
+.page-link {
+  width: 38px; height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  border: 1.5px solid #e2e8f0;
+  color: #334155;
+  font-weight: 600;
+  font-size: .875rem;
+  transition: all .2s var(--dl-ease);
+  background: white;
+  padding: 0;
+}
+.page-link:hover {
+  border-color: var(--dl-blue);
+  color: var(--dl-blue);
+  background: #eff6ff;
+  transform: scale(1.08);
+}
+.page-item.active .page-link {
+  background: linear-gradient(135deg, #0072CE, #0094e8);
+  border-color: transparent;
+  color: white;
+  box-shadow: 0 4px 12px rgba(0,114,206,.32);
+}
+.page-item.disabled .page-link {
+  opacity: .3;
+  pointer-events: none;
+}
+
+/* ---- RESPONSIVE ---- */
+@media (max-width: 900px) {
+  .dl-filter-wrap { padding: 0 1.25rem; }
+  .dl-grid-wrap   { padding: 1.5rem 1.25rem 3rem; }
+  .dl-hero        { padding: 2rem 1.25rem 1.75rem; }
+}
+
+@media (max-width: 650px) {
+  .dl-hero { border-radius: 0 0 1.75rem 1.75rem; }
+  .dl-hero-title { font-size: 1.7rem; }
+  .dl-orb { display: none; }
+  .dl-filter-bar { flex-direction: column; align-items: stretch; border-radius: 1.1rem; }
+  .dl-search { max-width: 100%; }
+  .dl-pills {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    padding-bottom: .25rem;
+    scrollbar-width: none;
+  }
+  .dl-pills::-webkit-scrollbar { display: none; }
+  .dl-result-info { margin-left: 0; }
+}
 </style>
 {% endblock %}
 
+
+{% block content %}
+<!-- ============ HERO ============ -->
+<div class="dl-hero">
+  <div class="dl-orb dl-orb-1"></div>
+  <div class="dl-orb dl-orb-2"></div>
+  <div class="dl-orb dl-orb-3"></div>
+
+  <div class="dl-hero-inner">
+    <div>
+      <div class="dl-hero-label">
+        <i class="bi bi-broadcast-pin"></i> Afya DataHub
+      </div>
+      <h1 class="dl-hero-title">
+        Analytics <span class="accent">Dashboards</span>
+      </h1>
+      <p class="dl-hero-sub">
+        Explore live Streamlit and BI dashboards filtered to your organisation — clinical,
+        financial, operational and beyond.
+      </p>
+      <div class="dl-stats">
+        <div class="dl-stat">
+          <i class="bi bi-grid-3x3-gap-fill" style="color:#60c6ff;"></i>
+          <span class="dl-stat-num">{{ total_count }}</span> Dashboards
+        </div>
+        <div class="dl-stat">
+          <i class="bi bi-lightning-charge-fill" style="color:#fbbf24;"></i>
+          <span class="dl-stat-num">Live</span> Data
+        </div>
+        <div class="dl-stat">
+          <i class="bi bi-shield-check-fill" style="color:#34d399;"></i>
+          <span class="dl-stat-num">Secure</span> Access
+        </div>
+      </div>
+    </div>
+
+    {% if request.user.is_superuser %}
+    <div class="dl-hero-actions">
+      <a href="{% url 'analytics:dashboard_create' %}" class="btn-hero-white">
+        <i class="bi bi-plus-lg"></i> Add Dashboard
+      </a>
+      <form method="post" action="{% url 'analytics:dashboard_sync' %}">
+        {% csrf_token %}
+        <button type="submit" class="btn-hero-ghost">
+          <i class="bi bi-arrow-clockwise"></i> Sync
+        </button>
+      </form>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ============ FILTER BAR ============ -->
+<div class="dl-filter-wrap">
+  <div class="dl-filter-bar">
+
+    <!-- Search -->
+    <form method="get" id="searchForm" class="dl-search">
+      <i class="bi bi-search si"></i>
+      <input
+        type="text"
+        id="searchInput"
+        name="q"
+        value="{{ current_q }}"
+        placeholder="Search dashboards…"
+        autocomplete="off">
+      {% if current_category %}<input type="hidden" name="category" value="{{ current_category }}">{% endif %}
+    </form>
+
+    <!-- Category pills -->
+    <div class="dl-pills">
+      <a href="{% url 'analytics:dashboard_list' %}{% if current_q %}?q={{ current_q }}{% endif %}"
+         class="dl-pill {% if not current_category %}active{% endif %}">All</a>
+      {% for cat_val, cat_label in categories %}
+      <a href="?category={{ cat_val }}{% if current_q %}&q={{ current_q }}{% endif %}"
+         class="dl-pill {% if current_category == cat_val %}active{% endif %}">
+        <span class="cat-dot cat-dot-{{ cat_val }}"></span>{{ cat_label }}
+      </a>
+      {% endfor %}
+    </div>
+
+    <!-- Count -->
+    <span class="dl-result-info" id="resultInfo">
+      <span id="visibleN">{{ dashboards|length }}</span>&thinsp;of&thinsp;{{ total_count }} shown
+    </span>
+  </div>
+</div>
+
+<!-- ============ GRID ============ -->
+<div class="dl-grid-wrap">
+
+  {% if dashboards %}
+  <div class="row g-4" id="cardGrid">
+    {% for db in dashboards %}
+    <div class="col-12 col-sm-6 col-xl-4 dl-col"
+         data-name="{{ db.name|lower }}"
+         data-desc="{{ db.description|lower|default:'' }}">
+
+      <div class="dl-card" data-cat="{{ db.category }}">
+
+        {% if not db.is_active %}
+        <div class="dl-inactive-tag">Inactive</div>
+        {% endif %}
+
+        <div class="dl-card-tint"></div>
+
+        <!-- Thumb -->
+        <div class="dl-thumb{% if not db.thumbnail %} dl-thumb-default{% endif %}">
+          {% if db.thumbnail %}
+            <img src="{{ db.thumbnail.url }}" alt="{{ db.name }}">
+          {% else %}
+            <i class="bi bi-bar-chart-line dl-thumb-icon"></i>
+          {% endif %}
+        </div>
+
+        <!-- Body -->
+        <div class="dl-card-body">
+          <div class="dl-cat-badge cat-b-{{ db.category|default:'default' }}">
+            <span class="cat-dot cat-dot-{{ db.category }}"></span>
+            {{ db.get_category_display }}
+          </div>
+          <div class="dl-card-name">{{ db.name }}</div>
+          <div class="dl-card-desc">
+            {{ db.description|default:"No description provided."|truncatechars:105 }}
+          </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="dl-card-foot">
+          <div class="dl-views">
+            <i class="bi bi-eye"></i>
+            {{ db.view_count }} view{{ db.view_count|pluralize }}
+          </div>
+          <div class="dl-actions">
+            {% if request.user.is_superuser %}
+            <a href="{% url 'analytics:dashboard_edit' db.slug %}"
+               class="dl-btn-edit" title="Edit dashboard">
+              <i class="bi bi-pencil-square"></i>
+            </a>
+            {% endif %}
+            <a href="{% url 'analytics:dashboard_view' db.slug %}"
+               class="dl-btn-open">
+              Open <i class="bi bi-arrow-right-short" style="font-size:1.1em;"></i>
+            </a>
+          </div>
+        </div>
+
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- Pagination -->
+  {% if is_paginated %}
+  <div class="dl-pager">
+    <span class="dl-pager-info">Page {{ page_obj.number }} of {{ paginator.num_pages }}</span>
+    <ul class="pagination">
+      {% if page_obj.has_previous %}
+      <li class="page-item">
+        <a class="page-link" href="?page={{ page_obj.previous_page_number }}{% if current_q %}&q={{ current_q }}{% endif %}{% if current_category %}&category={{ current_category }}{% endif %}">
+          <i class="bi bi-chevron-left"></i>
+        </a>
+      </li>
+      {% else %}
+      <li class="page-item disabled"><span class="page-link"><i class="bi bi-chevron-left"></i></span></li>
+      {% endif %}
+
+      {% for num in paginator.page_range %}
+      <li class="page-item {% if num == page_obj.number %}active{% endif %}">
+        <a class="page-link" href="?page={{ num }}{% if current_q %}&q={{ current_q }}{% endif %}{% if current_category %}&category={{ current_category }}{% endif %}">{{ num }}</a>
+      </li>
+      {% endfor %}
+
+      {% if page_obj.has_next %}
+      <li class="page-item">
+        <a class="page-link" href="?page={{ page_obj.next_page_number }}{% if current_q %}&q={{ current_q }}{% endif %}{% if current_category %}&category={{ current_category }}{% endif %}">
+          <i class="bi bi-chevron-right"></i>
+        </a>
+      </li>
+      {% else %}
+      <li class="page-item disabled"><span class="page-link"><i class="bi bi-chevron-right"></i></span></li>
+      {% endif %}
+    </ul>
+  </div>
+  {% endif %}
+
+  {% else %}
+  <!-- Empty state -->
+  <div class="dl-empty mt-3">
+    <i class="bi bi-bar-chart dl-empty-icon"></i>
+    <div class="dl-empty-title">No dashboards found</div>
+    <div class="dl-empty-desc">
+      {% if current_q or current_category %}
+        Try adjusting your search or filter.
+        <a href="{% url 'analytics:dashboard_list' %}" class="text-primary fw-semibold">Clear filters</a>
+      {% else %}
+        No active dashboards are available for your organisation yet.
+      {% endif %}
+    </div>
+    {% if request.user.is_superuser %}
+    <form method="post" action="{% url 'analytics:dashboard_sync' %}" class="d-inline">
+      {% csrf_token %}
+      <button type="submit" class="dl-btn-open" style="margin: 0 auto; display: inline-flex;">
+        <i class="bi bi-arrow-clockwise"></i> Sync Dashboards
+      </button>
+    </form>
+    {% endif %}
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}
+
+
 {% block extra_js %}
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-    // Initialize any Bootstrap tooltips or popovers
-    document.addEventListener('DOMContentLoaded', function() {
-        // Enable Bootstrap tooltips if needed
-        var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
-        var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
-            return new bootstrap.Tooltip(tooltipTriggerEl)
+(function () {
+  'use strict';
+
+  /* ---- Stagger card entrance ---- */
+  document.querySelectorAll('.dl-col').forEach(function (col, i) {
+    col.style.animationDelay = (i * 65) + 'ms';
+  });
+
+  /* ---- Live client-side search ---- */
+  var searchInput = document.getElementById('searchInput');
+  var searchForm  = document.getElementById('searchForm');
+  var cardCols    = document.querySelectorAll('#cardGrid [data-name]');
+  var visibleN    = document.getElementById('visibleN');
+  var debounce;
+
+  if (searchInput && cardCols.length) {
+    searchInput.addEventListener('input', function () {
+      clearTimeout(debounce);
+      debounce = setTimeout(function () {
+        var q = searchInput.value.toLowerCase().trim();
+        var n = 0;
+        cardCols.forEach(function (col) {
+          var match = !q
+            || col.dataset.name.includes(q)
+            || col.dataset.desc.includes(q);
+          col.style.display = match ? '' : 'none';
+          if (match) n++;
         });
+        if (visibleN) visibleN.textContent = n;
+      }, 160);
     });
+
+    searchInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { clearTimeout(debounce); searchForm.submit(); }
+    });
+  }
+
+  /* ---- Bootstrap tooltips ---- */
+  document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(function (el) {
+    new bootstrap.Tooltip(el);
+  });
+
+})();
 </script>
 {% endblock %}

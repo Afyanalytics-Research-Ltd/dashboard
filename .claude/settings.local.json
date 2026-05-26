@@ -39,7 +39,11 @@
       "Bash(grep -n \"AIRFLOW\" \"\\\\\\\\\\\\\\\\wsl.localhost\\\\\\\\Ubuntu\\\\\\\\home\\\\\\\\luther\\\\\\\\dashboard\\\\\\\\airflow_dashboard\\\\\\\\settings.py\")",
       "Bash(wsl -e bash -c \"cd /home/luther/dashboard && /home/luther/dashboard/env/bin/python manage.py test warehouse.tests.AjaxViewsTests.test_read_values_success --verbosity=2 2>&1 | tail -30\")",
       "Bash(wsl -e bash -c \"cd /home/luther/dashboard && /home/luther/dashboard/env/bin/python manage.py test warehouse --verbosity=2 2>&1 | grep -E 'ERROR:|FAIL:|ok' | head -40\")",
-      "Bash(wsl -e bash -c \"cd /home/luther/dashboard && /home/luther/dashboard/env/bin/python manage.py test warehouse --verbosity=1 2>&1 | tail -15\")"
+      "Bash(wsl -e bash -c \"cd /home/luther/dashboard && /home/luther/dashboard/env/bin/python manage.py test warehouse --verbosity=1 2>&1 | tail -15\")",
+      "Bash(find \"\\\\\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\luther\\\\dashboard\" -type f -name \"*.html\" -o -name \"*.htm\")",
+      "Bash(cd \"\\\\\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\luther\\\\dashboard\")",
+      "Read(///wsl.localhost/Ubuntu/wsl.localhost/Ubuntu/home/luther/**)",
+      "Bash(grep -E \"\\\\.py$|^d\")"
     ]
   }
 }

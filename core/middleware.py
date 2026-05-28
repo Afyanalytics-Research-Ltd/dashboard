@@ -28,6 +28,21 @@ _SKIP_PREFIXES = (
 
 
 def _get_client_ip(request: HttpRequest) -> str | None:
+    """Extract the real client IP address from the request, respecting proxies.
+
+    When the platform runs behind a load balancer or reverse proxy (e.g.
+    Nginx), the original client IP is forwarded in the ``X-Forwarded-For``
+    header rather than ``REMOTE_ADDR``.  This function reads the first
+    (leftmost) IP from ``X-Forwarded-For``, which represents the actual
+    client, or falls back to ``REMOTE_ADDR`` for direct connections.
+
+    Args:
+        request: The incoming Django HTTP request.
+
+    Returns:
+        The client's IP address as a string (IPv4 or IPv6), or ``None``
+        if the address cannot be determined.
+    """
     x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
     if x_forwarded_for:
         return x_forwarded_for.split(',')[0].strip()
@@ -35,7 +50,24 @@ def _get_client_ip(request: HttpRequest) -> str | None:
 
 
 def _resource_from_path(path: str) -> str:
-    """Derive a human-readable resource name from a URL path."""
+    """Derive a human-readable resource name from a URL path.
+
+    Takes the first meaningful path segment and converts it to Title Case,
+    replacing hyphens and underscores with spaces.  Used to populate the
+    ``resource`` field of :class:`core.models.AuditLog` entries created by
+    middleware.
+
+    Examples:
+        ``/api/v1/analytics/dashboards/`` → ``"Api"``
+        ``/warehouse/spreadsheets/``      → ``"Warehouse"``
+        ``/``                             → ``"root"``
+
+    Args:
+        path: The URL path from ``request.path``.
+
+    Returns:
+        A short, title-cased string identifying the resource area.
+    """
     parts = [p for p in path.strip('/').split('/') if p]
     if not parts:
         return 'root'
@@ -55,6 +87,17 @@ class AuditLogMiddleware:
         self.get_response = get_response
 
     def __call__(self, request: HttpRequest) -> HttpResponse:
+        """Process the request: delegate to the next middleware, then log if needed.
+
+        The response is generated first so that the HTTP status code is
+        available when we write the audit log entry.
+
+        Args:
+            request: The incoming HTTP request.
+
+        Returns:
+            The HTTP response produced by the view or downstream middleware.
+        """
         response = self.get_response(request)
 
         if request.method in _MUTATING_METHODS:
@@ -63,6 +106,19 @@ class AuditLogMiddleware:
         return response
 
     def _maybe_log(self, request: HttpRequest, response: HttpResponse) -> None:
+        """Conditionally write an :class:`AuditLog` entry for this request.
+
+        Skips logging for:
+        - Static/media files and API schema endpoints (not user actions).
+        - Unauthenticated requests (no user to attribute the action to).
+
+        Silently catches and logs any exception so a logging failure never
+        breaks the user's request.
+
+        Args:
+            request: The original HTTP request.
+            response: The HTTP response returned by the view.
+        """
         path: str = request.path
 
         # Skip uninteresting paths
@@ -102,15 +158,34 @@ class AuditLogMiddleware:
 
 
 class RequestLoggingMiddleware:
-    """
-    Logs each request with method, path, status code, and duration.
-    Uses DEBUG level for read requests, INFO for mutations, WARNING for 4xx/5xx.
+    """Lightweight request/response logger for operational monitoring.
+
+    Writes a single log line per request containing the HTTP method, path,
+    status code, and elapsed time.  The log level escalates with severity:
+    - DEBUG for safe read requests (GET, HEAD, OPTIONS).
+    - INFO  for mutating requests (POST, PUT, PATCH, DELETE).
+    - WARNING for 4xx client errors.
+    - ERROR   for 5xx server errors.
+
+    Non-technical explanation:
+        Every time someone interacts with the platform, this middleware
+        writes a timestamped note like "GET /analytics/ 200 (45ms)" to the
+        application log — similar to an access log in a web server.
+        Operations teams use this to spot slow pages or unusual error rates.
     """
 
     def __init__(self, get_response: Callable) -> None:
         self.get_response = get_response
 
     def __call__(self, request: HttpRequest) -> HttpResponse:
+        """Time the request and log it after the response is ready.
+
+        Args:
+            request: The incoming HTTP request.
+
+        Returns:
+            The HTTP response produced by the view or downstream middleware.
+        """
         start = time.monotonic()
         response = self.get_response(request)
         duration_ms = (time.monotonic() - start) * 1000

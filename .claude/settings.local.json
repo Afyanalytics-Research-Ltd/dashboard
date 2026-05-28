@@ -43,7 +43,23 @@
       "Bash(find \"\\\\\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\luther\\\\dashboard\" -type f -name \"*.html\" -o -name \"*.htm\")",
       "Bash(cd \"\\\\\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\luther\\\\dashboard\")",
       "Read(///wsl.localhost/Ubuntu/wsl.localhost/Ubuntu/home/luther/**)",
-      "Bash(grep -E \"\\\\.py$|^d\")"
+      "Bash(grep -E \"\\\\.py$|^d\")",
+      "Bash(dir /home/luther/dashboard)",
+      "Bash(cat -n //wsl.localhost/Ubuntu/home/luther/dashboard/core/models.py)",
+      "Read(///wsl.localhost/Ubuntu/home/luther/dashboard/core/**)",
+      "Bash(cat -n //wsl.localhost/Ubuntu/home/luther/dashboard/core/views.py)",
+      "Bash(cat -n //wsl.localhost/Ubuntu/home/luther/dashboard/core/api.py)",
+      "Bash(cat -n //wsl.localhost/Ubuntu/home/luther/dashboard/core/serializers.py)",
+      "Bash(cat -n //wsl.localhost/Ubuntu/home/luther/dashboard/core/permissions.py)",
+      "Bash(cat -n //wsl.localhost/Ubuntu/home/luther/dashboard/core/middleware.py)",
+      "Bash(cat -n //wsl.localhost/Ubuntu/home/luther/dashboard/core/mixins.py)",
+      "Bash(cat -n //wsl.localhost/Ubuntu/home/luther/dashboard/core/context_processors.py)",
+      "Read(///wsl.localhost/Ubuntu/home/luther/dashboard/authentication/**)",
+      "Bash(cat -n //wsl.localhost/Ubuntu/home/luther/dashboard/authentication/views.py)",
+      "Bash(cat -n //wsl.localhost/Ubuntu/home/luther/dashboard/authentication/forms.py)",
+      "Bash(cat //wsl.localhost/Ubuntu/home/luther/dashboard/warehouse/models.py)",
+      "Bash(cat //wsl.localhost/Ubuntu/home/luther/dashboard/warehouse/sheet_service.py)",
+      "Read(///wsl.localhost/Ubuntu/home/luther/dashboard/warehouse/services/**)"
     ]
   }
 }

@@ -113,45 +113,118 @@ class UserProfile(models.Model):
 
     @property
     def display_name(self) -> str:
-        """Full name if set, otherwise username."""
+        """Return the user's full name, falling back to their username.
+
+        Non-technical explanation:
+            Produces a friendly name for display in the UI — "Jane Doe"
+            if the full name is set, or "jdoe" if not.
+
+        Returns:
+            The full name (first + last) or the username if the full name
+            is empty.
+        """
         return self.user.get_full_name() or self.user.username
 
     @property
     def initials(self) -> str:
-        """Up to two initials for avatar fallback."""
+        """Return up to two initials (e.g. "JD") for use as an avatar fallback.
+
+        Takes the first letter of the first name (or username) and the first
+        letter of the last name.  If there is no last name, returns only one
+        initial.
+
+        Non-technical explanation:
+            When a user hasn't uploaded a profile photo, the UI shows a
+            coloured circle with their initials instead — like "JD" for
+            Jane Doe.  This property produces those initials.
+
+        Returns:
+            A 1–2 character uppercase string.
+        """
         first = (self.user.first_name[:1] or self.user.username[:1]).upper()
         last = (self.user.last_name[:1]).upper()
         return first + last if last else first
 
     @property
     def is_client_admin(self) -> bool:
+        """Return ``True`` if this profile has Client Admin privileges.
+
+        Superusers are always treated as Client Admins.
+
+        Returns:
+            ``True`` if role is ``ROLE_CLIENT_ADMIN`` or the user is a
+            Django superuser.
+        """
         return self.role == ROLE_CLIENT_ADMIN or self.user.is_superuser
 
     @property
     def is_facilities_admin(self) -> bool:
+        """Return ``True`` if this profile has Facilities Admin or higher privileges.
+
+        Returns:
+            ``True`` if role is ``ROLE_CLIENT_ADMIN`` or
+            ``ROLE_FACILITIES_ADMIN``, or the user is a superuser.
+        """
         return self.role in (ROLE_CLIENT_ADMIN, ROLE_FACILITIES_ADMIN) or self.user.is_superuser
 
     @property
     def role_display_badge(self) -> str:
-        """Bootstrap badge colour class for this role."""
+        """Return the Bootstrap badge colour class for this user's role.
+
+        Used by templates to render coloured role labels (e.g. "Client Admin"
+        in blue, "Facility Admin" in grey).
+
+        Returns:
+            A Bootstrap contextual colour string, e.g. ``"primary"``,
+            ``"info"``, or ``"secondary"``.  Defaults to ``"secondary"``
+            for unknown roles.
+        """
         return self.ROLE_BADGE_COLORS.get(self.role, 'secondary')
 
     # --- Role helpers (delegate to authentication.roles) -----------------------
 
     @property
-    def roles(self):
-        """Set of Group-based role names this user belongs to."""
+    def roles(self) -> set:
+        """Return the set of Django Group names this user belongs to.
+
+        Delegates to :func:`authentication.roles.user_roles`.  Superusers
+        are considered members of all groups.
+
+        Returns:
+            A set of role name strings, e.g.
+            ``{"Client Admin", "Facilities Admin"}``.
+        """
         return user_roles(self.user)
 
     @property
-    def primary_role(self):
-        """Most-privileged role for display purposes."""
+    def primary_role(self) -> str | None:
+        """Return the most-privileged role this user holds, or ``None``.
+
+        Iterates the role hierarchy from most to least privileged and
+        returns the first match.  Useful for displaying a single "primary"
+        badge in the UI without showing multiple role labels.
+
+        Returns:
+            The highest-priority role string the user has, e.g.
+            ``"Client Admin"``, or ``None`` if the user has no assigned
+            group roles.
+        """
         for role in (ROLE_CLIENT_ADMIN, ROLE_FACILITIES_ADMIN, ROLE_FACILITY_ADMIN):
             if role in self.roles:
                 return role
         return None
 
     def has_role(self, *roles) -> bool:
+        """Return ``True`` if the user belongs to any of the given roles.
+
+        Args:
+            *roles: One or more role name strings to check, e.g.
+                ``ROLE_CLIENT_ADMIN``, ``ROLE_FACILITIES_ADMIN``.
+
+        Returns:
+            ``True`` if the user is in at least one of the supplied roles
+            (or is a superuser); ``False`` otherwise.
+        """
         return in_role(self.user, *roles)
 
 

@@ -31,6 +31,16 @@ class Client(models.Model):
 
     @property
     def active_facilities_count(self) -> int:
+        """Return the number of currently active facilities for this client.
+
+        Non-technical explanation:
+            Counts how many of this organisation's hospital branches or clinics
+            are currently switched on and accepting users — not counting any
+            that have been deactivated.
+
+        Returns:
+            An integer >= 0.  Returns 0 if the client has no active facilities.
+        """
         return self.facilities.filter(is_active=True).count()
 
 
@@ -113,7 +123,37 @@ class AuditLog(models.Model):
         ip_address: str | None = None,
         user_agent: str = '',
     ) -> 'AuditLog':
-        """Convenience factory method to create an audit log entry."""
+        """Create and save a new audit log entry in one call.
+
+        This is the preferred way to record user activity anywhere in the
+        codebase — middleware, views, and API endpoints all use it.
+        Unauthenticated (anonymous) users are stored with ``user=None``.
+
+        Non-technical explanation:
+            Every significant action a user takes — logging in, viewing a
+            report, exporting data — gets written into a permanent record
+            book (the audit log).  This method is the pen that does the
+            writing.  You tell it *who* did *what* to *which thing*, and it
+            stamps the entry with a timestamp automatically.
+
+        Args:
+            user: The Django User object performing the action.  Pass
+                ``None`` or an unauthenticated user to record an anonymous
+                action.
+            action: One of the ``ACTION_CHOICES`` strings, e.g. ``"login"``,
+                ``"create"``, ``"export"``.
+            resource: Human-readable name of the thing being acted on, e.g.
+                ``"dashboard"``, ``"authentication"``.
+            resource_id: Optional identifier of the specific object, e.g.
+                the slug ``"ksh-revenue"`` or a primary key ``"42"``.
+            detail: Free-text description of what happened, e.g.
+                ``"User logged in from 41.80.12.1"``.
+            ip_address: The client's IP address (IPv4 or IPv6).
+            user_agent: The ``User-Agent`` header string from the request.
+
+        Returns:
+            The newly created :class:`AuditLog` instance.
+        """
         return cls.objects.create(
             user=user if (user and user.is_authenticated) else None,
             action=action,
@@ -160,6 +200,15 @@ class Notification(models.Model):
         return f'{self.user.username} — {self.title}'
 
     def mark_read(self) -> None:
+        """Mark this notification as read and persist the change.
+
+        Only updates the ``is_read`` field to avoid overwriting other
+        concurrent changes to the same record.
+
+        Non-technical explanation:
+            Like tapping a notification bubble on your phone so the red
+            dot disappears — it records that you've seen the message.
+        """
         self.is_read = True
         self.save(update_fields=['is_read'])
 
@@ -172,7 +221,27 @@ class Notification(models.Model):
         notification_type: str = 'info',
         link: str = '',
     ) -> 'Notification':
-        """Create and return a notification for the given user."""
+        """Create and deliver an in-app notification to a user.
+
+        Non-technical explanation:
+            Drops a new message into the user's notification inbox — like
+            sending a text message, but it appears inside the platform rather
+            than on their phone.
+
+        Args:
+            user: The Django User who should receive the notification.
+            title: Short heading shown in the notification list, e.g.
+                ``"Dashboard sync complete"``.
+            message: Body text with more detail.
+            notification_type: Visual severity level — one of ``"info"``
+                (blue), ``"success"`` (green), ``"warning"`` (yellow),
+                ``"danger"`` (red).  Defaults to ``"info"``.
+            link: Optional URL the user can click to navigate to related
+                content, e.g. ``"/analytics/dashboards/ksh-revenue/"``.
+
+        Returns:
+            The newly created :class:`Notification` instance.
+        """
         return cls.objects.create(
             user=user,
             title=title,
@@ -210,7 +279,23 @@ class SystemSettings(models.Model):
 
     @classmethod
     def get(cls, key: str, default=None):
-        """Retrieve a setting value by key."""
+        """Retrieve a platform setting value by its key name.
+
+        Non-technical explanation:
+            Works like looking up a word in a dictionary — you give the key
+            (e.g. ``"max_export_rows"``), and you get back whatever value
+            was stored for it.  If the key doesn't exist you get the
+            ``default`` instead (so the app keeps running safely).
+
+        Args:
+            key: The setting name to look up, e.g. ``"maintenance_mode"``.
+            default: Value to return when the key is not found.  Defaults
+                to ``None``.
+
+        Returns:
+            The stored JSON value (could be a string, number, list, or
+            dict) or ``default`` if the key is absent.
+        """
         try:
             return cls.objects.get(key=key).value
         except cls.DoesNotExist:
@@ -218,7 +303,29 @@ class SystemSettings(models.Model):
 
     @classmethod
     def set(cls, key: str, value, user=None, description: str = '') -> 'SystemSettings':
-        """Create or update a setting."""
+        """Create or update a platform-wide setting.
+
+        Uses ``update_or_create`` so it is safe to call repeatedly — if the
+        key already exists it is updated; otherwise a new row is inserted.
+
+        Non-technical explanation:
+            Like writing an entry in a shared settings notebook.  If the
+            page for that setting already exists, you update it; if not,
+            you add a new page.  The notebook remembers who last changed
+            each setting and when.
+
+        Args:
+            key: The unique name for this setting, e.g.
+                ``"max_export_rows"``.  Will be normalised to lowercase
+                with underscores by the serializer.
+            value: Any JSON-serialisable value (string, number, list, dict).
+            user: The Django User making the change (stored for auditing).
+            description: Human-readable explanation of what this setting
+                controls, stored alongside the value.
+
+        Returns:
+            The created-or-updated :class:`SystemSettings` instance.
+        """
         obj, _ = cls.objects.update_or_create(
             key=key,
             defaults={

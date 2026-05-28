@@ -11,6 +11,18 @@ User = get_user_model()
 
 
 class ClientSerializer(serializers.ModelSerializer):
+    """Serializer for :class:`core.models.Client` — the standard list/write representation.
+
+    Adds two computed read-only fields:
+    - ``active_facilities_count``: how many active facilities the client has.
+    - ``logo_url``: an absolute URL to the logo image (or ``null``).
+
+    Non-technical explanation:
+        Converts a Client database record into a JSON object that the API
+        can return to callers.  Includes a count of active branches and a
+        direct link to the client's logo image.
+    """
+
     active_facilities_count = serializers.IntegerField(read_only=True)
     logo_url = serializers.SerializerMethodField()
 
@@ -24,6 +36,18 @@ class ClientSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at', 'updated_at']
 
     def get_logo_url(self, obj: Client) -> str | None:
+        """Build an absolute URL for the client's logo image.
+
+        Uses the request object from the serializer context so the URL
+        includes the correct scheme and hostname (e.g.
+        ``https://app.afya.ai/media/clients/logos/pharmaplus.png``).
+
+        Args:
+            obj: The :class:`Client` being serialized.
+
+        Returns:
+            An absolute URL string if a logo exists, otherwise ``None``.
+        """
         if obj.logo:
             request = self.context.get('request')
             if request:
@@ -33,6 +57,18 @@ class ClientSerializer(serializers.ModelSerializer):
 
 
 class FacilitySerializer(serializers.ModelSerializer):
+    """Serializer for :class:`core.models.Facility`.
+
+    Adds ``client_name`` as a denormalised read-only field so callers can
+    display the owning client's name without a second API call.
+
+    Non-technical explanation:
+        Converts a Facility record (e.g. "Kisumu Specialist Hospital") into
+        a JSON object.  The ``client_name`` field tells callers which
+        organisation this facility belongs to, without them having to look
+        it up separately.
+    """
+
     client_name = serializers.CharField(source='client.name', read_only=True)
 
     class Meta:
@@ -62,6 +98,18 @@ class ClientDetailSerializer(ClientSerializer):
 
 
 class AuditLogSerializer(serializers.ModelSerializer):
+    """Read-only serializer for :class:`core.models.AuditLog`.
+
+    All fields are marked read-only because audit logs are an immutable
+    historical record — they must never be modified through the API.
+    The ``username`` field is denormalised for convenient display.
+
+    Non-technical explanation:
+        Converts an audit log entry into JSON for the API.  Because audit
+        logs are like legal records, the API deliberately prevents anyone
+        from changing or deleting them — you can only read them.
+    """
+
     username = serializers.CharField(source='user.username', read_only=True, default='')
 
     class Meta:
@@ -74,6 +122,18 @@ class AuditLogSerializer(serializers.ModelSerializer):
 
 
 class NotificationSerializer(serializers.ModelSerializer):
+    """Serializer for :class:`core.models.Notification`.
+
+    Exposes the notification's text, type (info/success/warning/danger),
+    read status, and optional navigation link.  The ``id`` and
+    ``created_at`` fields are read-only; callers can PATCH ``is_read``
+    to mark individual notifications as read.
+
+    Non-technical explanation:
+        Converts a notification (an in-app message) into JSON so the UI
+        can display it in the notification bell dropdown.
+    """
+
     class Meta:
         model = Notification
         fields = [
@@ -92,6 +152,19 @@ class NotificationMarkReadSerializer(serializers.Serializer):
 
 
 class SystemSettingsSerializer(serializers.ModelSerializer):
+    """Serializer for :class:`core.models.SystemSettings`.
+
+    Adds ``updated_by_username`` as a convenience read-only field.
+    The ``key`` field is normalised to lowercase with underscores on write
+    so that ``"Max Export Rows"`` and ``"max_export_rows"`` refer to the
+    same setting.
+
+    Non-technical explanation:
+        Converts a platform configuration entry (key + value) into JSON.
+        Includes the name of the last person who changed the setting so
+        there is an audit trail of who touched what.
+    """
+
     updated_by_username = serializers.CharField(
         source='updated_by.username',
         read_only=True,
@@ -107,4 +180,15 @@ class SystemSettingsSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'updated_by', 'updated_at']
 
     def validate_key(self, value: str) -> str:
+        """Normalise the setting key to lowercase with underscores.
+
+        Ensures that ``"Max Export Rows"``, ``"max export rows"``, and
+        ``"max_export_rows"`` all resolve to the same key.
+
+        Args:
+            value: The raw key string submitted by the caller.
+
+        Returns:
+            The normalised key string, e.g. ``"max_export_rows"``.
+        """
         return value.lower().replace(' ', '_')

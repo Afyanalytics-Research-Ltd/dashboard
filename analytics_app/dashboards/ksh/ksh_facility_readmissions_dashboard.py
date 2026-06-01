@@ -17,6 +17,7 @@ import warnings
 warnings.filterwarnings("ignore")
 
 from ksh.facility_utilization.m1_ward_forecast import get_forecast
+from ksh.facility_utilization.notifier import send_digest, get_recipients
 from ksh.facility_utilization.queries import (
     q_overview_gap, q_overview_alerts,
     q_leakage_gap, q_leakage_submission_rate, q_leakage_ksh_dispatch_trend,
@@ -28,6 +29,12 @@ from ksh.facility_utilization.queries import (
     q_readmission_exposure, q_readmission_benchmark, q_readmission_ward_trend,
     q_service_mix, q_rebate_by_insurer, q_payer_trend,
 )
+
+# ── Feature flags ─────────────────────────────────────────────────────────────
+# AR_PAGE_ENABLED: set True once SMART/SLADE payment data is available for
+# reconciliation. Disabled 2026-05-26 — FINANCE_INVOICES.paid is zero for all
+# insured invoices; payments are recorded externally in SMART/SLADE, not in system.
+AR_PAGE_ENABLED = False
 
 # ── Page config ───────────────────────────────────────────────────────────────
 
@@ -131,7 +138,9 @@ def info_card(text, border_color="#0072CE"):
 
 def dq_note(text):
     st.markdown(
-        f'<div style="font-size:10px;color:#6B8CAE;margin-top:4px;font-style:italic">{text}</div>',
+        f'<div style="background:#F4F8FC;border-left:3px solid #B0C8E0;border-radius:4px;'
+        f'padding:8px 12px;margin:10px 0;font-size:12px;color:#003467;line-height:1.5">'
+        f'<span style="font-weight:700;color:#6B8CAE">Note · </span>{text}</div>',
         unsafe_allow_html=True)
 
 
@@ -210,6 +219,9 @@ def _filter_epoch(df, date_col):
 for k in ("p1", "p2", "p3", "p4", "p5", "p6"):
     if k not in st.session_state:
         st.session_state[k] = {}
+
+if "active_notices" not in st.session_state:
+    st.session_state["active_notices"] = []
 
 if "selected_facility" not in st.session_state:
     st.session_state.selected_facility = "KISUMU_CLEAN"
@@ -290,7 +302,7 @@ with st.sidebar:
         menu_title=None,
         options=[
             "Business Overview",
-            "Revenue Leakage",
+            # "Revenue Leakage",  # AR_PAGE_DISABLED — re-enable when AR_PAGE_ENABLED = True
             "Capacity & Operations",
             "Readmissions",
             "Service Mix",
@@ -298,7 +310,7 @@ with st.sidebar:
         ],
         icons=[
             "graph-up-arrow",
-            "cash-coin",
+            # "cash-coin",  # AR_PAGE_DISABLED
             "hospital",
             "arrow-repeat",
             "pie-chart-fill",
@@ -335,6 +347,41 @@ with st.sidebar:
         f'border-top:1px solid #D6E4F0">Data through {_data_end}</div>',
         unsafe_allow_html=True)
 
+    # ── Notify ────────────────────────────────────────────────────────────────
+    st.markdown("<div style='margin-top:20px'></div>", unsafe_allow_html=True)
+    st.markdown(
+        '<div style="font-size:9px;font-weight:800;color:#0072CE;text-transform:uppercase;'
+        'letter-spacing:2px;padding-bottom:8px;border-bottom:1px solid #D6E4F0;'
+        'margin-bottom:10px">Notify</div>',
+        unsafe_allow_html=True)
+
+    _n_count     = len(st.session_state.get("active_notices", []))
+    _recipients  = get_recipients()
+    _notice_dot  = (
+        f'<span style="color:#E11D48;font-weight:700">&#9679; {_n_count} notice'
+        f'{"s" if _n_count != 1 else ""} firing</span>'
+        if _n_count else
+        '<span style="color:#6B8CAE">No active notices</span>'
+    )
+    _to_display  = ", ".join(_recipients) if _recipients else "No recipients configured"
+    st.markdown(
+        f'<div style="font-size:10px;margin-bottom:4px">{_notice_dot}</div>'
+        f'<div style="font-size:9px;color:#6B8CAE;margin-bottom:10px">'
+        f'To: {_to_display}</div>',
+        unsafe_allow_html=True)
+
+    if st.button("Send Executive Digest", use_container_width=True, key="send_digest_btn"):
+        if not _recipients:
+            st.error("Set DIGEST_RECIPIENTS in .env")
+        else:
+            _notices  = st.session_state.get("active_notices", [])
+            _fac_disp = FAC_DISPLAY.get(facility, facility)
+            _ok, _msg = send_digest(_fac_disp, _notices)
+            if _ok:
+                st.success("Sent ✓")
+            else:
+                st.error(f"Failed: {_msg}")
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE 1 — The Business Today
@@ -345,219 +392,340 @@ if page == "Business Overview":
     if not st.session_state.p1 or st.session_state.p1.get("_fac") != fac_key:
         with st.spinner("Loading…"):
             st.session_state.p1 = {
-                "_fac":      fac_key,
-                "gap":       q_overview_gap(),
-                "alerts":    q_overview_alerts(),
-                "ksh_trend": q_leakage_ksh_dispatch_trend() if fac_key == "KISUMU_CLEAN" else pd.DataFrame(),
+                "_fac":        fac_key,
+                # AR queries retained for future SMART/SLADE reconciliation — AR_PAGE_DISABLED
+                # "gap":       q_overview_gap(),
+                # "alerts":    q_overview_alerts(),
+                # "ksh_trend": q_leakage_ksh_dispatch_trend() if fac_key == "KISUMU_CLEAN" else pd.DataFrame(),
+                "beds":        q_beds_los(facility),
+                "revpab":      q_beds_revpab(facility),
+                "theatre":     q_theatre_trend() if fac_key == "KISUMU_CLEAN" else pd.DataFrame(),
+                "readm_trend": q_readmission_trend(),
+                "readm_ward":  q_readmission_ward_trend(facility),
+                "payer":       q_payer_trend(facility),
+                "dialysis":    q_dialysis_trend(facility),
             }
 
     P = st.session_state.p1
-    gap       = P["gap"]
-    alerts    = P["alerts"]
-
-    # ── Header ────────────────────────────────────────────────────────────────
-
-    st.markdown(
-        '<p style="font-size:11px;font-weight:800;letter-spacing:3px;text-transform:uppercase;'
-        'color:#0072CE;margin-bottom:4px">Private Hospitals · The Business Today</p>',
-        unsafe_allow_html=True)
-    st.caption("Insurance AR summary — billed, collected, and what's waiting")
-    st.markdown("<div style='margin-bottom:16px'></div>", unsafe_allow_html=True)
 
     # ── Computed values ───────────────────────────────────────────────────────
 
-    fac_row         = gap[gap["FACILITY"] == facility]
-    total_billed    = float(fac_row["TOTAL_BILLED"].sum()) if len(fac_row) else 0
-    total_collected = float(fac_row["TOTAL_COLLECTED"].sum()) if len(fac_row) else 0
-    coll_rate       = float(fac_row["COLLECTION_RATE_PCT"].iloc[0]) if len(fac_row) else 0
+    # Admissions — last 3 months
+    readm_fac = P["readm_trend"].copy()
+    readm_fac = readm_fac[readm_fac["FACILITY"] == facility]
+    readm_fac = _filter_epoch(readm_fac, "ADMISSION_MONTH").sort_values("ADMISSION_MONTH")
+    admissions_3mo    = int(readm_fac.tail(3)["TOTAL_ADMISSIONS"].sum()) if len(readm_fac) else 0
+    readm_latest_rate = float(readm_fac.tail(1)["READMISSION_30DAY_RATE_PCT"].iloc[0]) if len(readm_fac) else 0
 
-    # KSH: compute monthly AR accumulation rate since the dispatch cliff
-    ksh_trend_p1 = _filter_epoch(P.get("ksh_trend", pd.DataFrame()), "INVOICE_MONTH") \
-        if facility == "KISUMU_CLEAN" else pd.DataFrame()
-    if facility == "KISUMU_CLEAN" and len(ksh_trend_p1):
-        _cliff_p1 = ksh_trend_p1[ksh_trend_p1["INVOICE_MONTH"] >= pd.Timestamp(KSH_DISPATCH_CLIFF)]
-        monthly_accumulation = float(_cliff_p1["TOTAL_OUTSTANDING"].mean()) if len(_cliff_p1) else 0
+    # Theatre — trailing 3-month + historical peak
+    th = _filter_epoch(P["theatre"].copy(), "SESSION_MONTH") if len(P["theatre"]) else pd.DataFrame()
+    if len(th):
+        th = th.sort_values("SESSION_MONTH")
+        th_3mo       = th.tail(3)
+        th_comp_rate = round(th_3mo["COMPLETED_SESSIONS"].sum() / max(th_3mo["TOTAL_SESSIONS"].sum(), 1) * 100, 1)
+        _pk_idx      = th["COMPLETION_RATE_PCT"].idxmax()
+        th_peak_rate = round(float(th.loc[_pk_idx, "COMPLETION_RATE_PCT"]), 0)
+        th_peak_lbl  = pd.to_datetime(th.loc[_pk_idx, "SESSION_MONTH"]).strftime("%b %Y")
     else:
-        monthly_accumulation = 0
+        th_comp_rate = th_peak_rate = th_peak_lbl = None
 
-    fac_alerts = alerts[alerts["FACILITY"] == facility]
-    a90 = fac_alerts[fac_alerts["AGING_BUCKET"] == "90+"]
-    outstanding_90plus = a90["TOTAL_OUTSTANDING"].sum()
+    # Avg LOS weighted by discharged admissions (TENRI fallback for c2)
+    beds = P["beds"].copy()
+    if len(beds) and beds["DISCHARGED_ADMISSIONS"].sum() > 0:
+        avg_los = round(
+            (beds["AVG_LOS_DAYS"] * beds["DISCHARGED_ADMISSIONS"]).sum()
+            / beds["DISCHARGED_ADMISSIONS"].sum(), 1
+        )
+    else:
+        avg_los = None
 
-    # ── KPI cards ─────────────────────────────────────────────────────────────
+    # Direct pay — last 3 months vs prior 3 months
+    payer_fac = P["payer"].copy()
+    if len(payer_fac):
+        payer_fac = payer_fac[payer_fac["FACILITY"] == facility].sort_values("REVENUE_MONTH")
+    direct_pay_3mo    = float(payer_fac.tail(3)["CASH_REVENUE"].sum()) if len(payer_fac) else 0
+    direct_pay_prior  = float(payer_fac.iloc[-6:-3]["CASH_REVENUE"].sum()) if len(payer_fac) >= 6 else 0
 
-    c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        kpi_card("Revenue Billed", fmt_kes(total_billed), "", COLORS["primary"], icon="◈")
-    with c2:
-        if facility == "KISUMU_CLEAN":
-            kpi_card("Monthly AR Accumulation", fmt_kes(monthly_accumulation),
-                     "Avg per month since Sep 2025 — unsubmitted invoices building",
-                     COLORS["danger"], icon="⚠")
-        else:
-            kpi_card("Revenue Received", fmt_kes(total_collected), "", COLORS["success"], icon="✓")
-    with c3:
-        kpi_card("Revenue Waiting 90+ Days", fmt_kes(outstanding_90plus), "", COLORS["danger"], icon="⚠")
-    with c4:
-        if facility == "KISUMU_CLEAN":
-            kpi_card("Collection Rate", "N/A", "Settlement workflow not recorded", COLORS["muted"])
-        else:
-            kpi_card("Collection Rate", f"{coll_rate:.1f}%", "", COLORS["warning"])
+    # Medical Male — latest month rate
+    rw = P["readm_ward"].copy()
+    if len(rw):
+        rw = rw[rw["FACILITY"] == facility]
+        rw = _filter_epoch(rw, "ADMISSION_MONTH")
+        mm = rw[rw["WARD_CATEGORY"].str.upper() == "MEDICAL — MALE"].sort_values("ADMISSION_MONTH")
+    else:
+        mm = pd.DataFrame()
+    mm_rate  = float(mm.tail(1)["READMISSION_30DAY_RATE_PCT"].iloc[0]) if len(mm) else 0
+    mm_month = mm.tail(1)["ADMISSION_MONTH"].dt.strftime("%b %Y").iloc[0] if len(mm) else ""
 
-    st.markdown("<div style='margin-bottom:20px'></div>", unsafe_allow_html=True)
+    # Dialysis — months idle
+    dial = P["dialysis"].copy()
+    if len(dial):
+        dial = dial[dial["FACILITY"] == facility]
+    if len(dial):
+        last_session = pd.to_datetime(dial["SESSION_MONTH"]).max()
+        _data_end_dt = pd.Timestamp("2026-04-01" if facility == "KISUMU_CLEAN" else TENRI_DATA_END)
+        months_idle  = (_data_end_dt.year - last_session.year) * 12 + (_data_end_dt.month - last_session.month)
+    else:
+        months_idle = None
 
-    # ── Two-column layout: Act Now | Billed vs Collected ─────────────────────
+    # Ward RevPAB — compute category-level revenue per bed-day
+    revpab_raw = P["revpab"].copy()
+    if len(revpab_raw):
+        revpab_raw = revpab_raw[revpab_raw["FACILITY"] == facility]
+        _pvt_kws   = ["private", "amenity", "vip", "maternity"]
+        revpab_raw["ward_type"] = revpab_raw["WARD_CATEGORY"].str.lower().apply(
+            lambda x: "Private" if any(k in x for k in _pvt_kws) else "General"
+        )
+        revpab_cat = (
+            revpab_raw.groupby("WARD_CATEGORY", as_index=False)
+            .apply(lambda g: pd.Series({
+                "REVPAB":         g["TOTAL_REVENUE"].sum() / max(g["TOTAL_BED_DAYS"].sum(), 1),
+                "TOTAL_BED_DAYS": g["TOTAL_BED_DAYS"].sum(),
+                "ward_type":      g["ward_type"].iloc[0],
+            }))
+            .sort_values("REVPAB")
+        )
+    else:
+        revpab_cat = pd.DataFrame()
 
-    col_l, col_r = st.columns([1, 1.5], gap="large")
+    # ── Threshold rules — edit here to adjust alert sensitivity ─────────────
+    _READM_CRITICAL = 15    # % Medical Male 30-day readmission rate
+    _READM_WATCH    =  5    # %
+    _DIALYSIS_IDLE  =  6    # months idle before surfacing
+    _THEATRE_WATCH  = 85    # % completion — below = watch
+    _THEATRE_CRIT   = 75    # % completion — below = critical
+
+    # ── Derived signals ───────────────────────────────────────────────────────
+
+    # Facility-wide readmission trend rising 3 consecutive months
+    _readm_rising = False
+    if len(readm_fac) >= 4:
+        _rates = readm_fac["READMISSION_30DAY_RATE_PCT"].tolist()
+        _readm_rising = all(_rates[-i - 1] > _rates[-i - 2] for i in range(3))
+
+    # Medical Male delta vs 3-month prior baseline (computed from data)
+    _mm_baseline = None
+    if len(mm) >= 4:
+        _mm_baseline = float(mm.iloc[-4:-1]["READMISSION_30DAY_RATE_PCT"].mean())
+
+    # Theatre revenue gap — avg monthly revenue × unused capacity fraction
+    _th_rev_gap = None
+    if len(th) and th_comp_rate is not None and th_comp_rate < _THEATRE_WATCH:
+        if "TOTAL_REVENUE" in th.columns:
+            _th_avg_rev = float(th.tail(6)["TOTAL_REVENUE"].mean())
+            if _th_avg_rev > 0:
+                _th_rev_gap = _th_avg_rev * (1 - th_comp_rate / 100)
+
+    # Dialysis: KES foregone at historical session rate × months idle
+    _dial_kes_low = _dial_kes_high = None
+    if months_idle is not None and months_idle >= _DIALYSIS_IDLE and len(dial):
+        _avg_sess = float(dial["TOTAL_SESSIONS"].mean())
+        if _avg_sess > 0:
+            _dial_kes_low  = _avg_sess * 52_000  * months_idle
+            _dial_kes_high = _avg_sess * 119_000 * months_idle
+
+    # ── Page label ────────────────────────────────────────────────────────────
+
+    st.markdown(
+        '<p style="font-size:11px;font-weight:800;letter-spacing:3px;text-transform:uppercase;'
+        'color:#0072CE;margin-bottom:20px">Private Hospitals · The Business Today</p>',
+        unsafe_allow_html=True)
+
+    # ── Two-column layout ─────────────────────────────────────────────────────
+
+    col_l, col_r = st.columns([1, 1.6], gap="large")
 
     with col_l:
-        section_header("Act Now")
+        section_header("Active Notices")
 
-        def _action_card(icon, title, amount, sub, color):
+        def _notice_card(severity, title, value, delta_line, implication, color):
+            _badge_bg = COLORS["danger"] if severity == "CRITICAL" else COLORS["warning"]
             st.markdown(
                 f'<div style="background:#fff;border:1px solid #D6E4F0;border-left:4px solid {color};'
-                f'border-radius:8px;padding:12px 14px;margin-bottom:10px">'
-                f'<div style="display:flex;align-items:center;margin-bottom:4px">'
-                f'<span style="font-size:16px;margin-right:8px">{icon}</span>'
-                f'<span style="font-size:11px;font-weight:800;color:#003467;text-transform:uppercase;'
-                f'letter-spacing:1px">{title}</span></div>'
-                f'<div style="font-size:18px;font-weight:800;color:{color}">{amount}</div>'
-                f'<div style="font-size:10px;color:#6B8CAE;margin-top:3px">{sub}</div>'
+                f'border-radius:8px;padding:14px 16px;margin-bottom:12px">'
+                f'<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">'
+                f'<span style="background:{_badge_bg};color:#fff;font-size:9px;font-weight:800;'
+                f'letter-spacing:1.5px;padding:2px 7px;border-radius:3px">{severity}</span>'
+                f'<span style="font-size:11px;font-weight:700;color:#003467;text-transform:uppercase;'
+                f'letter-spacing:0.8px">{title}</span></div>'
+                f'<div style="font-size:22px;font-weight:800;color:{color};line-height:1.2">{value}</div>'
+                f'<div style="font-size:11px;color:#6B8CAE;margin-top:4px">{delta_line}</div>'
+                f'<div style="font-size:11px;color:#003467;margin-top:6px;line-height:1.5;'
+                f'border-top:1px solid #EBF3FB;padding-top:6px">{implication}</div>'
                 f'</div>', unsafe_allow_html=True)
 
-        if facility == "TENRI":
-            nhif_mask = a90["INSURER"].str.upper().str.contains("NHIF|NATIONAL HOSPITAL", na=False)
-            nhif_kes  = a90[nhif_mask]["TOTAL_OUTSTANDING"].sum()
-            nhif_dsp  = float(a90[nhif_mask]["DISPATCH_RATE_PCT"].mean()) if nhif_mask.any() else 0
-            if nhif_kes > 0:
-                _action_card("⚠", "NHIF — Submit Claims",
-                             fmt_kes(nhif_kes),
-                             f"{nhif_dsp:.1f}% of claims submitted · 90+ day bucket",
-                             COLORS["danger"])
+        _active = 0
+        _notices = []
 
-            makl_all  = fac_alerts[fac_alerts["AGING_BUCKET"] != "Collected"]
-            makl_mask = makl_all["INSURER"].str.upper().str.contains("MAKL|MEDICAL AID KENYA", na=False)
-            makl_kes  = makl_all[makl_mask]["TOTAL_OUTSTANDING"].sum()
-            if makl_kes > 0:
-                _action_card("!", "MAKL — Escalate",
-                             fmt_kes(makl_kes),
-                             "Total outstanding across all buckets",
-                             COLORS["warning"])
+        # Rule 1 — Medical Male readmissions
+        if mm_rate > _READM_WATCH:
+            _sev = "CRITICAL" if mm_rate > _READM_CRITICAL else "WATCH"
+            _col = COLORS["danger"] if mm_rate > _READM_CRITICAL else COLORS["warning"]
+            _delta = (
+                f"+{mm_rate - _mm_baseline:.0f}pp vs prior 3-month avg ({_mm_baseline:.0f}%)"
+                if _mm_baseline is not None else f"Latest reading: {mm_month}"
+            )
+            _notice_card(
+                _sev,
+                "Medical Male — Readmissions",
+                f"{mm_rate:.1f}%",
+                _delta,
+                "60+ insured males driving returns · insurers authorising shorter stays · "
+                "patients discharged before recovery. Review discharge protocol with clinical lead.",
+                _col,
+            )
+            _active += 1
+            _notices.append({"level": _sev, "title": "Medical Male — Readmissions",
+                             "metric": f"{mm_rate:.1f}%",
+                             "action": "Review discharge protocol for 60+ insured males"})
 
-        if facility == "KISUMU_CLEAN":
-            sha_mask = a90["INSURER"].str.upper().str.contains("SHA|SOCIAL HEALTH", na=False)
-            sha_kes  = a90[sha_mask]["TOTAL_OUTSTANDING"].sum()
-            if sha_kes > 0:
-                _action_card("⚠", "Restore Dispatch System",
-                             fmt_kes(sha_kes),
-                             "SHA in 90+ bucket alone · System-wide blackout since Sep 2025 · +KES 11–15M/month",
-                             COLORS["danger"])
+        # Rule 2 — Facility-wide trend rising (only if Medical Male not already flagged)
+        if _readm_rising and mm_rate <= _READM_WATCH:
+            _notice_card(
+                "WATCH",
+                "Readmissions — Rising Trend",
+                f"{readm_latest_rate:.1f}%",
+                "3 consecutive months increasing · facility-wide",
+                "Early signal. Review ward-level breakdown on the Readmissions page.",
+                COLORS["warning"],
+            )
+            _active += 1
+            _notices.append({"level": "WATCH", "title": "Readmissions — Rising Trend",
+                             "metric": f"{readm_latest_rate:.1f}%",
+                             "action": "Review ward-level breakdown on Readmissions page"})
 
-            aar_all  = fac_alerts[fac_alerts["AGING_BUCKET"] != "Collected"]
-            aar_mask = aar_all["INSURER"].str.upper().str.contains("^AAR", na=False)
-            aar_inv  = aar_all[aar_mask]["INVOICES"].sum()
-            aar_disp = aar_all[aar_mask]["DISPATCHED_INVOICES"].sum()
-            aar_kes  = aar_all[aar_mask]["TOTAL_OUTSTANDING"].sum()
-            aar_rate = 100 * aar_disp / max(aar_inv, 1)
-            if aar_kes > 0:
-                _action_card("!", "AAR — Investigate Root Cause",
-                             fmt_kes(aar_kes),
-                             f"{aar_rate:.1f}% submitted but KES 0 collected · Contract or accreditation gap",
-                             COLORS["warning"])
+        # Rule 3 — Theatre completion below target (KSH only)
+        if th_comp_rate is not None and th_comp_rate < _THEATRE_WATCH:
+            _sev = "CRITICAL" if th_comp_rate < _THEATRE_CRIT else "WATCH"
+            _col = COLORS["danger"] if th_comp_rate < _THEATRE_CRIT else COLORS["warning"]
+            _gap_line = (
+                f"Est. KES {fmt_kes(_th_rev_gap)}/month in unbilled capacity"
+                if _th_rev_gap else
+                f"Down {th_peak_rate - th_comp_rate:.0f}pp from peak {th_peak_rate:.0f}% in {th_peak_lbl}"
+            )
+            _notice_card(
+                _sev,
+                "Theatre — Completion Below Target",
+                f"{th_comp_rate:.0f}%",
+                _gap_line,
+                f"Trailing 3-month average · peak was {th_peak_rate:.0f}% in {th_peak_lbl}. "
+                "Check cancellation and no-show rates on Capacity & Ops page.",
+                _col,
+            )
+            _active += 1
+            _notices.append({"level": _sev, "title": "Theatre — Completion Below Target",
+                             "metric": f"{th_comp_rate:.0f}%",
+                             "action": "Check cancellation and no-show rates on Capacity & Ops"})
 
-            _action_card("!", "SHA Accreditation at Risk",
-                         "8 months · 0% dispatch",
-                         "SHA compliance audit active — risk of accreditation review after sustained non-submission",
-                         COLORS["danger"])
+        # Rule 4 — Dialysis idle (KSH only)
+        if months_idle is not None and months_idle >= _DIALYSIS_IDLE and facility == "KISUMU_CLEAN":
+            _kes_line = (
+                f"Est. KES {fmt_kes(_dial_kes_low)}–{fmt_kes(_dial_kes_high)} foregone at historical session rate"
+                if _dial_kes_low else "Insufficient session history to estimate foregone revenue"
+            )
+            _notice_card(
+                "WATCH",
+                "Dialysis — Equipment Idle",
+                f"{months_idle} months",
+                _kes_line,
+                "Last session Apr 2025 · KES 52K–119K per session. "
+                "Referral pipeline needed before equipment utilisation recovers.",
+                COLORS["warning"],
+            )
+            _active += 1
+            _notices.append({"level": "WATCH", "title": "Dialysis — Equipment Idle",
+                             "metric": f"{months_idle} months",
+                             "action": "Referral pipeline needed to restore utilisation"})
 
-            dq_note("KSH collected = 0: settlement workflow not recorded in this system.")
+        st.session_state["active_notices"] = _notices
+
+        # All-clear state — shown when nothing crosses a threshold
+        if _active == 0:
+            _latest_mo = readm_fac["ADMISSION_MONTH"].max().strftime("%b %Y") if len(readm_fac) else "—"
+            st.markdown(
+                f'<div style="background:#F4F8FC;border-radius:8px;padding:16px 18px;'
+                f'color:#6B8CAE;font-size:12px;line-height:1.8">'
+                f'<span style="font-weight:700;color:#0BB99F">✓ No active notices</span><br>'
+                f'All monitored indicators within range.<br>'
+                f'<span style="font-size:10px">Data as at {_latest_mo}</span>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
 
     with col_r:
-        outstanding_total = total_billed - total_collected
-        gap_pct_p1 = outstanding_total / total_billed * 100 if total_billed > 0 else 0
+        # ── Ward Revenue per Bed-Day — stat boxes ────────────────────────────
+        section_header("Ward Revenue per Bed-Day")
+        if len(revpab_cat):
+            revpab_grp = (
+                revpab_raw.groupby("ward_type", as_index=False)
+                .apply(lambda g: pd.Series({
+                    "avg_revpab":     g["TOTAL_REVENUE"].sum() / max(g["TOTAL_BED_DAYS"].sum(), 1),
+                    "total_bed_days": g["TOTAL_BED_DAYS"].sum(),
+                    "total_revenue":  g["TOTAL_REVENUE"].sum(),
+                }))
+                .reset_index(drop=True)
+            )
+            _gen = revpab_grp[revpab_grp["ward_type"] == "General"].iloc[0] if "General" in revpab_grp["ward_type"].values else None
+            _pvt = revpab_grp[revpab_grp["ward_type"] == "Private"].iloc[0] if "Private" in revpab_grp["ward_type"].values else None
+            _total_bd = revpab_grp["total_bed_days"].sum()
 
-        if facility == "TENRI":
-            section_header(f"{fmt_kes(outstanding_total)} uncollected — {gap_pct_p1:.0f}% of revenue still waiting")
-            fig = go.Figure(go.Waterfall(
-                orientation="v",
-                measure=["absolute", "relative", "total"],
-                x=["Revenue Billed", "Outstanding", "Revenue Collected"],
-                y=[total_billed, -outstanding_total, 0],
-                connector=dict(line=dict(color="#D6E4F0", width=1, dash="dot")),
-                decreasing=dict(marker=dict(color=COLORS["danger"], line=dict(width=0))),
-                increasing=dict(marker=dict(color=COLORS["primary"], line=dict(width=0))),
-                totals=dict(marker=dict(color=COLORS["success"], line=dict(width=0))),
-                text=[fmt_kes(total_billed), f"−{fmt_kes(outstanding_total)}", fmt_kes(total_collected)],
-                textposition="outside",
-                textfont=dict(size=11, family="Montserrat", color="#003467"),
-                hovertemplate="%{x}: %{text}<extra></extra>",
-            ))
-            fig.update_layout(**cl(height=380, yaxis_title="KES", showlegend=False))
-            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+            _sb1, _sb2 = st.columns(2)
+            for _col_obj, _row, _label in [(_sb1, _gen, "General Wards"), (_sb2, _pvt, "Private Wards")]:
+                with _col_obj:
+                    if _row is not None:
+                        _pct = _row["total_bed_days"] / max(_total_bd, 1) * 100
+                        kpi_card(
+                            _label,
+                            f"KES {_row['avg_revpab']:,.0f}",
+                            f"/bed-day · {_pct:.0f}% of admissions",
+                            COLORS["muted"] if _label.startswith("General") else COLORS["primary"],
+                        )
 
-        else:  # KSH — demand vs dispatch: clinical activity held, financial submission broke
-            section_header("Clinical Demand Held — The Financial Layer Broke")
-            if len(ksh_trend_p1):
-                _dd = ksh_trend_p1.sort_values("INVOICE_MONTH").copy()
-                if len(_dd):
-                    _bar_colors = [
-                        COLORS["danger"] if m >= pd.Timestamp(KSH_DISPATCH_CLIFF)
-                        else COLORS["muted"]
-                        for m in _dd["INVOICE_MONTH"]
-                    ]
-                    fig_dd = go.Figure()
-                    fig_dd.add_bar(
-                        x=_dd["INVOICE_MONTH"],
-                        y=_dd["INVOICES"],
-                        name="Claims Generated",
-                        marker_color=_bar_colors,
-                        opacity=0.75,
-                        hovertemplate="%{x|%b %Y}: %{y:,} claims generated<extra></extra>",
-                        yaxis="y",
-                    )
-                    fig_dd.add_scatter(
-                        x=_dd["INVOICE_MONTH"],
-                        y=_dd["DISPATCH_RATE_PCT"],
-                        name="% Submitted to SHA",
-                        mode="lines+markers",
-                        line=dict(color=COLORS["primary"], width=2.5),
-                        marker=dict(size=5, color=COLORS["primary"]),
-                        hovertemplate="%{x|%b %Y}: %{y:.1f}% submitted<extra></extra>",
-                        yaxis="y2",
-                    )
-                    fig_dd.add_scatter(
-                        x=[None], y=[None], mode="markers",
-                        marker=dict(symbol="square", size=10, color=COLORS["muted"]),
-                        name="Claims — before cliff (submitting)", showlegend=True,
-                    )
-                    fig_dd.add_scatter(
-                        x=[None], y=[None], mode="markers",
-                        marker=dict(symbol="square", size=10, color=COLORS["danger"]),
-                        name="Claims — post-cliff (not submitted)", showlegend=True,
-                    )
-                    _add_data_end_line(fig_dd, KSH_DISPATCH_CLIFF, "Dispatch stopped")
-                    fig_dd.update_layout(**cl(
-                        height=380,
-                        yaxis=dict(
-                            title="Claims Generated",
-                            gridcolor="#EBF3FB",
-                            tickfont=dict(size=9, color="#6B8CAE"),
-                        ),
-                        yaxis2=dict(
-                            title="% Submitted",
-                            overlaying="y", side="right",
-                            range=[0, 115], ticksuffix="%",
-                            tickfont=dict(size=9, color=COLORS["primary"]),
-                            showgrid=False,
-                        ),
-                        legend=dict(
-                            orientation="h", x=0, y=1.1,
-                            font=dict(size=9, family="Montserrat"),
-                            bgcolor="rgba(0,0,0,0)",
-                        ),
-                    ))
-                    st.plotly_chart(fig_dd, use_container_width=True,
-                                    config={"displayModeBar": False})
+            if _gen is not None and _pvt is not None:
+                _mult = _pvt["avg_revpab"] / max(_gen["avg_revpab"], 1)
+                _pvt_pct = _pvt["total_bed_days"] / max(_total_bd, 1) * 100
+                dq_note(
+                    f"Private wards earn <strong>{_mult:.1f}×</strong> more per bed-day "
+                    f"but hold only <strong>{_pvt_pct:.0f}%</strong> of admissions. "
+                    "Filling private capacity is the highest-yield lever available."
+                )
+            if facility == "KISUMU_CLEAN":
+                dq_note(
+                    "Insured exposure · If 20–30% of insured admissions carry private-tier "
+                    "authorisation but are placed in general wards: "
+                    "<strong>KES 970K–1.4M/year billed at the wrong rate.</strong>"
+                )
+
+        st.markdown("<div style='margin-bottom:4px'></div>", unsafe_allow_html=True)
+
+        # ── Monthly Admissions — 12-month pulse ──────────────────────────────
+        section_header("Admissions — 12-Month Pulse")
+        if len(readm_fac):
+            _adm12 = readm_fac.tail(12)
+            _ytd_start = pd.Timestamp(f"{pd.Timestamp.now().year}-01-01")
+            _admissions_ytd = int(
+                readm_fac[readm_fac["ADMISSION_MONTH"] >= _ytd_start]["TOTAL_ADMISSIONS"].sum()
+            )
+            fig_adm = go.Figure()
+            fig_adm.add_bar(
+                x=_adm12["ADMISSION_MONTH"],
+                y=_adm12["TOTAL_ADMISSIONS"],
+                marker_color=COLORS["primary"],
+                opacity=0.65,
+                hovertemplate="%{x|%b %Y}: %{y:,} admissions<extra></extra>",
+                showlegend=False,
+            )
+            _add_rolling_mean(fig_adm, _adm12["ADMISSION_MONTH"], _adm12["TOTAL_ADMISSIONS"])
+            fig_adm.update_layout(**cl(height=200, yaxis_title="Admissions", showlegend=True,
+                                       margin=dict(l=0, r=0, t=10, b=30)))
+            st.plotly_chart(fig_adm, use_container_width=True, config={"displayModeBar": False})
+            st.markdown(
+                f'<div style="font-size:11px;color:#6B8CAE;margin-top:-8px">'
+                f'<strong style="color:#003467">{_admissions_ytd:,}</strong> admissions YTD · '
+                f'<strong style="color:#003467">{admissions_3mo:,}</strong> in last 3 months'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
 
 
 
@@ -565,7 +733,7 @@ if page == "Business Overview":
 # PAGE 2 — Where the Money Isn't Arriving
 # ══════════════════════════════════════════════════════════════════════════════
 
-elif page == "Revenue Leakage":
+elif page == "Revenue Leakage" and AR_PAGE_ENABLED:  # AR_PAGE_DISABLED — see AR_PAGE_ENABLED flag
 
     if not st.session_state.p2 or st.session_state.p2.get("_fac") != fac_key:
         with st.spinner("Loading…"):
@@ -609,7 +777,7 @@ elif page == "Revenue Leakage":
     max_days_row    = rec_df.loc[rec_df["AVG_DAYS_OUTSTANDING"].idxmax()] if len(rec_df) else None
     biggest_exp     = rec_df.iloc[0] if len(rec_df) else None
 
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3, c4 = st.columns(4)
     with c1:
         if facility == "KISUMU_CLEAN":
             kpi_card("Total Insurance Outstanding", fmt_kes(total_outstanding),
@@ -623,6 +791,10 @@ elif page == "Revenue Leakage":
         else:
             kpi_card("KES Never Submitted", fmt_kes(never_submitted), "", COLORS["danger"], icon="⚠")
     with c3:
+        max_days_val = f"{int(max_days_row['AVG_DAYS_OUTSTANDING'])} days" if max_days_row is not None else "—"
+        max_days_ins = f"{max_days_row['INSURER']}" if max_days_row is not None else ""
+        kpi_card("Longest Outstanding", max_days_val, max_days_ins, COLORS["warning"])
+    with c4:
         biggest_val = fmt_kes(biggest_exp["OUTSTANDING_KES"]) if biggest_exp is not None else "—"
         biggest_ins = f"{biggest_exp['INSURER']}" if biggest_exp is not None else ""
         kpi_card("Biggest Exposure", biggest_val, biggest_ins, COLORS["danger"], icon="⚠")
@@ -799,6 +971,9 @@ elif page == "Revenue Leakage":
                         mode="lines+markers", name="% Submitted",
                         line=dict(color=COLORS["primary"], width=2),
                         marker=dict(size=6))
+                    _add_rolling_mean(fig, ksh_trend["INVOICE_MONTH"],
+                                      ksh_trend["DISPATCH_RATE_PCT"],
+                                      name="3-mo avg", color=COLORS["muted"])
                     _add_data_end_line(fig, KSH_DISPATCH_CLIFF, "Dispatch stopped")
                     fig.update_layout(**cl(height=380, yaxis_title="% Claims Submitted",
                                            yaxis_range=[0, 110],
@@ -859,7 +1034,93 @@ elif page == "Revenue Leakage":
 
     with tab3:
 
-        if len(rec_df):
+        # ── Section 1: Per-insurer recovery tool (KSH only) ──────────────────
+        if facility == "KISUMU_CLEAN" and len(rec_df):
+            section_header("Per-Insurer Recovery — What Does Restoring Dispatch Actually Unlock?")
+
+            ksh_rec = (
+                rec_df[rec_df["FACILITY"] == "KISUMU_CLEAN"]
+                .pipe(lambda d: d[~d["INSURER"].str.contains("AAR", case=False, na=False)])
+                .sort_values("OUTSTANDING_KES", ascending=False)
+                .copy()
+            )
+
+            if len(ksh_rec):
+                # Age-tier fractions: split ksh_trend cliff months into 0-90 / 90-180 / 180+ day bands
+                today_dt = pd.Timestamp.today().normalize()
+                kt_cliff = ksh_trend[
+                    ksh_trend["INVOICE_MONTH"] >= pd.Timestamp(KSH_DISPATCH_CLIFF)
+                ].copy()
+
+                if len(kt_cliff) and kt_cliff["TOTAL_OUTSTANDING"].sum() > 0:
+                    kt_cliff["days_old"] = (today_dt - kt_cliff["INVOICE_MONTH"]).dt.days
+                    kt_total      = kt_cliff["TOTAL_OUTSTANDING"].sum()
+                    forfeit_frac  = (
+                        kt_cliff[kt_cliff["days_old"] > 180]["TOTAL_OUTSTANDING"].sum() / kt_total
+                    )
+                    appeals_frac  = (
+                        kt_cliff[
+                            (kt_cliff["days_old"] >= 90) & (kt_cliff["days_old"] <= 180)
+                        ]["TOTAL_OUTSTANDING"].sum() / kt_total
+                    )
+                else:
+                    forfeit_frac = 0.45
+                    appeals_frac = 0.35
+
+                insurer_options  = ksh_rec["INSURER"].tolist()
+                selected_insurer = st.selectbox(
+                    "Select insurer to model recovery",
+                    insurer_options, index=0,
+                    key="t3_insurer_select",
+                )
+
+                ins_row        = ksh_rec[ksh_rec["INSURER"] == selected_insurer].iloc[0]
+                total_outs     = float(ins_row["OUTSTANDING_KES"])
+                within_window  = float(ins_row["EXPECTED_RECOVERABLE_KES"])
+                past_window    = float(ins_row["OUTSTANDING_90PLUS"])
+                ins_appeals    = past_window * appeals_frac
+                ins_forfeiture = past_window * forfeit_frac
+
+                t3_c1, t3_c2, t3_c3, t3_c4 = st.columns(4)
+                with t3_c1:
+                    kpi_card("Total Outstanding", fmt_kes(total_outs),
+                             f"{int(ins_row['INVOICES'])} invoices · {ins_row['DISPATCH_RATE_PCT']:.1f}% dispatched",
+                             COLORS["danger"], icon="⚠")
+                with t3_c2:
+                    kpi_card("Within SHA Window", fmt_kes(within_window),
+                             "0–90 days · routine dispatch", COLORS["success"])
+                with t3_c3:
+                    kpi_card("SHA Appeals Zone", fmt_kes(ins_appeals),
+                             "~90–180 days · formal appeals required", COLORS["warning"])
+                with t3_c4:
+                    kpi_card("Forfeiture Risk", fmt_kes(ins_forfeiture),
+                             "~180+ days · SHA hard deadline may apply", COLORS["danger"], icon="⚠")
+
+                st.markdown("<div style='margin-bottom:12px'></div>", unsafe_allow_html=True)
+
+                rec_pct = st.slider(
+                    f"Collection efficiency on {selected_insurer}",
+                    min_value=10, max_value=80, value=60, step=5, format="%d%%",
+                    key="t3_rec_pct",
+                )
+                # Appeals at half efficiency: formal process with uncertain outcome
+                projected_rec = (within_window + ins_appeals * 0.5) * (rec_pct / 100)
+
+                pr_c1, pr_c2 = st.columns(2)
+                with pr_c1:
+                    kpi_card("Projected Recovery", fmt_kes(projected_rec),
+                             f"{rec_pct}% on in-window · {rec_pct // 2}% on appeals · forfeiture excluded",
+                             COLORS["success"], icon="✓")
+                with pr_c2:
+                    kpi_card("Forfeiture Exposure", fmt_kes(ins_forfeiture),
+                             "Recoverable only via SHA formal dispute — not routine operations",
+                             COLORS["danger"])
+
+                dq_note("Age-tier split estimated from monthly ksh_trend population-level totals. "
+                        "Individual insurer aging may vary. "
+                        "SHA 90-day rule: formal appeals required past deadline; forfeiture risk after 180 days.")
+
+        elif len(rec_df):
             section_header("Recovery Priority")
 
         # ── Section 2: Incoming Admissions Opportunity (KSH only) ────────────
@@ -1688,6 +1949,9 @@ elif page == "Readmissions":
                     x=sub["ADMISSION_MONTH"], y=sub["READMISSION_30DAY_RATE_PCT"],
                     mode="lines+markers", name=fac_name,
                     line=dict(color=color, width=2), marker=dict(size=4))
+                _add_rolling_mean(fig, sub["ADMISSION_MONTH"],
+                                  sub["READMISSION_30DAY_RATE_PCT"],
+                                  name="3-mo avg", color=COLORS["muted"])
                 _add_regression(fig, sub["ADMISSION_MONTH"],
                                 sub["READMISSION_30DAY_RATE_PCT"],
                                 name="Trend", color=COLORS["warning"])

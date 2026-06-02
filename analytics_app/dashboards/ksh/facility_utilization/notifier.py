@@ -9,18 +9,6 @@ import os
 from datetime import datetime
 
 from django.conf import settings
-
-if not settings.configured:
-    settings.configure(
-        EMAIL_BACKEND="django.core.mail.backends.smtp.EmailBackend",
-        EMAIL_HOST="smtp.gmail.com",
-        EMAIL_PORT=587,
-        EMAIL_USE_TLS=True,
-        EMAIL_HOST_USER=os.getenv("EMAIL_HOST_USER", ""),
-        EMAIL_HOST_PASSWORD=os.getenv("EMAIL_HOST_PASSWORD", ""),
-        DEFAULT_FROM_EMAIL=os.getenv("EMAIL_HOST_USER", ""),
-    )
-
 from django.core.mail import send_mail  # noqa: E402
 
 
@@ -150,7 +138,7 @@ def send_digest(facility_name: str, notices: list, stats: str = "",
     try:
         send_mail(
             subject=f"{facility_name} — {tag} | {today}",
-            message="",
+            message="ok",
             from_email=settings.DEFAULT_FROM_EMAIL,
             recipient_list=to_list,
             html_message=_build_html(facility_name, notices, stats),

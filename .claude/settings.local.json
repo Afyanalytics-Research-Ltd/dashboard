@@ -59,7 +59,19 @@
       "Bash(cat -n //wsl.localhost/Ubuntu/home/luther/dashboard/authentication/forms.py)",
       "Bash(cat //wsl.localhost/Ubuntu/home/luther/dashboard/warehouse/models.py)",
       "Bash(cat //wsl.localhost/Ubuntu/home/luther/dashboard/warehouse/sheet_service.py)",
-      "Read(///wsl.localhost/Ubuntu/home/luther/dashboard/warehouse/services/**)"
+      "Read(///wsl.localhost/Ubuntu/home/luther/dashboard/warehouse/services/**)",
+      "Bash(find \"\\\\\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\luther\\\\dashboard\" -type d -maxdepth 2)",
+      "Bash(find \"\\\\\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\luther\\\\dashboard\" -maxdepth 3 -name \"views.py\" -not -path \"*/env/*\")",
+      "Bash(find \"\\\\\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\luther\\\\dashboard\" -maxdepth 3 -name \"urls.py\" -not -path \"*/env/*\")",
+      "Bash(find \"\\\\\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\luther\\\\dashboard/templates\" -maxdepth 1 -name \"*.html\")",
+      "Bash(xargs ls -1)",
+      "Bash(ls \"\\\\\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\luther\\\\dashboard/templates/\")",
+      "Bash(ls \"\\\\\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\luther\\\\dashboard/templates/analytics/\")",
+      "Bash(grep -l \"class Dashboard\" \"\\\\\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\luther\\\\dashboard\"/**/*.py)"
+    ],
+    "additionalDirectories": [
+      "\\home\\luther\\dashboard\\templates\\analytics",
+      "\\\\wsl.localhost\\Ubuntu\\home\\luther\\dashboard\\templates\\analytics"
     ]
   }
 }

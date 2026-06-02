@@ -667,6 +667,285 @@
   .dl-pills::-webkit-scrollbar { display: none; }
   .dl-result-info { margin-left: 0; }
 }
+
+/* ====================================================
+   LAUNCH OVERLAY  —  full-viewport transition spinner
+   ==================================================== */
+.lo-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: linear-gradient(155deg, #020810 0%, #060d1a 55%, #091525 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .28s ease;
+}
+.lo-overlay.active {
+  opacity: 1;
+  pointer-events: all;
+}
+
+/* Animated grid */
+.lo-grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(0,114,206,.055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,114,206,.055) 1px, transparent 1px);
+  background-size: 52px 52px;
+  pointer-events: none;
+}
+
+/* Glow orbs */
+.lo-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(90px);
+  pointer-events: none;
+  animation: lo-drift 14s ease-in-out infinite;
+}
+.lo-orb-1 {
+  width: 620px; height: 620px;
+  background: radial-gradient(circle, rgba(0,114,206,.2) 0%, transparent 65%);
+  top: -200px; right: -130px;
+}
+.lo-orb-2 {
+  width: 440px; height: 440px;
+  background: radial-gradient(circle, rgba(11,185,159,.16) 0%, transparent 65%);
+  bottom: -130px; left: 3%;
+  animation-delay: -6s;
+}
+.lo-orb-3 {
+  width: 290px; height: 290px;
+  background: radial-gradient(circle, rgba(96,198,255,.12) 0%, transparent 65%);
+  top: 35%; left: 42%;
+  animation-delay: -10s;
+}
+@keyframes lo-drift {
+  0%,100% { transform: translate(0,0) scale(1); }
+  33%      { transform: translate(22px,-22px) scale(1.07); }
+  66%      { transform: translate(-14px,16px) scale(.93); }
+}
+
+/* Centre content */
+.lo-content {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2rem;
+  transform: scale(.86) translateY(20px);
+  opacity: 0;
+  transition: transform .5s cubic-bezier(0.2, 0, 0, 1), opacity .38s ease;
+}
+.lo-overlay.active .lo-content {
+  transform: scale(1) translateY(0);
+  opacity: 1;
+}
+
+.lo-pre-label {
+  font-size: .6rem;
+  font-weight: 900;
+  letter-spacing: 6px;
+  text-transform: uppercase;
+  color: rgba(96,198,255,.6);
+}
+
+/* Spinner */
+.lo-spinner {
+  position: relative;
+  width: 152px; height: 152px;
+}
+
+.lo-ring-dash {
+  position: absolute;
+  inset: -20px;
+  border-radius: 50%;
+  border: 1px dashed rgba(0,114,206,.2);
+  animation: lo-spin 22s linear infinite;
+}
+.lo-ring-dash-2 {
+  position: absolute;
+  inset: -34px;
+  border-radius: 50%;
+  border: 1px dashed rgba(11,185,159,.1);
+  animation: lo-spin 35s linear infinite reverse;
+}
+
+.lo-ring {
+  position: absolute;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  animation: lo-spin linear infinite;
+}
+.lo-ring-1 {
+  inset: 0;
+  border-top-color: #0072CE;
+  border-right-color: rgba(0,114,206,.22);
+  animation-duration: 2.3s;
+}
+.lo-ring-2 {
+  inset: 18px;
+  border: 2.5px solid transparent;
+  border-top-color: #0BB99F;
+  border-left-color: rgba(11,185,159,.28);
+  animation-duration: 1.65s;
+  animation-direction: reverse;
+}
+.lo-ring-3 {
+  inset: 36px;
+  border-top-color: #60c6ff;
+  border-right-color: rgba(96,198,255,.2);
+  animation-duration: 1.05s;
+}
+.lo-ring-4 {
+  inset: 54px;
+  border: 3px solid transparent;
+  border-top-color: rgba(0,114,206,.9);
+  border-bottom-color: rgba(11,185,159,.55);
+  animation-duration: .76s;
+  animation-direction: reverse;
+}
+
+.lo-core {
+  position: absolute;
+  inset: 66px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 38% 36%, #60c6ff, #0072CE 50%, #0BB99F);
+  animation: lo-core-pulse 1.55s ease-in-out infinite;
+}
+@keyframes lo-spin       { to { transform: rotate(360deg); } }
+@keyframes lo-core-pulse {
+  0%,100% { transform: scale(.8);  opacity: .7;
+            box-shadow: 0 0 14px rgba(0,114,206,.55), 0 0 28px rgba(11,185,159,.2); }
+  50%      { transform: scale(1.2); opacity: 1;
+            box-shadow: 0 0 26px rgba(0,114,206,.85), 0 0 54px rgba(11,185,159,.4), 0 0 80px rgba(0,114,206,.15); }
+}
+
+/* Dashboard name */
+.lo-name {
+  font-size: 1.7rem;
+  font-weight: 800;
+  letter-spacing: -.04em;
+  text-align: center;
+  max-width: 520px;
+  line-height: 1.2;
+  background: linear-gradient(135deg, #ffffff 0%, #a8d8ff 55%, #0BB99F 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  transform: translateY(20px);
+  opacity: 0;
+  transition: transform .52s cubic-bezier(0.2, 0, 0, 1) .1s, opacity .42s ease .1s;
+}
+.lo-overlay.active .lo-name {
+  transform: translateY(0);
+  opacity: 1;
+}
+
+.lo-sub {
+  font-size: .68rem;
+  color: rgba(255,255,255,.28);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  transform: translateY(14px);
+  opacity: 0;
+  transition: transform .52s cubic-bezier(0.2, 0, 0, 1) .2s, opacity .42s ease .2s;
+}
+.lo-overlay.active .lo-sub {
+  transform: translateY(0);
+  opacity: 1;
+}
+
+/* Progress bar */
+.lo-progress-wrap {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 2px;
+  overflow: hidden;
+}
+.lo-progress-bar {
+  height: 100%;
+  width: 0;
+  background: linear-gradient(90deg, #0072CE, #0BB99F, #60c6ff);
+  box-shadow: 0 0 12px rgba(0,114,206,.9), 0 0 24px rgba(11,185,159,.4);
+  transition: width 1.15s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.lo-overlay.active .lo-progress-bar { width: 100%; }
+
+/* Scanning line effect */
+.lo-scan {
+  position: absolute;
+  left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent 0%, rgba(0,114,206,.4) 40%, rgba(11,185,159,.5) 60%, transparent 100%);
+  animation: lo-scan-move 2.2s ease-in-out infinite;
+  pointer-events: none;
+  z-index: 1;
+}
+@keyframes lo-scan-move {
+  0%   { top: 0%; opacity: 0; }
+  5%   { opacity: 1; }
+  95%  { opacity: 1; }
+  100% { top: 100%; opacity: 0; }
+}
+
+/* Brand watermark */
+.lo-brand {
+  position: absolute;
+  bottom: 2.8rem;
+  z-index: 2;
+  font-size: .55rem;
+  font-weight: 900;
+  letter-spacing: 6px;
+  text-transform: uppercase;
+  color: rgba(255,255,255,.08);
+}
+
+/* ---- Iframe portal ---- */
+.lo-iframe-wrap {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .55s ease;
+}
+.lo-iframe-wrap.lo-visible {
+  opacity: 1;
+  pointer-events: all;
+}
+.lo-iframe {
+  width: 100%; height: 100%;
+  border: none; display: block;
+  background: white;
+}
+.lo-close-btn {
+  position: absolute;
+  top: 1rem; right: 1rem;
+  z-index: 21;
+  width: 42px; height: 42px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(6,13,26,.88);
+  color: rgba(255,255,255,.5);
+  font-size: .88rem;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  backdrop-filter: blur(14px);
+  transition: background .2s ease, color .2s ease, border-color .2s ease, opacity .2s ease;
+  opacity: 0;
+}
+.lo-iframe-wrap.lo-visible .lo-close-btn { opacity: 1; }
+.lo-close-btn:hover {
+  background: rgba(255,255,255,.14);
+  color: white;
+  border-color: rgba(255,255,255,.22);
+}
 </style>
 {% endblock %}
 
@@ -811,7 +1090,9 @@
             </a>
             {% endif %}
             <a href="{% url 'analytics:dashboard_view' db.slug %}"
-               class="dl-btn-open">
+               class="dl-btn-open"
+               data-launch-name="{{ db.name }}"
+               data-streamlit-url="{{ db.streamlit_url|default:'' }}">
               Open <i class="bi bi-arrow-right-short" style="font-size:1.1em;"></i>
             </a>
           </div>
@@ -881,6 +1162,47 @@
   {% endif %}
 
 </div>
+
+<!-- ============ LAUNCH OVERLAY ============ -->
+<div id="launchOverlay" class="lo-overlay" aria-hidden="true" role="status">
+  <div class="lo-grid"></div>
+  <div class="lo-scan"></div>
+  <div class="lo-orb lo-orb-1"></div>
+  <div class="lo-orb lo-orb-2"></div>
+  <div class="lo-orb lo-orb-3"></div>
+
+  <div class="lo-content">
+    <div class="lo-pre-label">Launching</div>
+
+    <div class="lo-spinner">
+      <div class="lo-ring-dash-2"></div>
+      <div class="lo-ring-dash"></div>
+      <div class="lo-ring lo-ring-1"></div>
+      <div class="lo-ring lo-ring-2"></div>
+      <div class="lo-ring lo-ring-3"></div>
+      <div class="lo-ring lo-ring-4"></div>
+      <div class="lo-core"></div>
+    </div>
+
+    <div class="lo-name" id="launchName"></div>
+    <div class="lo-sub">Opening dashboard</div>
+  </div>
+
+  <div class="lo-brand">Afya DataHub</div>
+
+  <div class="lo-progress-wrap">
+    <div class="lo-progress-bar" id="launchProgress"></div>
+  </div>
+
+  <!-- Fullscreen iframe portal (shown after spinner) -->
+  <div class="lo-iframe-wrap" id="loIframeWrap">
+    <button class="lo-close-btn" id="loCloseBtn" title="Exit fullscreen (Esc)">
+      <i class="bi bi-x-lg"></i>
+    </button>
+    <iframe id="loIframe" class="lo-iframe" src="" title="Dashboard" allowfullscreen></iframe>
+  </div>
+</div>
+
 {% endblock %}
 
 
@@ -927,6 +1249,92 @@
   document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(function (el) {
     new bootstrap.Tooltip(el);
   });
+
+  /* ---- Launch overlay ---- */
+  var launchOverlay = document.getElementById('launchOverlay');
+  var launchNameEl  = document.getElementById('launchName');
+  var loIframeWrap  = document.getElementById('loIframeWrap');
+  var loIframe      = document.getElementById('loIframe');
+  var loCloseBtn    = document.getElementById('loCloseBtn');
+
+  function resetOverlay() {
+    launchOverlay.classList.remove('active');
+    launchOverlay.setAttribute('aria-hidden', 'true');
+    loIframeWrap.classList.remove('lo-visible');
+    setTimeout(function () { loIframe.src = ''; }, 600);
+    var content  = launchOverlay.querySelector('.lo-content');
+    var scanEl   = launchOverlay.querySelector('.lo-scan');
+    var progWrap = launchOverlay.querySelector('.lo-progress-wrap');
+    if (content)  { content.style.transition = ''; content.style.opacity = ''; }
+    if (scanEl)   { scanEl.style.opacity = ''; }
+    if (progWrap) { progWrap.style.transition = ''; progWrap.style.opacity = ''; }
+  }
+
+  function showIframe(streamlitUrl) {
+    var content  = launchOverlay.querySelector('.lo-content');
+    var scanEl   = launchOverlay.querySelector('.lo-scan');
+    var progWrap = launchOverlay.querySelector('.lo-progress-wrap');
+    if (content)  { content.style.transition  = 'opacity .45s ease'; content.style.opacity  = '0'; }
+    if (scanEl)   { scanEl.style.opacity = '0'; }
+    if (progWrap) { progWrap.style.transition = 'opacity .45s ease'; progWrap.style.opacity = '0'; }
+    loIframe.src = streamlitUrl;
+    setTimeout(function () { loIframeWrap.classList.add('lo-visible'); }, 200);
+  }
+
+  if (launchOverlay && launchNameEl) {
+    document.querySelectorAll('.dl-btn-open[data-launch-name]').forEach(function (btn) {
+      btn.addEventListener('click', function (e) {
+        e.preventDefault();
+        var url          = btn.getAttribute('href');
+        var name         = btn.dataset.launchName    || 'Dashboard';
+        var streamlitUrl = btn.dataset.streamlitUrl  || '';
+
+        launchNameEl.textContent = name;
+        launchOverlay.removeAttribute('aria-hidden');
+        launchOverlay.classList.add('active');
+
+        if (streamlitUrl) {
+          /* Request fullscreen NOW — we are inside a click handler (user gesture) */
+          var req = launchOverlay.requestFullscreen
+            ? launchOverlay.requestFullscreen()
+            : (launchOverlay.webkitRequestFullscreen
+                ? new Promise(function(res){ launchOverlay.webkitRequestFullscreen(); res(); })
+                : Promise.reject());
+
+          req.then(function () {
+            setTimeout(function () { showIframe(streamlitUrl); }, 1200);
+          }).catch(function () {
+            /* Fullscreen denied — fall back to navigating to viewer */
+            setTimeout(function () {
+              window.location.href = url + (url.indexOf('?') !== -1 ? '&' : '?') + 'fs=1';
+            }, 1300);
+          });
+        } else {
+          /* No Streamlit URL configured — navigate to viewer page */
+          setTimeout(function () { window.location.href = url; }, 1300);
+        }
+      });
+    });
+
+    /* Close button */
+    if (loCloseBtn) {
+      loCloseBtn.addEventListener('click', function () {
+        if (document.fullscreenElement) document.exitFullscreen();
+      });
+    }
+
+    /* Reset when browser exits fullscreen (ESC or close button) */
+    document.addEventListener('fullscreenchange', function () {
+      if (!document.fullscreenElement && launchOverlay.classList.contains('active')) {
+        resetOverlay();
+      }
+    });
+    document.addEventListener('webkitfullscreenchange', function () {
+      if (!document.webkitFullscreenElement && launchOverlay.classList.contains('active')) {
+        resetOverlay();
+      }
+    });
+  }
 
 })();
 </script>

@@ -234,7 +234,23 @@ class UserProfile(models.Model):
 
 @receiver(post_save, sender=settings.AUTH_USER_MODEL)
 def _ensure_profile(sender, instance, created, **kwargs):
-    """Every User gets a UserProfile, even ones created via createsuperuser."""
+    """Auto-create a :class:`UserProfile` for every new User.
+
+    Triggered by Django's ``post_save`` signal on the User model.  Uses
+    ``get_or_create`` so it is idempotent — safe to call multiple times.
+
+    Non-technical explanation:
+        Whenever a new user account is created (even by a developer using
+        the command line), this automatically creates their profile record
+        behind the scenes — like setting up a desk for a new employee on
+        their first day.
+
+    Args:
+        sender: The User model class (passed by the signal framework).
+        instance: The User instance that was just saved.
+        created: ``True`` if this is a new record, ``False`` for updates.
+        **kwargs: Additional keyword arguments from the signal.
+    """
     if created:
         UserProfile.objects.get_or_create(user=instance)
         logger.debug('UserProfile created for user pk=%s', instance.pk)
@@ -242,7 +258,18 @@ def _ensure_profile(sender, instance, created, **kwargs):
 
 @receiver(post_save, sender=settings.AUTH_USER_MODEL)
 def _save_profile(sender, instance, **kwargs):
-    """Propagate User saves to the profile (avoids stale cached data)."""
+    """Propagate User saves to the linked UserProfile to avoid stale data.
+
+    Triggered on every User save (not just creation).  Re-saves the profile
+    so any cached computed properties are refreshed.  Silently skips if the
+    profile doesn't exist yet (e.g. during the initial creation signal
+    before the profile has been committed).
+
+    Args:
+        sender: The User model class.
+        instance: The User instance that was just saved.
+        **kwargs: Includes ``created`` (bool) and other signal arguments.
+    """
     if not kwargs.get('created') and hasattr(instance, 'profile'):
         try:
             instance.profile.save()

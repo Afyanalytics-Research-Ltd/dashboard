@@ -43,7 +43,20 @@ User = get_user_model()
 # ---------------------------------------------------------------------------
 
 def _get_client_ip(request) -> str | None:
-    """Extract real client IP, honouring X-Forwarded-For."""
+    """Extract the real client IP address, honouring proxy forwarding headers.
+
+    When the platform runs behind a reverse proxy (e.g. Nginx, AWS ALB),
+    the actual client IP is passed in the ``X-Forwarded-For`` header.
+    This function reads the leftmost (original) IP from that header,
+    falling back to ``REMOTE_ADDR`` for direct connections.
+
+    Args:
+        request: The incoming Django HTTP request.
+
+    Returns:
+        The client's IP address string (IPv4 or IPv6), or ``None`` if
+        the address cannot be determined.
+    """
     xff = request.META.get('HTTP_X_FORWARDED_FOR')
     if xff:
         return xff.split(',')[0].strip()

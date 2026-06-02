@@ -278,6 +278,23 @@ body { background: #060d1a; }
   color: rgba(255,255,255,.1);
   letter-spacing: 3.5px; text-transform: uppercase;
 }
+.loader-fs-hint {
+  display: flex; align-items: center; gap: .5rem;
+  font-size: .72rem; font-weight: 600;
+  color: rgba(96,198,255,.55);
+  letter-spacing: 1px;
+  animation: label-pulse 2s ease-in-out infinite;
+  cursor: pointer;
+  border: 1px solid rgba(96,198,255,.18);
+  border-radius: 999px;
+  padding: .4rem 1.1rem;
+  transition: all .2s ease;
+}
+.loader-fs-hint:hover {
+  color: rgba(96,198,255,.9);
+  border-color: rgba(96,198,255,.4);
+  background: rgba(0,114,206,.08);
+}
 
 /* ==================== EMPTY STATE ==================== */
 .v-empty {
@@ -425,6 +442,9 @@ body { background: #060d1a; }
         <div class="l-ring l-ring-3"></div>
       </div>
       <div class="loader-label">Loading Dashboard</div>
+      <div class="loader-fs-hint" id="vFsHint" style="display:none;">
+        <i class="bi bi-fullscreen"></i> Click to enter fullscreen
+      </div>
       <div class="loader-brand">Afya DataHub</div>
     </div>
 
@@ -485,6 +505,20 @@ body { background: #060d1a; }
   }
   fitHeight();
   window.addEventListener('resize', fitHeight);
+
+  /* ---- Fullscreen-launch mode ---- */
+  var fsHint    = document.getElementById('vFsHint');
+  var launchFS  = new URLSearchParams(window.location.search).get('fs') === '1';
+
+  if (launchFS && fsHint && shell) {
+    fsHint.style.display = '';
+    fsHint.addEventListener('click', function () {
+      shell.requestFullscreen().catch(function (e) {
+        console.warn('Fullscreen unavailable:', e.message);
+      });
+      fsHint.style.display = 'none';
+    });
+  }
 
   /* ---- Loader hide ---- */
   if (iframe && loader) {

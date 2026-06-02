@@ -1,11 +1,6 @@
-﻿"""
-Private Hospitals Executive Dashboard — TENRI + KSH
-Run: streamlit run private_analysis/dashboard.py
-"""
-
 import sys
 import os
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.abspath('__file__')))
 
 import streamlit as st
 import pandas as pd
@@ -16,9 +11,9 @@ from streamlit_option_menu import option_menu
 import warnings
 warnings.filterwarnings("ignore")
 
-from facility_utilization.m1_ward_forecast import get_forecast
-from facility_utilization.notifier import send_digest, get_recipients
-from facility_utilization.queries import (
+from ksh.facility_utilization.m1_ward_forecast import get_forecast
+from ksh.facility_utilization.notifier import send_digest, get_recipients
+from ksh.facility_utilization.queries import (
     q_overview_gap, q_overview_alerts,
     q_leakage_gap, q_leakage_submission_rate, q_leakage_ksh_dispatch_trend,
     q_leakage_aging_dist, q_leakage_recovery_priority,
@@ -288,7 +283,7 @@ fac_key   = facility
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 
 with st.sidebar:
-    _logo = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ksh_logo.png")
+    _logo = os.path.join(os.path.dirname(os.path.abspath('__file__')), "ksh_logo.png")
     if os.path.exists(_logo):
         st.image(_logo, width=80)
     st.markdown(
@@ -2697,7 +2692,7 @@ elif page == "Predictive Analytics":
         meta.columns = ["Series", "Model", "Holdout MAPE", "Status"]
         st.dataframe(meta, hide_index=True, use_container_width=True)
 
-        from facility_utilization.m1_ward_forecast import VALIDATED_DATE, RETRAIN_DATE
+        from ksh.facility_utilization.m1_ward_forecast import VALIDATED_DATE, RETRAIN_DATE
         dq_note(
             f"Last validated: {VALIDATED_DATE.strftime('%Y-%m-%d')}  ·  "
             f"Retrain recommended by: {RETRAIN_DATE.strftime('%Y-%m-%d')}  ·  "

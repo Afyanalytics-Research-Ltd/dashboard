@@ -7,7 +7,11 @@ Usage:
 
 import os
 from datetime import datetime
+import django
+from django.conf import settings
 
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'airflow_dashboard.settings')
+django.setup()
 from django.conf import settings
 from django.core.mail import send_mail  # noqa: E402
 

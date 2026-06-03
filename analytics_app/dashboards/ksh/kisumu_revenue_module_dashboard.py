@@ -1742,14 +1742,14 @@ with tab5:
 
             m1, m2, m3 = st.columns(3)
             with m1:
-                kpi_card("Weekly revenue lift", fmt_ksh(weekly_uplift_rev),
+                kpi_card("Weekly revenue lift", fmt_ksh(abs(weekly_uplift_rev)),
                          f"On {top_day_name}s", COLORS["primary"])
             with m2:
-                kpi_card("Weekly net contribution", fmt_ksh(weekly_net),
+                kpi_card("Weekly net contribution", fmt_ksh(abs(weekly_net)),
                          "After intervention cost",
                          COLORS["success"] if weekly_net > 0 else COLORS["danger"])
             with m3:
-                kpi_card("Annualised net", fmt_ksh(annual_net),
+                kpi_card("Annualised net", fmt_ksh(abs(annual_net)),
                          f"Payback: {payback_weeks:.1f} wks" if payback_weeks else "Negative ROI",
                          COLORS["green"] if annual_net > 0 else COLORS["danger"])
 

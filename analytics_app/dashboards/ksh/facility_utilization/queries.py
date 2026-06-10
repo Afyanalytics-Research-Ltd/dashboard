@@ -490,3 +490,248 @@ def q_imaging_trend(facility=None):
             END
         ORDER BY revenue_month, revenue DESC
     """)
+
+
+# ── Phase 13: Intelligence Layer queries (KSH-only data sources) ──────────
+
+
+def q_ward_admissions_monthly(facility=None):
+    """G1: monthly admissions per ward_category — for traffic volume rules (Inv 21)."""
+    f = _flt(facility)
+    return run_query_df(f"""
+        SELECT
+            facility,
+            ward_category,
+            admission_month,
+            SUM(total_admissions) AS admissions
+        FROM HOSPITALS.REPORTING.rpt_bed_occupancy
+        WHERE 1=1 {f}
+        GROUP BY facility, ward_category, admission_month
+        ORDER BY ward_category, admission_month
+    """)
+
+
+def q_ward_los_monthly(facility=None):
+    """Monthly median LOS per ward — from stg_inpatient_admissions (silver exception, G9 pending).
+    Median required — avg is unreliable due to extreme outliers (max 139d Maternity, Inv 22)."""
+    f_val = facility if facility in _VALID_FACILITIES else None
+    flt = f"AND source_schema = '{f_val}'" if f_val else ""
+    return run_query_df(f"""
+        SELECT
+            source_schema                              AS facility,
+            ward_category,
+            DATE_TRUNC('month', ADMITTED_AT)::DATE     AS admission_month,
+            MEDIAN(LOS_DAYS)                           AS median_los_days,
+            COUNT(*)                                   AS admissions
+        FROM HOSPITALS.STAGING.stg_inpatient_admissions
+        WHERE LOS_DAYS IS NOT NULL
+          AND ADMITTED_AT >= '2000-01-01'
+          {flt}
+        GROUP BY source_schema, ward_category,
+                 DATE_TRUNC('month', ADMITTED_AT)::DATE
+        ORDER BY ward_category, admission_month
+    """)
+
+
+def q_ward_discharge_monthly(facility=None):
+    """G2: monthly Patient Request discharge rate per ward — for discharge pattern rules (Inv 23)."""
+    f = _flt(facility)
+    return run_query_df(f"""
+        SELECT
+            facility,
+            ward_category,
+            admission_month,
+            SUM(total_admissions) AS total_admissions,
+            SUM(CASE WHEN discharge_type ILIKE '%patient request%'
+                     THEN total_admissions ELSE 0 END) AS patient_request_admissions,
+            ROUND(
+                100.0 * SUM(CASE WHEN discharge_type ILIKE '%patient request%'
+                            THEN total_admissions ELSE 0 END)
+                / NULLIF(SUM(total_admissions), 0), 2
+            ) AS patient_request_pct
+        FROM HOSPITALS.REPORTING.rpt_readmissions
+        WHERE ward_category IS NOT NULL
+          {f}
+        GROUP BY facility, ward_category, admission_month
+        ORDER BY facility, ward_category, admission_month
+    """)
+
+
+def q_doctor_workload_monthly():
+    """KSH only: monthly evaluation visits per doctor — burnout + concentration rules (Inv 24).
+    created_at is VARCHAR — uses TRY_TO_TIMESTAMP. IS_EMPLOYEE not populated for KSH."""
+    return run_query_df("""
+        SELECT
+            DATE_TRUNC('month', TRY_TO_TIMESTAMP(ev.created_at))::DATE AS visit_month,
+            u.username,
+            COUNT(*) AS monthly_visits
+        FROM HOSPITALS.KISUMU_CLEAN.EVALUATION_VISITS ev
+        JOIN HOSPITALS.KISUMU_CLEAN.USERS u ON ev.user = u.id
+        WHERE ev.deleted_at IS NULL
+          AND u.active = 1
+          AND u.username NOT REGEXP '.*[0-9].*'
+          AND u.username NOT IN ('sudo', 'Billclinton')
+          AND TRY_TO_TIMESTAMP(ev.created_at) >= '2024-01-01'
+        GROUP BY
+            DATE_TRUNC('month', TRY_TO_TIMESTAMP(ev.created_at))::DATE,
+            u.username
+        ORDER BY visit_month, monthly_visits DESC
+    """)
+
+
+def q_visit_summary():
+    """KSH only: monthly total visit count from EVALUATION_VISITS (Inv 27 confirmed table + column).
+    created_at is VARCHAR — uses TRY_TO_TIMESTAMP. Inpatient derived in dashboard from ward_adm."""
+    return run_query_df("""
+        SELECT
+            DATE_TRUNC('month', TRY_TO_TIMESTAMP(created_at))::DATE AS visit_month,
+            COUNT(*) AS total_visits
+        FROM HOSPITALS.KISUMU_CLEAN.EVALUATION_VISITS
+        WHERE deleted_at IS NULL
+          AND TRY_TO_TIMESTAMP(created_at) >= '2024-09-01'
+        GROUP BY DATE_TRUNC('month', TRY_TO_TIMESTAMP(created_at))::DATE
+        ORDER BY visit_month
+    """)
+
+
+def q_peak_ward_dist():
+    """KSH only: ward admission distribution during Monday 14-18h peak vs off-peak (CD5).
+    Join: EVALUATION_VISITS (visit time) -> STG_INPATIENT_ADMISSIONS (WARD_CATEGORY).
+    Columns: time_bucket, ward_category, admissions."""
+    return run_query_df("""
+        SELECT
+            CASE WHEN DAYOFWEEKISO(TRY_TO_TIMESTAMP(ev.created_at)) = 1
+                      AND HOUR(TRY_TO_TIMESTAMP(ev.created_at)) BETWEEN 14 AND 17
+                 THEN 'Peak'
+                 ELSE 'Off-Peak'
+            END                                    AS time_bucket,
+            ia.ward_category,
+            COUNT(DISTINCT ia.original_id)         AS admissions
+        FROM HOSPITALS.KISUMU_CLEAN.EVALUATION_VISITS ev
+        JOIN HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS ia ON ia.visit_id = ev.id
+        WHERE ev.deleted_at IS NULL
+          AND ia.ward_category IS NOT NULL
+          AND ia.source_schema = 'KISUMU_CLEAN'
+          AND TRY_TO_TIMESTAMP(ev.created_at) IS NOT NULL
+          AND TRY_TO_TIMESTAMP(ev.created_at) >= '2024-09-01'
+        GROUP BY 1, 2
+        ORDER BY 1, 3 DESC
+    """)
+
+
+def q_doctor_ward_share():
+    """KSH only: doctor share of admissions per ward (CD6 — E.Awando concentration).
+    Joins INPATIENT_ADMISSIONS -> EVALUATION_VISITS -> USERS to get username (eawando format).
+    Columns: username, ward_name, admissions."""
+    return run_query_df("""
+        SELECT
+            u.username                         AS username,
+            ia.ward_name,
+            COUNT(DISTINCT ia.id)              AS admissions
+        FROM HOSPITALS.KISUMU_CLEAN.INPATIENT_ADMISSIONS ia
+        JOIN HOSPITALS.KISUMU_CLEAN.EVALUATION_VISITS ev ON ev.id = ia.visit_id
+        JOIN HOSPITALS.KISUMU_CLEAN.USERS u ON u.id = ev.user
+        WHERE ia.ward_name IS NOT NULL
+          AND ev.deleted_at IS NULL
+          AND u.active = 1
+          AND u.username NOT REGEXP '.*[0-9].*'
+          AND u.username NOT IN ('sudo', 'Billclinton')
+          AND TRY_TO_TIMESTAMP(ia.admitted_at) >= '2024-09-01'
+        GROUP BY 1, 2
+        ORDER BY 3 DESC
+    """)
+
+
+def q_peak_breakdown():
+    """KSH only: monthly peak (09-12h) vs off-peak visit counts from EVALUATION_VISITS.
+    Peak = hours 9,10,11,12 — confirmed highest volume window (Inv 29 Q2). Sep 2024 cutoff.
+    Columns: visit_month, peak_visits, offpeak_visits, total_visits, peak_vs_offpeak_pct."""
+    return run_query_df("""
+        SELECT
+            DATE_TRUNC('month', TRY_TO_TIMESTAMP(created_at))::DATE  AS visit_month,
+            SUM(CASE WHEN HOUR(TRY_TO_TIMESTAMP(created_at)) BETWEEN 9 AND 12
+                     THEN 1 ELSE 0 END)                              AS peak_visits,
+            SUM(CASE WHEN HOUR(TRY_TO_TIMESTAMP(created_at)) NOT BETWEEN 9 AND 12
+                     THEN 1 ELSE 0 END)                              AS offpeak_visits,
+            COUNT(*)                                                 AS total_visits,
+            ROUND(
+                SUM(CASE WHEN HOUR(TRY_TO_TIMESTAMP(created_at)) BETWEEN 9 AND 12
+                         THEN 1 ELSE 0 END)
+                / NULLIF(SUM(CASE WHEN HOUR(TRY_TO_TIMESTAMP(created_at)) NOT BETWEEN 9 AND 12
+                                  THEN 1 ELSE 0 END), 0) * 100
+            , 1)                                                     AS peak_vs_offpeak_pct
+        FROM HOSPITALS.KISUMU_CLEAN.EVALUATION_VISITS
+        WHERE deleted_at IS NULL
+          AND TRY_TO_TIMESTAMP(created_at) >= '2024-09-01'
+          AND TRY_TO_TIMESTAMP(created_at) IS NOT NULL
+        GROUP BY DATE_TRUNC('month', TRY_TO_TIMESTAMP(created_at))::DATE
+        ORDER BY visit_month
+    """)
+
+
+def q_cd12_monthly_rate():
+    """KSH only: monthly critical creatinine non-admission rate (Rule 29 / CD12).
+    Source: KISUMU_RAW.EVENTS_RAW. Critical flags stored as HTML strings: CL/CH.
+    Data available from Jul 2025 onward (CL/CH flag format introduced mid-2025).
+    QUALIFY deduplicates same visit flagged multiple times in a month.
+    admitted CTE uses DISTINCT to flatten INPATIENT_ADMISSIONS fan-out.
+    Columns: critical_month, total_critical, admitted, not_admitted, non_admission_rate_pct."""
+    return run_query_df("""
+        WITH critical_cr AS (
+            SELECT
+                DATE_TRUNC('month', TRY_TO_TIMESTAMP(payload:created_at::STRING))::DATE
+                                                             AS critical_month,
+                TRY_TO_NUMBER(payload:visit_id::STRING)      AS visit_id
+            FROM HOSPITALS.KISUMU_RAW.EVENTS_RAW
+            WHERE payload:test::STRING = 'Creatinine'
+              AND (   CONTAINS(payload:flag::STRING, '(CL)')
+                   OR CONTAINS(payload:flag::STRING, '(CH)'))
+              AND TRY_TO_TIMESTAMP(payload:created_at::STRING) >= '2024-09-01'
+            QUALIFY ROW_NUMBER() OVER (
+                PARTITION BY TRY_TO_NUMBER(payload:visit_id::STRING),
+                             DATE_TRUNC('month', TRY_TO_TIMESTAMP(payload:created_at::STRING))
+                ORDER BY TRY_TO_TIMESTAMP(payload:created_at::STRING)
+            ) = 1
+        ),
+        admitted AS (
+            SELECT DISTINCT visit_id
+            FROM HOSPITALS.KISUMU_CLEAN.INPATIENT_ADMISSIONS
+        )
+        SELECT
+            cc.critical_month,
+            COUNT(DISTINCT cc.visit_id)                                          AS total_critical,
+            COUNT(DISTINCT adm.visit_id)                                         AS admitted,
+            COUNT(DISTINCT cc.visit_id) - COUNT(DISTINCT adm.visit_id)          AS not_admitted,
+            ROUND(
+                100.0 * (COUNT(DISTINCT cc.visit_id) - COUNT(DISTINCT adm.visit_id))
+                / NULLIF(COUNT(DISTINCT cc.visit_id), 0), 1
+            )                                                                    AS non_admission_rate_pct
+        FROM critical_cr cc
+        LEFT JOIN admitted adm ON adm.visit_id = cc.visit_id
+        GROUP BY cc.critical_month
+        ORDER BY cc.critical_month
+    """)
+
+
+def q_lab_monthly():
+    """KSH only: monthly lab/imaging volume + abnormal rate — for lab rules (Inv 25b).
+    Source: KISUMU_RAW.EVENTS_RAW. All fields inside JSON payload column.
+    Reliable from Sep 2024. flag IN ('H','L') = abnormal."""
+    return run_query_df("""
+        SELECT
+            DATE_TRUNC('month', TRY_TO_TIMESTAMP(payload:created_at::STRING))::DATE
+                                      AS lab_month,
+            COUNT(DISTINCT payload:visit_id::STRING) AS distinct_visits,
+            COUNT(*)                  AS total_components,
+            SUM(CASE WHEN payload:flag::STRING IN ('H', 'L') THEN 1 ELSE 0 END)
+                                      AS abnormal_count,
+            ROUND(
+                100.0 * SUM(CASE WHEN payload:flag::STRING IN ('H', 'L') THEN 1 ELSE 0 END)
+                / NULLIF(COUNT(*), 0), 2
+            )                         AS abnormal_pct
+        FROM HOSPITALS.KISUMU_RAW.EVENTS_RAW
+        WHERE payload:test IS NOT NULL
+          AND TRY_TO_TIMESTAMP(payload:created_at::STRING) >= '2024-09-01'
+        GROUP BY DATE_TRUNC('month', TRY_TO_TIMESTAMP(payload:created_at::STRING))::DATE
+        ORDER BY lab_month
+    """)

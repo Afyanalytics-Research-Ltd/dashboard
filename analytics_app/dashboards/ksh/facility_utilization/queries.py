@@ -581,15 +581,20 @@ def q_doctor_workload_monthly():
 
 def q_visit_summary():
     """KSH only: monthly total visit count from EVALUATION_VISITS (Inv 27 confirmed table + column).
-    created_at is VARCHAR — uses TRY_TO_TIMESTAMP. Inpatient derived in dashboard from ward_adm."""
+    created_at is VARCHAR — uses TRY_TO_TIMESTAMP. Filtered to active clean doctors (matches CD11
+    methodology — excludes test accounts and inactive staff). Inpatient derived in dashboard from ward_adm."""
     return run_query_df("""
         SELECT
-            DATE_TRUNC('month', TRY_TO_TIMESTAMP(created_at))::DATE AS visit_month,
+            DATE_TRUNC('month', TRY_TO_TIMESTAMP(ev.created_at))::DATE AS visit_month,
             COUNT(*) AS total_visits
-        FROM HOSPITALS.KISUMU_CLEAN.EVALUATION_VISITS
-        WHERE deleted_at IS NULL
-          AND TRY_TO_TIMESTAMP(created_at) >= '2024-09-01'
-        GROUP BY DATE_TRUNC('month', TRY_TO_TIMESTAMP(created_at))::DATE
+        FROM HOSPITALS.KISUMU_CLEAN.EVALUATION_VISITS ev
+        JOIN HOSPITALS.KISUMU_CLEAN.USERS u ON ev.user = u.id
+        WHERE ev.deleted_at IS NULL
+          AND u.active = 1
+          AND u.username NOT REGEXP '.*[0-9].*'
+          AND u.username NOT IN ('sudo', 'Billclinton')
+          AND TRY_TO_TIMESTAMP(ev.created_at) >= '2024-09-01'
+        GROUP BY DATE_TRUNC('month', TRY_TO_TIMESTAMP(ev.created_at))::DATE
         ORDER BY visit_month
     """)
 

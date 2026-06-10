@@ -105,7 +105,7 @@ CHART_LAYOUT = dict(
 )
 
 TENRI_DATA_END     = "2022-07-27"
-KSH_DATA_END       = pd.Timestamp("2026-04-21")
+KSH_DATA_END       = pd.Timestamp("2026-05-08")
 KSH_DISPATCH_CLIFF = "2025-09-01"
 
 # ── Phase 13 — Ward intelligence thresholds (Inv 20–25b) ─────────────────────
@@ -922,7 +922,7 @@ if page == "Business Overview":
             # ("fa-solid fa-clock-rotate-left",  "Readmissions", _rm_status,  _rm_worst_msg),  # READM_HIDDEN
             ("fa-solid fa-user-doctor",                 "Staffing",     _sf_status,  _sf_worst_msg),
             ("fa-solid fa-microscope",                  "Lab",          _lb_status,  _lb_worst_msg),
-            ("fa-solid fa-scalpel",                     "Theatre",      _th_status,  _th_worst_msg),
+            ("fa-solid fa-syringe",                     "Theatre",      _th_status,  _th_worst_msg),
         ]
         _STATUS_BG = {"GREEN": "#F0FBF8", "AMBER": "#FFFBEB", "RED": "#FFF1F3"}
         _STATUS_BORDER = {"GREEN": "#0BB99F", "AMBER": "#D97706", "RED": "#E11D48"}

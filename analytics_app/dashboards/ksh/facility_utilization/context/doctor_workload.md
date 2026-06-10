@@ -1,5 +1,5 @@
 # Notice Type: Doctor Workload / Staffing
-**keywords:** doctor, burnout, staffing, concentration, workload, ogutu, eawando, lowino, clinician, staff
+**keywords:** doctor, doctors, burnout, staffing, concentration, workload, ogutu, eawando, lowino, clinician, staff
 **last_updated:** 2026-06-08
 **decay_days:** 30
 **Covers:** Rule 25 (individual burnout), Rule 26 (concentration risk)

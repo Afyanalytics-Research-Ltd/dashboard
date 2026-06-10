@@ -178,8 +178,8 @@ def _build_system_prompt(facility: str, notice_date: str, notices: list) -> str:
         f"What's available\n"
         f"• [Closest confirmed finding from the investigation on this topic]\n"
         f"• [Second related finding if available]\n"
-        f"Do not say 'the investigation did not test', 'the data does not show', or 'we never investigated'. Do not explain what is missing. State only what IS available. Do not attempt to answer from general medical knowledge.\n"
-        f"13. Do NOT mention specific doctor names, departure events, or historical personnel changes unless the question explicitly asks about a named person or a departure. State structural and pattern findings without attributing them to individuals."
+        f"Do not say 'the investigation did not test', 'the data does not show', or 'we never investigated'. Do not explain what is missing. State only what IS available. Do not attempt to answer from general medical knowledge. No Evidence Found applies only when investigation data is genuinely absent — do not use it when a question contains action words like 'redistribution', 'options', or 'workload'; if the data exists in context, report it directly.\n"
+        f"13. Do NOT mention specific doctor names, departure events, or historical personnel changes unless the question explicitly asks about a named person or a departure. State structural and pattern findings without attributing them to individuals. This applies even when an active alert contains a doctor's name — describe the concentration pattern without naming the individual. Only state a name if the user explicitly asks 'which doctor' or names someone themselves."
     )
 
 

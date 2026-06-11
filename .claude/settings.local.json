@@ -67,11 +67,17 @@
       "Bash(xargs ls -1)",
       "Bash(ls \"\\\\\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\luther\\\\dashboard/templates/\")",
       "Bash(ls \"\\\\\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\luther\\\\dashboard/templates/analytics/\")",
-      "Bash(grep -l \"class Dashboard\" \"\\\\\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\luther\\\\dashboard\"/**/*.py)"
+      "Bash(grep -l \"class Dashboard\" \"\\\\\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\luther\\\\dashboard\"/**/*.py)",
+      "Bash(cd /mnt/wsl/PHYSICALDRIVE0p3/home/luther/dashboard)",
+      "Bash(python3 -c ' *)"
     ],
     "additionalDirectories": [
       "\\home\\luther\\dashboard\\templates\\analytics",
-      "\\\\wsl.localhost\\Ubuntu\\home\\luther\\dashboard\\templates\\analytics"
+      "\\\\wsl.localhost\\Ubuntu\\home\\luther\\dashboard\\templates\\analytics",
+      "\\home\\luther\\dashboard\\analytics_app\\dashboards\\ksh\\revenue_module",
+      "\\\\wsl.localhost\\Ubuntu\\home\\luther\\dashboard\\analytics_app\\dashboards\\ksh\\revenue_module",
+      "\\home\\luther\\dashboard\\analytics_app\\dashboards\\ksh",
+      "\\\\wsl.localhost\\Ubuntu\\home\\luther\\dashboard\\analytics_app\\dashboards\\ksh"
     ]
   }
 }

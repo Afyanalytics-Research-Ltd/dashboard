@@ -274,6 +274,21 @@ except Exception as exc:
 print(daily)
 # import pdb;pdb.set_trace()
 
+# Revenue leakage — fetched independently so a missing table never breaks other tabs
+def _safe_fetch(fn, *args, **kwargs):
+    try:
+        return fn(*args, **kwargs)
+    except Exception:
+        return pd.DataFrame()
+
+leak_dispensed_df   = _safe_fetch(dl.dispensed_unpaid)
+leak_consumables_df = _safe_fetch(dl.unbilled_consumables)
+leak_ward_df        = _safe_fetch(dl.ward_charges_uninvoiced)
+leak_copay_df       = _safe_fetch(dl.unpaid_copay)
+leak_exemptions_df  = _safe_fetch(dl.invoice_exemptions)
+leak_credits_df     = _safe_fetch(dl.credit_notes_detail)
+leak_price_df       = _safe_fetch(dl.price_discrepancy)
+
 
 
 # ─── KPI ROW ────────────────────────────────────────────────────────────────
@@ -319,13 +334,14 @@ st.markdown("<div style='margin-bottom:20px'></div>", unsafe_allow_html=True)
 
 # ─── TABS ───────────────────────────────────────────────────────────────────
 
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "◉  Revenue Pulse",
     "△  Forecast & Risk",
     "◇  Payer & Patient Mix",
     "∑  KPI Scorecard",
     "⚙  Simulation",
-    "⚙ Payment Simulator"
+    "⚙ Payment Simulator",
+    "⚡  Revenue Leakage",
 ])
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2363,6 +2379,540 @@ with tab6:
         f"<b>{verdict_label}</b> (HHI {baseline_hhi:.0f} → {sim_hhi:.0f}).",
         verdict_colour,
     )
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 7 — Revenue Leakage Radar
+# ══════════════════════════════════════════════════════════════════════════════
+
+with tab7:
+
+    # ── Extract scalars ───────────────────────────────────────────────────────
+    def _scalar(df, col, default=0.0):
+        if df is None or df.empty or col not in df.columns:
+            return float(default)
+        v = df[col].iloc[0]
+        try:
+            return float(v) if v is not None else float(default)
+        except (TypeError, ValueError):
+            return float(default)
+
+    def _sum_col(df, col, default=0.0):
+        if df is None or df.empty or col not in df.columns:
+            return float(default)
+        return float(pd.to_numeric(df[col], errors="coerce").sum() or default)
+
+    total_dispensed_unpaid = _scalar(leak_dispensed_df,   "total_dispensed_unpaid")
+    total_unbilled         = _scalar(leak_consumables_df, "total_unbilled_consumables")
+    total_ward_gap         = _scalar(leak_ward_df,        "total_ward_uninvoiced")
+    total_copay            = _sum_col(leak_copay_df,      "total_uncollected_copay")
+    total_credits          = _sum_col(leak_exemptions_df, "total_credits")
+    total_undercharged     = _scalar(leak_price_df,       "total_undercharged")
+
+    grand_total_leakage = (
+        total_dispensed_unpaid + total_unbilled + total_ward_gap +
+        total_copay + total_credits + total_undercharged
+    )
+
+    # ── DRAMATIC HEADER BANNER ────────────────────────────────────────────────
+    n_vectors = sum(1 for v in [
+        total_dispensed_unpaid, total_unbilled, total_ward_gap,
+        total_copay, total_credits, total_undercharged
+    ] if v > 0)
+
+    st.markdown(
+        f"""
+        <div style="background:linear-gradient(135deg,#0d0416 0%,#2d0a1e 35%,#5c1a1a 70%,#3d0a1a 100%);
+                    border-radius:16px;padding:32px 36px;margin-bottom:28px;
+                    border:1px solid rgba(225,29,72,0.3);
+                    box-shadow:0 8px 32px rgba(225,29,72,0.15);">
+            <div style="font-size:10px;letter-spacing:4px;text-transform:uppercase;
+                        color:rgba(255,160,160,0.55);margin-bottom:10px;">
+                Revenue Intelligence · Leakage Radar
+            </div>
+            <div style="font-size:32px;font-weight:800;color:#fff;
+                        letter-spacing:-0.5px;margin-bottom:8px;line-height:1.15;">
+                {fmt_ksh(grand_total_leakage)}
+                <span style="font-size:16px;font-weight:400;
+                             color:rgba(255,200,200,0.65);margin-left:10px;">
+                    in recoverable leakage
+                </span>
+            </div>
+            <div style="font-size:13px;color:rgba(255,210,210,0.75);
+                        line-height:1.75;max-width:700px;margin-bottom:20px;">
+                Six operational blind spots — money already earned but not yet captured.
+                Each category below is an actionable recovery target with a distinct
+                remediation path. Figures reflect current open balances, not a date-filtered period.
+            </div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;">
+                <span style="background:rgba(225,29,72,0.2);
+                             border:1px solid rgba(225,29,72,0.45);
+                             color:#fca5a5;border-radius:20px;
+                             padding:4px 14px;font-size:11px;font-weight:700;">
+                    ⚠ {n_vectors} leak vectors detected
+                </span>
+                <span style="background:rgba(255,255,255,0.06);
+                             border:1px solid rgba(255,255,255,0.15);
+                             color:rgba(255,255,255,0.5);border-radius:20px;
+                             padding:4px 14px;font-size:11px;">
+                    Current open balances · not date-filtered
+                </span>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # ── KPI CARDS (2 rows × 3) ────────────────────────────────────────────────
+    lc1, lc2, lc3 = st.columns(3)
+    with lc1:
+        kpi_card(
+            "Pharmacy · Dispensed Unpaid",
+            fmt_ksh(total_dispensed_unpaid),
+            "Items dispensed, payment outstanding",
+            COLORS["danger"],
+        )
+    with lc2:
+        kpi_card(
+            "Consumables · Unbilled",
+            fmt_ksh(total_unbilled),
+            "No bill raised, no approved waiver",
+            COLORS["warning"],
+        )
+    with lc3:
+        kpi_card(
+            "Ward Charges · Uninvoiced Gap",
+            fmt_ksh(total_ward_gap),
+            "Ward rebates without matching invoice",
+            COLORS["coral"],
+        )
+
+    st.markdown("<div style='margin-bottom:12px'></div>", unsafe_allow_html=True)
+
+    lc4, lc5, lc6 = st.columns(3)
+    with lc4:
+        kpi_card(
+            "Co-pay · Uncollected",
+            fmt_ksh(total_copay),
+            "Insurance co-payments with no receipt",
+            COLORS["pink"],
+        )
+    with lc5:
+        kpi_card(
+            "Credit Notes · Applied",
+            fmt_ksh(total_credits),
+            "Exemptions & credit notes on invoices",
+            COLORS["purple"],
+        )
+    with lc6:
+        kpi_card(
+            "Price · Under-charged",
+            fmt_ksh(total_undercharged),
+            "Billed below insurance tariff rate",
+            COLORS["primary"],
+        )
+
+    st.markdown("<div style='margin-bottom:6px'></div>", unsafe_allow_html=True)
+
+    # ── LEAKAGE SOURCES · RANKED HORIZONTAL BAR ───────────────────────────────
+    section_header("Revenue leakage · ranked by exposure", margin_top=16)
+
+    _leak_palette = [
+        COLORS["danger"], COLORS["warning"], COLORS["coral"],
+        COLORS["pink"],   COLORS["purple"],  COLORS["primary"],
+    ]
+    _leak_raw = [
+        ("Pharmacy Dispensed Unpaid", total_dispensed_unpaid),
+        ("Unbilled Consumables",      total_unbilled),
+        ("Ward Uninvoiced Gap",       total_ward_gap),
+        ("Uncollected Co-pay",        total_copay),
+        ("Credit Notes",              total_credits),
+        ("Price Under-charging",      total_undercharged),
+    ]
+    _leak_data = [(n, v) for n, v in _leak_raw if v > 0]
+    _leak_data.sort(key=lambda x: x[1])   # ascending → largest at top in horizontal bar
+
+    if _leak_data:
+        _ln  = [x[0] for x in _leak_data]
+        _lv  = [x[1] for x in _leak_data]
+        _k   = len(_leak_data)
+        _clr = _leak_palette[-_k:]         # slice from the "hottest" colours
+
+        fig_rank = go.Figure()
+        fig_rank.add_trace(go.Bar(
+            x=_lv, y=_ln,
+            orientation="h",
+            marker=dict(color=_clr, line=dict(width=0)),
+            text=[fmt_ksh(v) for v in _lv],
+            textposition="outside",
+            textfont=dict(family="Montserrat", size=11, color=COLORS["navy"]),
+            cliponaxis=False,
+            hovertemplate="<b>%{y}</b><br>%{x:,.0f} KSh<extra></extra>",
+        ))
+        # Share % annotations sitting just to the right of each bar label
+        for i, (_n, _v) in enumerate(zip(_ln, _lv)):
+            _pct = 100 * _v / grand_total_leakage if grand_total_leakage else 0
+            fig_rank.add_annotation(
+                x=_v, y=i,
+                text=f"<b>{_pct:.1f}%</b> of total",
+                xanchor="left", xshift=72,
+                showarrow=False,
+                font=dict(family="Montserrat", size=10, color="#6B8CAE"),
+            )
+        fig_rank.update_layout(
+            **{k: v for k, v in CHART_LAYOUT.items() if k not in ("xaxis", "yaxis", "margin")},
+            height=max(260, 62 * _k),
+            margin=dict(l=10, r=160, t=10, b=20),
+            showlegend=False,
+            bargap=0.4,
+            xaxis=dict(
+                gridcolor="#EBF3FB", tickformat="~s", zeroline=False, showline=False,
+                tickfont=dict(family="Montserrat", size=10, color="#6B8CAE"),
+            ),
+            yaxis=dict(
+                automargin=True, showgrid=False, zeroline=False, showline=False,
+                tickfont=dict(family="Montserrat", size=11, color="#0F2A47"),
+            ),
+        )
+        st.plotly_chart(fig_rank, use_container_width=True)
+
+        info_card(
+            f"Total recoverable leakage exposure: <b>{fmt_ksh(grand_total_leakage)}</b> "
+            f"across {_k} categories. "
+            f"Largest single vector: <b>{_leak_data[-1][0]}</b> "
+            f"({fmt_ksh(_leak_data[-1][1])} · "
+            f"{100*_leak_data[-1][1]/grand_total_leakage:.1f}% of total).",
+            COLORS["danger"],
+        )
+    else:
+        st.info("No leakage data returned — verify that all source tables are accessible in this schema.")
+
+    # ── ROW 1: Composition donut  ×  Copay by insurer ────────────────────────
+    col_a, col_b = st.columns(2, gap="large")
+
+    with col_a:
+        section_header("Leakage composition · proportional breakdown")
+        if _leak_data:
+            _sorted_desc = sorted(_leak_data, key=lambda x: x[1], reverse=True)
+            _pie_labels  = [x[0] for x in _sorted_desc]
+            _pie_values  = [x[1] for x in _sorted_desc]
+            _pie_colors  = [
+                COLORS["danger"], COLORS["warning"], COLORS["coral"],
+                COLORS["pink"],   COLORS["purple"],  COLORS["primary"],
+            ][: len(_sorted_desc)]
+
+            fig_donut = go.Figure(go.Pie(
+                labels=_pie_labels,
+                values=_pie_values,
+                hole=0.64,
+                marker=dict(
+                    colors=_pie_colors,
+                    line=dict(color="#ffffff", width=2.5),
+                ),
+                textinfo="percent",
+                textfont=dict(family="Montserrat", size=10, color="#fff"),
+                hovertemplate=(
+                    "<b>%{label}</b><br>%{value:,.0f} KSh<br>%{percent:.1%}<extra></extra>"
+                ),
+                direction="clockwise",
+                rotation=90,
+                pull=[0.04] + [0] * (len(_sorted_desc) - 1),
+            ))
+            fig_donut.add_annotation(
+                x=0.5, y=0.5, xref="paper", yref="paper",
+                text=f"<b>{fmt_ksh(grand_total_leakage)}</b><br>"
+                     f"<span style='color:#6B8CAE;font-size:10px'>total exposure</span>",
+                showarrow=False,
+                font=dict(family="Montserrat", size=13, color=COLORS["danger"]),
+                align="center",
+            )
+            fig_donut.update_layout(
+                **{k: v for k, v in CHART_LAYOUT.items() if k not in ("margin",)},
+                height=380,
+                margin=dict(l=10, r=10, t=20, b=20),
+                showlegend=True,
+                legend=dict(
+                    orientation="v", x=1.01, y=0.5,
+                    font=dict(family="Montserrat", size=10, color="#6B8CAE"),
+                    bgcolor="rgba(0,0,0,0)",
+                ),
+            )
+            st.plotly_chart(fig_donut, use_container_width=True)
+        else:
+            st.info("No leakage data to plot.")
+
+    with col_b:
+        section_header("Uncollected co-pay · by insurer")
+        if not leak_copay_df.empty and "insurer" in leak_copay_df.columns:
+            for c in ("total_uncollected_copay", "uncollected_count", "avg_copay_due"):
+                if c in leak_copay_df.columns:
+                    leak_copay_df[c] = pd.to_numeric(leak_copay_df[c], errors="coerce").fillna(0)
+
+            _cp = leak_copay_df.sort_values("total_uncollected_copay", ascending=True)
+            _ni = len(_cp)
+            _cp_colors = [
+                f"rgba(225,29,72,{0.30 + 0.60*(i / max(_ni-1, 1)):.2f})"
+                for i in range(_ni)
+            ]
+
+            fig_copay = go.Figure(go.Bar(
+                x=_cp["total_uncollected_copay"],
+                y=_cp["insurer"],
+                orientation="h",
+                marker=dict(color=_cp_colors, line=dict(width=0)),
+                text=_cp["uncollected_count"].astype(int).astype(str) + " claims",
+                textposition="inside",
+                textfont=dict(family="Montserrat", size=9, color="#fff"),
+                customdata=np.stack([
+                    _cp["total_uncollected_copay"].values,
+                    _cp["avg_copay_due"].values,
+                    _cp["uncollected_count"].values,
+                ], axis=-1),
+                hovertemplate=(
+                    "<b>%{y}</b>"
+                    "<br>Uncollected: %{customdata[0]:,.0f} KSh"
+                    "<br>Claims: %{customdata[2]:,.0f}"
+                    "<br>Avg co-pay: %{customdata[1]:,.0f} KSh"
+                    "<extra></extra>"
+                ),
+            ))
+            fig_copay.update_layout(
+                **{k: v for k, v in CHART_LAYOUT.items() if k not in ("xaxis", "yaxis", "margin")},
+                height=380,
+                margin=dict(l=10, r=60, t=10, b=20),
+                showlegend=False,
+                bargap=0.35,
+                xaxis=dict(
+                    gridcolor="#EBF3FB", tickformat="~s",
+                    zeroline=False, showline=False,
+                    tickfont=dict(family="Montserrat", size=10, color="#6B8CAE"),
+                ),
+                yaxis=dict(
+                    automargin=True, showgrid=False, zeroline=False, showline=False,
+                    tickfont=dict(family="Montserrat", size=10, color="#0F2A47"),
+                ),
+            )
+            st.plotly_chart(fig_copay, use_container_width=True)
+        else:
+            st.info("No co-payment data available.")
+
+    # ── ROW 2: Credits by approver  ×  Price discrepancy ─────────────────────
+    col_c, col_d = st.columns(2, gap="large")
+
+    with col_c:
+        section_header("Credits & exemptions · by approver (top 12)")
+        if not leak_exemptions_df.empty and "user_name" in leak_exemptions_df.columns:
+            for c in ("total_credits", "total_exemptions", "invoice_count"):
+                if c in leak_exemptions_df.columns:
+                    leak_exemptions_df[c] = pd.to_numeric(
+                        leak_exemptions_df[c], errors="coerce"
+                    ).fillna(0)
+
+            _ex = (
+                leak_exemptions_df
+                .sort_values("total_credits", ascending=True)
+                .head(12)
+            )
+            _ne = len(_ex)
+            _ex_colors = [
+                f"rgba(127,119,221,{0.28 + 0.60*(i / max(_ne-1, 1)):.2f})"
+                for i in range(_ne)
+            ]
+            _max_cr = float(_ex["total_credits"].max() or 1)
+
+            fig_exempt = go.Figure(go.Bar(
+                x=_ex["total_credits"],
+                y=_ex["user_name"],
+                orientation="h",
+                marker=dict(color=_ex_colors, line=dict(width=0)),
+                text=[fmt_ksh(v) for v in _ex["total_credits"]],
+                textposition="outside",
+                textfont=dict(family="Montserrat", size=10, color=COLORS["navy"]),
+                cliponaxis=False,
+                customdata=np.stack([
+                    _ex["invoice_count"].values,
+                    _ex["total_exemptions"].values,
+                    _ex["total_credits"].values,
+                ], axis=-1),
+                hovertemplate=(
+                    "<b>%{y}</b>"
+                    "<br>Invoices: %{customdata[0]:,.0f}"
+                    "<br>Credits: %{customdata[2]:,.0f} KSh"
+                    "<br>Exemptions: %{customdata[1]:,.0f} KSh"
+                    "<extra></extra>"
+                ),
+            ))
+            fig_exempt.update_layout(
+                **{k: v for k, v in CHART_LAYOUT.items() if k not in ("xaxis", "yaxis", "margin")},
+                height=max(300, 42 * _ne),
+                margin=dict(l=10, r=90, t=10, b=20),
+                showlegend=False,
+                bargap=0.38,
+                xaxis=dict(
+                    gridcolor="#EBF3FB", tickformat="~s",
+                    zeroline=False, showline=False,
+                    tickfont=dict(family="Montserrat", size=10, color="#6B8CAE"),
+                    range=[0, _max_cr * 1.28],
+                ),
+                yaxis=dict(
+                    automargin=True, showgrid=False, zeroline=False, showline=False,
+                    tickfont=dict(family="Montserrat", size=10, color="#0F2A47"),
+                ),
+            )
+            st.plotly_chart(fig_exempt, use_container_width=True)
+        else:
+            st.info("No exemption / credit note data available.")
+
+    with col_d:
+        section_header("Insurance tariff vs billed · price discrepancy")
+        if not leak_price_df.empty and "total_undercharged" in leak_price_df.columns:
+            for c in ("total_undercharged", "total_overcharged",
+                      "undercharged_lines", "overcharged_lines", "correctly_billed_lines"):
+                if c in leak_price_df.columns:
+                    leak_price_df[c] = pd.to_numeric(
+                        leak_price_df[c], errors="coerce"
+                    ).fillna(0)
+
+            _pr          = leak_price_df.iloc[0]
+            _undercharged = float(_pr.get("total_undercharged", 0) or 0)
+            _overcharged  = float(_pr.get("total_overcharged",  0) or 0)
+            _uc_lines     = int(_pr.get("undercharged_lines",   0) or 0)
+            _oc_lines     = int(_pr.get("overcharged_lines",    0) or 0)
+            _ok_lines     = int(_pr.get("correctly_billed_lines", 0) or 0)
+            _total_lines  = _uc_lines + _oc_lines + _ok_lines
+
+            # KSh exposure bar
+            fig_price = go.Figure(go.Bar(
+                x=["Under-charged", "Over-charged"],
+                y=[_undercharged, _overcharged],
+                marker=dict(
+                    color=[COLORS["danger"], COLORS["warning"]],
+                    line=dict(width=0),
+                ),
+                text=[fmt_ksh(_undercharged), fmt_ksh(_overcharged)],
+                textposition="outside",
+                textfont=dict(family="Montserrat", size=11, color=COLORS["navy"]),
+                cliponaxis=False,
+                hovertemplate="<b>%{x}</b><br>%{y:,.0f} KSh<extra></extra>",
+            ))
+            _price_max = max(_undercharged, _overcharged, 1)
+            fig_price.update_layout(
+                **{k: v for k, v in CHART_LAYOUT.items() if k not in ("xaxis", "yaxis", "margin")},
+                height=210,
+                margin=dict(l=10, r=10, t=10, b=20),
+                showlegend=False,
+                bargap=0.5,
+                xaxis=dict(
+                    tickfont=dict(family="Montserrat", size=11, color="#0F2A47"),
+                    showgrid=False, zeroline=False, showline=False,
+                ),
+                yaxis=dict(
+                    gridcolor="#EBF3FB", tickformat="~s",
+                    zeroline=False, showline=False,
+                    tickfont=dict(family="Montserrat", size=10, color="#6B8CAE"),
+                    range=[0, _price_max * 1.32],
+                ),
+            )
+            st.plotly_chart(fig_price, use_container_width=True)
+
+            # Line-count donut
+            if _total_lines > 0:
+                fig_lines = go.Figure(go.Pie(
+                    labels=["Correctly Billed", "Under-charged", "Over-charged"],
+                    values=[_ok_lines, _uc_lines, _oc_lines],
+                    hole=0.55,
+                    marker=dict(
+                        colors=[COLORS["green"], COLORS["danger"], COLORS["warning"]],
+                        line=dict(color="#ffffff", width=2),
+                    ),
+                    textinfo="percent",
+                    textfont=dict(family="Montserrat", size=10, color="#fff"),
+                    hovertemplate=(
+                        "<b>%{label}</b><br>%{value:,} lines (%{percent:.1%})<extra></extra>"
+                    ),
+                    direction="clockwise",
+                    rotation=90,
+                ))
+                fig_lines.add_annotation(
+                    x=0.5, y=0.5, xref="paper", yref="paper",
+                    text=f"<b>{_total_lines:,}</b><br>"
+                         f"<span style='color:#6B8CAE;font-size:9px'>billing lines</span>",
+                    showarrow=False,
+                    font=dict(family="Montserrat", size=12, color=COLORS["navy"]),
+                    align="center",
+                )
+                fig_lines.update_layout(
+                    **{k: v for k, v in CHART_LAYOUT.items() if k not in ("margin",)},
+                    height=170,
+                    margin=dict(l=0, r=110, t=0, b=0),
+                    showlegend=True,
+                    legend=dict(
+                        orientation="v", x=1.0, y=0.5,
+                        font=dict(family="Montserrat", size=9, color="#6B8CAE"),
+                        bgcolor="rgba(0,0,0,0)",
+                    ),
+                )
+                st.plotly_chart(fig_lines, use_container_width=True)
+
+            _net_bias = _undercharged - _overcharged
+            info_card(
+                f"Net pricing bias: <b>{fmt_ksh(abs(_net_bias))}</b> "
+                f"{'under' if _net_bias > 0 else 'over'}-charging across all insurance procedures. "
+                f"Of {_total_lines:,} billed lines, "
+                f"<b>{_uc_lines:,}</b> are under the tariff "
+                f"({100*_uc_lines/max(_total_lines,1):.1f}%).",
+                COLORS["danger"] if _net_bias > 0 else COLORS["warning"],
+            )
+        else:
+            st.info("No price discrepancy data available.")
+
+    # ── CREDIT NOTES DETAIL TABLE ─────────────────────────────────────────────
+    section_header("Credit notes & exemptions · invoice detail", margin_top=8)
+
+    if not leak_credits_df.empty:
+        _col_map = {
+            "invoice_date":      "Date",
+            "invoice_no":        "Invoice #",
+            "patient_name":      "Patient",
+            "patient_no":        "Patient #",
+            "exemption_amount":  "Exemption (KSh)",
+            "credit_amount":     "Credit (KSh)",
+            "credit_note_number":"CN #",
+            "credit_note_reason":"Reason",
+        }
+        _avail = [c for c in _col_map if c in leak_credits_df.columns]
+        _tbl   = leak_credits_df[_avail].copy().rename(columns=_col_map)
+
+        for _mc in ("Exemption (KSh)", "Credit (KSh)"):
+            if _mc in _tbl.columns:
+                _tbl[_mc] = pd.to_numeric(_tbl[_mc], errors="coerce")
+
+        _fmt = {}
+        if "Exemption (KSh)" in _tbl.columns:
+            _fmt["Exemption (KSh)"] = "{:,.0f}"
+        if "Credit (KSh)" in _tbl.columns:
+            _fmt["Credit (KSh)"] = "{:,.0f}"
+
+        _styled = _tbl.style.format(_fmt, na_rep="—")
+        if "Credit (KSh)" in _tbl.columns:
+            _styled = _styled.background_gradient(subset=["Credit (KSh)"], cmap="Reds")
+
+        st.dataframe(_styled, hide_index=True, use_container_width=True, height=340)
+
+        _total_cn = float(
+            pd.to_numeric(leak_credits_df.get("credit_amount", pd.Series(dtype=float)),
+                          errors="coerce").sum()
+        ) if "credit_amount" in leak_credits_df.columns else 0
+
+        info_card(
+            f"Showing {len(leak_credits_df):,} invoices with credits or exemptions. "
+            f"Total credit value: <b>{fmt_ksh(_total_cn)}</b>. "
+            "Review high-value entries with the finance team — reclassification or "
+            "collection follow-up may recover a portion of these amounts.",
+            COLORS["danger"],
+        )
+    else:
+        st.info("No credit note detail data available.")
+
 
 # ─── Footer ─────────────────────────────────────────────────────────────────
 

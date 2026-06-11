@@ -288,6 +288,67 @@ def revenue_at_risk(start: str, end: str) -> pd.DataFrame:
 
 
 
+# ─── Revenue leakage helpers ─────────────────────────────────────────────────
+
+def _run_static(query_name: str, *, schema: str = "KISUMU_CLEAN") -> pd.DataFrame:
+    """Execute a static (no date-param) leakage query from REVENUE_LEAK_QUERIES."""
+    sql = queries.REVENUE_LEAK_QUERIES[query_name]
+    label = _cyan(_bold(query_name.ljust(26)))
+    log.info("%s  %s  schema=%s", _green("▶"), label, _magenta(schema))
+    t0 = time.perf_counter()
+    try:
+        df = _get_client(schema=schema).query(sql)
+    except Exception as exc:
+        elapsed = time.perf_counter() - t0
+        log.error("%s  %s  failed after %s", _red("✗"), label, _yellow(f"{elapsed:.2f}s"))
+        log.error("        %s", _red(str(exc).splitlines()[0]))
+        log.error("%s\n%s", _dim("— failing SQL —"), _dim(_format_sql_excerpt(sql)))
+        raise
+    df = _normalise(df)
+    elapsed = time.perf_counter() - t0
+    n = len(df) if df is not None else 0
+    log.info("%s  %s  %s rows · %s", _green("✓"), label, _bold(f"{n:,}"), _yellow(f"{elapsed:.2f}s"))
+    return df
+
+
+@st.cache_data(ttl=900, show_spinner="Fetching dispensed-unpaid pharmacy items…")
+def dispensed_unpaid(schema: str = "KISUMU_CLEAN") -> pd.DataFrame:
+    return _run_static("dispensed_unpaid", schema=schema)
+
+
+@st.cache_data(ttl=900, show_spinner="Fetching unbilled consumables…")
+def unbilled_consumables(schema: str = "KISUMU_CLEAN") -> pd.DataFrame:
+    return _run_static("unbilled_consumables", schema=schema)
+
+
+@st.cache_data(ttl=900, show_spinner="Fetching uninvoiced ward charges…")
+def ward_charges_uninvoiced(schema: str = "KISUMU_CLEAN") -> pd.DataFrame:
+    return _run_static("ward_charges_uninvoiced", schema=schema)
+
+
+@st.cache_data(ttl=900, show_spinner="Fetching uncollected co-payments…")
+def unpaid_copay(schema: str = "KISUMU_CLEAN") -> pd.DataFrame:
+    return _run_static("unpaid_copay", schema=schema)
+
+
+@st.cache_data(ttl=900, show_spinner="Fetching invoice exemptions & credits…")
+def invoice_exemptions(schema: str = "KISUMU_CLEAN") -> pd.DataFrame:
+    return _run_static("invoice_exemptions", schema=schema)
+
+
+@st.cache_data(ttl=900, show_spinner="Fetching credit notes detail…")
+def credit_notes_detail(schema: str = "KISUMU_CLEAN") -> pd.DataFrame:
+    df = _run_static("credit_notes_detail", schema=schema)
+    if "invoice_date" in df.columns:
+        df["invoice_date"] = pd.to_datetime(df["invoice_date"], errors="coerce")
+    return df
+
+
+@st.cache_data(ttl=900, show_spinner="Fetching price discrepancy analysis…")
+def price_discrepancy(schema: str = "KISUMU_CLEAN") -> pd.DataFrame:
+    return _run_static("price_discrepancy", schema=schema)
+
+
 # ─── Convenience: clinic dimension for the sidebar filter ──────────────────
 
 @st.cache_data(ttl=3600, show_spinner=False)

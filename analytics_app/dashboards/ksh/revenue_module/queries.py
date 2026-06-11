@@ -371,6 +371,161 @@ REVENUE_CONCENTRATION = dedent("""
 """)
 
 # ──────────────────────────────────────────────────────────────────────────────
+# REVENUE LEAKAGE QUERIES
+# Static queries (no date parameters) — they return current open balances for
+# six operational leakage vectors: dispensed-but-unpaid pharmacy items,
+# unbilled consumables without approved waivers, ward charges not yet invoiced,
+# uncollected co-payments, credit notes / exemptions, and insurance tariff gaps.
+# ──────────────────────────────────────────────────────────────────────────────
+
+DISPENSED_UNPAID = dedent("""
+    WITH dispensed_unpaid AS (
+        SELECT
+            ied.visit                         AS visit_id,
+            v.created_at::DATE                AS visit_date,
+            v.payment_mode,
+            COUNT(ied.id)                     AS dispensing_records,
+            SUM(ied.amount)                   AS dispensed_value
+        FROM INVENTORY_EVALUATION_DISPENSING ied
+        JOIN EVALUATION_VISITS v ON v.id = ied.visit
+        WHERE ied.payment_status = 0
+          AND v.deleted_at IS NULL
+        GROUP BY 1, 2, 3
+        HAVING SUM(ied.amount) IS NOT NULL
+    )
+    SELECT SUM(dispensed_value) AS total_dispensed_unpaid
+    FROM dispensed_unpaid
+""")
+
+UNBILLED_CONSUMABLES = dedent("""
+    WITH unbilled AS (
+        SELECT
+            ec.visit_id,
+            v.created_at::DATE                AS visit_date,
+            v.payment_mode,
+            ip.name                           AS product,
+            ec.quantity,
+            ec.price,
+            ec.amount,
+            u.username                        AS added_by
+        FROM EVALUATION_CONSUMABLES ec
+        JOIN EVALUATION_VISITS v      ON v.id   = ec.visit_id
+        JOIN INVENTORY_PRODUCTS ip    ON ip.id  = ec.product_id
+        LEFT JOIN USERS u             ON u.id   = ec.user_id
+        LEFT JOIN FINANCE_WAIVERS fw
+            ON fw.patient_id = v.patient
+           AND fw.invoice_id = ec.invoice_id
+           AND fw.status = 1
+        WHERE ec.bill      = 0
+          AND ec.cancelled = 0
+          AND ec.deleted_at IS NULL
+          AND fw.id IS NULL
+    )
+    SELECT SUM(amount) AS total_unbilled_consumables
+    FROM unbilled
+""")
+
+WARD_CHARGES_UNINVOICED = dedent("""
+    WITH ward_gap AS (
+        SELECT
+            ivr.visit_id,
+            SUM(ivr.amount)                                          AS total_ward_charges,
+            SUM(COALESCE(fii.amount, 0))                             AS total_invoiced_ward,
+            SUM(ivr.amount) - SUM(COALESCE(fii.amount, 0))          AS gap
+        FROM INPATIENT_VISIT_REBATES ivr
+        LEFT JOIN FINANCE_INVOICE_ITEMS fii
+            ON fii.invoice_id = ivr.invoice_id
+           AND fii.category IN ('Nursing', 'MEDSURG', 'MATERNITY', 'Dialysis')
+        WHERE ivr.cancelled  = 0
+          AND ivr.deleted_at IS NULL
+        GROUP BY 1
+        HAVING (SUM(ivr.amount) - SUM(COALESCE(fii.amount, 0))) > 0
+    )
+    SELECT SUM(gap) AS total_ward_uninvoiced
+    FROM ward_gap
+""")
+
+UNPAID_COPAY = dedent("""
+    SELECT
+        si.name                       AS insurer,
+        COUNT(fc.id)                  AS uncollected_count,
+        SUM(fc.amount)                AS total_uncollected_copay,
+        AVG(fc.amount)                AS avg_copay_due
+    FROM FINANCE_COPAY fc
+    JOIN SETTINGS_INSURANCE si ON si.id = fc.company_id
+    WHERE fc.payment_id IS NULL
+      AND fc.deleted_at IS NULL
+    GROUP BY 1
+    ORDER BY total_uncollected_copay DESC
+""")
+
+INVOICE_EXEMPTIONS = dedent("""
+    SELECT
+        COALESCE(u.username, 'Unknown') AS user_name,
+        COUNT(fi.id)                    AS invoice_count,
+        SUM(fi.exemption_amount)        AS total_exemptions,
+        SUM(fi.credit_amount)           AS total_credits,
+        MIN(fi.invoice_date)            AS earliest,
+        MAX(fi.invoice_date)            AS latest
+    FROM FINANCE_INVOICES fi
+    LEFT JOIN USERS u ON u.id = fi.user_id
+    WHERE fi.deleted_at IS NULL
+      AND (fi.exemption_amount > 0 OR fi.credit_amount > 0)
+    GROUP BY 1
+    ORDER BY total_credits DESC
+    LIMIT 20
+""")
+
+CREDIT_NOTES_DETAIL = dedent("""
+    SELECT
+        fi.invoice_date,
+        fi.invoice_no,
+        fi.patient_name,
+        fi.patient_no,
+        fi.exemption_amount,
+        fi.credit_amount,
+        fi.credit_note_number,
+        fi.credit_note_reason
+    FROM FINANCE_INVOICES fi
+    WHERE fi.deleted_at IS NULL
+      AND (fi.exemption_amount > 0 OR fi.credit_amount > 0)
+    ORDER BY fi.credit_amount DESC
+    LIMIT 200
+""")
+
+PRICE_DISCREPANCY = dedent("""
+    SELECT
+        SUM(CASE WHEN (epp.insurance_charge - fepd.price) > 0
+                 THEN (epp.insurance_charge - fepd.price) END)       AS total_undercharged,
+        SUM(CASE WHEN (epp.insurance_charge - fepd.price) < 0
+                 THEN ABS(epp.insurance_charge - fepd.price) END)    AS total_overcharged,
+        COUNT(CASE WHEN (epp.insurance_charge - fepd.price) > 0
+                   THEN 1 END)                                       AS undercharged_lines,
+        COUNT(CASE WHEN (epp.insurance_charge - fepd.price) < 0
+                   THEN 1 END)                                       AS overcharged_lines,
+        COUNT(CASE WHEN (epp.insurance_charge - fepd.price) = 0
+                   THEN 1 END)                                       AS correctly_billed_lines
+    FROM FINANCE_EVALUATION_PAYMENT_DETAILS fepd
+    JOIN EVALUATION_INVESTIGATIONS  ei  ON ei.id  = fepd.investigation
+    JOIN EVALUATION_PROCEDURES      ep  ON ep.id  = ei.procedure
+    JOIN EVALUATION_PROCEDURE_PRICES epp
+        ON epp.evaluation_procedure_id = ep.id
+    WHERE fepd.deleted_at IS NULL
+      AND epp.status = 1
+""")
+
+# Map used by the data layer's _run_static helper.
+REVENUE_LEAK_QUERIES = {
+    "dispensed_unpaid":        DISPENSED_UNPAID,
+    "unbilled_consumables":    UNBILLED_CONSUMABLES,
+    "ward_charges_uninvoiced": WARD_CHARGES_UNINVOICED,
+    "unpaid_copay":            UNPAID_COPAY,
+    "invoice_exemptions":      INVOICE_EXEMPTIONS,
+    "credit_notes_detail":     CREDIT_NOTES_DETAIL,
+    "price_discrepancy":       PRICE_DISCREPANCY,
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
 # 17. WEEKLY GROSS PROFIT
 # ──────────────────────────────────────────────────────────────────────────────
 # Convenience map for the data layer.

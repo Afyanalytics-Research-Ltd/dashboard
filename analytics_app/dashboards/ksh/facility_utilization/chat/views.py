@@ -12,9 +12,8 @@ from django.views.decorators.http import require_POST
 
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
-# facility_utilization/ — one level up from chat/views.py
-_NOTICES_DIR = Path(__file__).resolve().parent.parent
-_CONTEXT_DIR  = Path(__file__).resolve().parent.parent / "context"
+# private_analysis/ — two levels up from chat/views.py
+_PRIVATE = Path(__file__).resolve().parent.parent.parent
 
 # Inline SVG avatars — no static file dependency
 _BOT_SVG = mark_safe(
@@ -40,8 +39,8 @@ _USER_SVG = mark_safe(
 
 
 def _load_notices() -> dict:
-    for name in ["current_notices_KSH.json", "current_notices.json"]:
-        path = _NOTICES_DIR / name
+    for name in [f"current_notices_KSH.json", "current_notices.json"]:
+        path = _PRIVATE / name
         if path.exists():
             try:
                 return json.loads(path.read_text(encoding="utf-8"))
@@ -57,9 +56,10 @@ _DOMAIN_KEYWORDS: list = []
 
 
 def _load_context() -> tuple:
+    ctx_dir = _PRIVATE / "context"
     context: dict = {}
     keywords: list = []
-    for f in sorted(_CONTEXT_DIR.glob("*.md")):
+    for f in sorted(ctx_dir.glob("*.md")):
         text = f.read_text(encoding="utf-8")
         context[f.stem] = text
         for line in text.splitlines():
@@ -73,16 +73,16 @@ def _load_context() -> tuple:
 def _get_context() -> tuple:
     """Return (CONTEXT, DOMAIN_KEYWORDS), reloading from disk if any file has changed."""
     global _CONTEXT, _DOMAIN_KEYWORDS, _ctx_mtime
+    ctx_dir = _PRIVATE / "context"
     try:
-        latest = max((_CONTEXT_DIR.glob("*.md")), default=None)
-        latest = latest.stat().st_mtime if latest else 0.0
+        latest = max((f.stat().st_mtime for f in ctx_dir.glob("*.md")), default=0.0)
     except Exception:
         latest = 0.0
     if latest <= _ctx_mtime:
         return _CONTEXT, _DOMAIN_KEYWORDS
     with _ctx_lock:
         try:
-            latest = max((f.stat().st_mtime for f in _CONTEXT_DIR.glob("*.md")), default=0.0)
+            latest = max((f.stat().st_mtime for f in ctx_dir.glob("*.md")), default=0.0)
         except Exception:
             latest = 0.0
         if latest <= _ctx_mtime:
@@ -150,8 +150,8 @@ def _build_system_prompt(facility: str, notice_date: str, notices: list) -> str:
         f"1. Only cite metric values (percentages, visit counts, thresholds) that appear VERBATIM in the context. Never calculate, extrapolate, or invent figures. When a question asks about something the investigation has not confirmed, use Status: No Evidence Found and state only what the investigation DID establish on the nearest related topic — do not fill gaps with plausible reasoning or general knowledge.\n"
         f"2. Present findings as analytical outputs, not operational prescriptions. Do not recommend hiring, redistribution, or specific management actions. State what the data shows and who should review it.\n"
         f"3. Use doctor usernames exactly as written in context (e.g. eawando, jogutu). Never swap roles.\n"
-        f"4. NEVER tell the user to 'check the dashboard' — you ARE the analytics layer. Answer directly from context.\n"
-        f"5. When answering 'why' questions, lead with the strongest investigation finding, not the data limitation.\n"
+        f"4. NEVER tell the user to 'check the dashboard' for operational questions — answer directly from context. Exception: for causal or investigation questions, apply Rule 14.\n"
+        f"5. When answering 'why' questions about operational metrics (volume, LOS, readmissions, workload), lead with the strongest data finding available in context.\n"
         f"6. Present confirmed investigation findings as facts: 'the data shows', 'the investigation confirmed'.\n"
         f"7. Distinguish between investigation findings and unresolved details. When the analysis has identified the mechanism driving a metric, present that mechanism as a completed finding. Frame remaining unknowns as narrower operational questions, not evidence that the investigation is incomplete.\n"
         f"8. Format EVERY response — first and all follow-up — using this exact structure. Never deviate.\n\n"
@@ -179,14 +179,21 @@ def _build_system_prompt(facility: str, notice_date: str, notices: list) -> str:
         f"• [Closest confirmed finding from the investigation on this topic]\n"
         f"• [Second related finding if available]\n"
         f"Do not say 'the investigation did not test', 'the data does not show', or 'we never investigated'. Do not explain what is missing. State only what IS available. Do not attempt to answer from general medical knowledge. No Evidence Found applies only when investigation data is genuinely absent — do not use it when a question contains action words like 'redistribution', 'options', or 'workload'; if the data exists in context, report it directly.\n"
-        f"13. Do NOT mention specific doctor names, departure events, or historical personnel changes unless the question explicitly asks about a named person or a departure. State structural and pattern findings without attributing them to individuals. This applies even when an active alert contains a doctor's name — describe the concentration pattern without naming the individual. Only state a name if the user explicitly asks 'which doctor' or names someone themselves."
+        f"13. Do NOT mention specific doctor names, departure events, or historical personnel changes unless the question explicitly asks about a named person or a departure. State structural and pattern findings without attributing them to individuals. This applies even when an active alert contains a doctor's name — describe the concentration pattern without naming the individual. Only state a name if the user explicitly asks 'which doctor' or names someone themselves.\n"
+        f"14. For questions about causal findings, investigation results, or structural 'why' questions — why are private wards empty, why is dialysis idle, what did the investigation find, what drives readmissions, what is the concentration risk, what happens to renal patients — respond with exactly this structure and nothing else:\n\n"
+        f"Status: See Dashboard\n\n"
+        f"Key finding\n"
+        f"This is covered in the Causal Intelligence section of the KSH dashboard, where the full investigation chain is documented with supporting data.\n\n"
+        f"Evidence\n"
+        f"• This chat answers live operational questions — ward activity, staffing workload, theatre completion, lab volume, readmission rates.\n"
+        f"• For investigation findings and causal analysis, open the Causal Intelligence page on the dashboard."
     )
 
 
 def chat_page(request):
     request.session.pop("chat_history", None)  # always start fresh on page load
     notices_data = _load_notices()
-    return render(request, "facility_utilization/chat/chat.html", {
+    return render(request, "chat/chat.html", {
         "notices":  notices_data.get("notices", []),
         "facility": notices_data.get("facility", "KSH"),
         "date":     notices_data.get("date", ""),

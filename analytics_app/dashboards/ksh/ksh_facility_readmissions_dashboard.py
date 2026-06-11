@@ -12,19 +12,20 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from streamlit_option_menu import option_menu
 
 import warnings
 warnings.filterwarnings("ignore")
 
 from facility_utilization.m1_ward_forecast import get_forecast
-from facility_utilization.notifier import send_digest, get_recipients, write_current_notices
+from notifier import send_digest, get_recipients, write_current_notices
 from facility_utilization.queries import (
     q_overview_gap, q_overview_alerts,
     q_leakage_gap, q_leakage_submission_rate, q_leakage_ksh_dispatch_trend,
     q_leakage_aging_dist, q_leakage_recovery_priority,
     q_theatre_trend, q_theatre_by_type,
-    q_beds_revpab, q_beds_los, q_dialysis_trend, q_specialty_admissions,
+    q_beds_revpab, q_beds_los, q_beds_monthly, q_dialysis_trend, q_specialty_admissions,
     q_imaging_trend,
     # q_readmission_pattern, q_readmission_trend,                     # READM_HIDDEN — clinical finding, not ops metric
     # q_readmission_exposure, q_readmission_benchmark, q_readmission_ward_trend,
@@ -32,6 +33,7 @@ from facility_utilization.queries import (
     q_ward_admissions_monthly, q_ward_los_monthly, q_ward_discharge_monthly,
     q_doctor_workload_monthly, q_lab_monthly, q_visit_summary, q_peak_breakdown,
     q_peak_ward_dist, q_doctor_ward_share, q_cd12_monthly_rate,
+    q_doctor_conversion_monthly,
 )
 
 # ── Feature flags ─────────────────────────────────────────────────────────────
@@ -1955,8 +1957,9 @@ elif page == "Capacity & Operations":
                 "_fac":        fac_key,
                 "th_trend":    q_theatre_trend(),
                 "th_type":     q_theatre_by_type(),
-                "beds_revpab": q_beds_revpab(facility),
-                "beds_los":    q_beds_los(facility),
+                "beds_revpab":   q_beds_revpab(facility),
+                "beds_los":      q_beds_los(facility),
+                "beds_monthly":  q_beds_monthly() if _is_ksh_p3 else pd.DataFrame(),
                 "dialysis":    q_dialysis_trend(facility),
                 "specialty":   q_specialty_admissions(),
                 "imaging":     q_imaging_trend(facility),
@@ -1967,7 +1970,9 @@ elif page == "Capacity & Operations":
                 "ward_readm":  pd.DataFrame(),  # READM_HIDDEN — q_readmission_ward_trend suppressed
                 "doctor_wl":   q_doctor_workload_monthly()         if _is_ksh_p3 else pd.DataFrame(),
                 "lab":         q_lab_monthly()                     if _is_ksh_p3 else pd.DataFrame(),
+                "visit_sum":   q_visit_summary()                   if _is_ksh_p3 else pd.DataFrame(),
                 "cd12_rate":   q_cd12_monthly_rate()               if _is_ksh_p3 else pd.DataFrame(),
+                "doctor_conv": q_doctor_conversion_monthly()       if _is_ksh_p3 else pd.DataFrame(),
                 "peak_bk":     q_peak_breakdown()                  if _is_ksh_p3 else pd.DataFrame(),
             }
 
@@ -2083,7 +2088,10 @@ elif page == "Capacity & Operations":
             col_l, col_r = st.columns(2, gap="large")
 
             with col_l:
-                section_header(f"Theatre Completion Declining — {th_recent_rate:.0f}% Recent vs {th_overall_rate:.0f}% All-Time Avg")
+                _th_direction = ("Declining" if th_recent_rate < th_overall_rate - 3
+                                 else "Improving" if th_recent_rate > th_overall_rate + 3
+                                 else "Stable")
+                section_header(f"Theatre Completion {_th_direction} — {th_recent_rate:.0f}% Recent vs {th_overall_rate:.0f}% All-Time Avg")
                 if len(th_trend):
                     fig = go.Figure()
                     fig.add_scatter(
@@ -2103,7 +2111,12 @@ elif page == "Capacity & Operations":
                     _pk = th_trend.loc[th_trend["TOTAL_REVENUE"].idxmax()]
                     _pk_lbl = (f"{fmt_kes(float(_pk['TOTAL_REVENUE']))} Peak "
                                f"({pd.Timestamp(_pk['SESSION_MONTH']).strftime('%b %Y')})")
-                    section_header(f"Monthly Theatre Revenue — {_pk_lbl}, Trending Down")
+                    _rev_recent3 = float(th_trend.nlargest(3, "SESSION_MONTH")["TOTAL_REVENUE"].mean()) if len(th_trend) >= 3 else 0
+                    _rev_prior3  = float(th_trend.nlargest(6, "SESSION_MONTH").iloc[3:]["TOTAL_REVENUE"].mean()) if len(th_trend) >= 6 else _rev_recent3
+                    _rev_dir     = ("Trending Down" if _rev_recent3 < _rev_prior3 * 0.95
+                                    else "Trending Up" if _rev_recent3 > _rev_prior3 * 1.05
+                                    else "Stable")
+                    section_header(f"Monthly Theatre Revenue — {_pk_lbl}, {_rev_dir}")
                 else:
                     section_header("Monthly Theatre Revenue — KSH")
                 if len(th_trend):
@@ -2121,6 +2134,7 @@ elif page == "Capacity & Operations":
                     fig.update_layout(**cl(height=360, yaxis_title="KES Revenue",
                                            legend=dict(orientation="h", y=1.08)))
                     st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+
 
     # ── Tab 2: Beds ───────────────────────────────────────────────────────────
 
@@ -2285,6 +2299,15 @@ elif page == "Capacity & Operations":
                         f'</div>',
                         unsafe_allow_html=True,
                     )
+                    info_card(
+                        "This trend is the upstream signal for monthly operational planning. "
+                        "A rising 3-month average points to higher bed occupancy, increased consumables draw, "
+                        "and greater shift cover demand in the following month. "
+                        "A falling trend creates headroom to schedule maintenance, training, or ward downtime. "
+                        "The dashed projection is a 3-month rolling estimate — adjust for known events "
+                        "(public holidays, outreach campaigns, seasonal disease peaks).",
+                        border_color="#B0C8E0",
+                    )
 
         # ── Operational Demand Outlook — ward-level, next month (KSH only) ─────
         if _is_ksh_p3 and len(P["ward_adm"]):
@@ -2332,135 +2355,152 @@ elif page == "Capacity & Operations":
                     "Staffing changes affect these figures within 1–2 months."
                 )
                 info_card(
-                    "Monday 09:00–12:00 and 16:00 remain the highest-demand windows — "
-                    "independent of monthly volume trend.",
+                    "Ward-level projections give procurement leads, ward managers, and scheduling teams "
+                    "a 4–6 week planning window. Higher projected volume in a ward signals the need to "
+                    "align bed readiness, ward-specific stock (e.g. delivery supplies for Maternity, "
+                    "paediatric medications for Paediatric), and shift cover ahead of the month. "
+                    "Note: Monday 09:00–12:00 and 16:00 remain the peak admission windows regardless of "
+                    "monthly volume — same-day demand on those windows runs above the monthly average.",
                     border_color="#B0C8E0",
                 )
 
-        # ── Ward Intelligence (KSH only) ──────────────────────────────────────
-        if _is_ksh_p3:
-            st.markdown("<div style='margin-top:28px'></div>", unsafe_allow_html=True)
-            section_header("Ward Intelligence")
-
-            _wi_wards = {
-                "Medical — Male":    "MEDICAL — MALE",
-                "Medical — Female":  "MEDICAL — FEMALE",
-                "Maternity":         "MATERNITY",
-                "Private / Amenity": "PRIVATE / AMENITY",
-                "Paediatric":        "PAEDIATRIC",
-            }
-            _sel_ward_label = st.selectbox(
-                "Select ward",
-                list(_wi_wards.keys()),
-                key="ward_intel_select",
-                label_visibility="collapsed",
-            )
-            _sel_ward_key = _wi_wards[_sel_ward_label]
-
-            # Pull data for selected ward from P3 session state
-            def _p3_ward_series(df_key, ward_key, val_col, month_col="ADMISSION_MONTH"):
-                _df = _filter_epoch(P[df_key].copy(), month_col) if len(P[df_key]) else pd.DataFrame()
-                if not len(_df):
-                    return pd.DataFrame()
-                _df = _df[_df["FACILITY"] == facility]
-                _df = _df[_df["WARD_CATEGORY"].str.upper() == ward_key].sort_values(month_col)
-                return _df[[month_col, val_col]].dropna()
-
-            _adm_s   = _p3_ward_series("ward_adm",  _sel_ward_key, "ADMISSIONS")
-            _los_s   = _p3_ward_series("ward_los",  _sel_ward_key, "MEDIAN_LOS_DAYS")
-            _pr_s    = _p3_ward_series("ward_dc",   _sel_ward_key, "PATIENT_REQUEST_PCT")
-            # _rm_s  = _p3_ward_series("ward_readm",_sel_ward_key, "READMISSION_30DAY_RATE_PCT")  # READM_HIDDEN
-
-            # Threshold lines for selected ward (dicts are module-level constants)
-            _w_tw  = _TRAFFIC_WATCH.get(_sel_ward_key)
-            _w_lw  = _LOS_WATCH.get(_sel_ward_key)
-            _w_pw  = _PR_WATCH.get(_sel_ward_key)
-            # _w_rw  = _READM_WARD_WATCH.get(_sel_ward_key)  # READM_HIDDEN
-
-            st.markdown(
-                f'<div style="animation:fadeIn 0.3s ease">',
-                unsafe_allow_html=True,
-            )
-
-            _wc1, _wc2 = st.columns(2, gap="large")
-            _wc3, _wc4 = st.columns(2, gap="large")
-
-            def _wi_chart(col_obj, df, x_col, y_col, title, ylabel, watch_thr, crit_thr,
-                          color, height=240, fmt_pct=False):
-                with col_obj:
-                    section_header(title)
-                    if not len(df):
-                        st.caption("No data available for this ward.")
-                        return
-                    fig = go.Figure()
-                    _y = df[y_col]
-                    _x = df[x_col]
-                    # Color bars/line by threshold breach
-                    if watch_thr:
-                        _colors = [
-                            COLORS["danger"] if v > (crit_thr or watch_thr * 1.4)
-                            else COLORS["warning"] if v > watch_thr
-                            else color
-                            for v in _y
-                        ]
-                    else:
-                        _colors = [color] * len(_y)
-                    fig.add_bar(
-                        x=_x, y=_y,
-                        marker_color=_colors,
-                        hovertemplate=(
-                            "%{x|%b %Y}: %{y:.1f}" + ("%" if fmt_pct else "") + "<extra></extra>"
-                        ),
+        # ── Ward Capacity Pressure (KSH only) ────────────────────────────────
+        if _is_ksh_p3 and len(P["beds_monthly"]):
+            _bm = _filter_epoch(P["beds_monthly"].copy(), "ADMISSION_MONTH")
+            if len(_bm):
+                _WARD_COLORS = {
+                    "General Female":    COLORS["primary"],
+                    "General Male":      COLORS["success"],
+                    "Pediatric General": COLORS["warning"],
+                    "General Maternity": COLORS["danger"],
+                    "Private Maternity": "#E8A0A0",
+                    "Private Female":    "#9B59B6",
+                    "Private Male":      "#5DADE2",
+                }
+                st.markdown("<div style='margin-top:28px'></div>", unsafe_allow_html=True)
+                section_header("Ward Capacity Pressure — Bed Days Used & Length of Stay")
+                fig_cp = make_subplots(
+                    rows=2, cols=1,
+                    shared_xaxes=True,
+                    subplot_titles=("Bed Days Used per Ward", "Avg Length of Stay per Ward"),
+                    vertical_spacing=0.10,
+                )
+                for _wrd in sorted(_bm["WARD_NAME"].unique()):
+                    _ws  = _bm[_bm["WARD_NAME"] == _wrd].sort_values("ADMISSION_MONTH")
+                    _col = _WARD_COLORS.get(_wrd, COLORS["muted"])
+                    fig_cp.add_scatter(
+                        row=1, col=1,
+                        x=_ws["ADMISSION_MONTH"], y=_ws["TOTAL_BED_DAYS"],
+                        mode="lines+markers", name=_wrd, legendgroup=_wrd,
+                        line=dict(color=_col, width=2), marker=dict(size=5),
+                        hovertemplate=f"{_wrd} %{{x|%b %Y}}: %{{y:,}} bed-days<extra></extra>",
+                        showlegend=True,
+                    )
+                    fig_cp.add_scatter(
+                        row=2, col=1,
+                        x=_ws["ADMISSION_MONTH"], y=_ws["AVG_LOS_DAYS"],
+                        mode="lines+markers", name=_wrd, legendgroup=_wrd,
+                        line=dict(color=_col, width=2), marker=dict(size=5),
+                        hovertemplate=f"{_wrd} %{{x|%b %Y}}: %{{y:.1f}}d<extra></extra>",
                         showlegend=False,
                     )
-                    if watch_thr:
-                        fig.add_hline(
-                            y=watch_thr, line_dash="dot", line_color=COLORS["warning"],
-                            line_width=1.5,
-                            annotation_text=f"WATCH {watch_thr}" + ("%" if fmt_pct else "d" if "LOS" in title else ""),
-                            annotation_font_size=9, annotation_font_color=COLORS["warning"],
-                            annotation_position="top right",
-                        )
-                    if crit_thr:
-                        fig.add_hline(
-                            y=crit_thr, line_dash="dot", line_color=COLORS["danger"],
-                            line_width=1.5,
-                            annotation_text=f"CRITICAL {crit_thr}" + ("%" if fmt_pct else "d" if "LOS" in title else ""),
-                            annotation_font_size=9, annotation_font_color=COLORS["danger"],
-                            annotation_position="bottom right",
-                        )
-                    fig.update_layout(**cl(height=height, yaxis_title=ylabel,
-                                          transition_duration=400))
-                    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+                fig_cp.update_yaxes(title_text="Bed Days", row=1, col=1)
+                fig_cp.update_yaxes(title_text="Avg Days", row=2, col=1)
+                fig_cp.update_layout(**cl(
+                    height=580,
+                    legend=dict(orientation="h", y=-0.08, x=0.5,
+                                xanchor="center", font_size=10),
+                    margin=dict(b=80),
+                ))
+                st.plotly_chart(fig_cp, use_container_width=True,
+                                config={"displayModeBar": True, "displaylogo": False,
+                                        "modeBarButtonsToRemove": ["select2d", "lasso2d"]})
+                dq_note(
+                    "Bed days = discharged admissions only. Open admissions excluded. "
+                    "Rising bed days + stable LOS → more patients. "
+                    "Rising bed days + rising LOS → beds blocked longer, compressing capacity."
+                )
 
-            _wi_chart(_wc1, _adm_s, "ADMISSION_MONTH", "ADMISSIONS",
-                      "Admissions / Month", "Admissions",
-                      _w_tw, _TRAFFIC_CRIT.get(_sel_ward_key),
-                      COLORS["primary"])
+        # ── Ward Signals (KSH only) ──────────────────────────────────────────
+        if _is_ksh_p3 and len(P["beds_monthly"]):
+            st.markdown("<div style='margin-top:28px'></div>", unsafe_allow_html=True)
 
-            _wi_chart(_wc2, _los_s, "ADMISSION_MONTH", "MEDIAN_LOS_DAYS",
-                      "Median LOS (days)", "Days",
-                      _w_lw, _LOS_CRIT.get(_sel_ward_key),
-                      COLORS["success"])
+            _bm_all = P["beds_monthly"].copy()
 
-            _wi_chart(_wc3, _pr_s, "ADMISSION_MONTH", "PATIENT_REQUEST_PCT",
-                      "Patient Request Rate (%)", "%",
-                      _w_pw, _PR_CRIT.get(_sel_ward_key),
-                      COLORS["warning"], fmt_pct=True)
+            # Baselines from full history — not epoch-filtered
+            _bl = (
+                _bm_all.groupby("WARD_NAME", as_index=False)
+                .agg(base_bd=("TOTAL_BED_DAYS", "mean"),
+                     base_los=("AVG_LOS_DAYS",   "mean"))
+            )
 
-            # READM_HIDDEN — 30-Day Readmission Rate chart suppressed
-            # _wi_chart(_wc4, _rm_s, "ADMISSION_MONTH", "READMISSION_30DAY_RATE_PCT", ...)
+            # Epoch-filtered for display, merged with baselines
+            _bm_sig = _filter_epoch(_bm_all, "ADMISSION_MONTH").merge(_bl, on="WARD_NAME", how="left")
+            _bm_sig["bd_ratio"]  = _bm_sig["TOTAL_BED_DAYS"] / _bm_sig["base_bd"].clip(lower=0.1)
+            _bm_sig["los_ratio"] = _bm_sig["AVG_LOS_DAYS"]   / _bm_sig["base_los"].clip(lower=0.1)
 
-            st.markdown('</div>', unsafe_allow_html=True)
-            dq_note("WATCH and CRITICAL lines are ward-specific baselines (Inv 20–23). "
-                    "Bars turn amber at WATCH, red at CRITICAL.")
+            def _ward_signal(row):
+                bd, los = row["bd_ratio"], row["los_ratio"]
+                if bd > 1.2 and los > 1.2:
+                    return "🔴 Capacity Compression", "Similar volume, beds blocked by long-stayers. Complex or severe case load."
+                if bd > 1.2 and 0.8 <= los <= 1.2:
+                    return "🟡 Demand Growth", "More patients admitted at normal acuity. Volume-driven pressure."
+                if bd < 0.8 and los < 0.8:
+                    return "🟢 Efficient Throughput", "Patients cycling faster than baseline. Ward flowing well."
+                if bd < 0.8 and los > 1.2:
+                    return "🟠 Low Volume, Complex Cases", "Fewer patients but staying longer. Possible case mix shift."
+                return "⚪ Normal", "Bed days and LOS within ±20% of baseline."
+
+            _bm_sig[["Signal", "What Happened"]] = _bm_sig.apply(
+                _ward_signal, axis=1, result_type="expand"
+            )
+
+            with st.expander("Ward Signals — What Happened Each Month", expanded=False):
+                _show_all = st.checkbox("Show full history", value=False, key="ward_sig_full")
+                if _show_all:
+                    _bm_disp = _bm_sig.copy()
+                else:
+                    _max_mo  = pd.to_datetime(_bm_sig["ADMISSION_MONTH"]).max()
+                    _bm_disp = _bm_sig[
+                        pd.to_datetime(_bm_sig["ADMISSION_MONTH"]) >= _max_mo - pd.DateOffset(months=5)
+                    ]
+
+                _bm_disp = _bm_disp.sort_values(
+                    ["ADMISSION_MONTH", "WARD_NAME"], ascending=[False, True]
+                ).copy()
+                _bm_disp["ADMISSION_MONTH"] = pd.to_datetime(_bm_disp["ADMISSION_MONTH"]).dt.strftime("%b %Y")
+                _bm_disp["AVG_LOS_DAYS"]    = _bm_disp["AVG_LOS_DAYS"].round(1)
+
+                st.dataframe(
+                    _bm_disp[[
+                        "WARD_NAME", "ADMISSION_MONTH", "DISCHARGED_ADMISSIONS",
+                        "TOTAL_BED_DAYS", "AVG_LOS_DAYS", "Signal", "What Happened"
+                    ]].rename(columns={
+                        "WARD_NAME":              "Ward",
+                        "ADMISSION_MONTH":        "Month",
+                        "DISCHARGED_ADMISSIONS":  "Discharges",
+                        "TOTAL_BED_DAYS":         "Bed Days",
+                        "AVG_LOS_DAYS":           "Avg LOS (d)",
+                    }),
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "Signal":       st.column_config.TextColumn(width="medium"),
+                        "What Happened": st.column_config.TextColumn(width="large"),
+                    },
+                )
+                dq_note(
+                    "Signals computed vs all-time ward baseline (±20% threshold). "
+                    "Bed days = discharged admissions only — open admissions excluded."
+                )
 
     # ── Tab 3: Lab & Diagnostics ──────────────────────────────────────────────
 
     with tab3:
 
         # ── Lab Volume + Abnormal Rate (KSH only) ─────────────────────────────
-        if _is_ksh_p3 and len(P["lab"]):
+        # LAB_VOL_HIDDEN — reactivate by changing `if False` to `if _is_ksh_p3 and len(P["lab"])`
+        if False:  # noqa
             _lab3 = _filter_epoch(P["lab"].copy(), "LAB_MONTH")
             _lab3 = _lab3[_lab3["DISTINCT_VISITS"] > 50].sort_values("LAB_MONTH")
             if len(_lab3):
@@ -2540,7 +2580,7 @@ elif page == "Capacity & Operations":
             _cd12 = P["cd12_rate"].copy().rename(columns=str.lower)
             _cd12 = _cd12.sort_values("critical_month")
             if len(_cd12) >= 2:
-                section_header("Critical Creatinine — Admission Outcome")
+                section_header("Renal Patients — Admission Gap")
                 _cd12_c1, _cd12_c2 = st.columns([2, 1], gap="large")
 
                 with _cd12_c1:
@@ -2611,10 +2651,10 @@ elif page == "Capacity & Operations":
                     )
 
                 dq_note(
-                    "Critical Creatinine patients seen but not admitted as inpatients. "
-                    "Baseline 41% from full cohort analysis (Jan 2024–Apr 2026). "
-                    "Monthly data available from Jul 2025 when CL/CH lab flags were introduced. "
-                    "Patient safety finding — escalate to Clinical / Medical Lead."
+                    "KSH sees critical kidney patients every month. 41% leave without being admitted. "
+                    "Dialysis has been unused since April 2025 — not because demand is absent, "
+                    "but because patients are not reaching inpatient care. "
+                    "Action: Clinical Lead to review the renal admission pathway."
                 )
                 st.markdown("<div style='margin-bottom:8px'></div>", unsafe_allow_html=True)
 
@@ -2697,53 +2737,77 @@ elif page == "Capacity & Operations":
                     "do not add figures from both pages. Pending promotion to gold table G8."
                 )
 
+                # ── Imaging Utilisation — Sessions per 100 Outpatient Visits ──
+                _vis_s = P["visit_sum"].copy()
+                if len(_vis_s):
+                    _vis_s.columns = _vis_s.columns.str.upper()
+                    _vis_s["MONTH"] = pd.to_datetime(_vis_s["VISIT_MONTH"])
+                    _img_u = fac_img[fac_img["MODALITY"] != "Other Imaging"].copy()
+                    _img_u["MONTH"] = pd.to_datetime(_img_u["REVENUE_MONTH"])
+                    _img_u = _img_u.merge(_vis_s[["MONTH", "TOTAL_VISITS"]], on="MONTH", how="inner")
+                    _img_u["rate"] = (
+                        _img_u["SESSIONS"] / _img_u["TOTAL_VISITS"].clip(lower=1) * 100
+                    ).round(2)
+
+                    _BENCH = {
+                        "X-Ray":          {"low": 5.0,  "high": 10.0, "src": "WHO Essential Imaging 2020"},
+                        "Ultrasound":     {"low": 2.0,  "high": 5.0,  "src": "WHO Essential Imaging 2020"},
+                        "CT / Angio":     {"low": 0.5,  "high": 2.0,  "src": "RSNA low-resource guidance"},
+                        "ECHO / Cardiac": {"low": 0.5,  "high": 1.0,  "src": "Indicative — no Kenya standard"},
+                        "MRI":            {"low": 0.1,  "high": 0.5,  "src": "RSNA low-resource guidance"},
+                    }
+                    _ut_mods = [m for m in _BENCH if m in _img_u["MODALITY"].unique()]
+                    if _ut_mods:
+                        st.markdown("<div style='margin-top:28px'></div>", unsafe_allow_html=True)
+                        section_header("Imaging Utilisation — Sessions per 100 Outpatient Visits")
+                        _n_cols = 2
+                        _n_rows = -(-len(_ut_mods) // _n_cols)
+                        fig_ut = make_subplots(
+                            rows=_n_rows, cols=_n_cols,
+                            subplot_titles=_ut_mods,
+                            vertical_spacing=0.14,
+                            horizontal_spacing=0.10,
+                        )
+                        for _mi, _mod in enumerate(_ut_mods):
+                            _row = _mi // _n_cols + 1
+                            _col = _mi % _n_cols + 1
+                            _b   = _BENCH[_mod]
+                            _sub = _img_u[_img_u["MODALITY"] == _mod].sort_values("MONTH")
+                            fig_ut.add_hrect(
+                                y0=_b["low"], y1=_b["high"],
+                                fillcolor="rgba(144,238,144,0.2)",
+                                line_width=0,
+                                row=_row, col=_col,
+                            )
+                            fig_ut.add_scatter(
+                                row=_row, col=_col,
+                                x=_sub["MONTH"], y=_sub["rate"],
+                                mode="lines+markers",
+                                name=_mod,
+                                line=dict(color=MODALITY_COLORS.get(_mod, COLORS["muted"]), width=2),
+                                marker=dict(size=5),
+                                hovertemplate=f"{_mod} %{{x|%b %Y}}: %{{y:.2f}} per 100 visits<extra></extra>",
+                                showlegend=False,
+                            )
+                        fig_ut.update_layout(**cl(
+                            height=160 * _n_rows + 80,
+                            showlegend=False,
+                            margin=dict(b=40),
+                        ))
+                        st.plotly_chart(fig_ut, use_container_width=True,
+                                        config={"displayModeBar": False})
+                        dq_note(
+                            "Green band = indicative benchmark range per 100 outpatient visits. "
+                            "X-Ray 5–10, Ultrasound 2–5 (WHO Essential Imaging 2020); "
+                            "CT/Angio 0.5–2, MRI 0.1–0.5 (RSNA low-resource guidance); "
+                            "ECHO 0.5–1 (indicative — no Kenya standard). "
+                            "Outpatient visits from EVALUATION_VISITS, Sep 2024+. "
+                            "Rates above range may reflect high-acuity referrals or over-ordering; "
+                            "below range may indicate under-utilised equipment or referral gaps."
+                        )
+
             st.markdown("---")
 
-        # ── Dialysis section ──────────────────────────────────────────────────
-        col_l, col_r = st.columns(2, gap="large")
-
-        with col_l:
-            section_header("Dialysis Sessions by Month")
-            fac_dial = dialysis[dialysis["FACILITY"] == facility]
-            if len(fac_dial) < 3:
-                st.caption(
-                    f"{fac_name} dialysis session data covers fewer than 3 months — "
-                    f"trend chart not shown. {len(fac_dial)} month(s) of records present.")
-                if facility == "KISUMU_CLEAN":
-                    info_card(
-                        "KSH dialysis: 3 sessions total (Mar–Apr 2025), zero activity "
-                        "for 12 consecutive months since. Machines are genuinely idle — "
-                        "no referral pipeline to Kisumu specialists. "
-                        "15–20 sessions/month achievable with targeted outreach to 3–5 specialists.",
-                        COLORS["purple"])
-            else:
-                fig = go.Figure()
-                color = COLORS["primary"] if facility == "TENRI" else COLORS["success"]
-                fig.add_scatter(
-                    x=fac_dial["SESSION_MONTH"], y=fac_dial["TOTAL_SESSIONS"],
-                    mode="lines+markers", name=fac_name,
-                    line=dict(color=color, width=2), marker=dict(size=4))
-                if facility == "TENRI":
-                    _add_data_end_line(fig, TENRI_DATA_END, "TENRI data end")
-                fig.update_layout(**cl(height=360, yaxis_title="Sessions"))
-                st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
-
-        with col_r:
-            if facility == "TENRI":
-                section_header("Specialty Admissions — Day Cases vs Inpatient")
-                spec_sum = specialty.groupby("WARD_NAME")[["DAY_CASES","INPATIENT_STAYS"]].sum().reset_index()
-                if len(spec_sum):
-                    fig = go.Figure()
-                    fig.add_bar(name="Day Cases",      x=spec_sum["WARD_NAME"], y=spec_sum["DAY_CASES"],
-                                marker_color=COLORS["primary"])
-                    fig.add_bar(name="Inpatient Stays", x=spec_sum["WARD_NAME"], y=spec_sum["INPATIENT_STAYS"],
-                                marker_color=COLORS["success"])
-                    fig.update_layout(
-                        **cl(barmode="group", height=360,
-                             xaxis_tickangle=-20,
-                             legend=dict(orientation="h", y=1.08)))
-                    st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
-                    dq_note("Day cases = same-day admit+discharge (primarily dialysis).")
 
     # ── Tab 4: Staffing ───────────────────────────────────────────────────────
 
@@ -2754,54 +2818,6 @@ elif page == "Capacity & Operations":
             st.caption("Doctor workload data not available.")
         else:
             _doc3 = _filter_epoch(P["doctor_wl"].copy(), "VISIT_MONTH").sort_values("VISIT_MONTH")
-
-            # ── Concentration: latest month bar ──────────────────────────────
-            section_header("Doctor Load Distribution — Latest Month")
-            _doc3_latest_mo = _doc3["VISIT_MONTH"].max()
-            _doc3_lat = (
-                _doc3[_doc3["VISIT_MONTH"] == _doc3_latest_mo]
-                .sort_values("MONTHLY_VISITS", ascending=True)
-            )
-            _doc3_total = int(_doc3_lat["MONTHLY_VISITS"].sum())
-            _doc3_lat["display_name"] = _doc3_lat["USERNAME"].apply(
-                lambda u: f"{u[0].upper()}.{u[1:].capitalize()}"
-            )
-            _doc3_lat["pct"] = (_doc3_lat["MONTHLY_VISITS"] / max(_doc3_total, 1) * 100).round(1)
-            _doc3_lat["bar_color"] = _doc3_lat["pct"].apply(
-                lambda p: COLORS["danger"] if p > 50
-                else COLORS["warning"] if p > 40
-                else COLORS["primary"]
-            )
-            _d3_fig = go.Figure()
-            _d3_fig.add_bar(
-                x=_doc3_lat["MONTHLY_VISITS"],
-                y=_doc3_lat["display_name"],
-                orientation="h",
-                marker_color=_doc3_lat["bar_color"].tolist(),
-                text=_doc3_lat["pct"].apply(lambda p: f"{p:.0f}%"),
-                textposition="outside",
-                hovertemplate="<b>%{y}</b>: %{x:,} visits (%{text})<extra></extra>",
-                showlegend=False,
-            )
-            _d3_fig.add_vline(
-                x=_doc3_total * 0.40, line_dash="dot", line_color=COLORS["warning"],
-                line_width=1.5,
-                annotation_text="WATCH 40%", annotation_font_size=9,
-                annotation_font_color=COLORS["warning"],
-            )
-            _d3_fig.add_vline(
-                x=_doc3_total * 0.50, line_dash="dot", line_color=COLORS["danger"],
-                line_width=1.5,
-                annotation_text="CRITICAL 50%", annotation_font_size=9,
-                annotation_font_color=COLORS["danger"],
-            )
-            _d3_fig.update_layout(**cl(
-                height=max(200, len(_doc3_lat) * 42),
-                xaxis_title=f"Visits — {pd.to_datetime(_doc3_latest_mo).strftime('%b %Y')} "
-                             f"· {_doc3_total:,} total",
-                margin=dict(l=0, r=60, t=10, b=30),
-            ))
-            st.plotly_chart(_d3_fig, use_container_width=True, config={"displayModeBar": False})
 
             # ── Workload trend: top 4 doctors, 12 months ─────────────────────
             st.markdown("<div style='margin-top:16px'></div>", unsafe_allow_html=True)
@@ -2834,6 +2850,70 @@ elif page == "Capacity & Operations":
                 "E.Awando +57%, E.Lowino +66% in the following months. "
                 "Concentration rule fires when top doctor exceeds 40% of monthly visits (Inv 24)."
             )
+
+            # ── Conversion Rate per Doctor ────────────────────────────────────
+            _conv_df = P.get("doctor_conv", pd.DataFrame())
+            if len(_conv_df):
+                _conv_df = _filter_epoch(_conv_df.copy(), "VISIT_MONTH")
+                _conv_df.columns = _conv_df.columns.str.upper()
+                if KSH_DATA_END.day < 25:
+                    _partial = pd.Timestamp(KSH_DATA_END.year, KSH_DATA_END.month, 1)
+                    _conv_df = _conv_df[_conv_df["VISIT_MONTH"] < _partial]
+                _conv_latest_mo = _conv_df["VISIT_MONTH"].max()
+                _conv_lat = (
+                    _conv_df[_conv_df["VISIT_MONTH"] == _conv_latest_mo]
+                    .sort_values("CONVERSION_RATE_PCT", ascending=True)
+                )
+                _conv_lat = _conv_lat[_conv_lat["EVALUATIONS"] >= 10].copy()
+                if len(_conv_lat):
+                    st.markdown("<div style='margin-top:16px'></div>", unsafe_allow_html=True)
+                    section_header("Conversion Rate per Doctor — Latest Month")
+                    _conv_lat["display_name"] = _conv_lat["USERNAME"].apply(
+                        lambda u: f"{u[0].upper()}.{u[1:].capitalize()}"
+                    )
+                    _fac_conv_rate = round(
+                        _conv_lat["ADMISSIONS"].sum()
+                        / max(_conv_lat["EVALUATIONS"].sum(), 1) * 100, 1
+                    )
+                    _fig_conv = go.Figure()
+                    _fig_conv.add_bar(
+                        x=_conv_lat["CONVERSION_RATE_PCT"],
+                        y=_conv_lat["display_name"],
+                        orientation="h",
+                        marker_color=COLORS["primary"],
+                        text=_conv_lat.apply(
+                            lambda r: f"{int(r['ADMISSIONS'])}/{int(r['EVALUATIONS'])}",
+                            axis=1,
+                        ),
+                        textposition="outside",
+                        hovertemplate="<b>%{y}</b>: %{x:.1f}% (%{text})<extra></extra>",
+                        showlegend=False,
+                    )
+                    _fig_conv.add_vline(
+                        x=_fac_conv_rate,
+                        line_dash="dot", line_color=COLORS["muted"], line_width=1.5,
+                        annotation_text=f"Facility avg {_fac_conv_rate:.1f}%",
+                        annotation_font_size=9,
+                        annotation_font_color=COLORS["muted"],
+                    )
+                    _fig_conv.update_layout(**cl(
+                        height=max(200, len(_conv_lat) * 46),
+                        xaxis_title=(
+                            f"Conversion rate (%) — "
+                            f"{pd.to_datetime(_conv_latest_mo).strftime('%b %Y')}"
+                        ),
+                        margin=dict(l=0, r=90, t=10, b=30),
+                    ))
+                    st.plotly_chart(_fig_conv, use_container_width=True,
+                                    config={"displayModeBar": False})
+                    dq_note(
+                        "Conversion rate = admissions ÷ evaluation visits per doctor. "
+                        "Label shows admissions / evaluations. "
+                        "Doctors with fewer than 10 evaluations in the month are excluded. "
+                        "Differences reflect case-mix as much as clinical decision-making — "
+                        "a doctor seeing more severe cases will convert at a higher rate. "
+                        "Dotted line = facility average for the month."
+                    )
 
             # ── Peak vs Off-Peak visit load (Step 7) ─────────────────────────
             _pkbk = P["peak_bk"]
@@ -2921,7 +3001,7 @@ elif page == "Causal Intelligence":
 
         # ── CD5: Monday Peak → Medical — Female ──────────────────────────────
 
-        section_header("Monday 14:00–18:00 → Admissions Concentrate in Medical — Female Ward (CD5)")
+        section_header("Monday Afternoon: Private Wards Go Dark (CD5)")
 
         _pw = P7["peak_ward"].copy()
         _pw.columns = [c.lower() for c in _pw.columns]
@@ -2934,64 +3014,72 @@ elif page == "Causal Intelligence":
             _peak_df   = _pw[_pw["time_bucket"] == "Peak"].sort_values("admissions", ascending=False)
             _offpk_df  = _pw[_pw["time_bucket"] == "Off-Peak"].sort_values("admissions", ascending=False)
 
-            # Align wards across both buckets
-            _all_wards = _peak_df["ward_category"].tolist()
-            _peak_pct  = dict(zip(_peak_df["ward_category"],   _peak_df["pct"]))
-            _offpk_pct = dict(zip(_offpk_df["ward_category"],  _offpk_df["pct"]))
+            _all_wards = list(set(_peak_df["ward_category"].tolist() + _offpk_df["ward_category"].tolist()))
+            _peak_pct  = dict(zip(_peak_df["ward_category"], _peak_df["pct"]))
+            _offpk_pct = dict(zip(_offpk_df["ward_category"], _offpk_df["pct"]))
+
+            # Delta: peak share minus off-peak share per ward
+            _delta_rows = [
+                {"ward": w, "delta": round(_peak_pct.get(w, 0) - _offpk_pct.get(w, 0), 1)}
+                for w in _all_wards
+            ]
+            _delta_df = pd.DataFrame(_delta_rows).sort_values("delta")
 
             _fig_cd5 = go.Figure()
             _fig_cd5.add_bar(
-                x=_all_wards,
-                y=[_offpk_pct.get(w, 0) for w in _all_wards],
-                name="Off-Peak",
-                marker_color=COLORS["primary"],
-                opacity=0.65,
-                hovertemplate="<b>%{x}</b> Off-Peak: %{y:.1f}%<extra></extra>",
+                x=_delta_df["delta"],
+                y=_delta_df["ward"],
+                orientation="h",
+                marker_color=[
+                    COLORS["danger"] if d > 0 else COLORS["primary"]
+                    for d in _delta_df["delta"]
+                ],
+                text=_delta_df["delta"].apply(lambda d: f"{d:+.1f} pp"),
+                textposition="outside",
+                hovertemplate="<b>%{y}</b>: %{x:+.1f} pp during peak<extra></extra>",
+                showlegend=False,
             )
-            _fig_cd5.add_bar(
-                x=_all_wards,
-                y=[_peak_pct.get(w, 0) for w in _all_wards],
-                name="Peak (Mon 14–18h)",
-                marker_color=COLORS["danger"],
-                opacity=0.85,
-                hovertemplate="<b>%{x}</b> Peak: %{y:.1f}%<extra></extra>",
-            )
+            _fig_cd5.add_vline(x=0, line_width=1, line_color="#CBD5E1", line_dash="solid")
             _fig_cd5.update_layout(**cl(
-                barmode="group",
-                height=320,
-                yaxis_title="% of bucket admissions",
-                legend=dict(orientation="h", y=1.08),
+                height=max(260, len(_delta_df) * 44),
+                xaxis_title="Change in admission share · Monday 14–18h vs all other hours (pp)",
+                margin=dict(l=0, r=70, t=10, b=30),
             ))
             st.plotly_chart(_fig_cd5, use_container_width=True, config={"displayModeBar": False})
 
-            # STG WARD_CATEGORY is "Medical — Female" (not "General Female")
-            _gf_key   = next((w for w in _all_wards if "medical" in w.lower() and "female" in w.lower()), None)
-            _gf_peak  = _peak_pct.get(_gf_key, 0) if _gf_key else 0
-            _gf_offpk = _offpk_pct.get(_gf_key, 0) if _gf_key else 0
-            _gf_delta  = round(_gf_peak - _gf_offpk, 1)
-            _gf_label  = _gf_key if _gf_key else "Medical — Female"
-            st.caption(
-                f"{_gf_label} ward receives {_gf_peak:.1f}% of peak admissions vs {_gf_offpk:.1f}% off-peak "
-                f"(+{_gf_delta} pp). During Monday 14:00–18:00, physician count drops from ~12 to 3–4 "
-                f"facility-wide — those available concentrate in Medical — Female. Private wards record "
-                f"zero physician coverage and zero new admissions during this window. "
-                f"Review with Clinical Operations leadership."
-            )
-            dq_note("Analysis covers Sep 2024 onward. Peak window: Monday 14:00–17:59.")
+            # Physician coverage callout — confirmed from CD5 investigation
+            _pc1, _pc2 = st.columns(2, gap="large")
+            with _pc1:
+                st.markdown(
+                    "<div style='border:1.5px solid #FEE2E2;border-radius:8px;padding:12px 16px;"
+                    "background:#FFF5F5'>"
+                    "<div style='font-size:10px;font-weight:800;letter-spacing:1.5px;"
+                    "text-transform:uppercase;color:#DC2626;margin-bottom:4px'>Medical — Female · Peak</div>"
+                    "<div style='font-size:22px;font-weight:700;color:#1E3A5F'>3–4 physicians</div>"
+                    "<div style='font-size:12px;color:#64748B;margin-top:2px'>absorbing all peak footfall</div>"
+                    "</div>",
+                    unsafe_allow_html=True,
+                )
+            with _pc2:
+                st.markdown(
+                    "<div style='border:1.5px solid #E2E8F0;border-radius:8px;padding:12px 16px;"
+                    "background:#F8FAFC'>"
+                    "<div style='font-size:10px;font-weight:800;letter-spacing:1.5px;"
+                    "text-transform:uppercase;color:#64748B;margin-bottom:4px'>Private Wards · Peak</div>"
+                    "<div style='font-size:22px;font-weight:700;color:#1E3A5F'>0 physicians</div>"
+                    "<div style='font-size:12px;color:#64748B;margin-top:2px'>0 new admissions</div>"
+                    "</div>",
+                    unsafe_allow_html=True,
+                )
+
+            st.markdown("<div style='margin-top:10px'></div>", unsafe_allow_html=True)
+            dq_note("Peak window: Monday 14:00–17:59. Physician counts from CD5 investigation (Sep 2024 onward).")
             with st.expander("Analysis"):
                 st.markdown(
-                    "**What we asked:** Does Monday peak just generate more volume, or does it change *where* patients go?\n\n"
-                    "**What we measured:** Admission distribution by ward during Mon 14:00–18:00 vs all other hours. "
-                    "Then measured physician presence directly — distinct active doctors per ward in each window.\n\n"
-                    "**What the data showed:**\n"
-                    "- General Female share rises +8.8 pp during peak (31.0% → 39.8%). Pediatric drops 4.5 pp. Private Male drops 2.7 pp.\n"
-                    "- Physician count facility-wide: 12 distinct doctors off-peak → 3–4 during peak.\n"
-                    "- Private Female, Private Male, Private Maternity: **0 physicians and 0 new admissions** during the peak window.\n"
-                    "- Directly measured per doctor: E.Awando routes 32.4% → 37.5% toward Medical — Female during peak (+5.1 pp). "
-                    "J.Ogutu 34.2% → 43.5% (+9.3 pp). Every active doctor concentrates more toward the highest-volume ward.\n\n"
-                    "**The confirmed chain:** Physician availability collapses to 3–4 on Monday afternoon → those remaining "
-                    "concentrate where admission pressure is highest → private wards receive zero physician coverage and zero "
-                    "new admissions during this window — not because patients aren't coming, but because there is no one to evaluate them."
+                    "- When Monday 14–18h volume peaks, every active doctor concentrates toward Medical — Female. "
+                    "Private wards lose coverage — not because patients stop arriving, but because no one is left to evaluate them.\n"
+                    "- Facility-wide physician count: **12 off-peak → 3–4 during peak**.\n"
+                    "- Private Female, Private Male, Private Maternity: **0 physicians, 0 new admissions** during peak window."
                 )
         else:
             st.caption("Peak ward data not available.")
@@ -3000,7 +3088,7 @@ elif page == "Causal Intelligence":
 
         # ── CD6: E.Awando Single Point of Failure ────────────────────────────
 
-        section_header("E.Awando Evaluates 34–46% of Every Ward — Facility-Wide Risk (CD6)")
+        section_header("One Doctor Drives Facility-Wide Intake — Concentration Risk (CD6)")
 
         _dw = P7["doc_ward"].copy()
         _dw.columns = [c.lower() for c in _dw.columns]
@@ -3047,28 +3135,21 @@ elif page == "Causal Intelligence":
                 _aw_max = float(_aw["pct"].max())
                 _aw_min = float(_aw["pct"].min())
                 st.caption(
-                    f"E.Awando attributes {_aw_min:.0f}–{_aw_max:.0f}% of admissions in every ward simultaneously. "
-                    f"His absence on any day triggers intake reduction across all wards with no pre-defined cover. "
-                    f"M.Akinyi's departure (Dec 2025) redistributed ~57% additional load onto him silently — "
-                    f"no automated flag fired at the time. Review with Medical Director."
+                    f"One doctor absence = facility-wide intake drop across all 7 wards simultaneously — not one ward. "
+                    f"J.Ogutu (14–17% per ward) is the only named backup. "
+                    f"Review: Medical Director."
                 )
-                dq_note("Analysis covers Sep 2024 onward. Secondary concentration: J.Ogutu carries 14–17% per ward.")
+                dq_note(
+                    "M.Akinyi departed Dec 2025 — E.Awando's load increased ~57% with no triggered flag. "
+                    "Private wards have fewest backup evaluators: Private Female 5 doctors, Private Male 7, vs General Female 10."
+                )
                 with st.expander("Analysis"):
                     st.markdown(
-                        "**What we asked:** If E.Awando is absent, which specific ward collapses most?\n\n"
-                        "**What we found:** He evaluates 34–46% of admissions in *every* ward simultaneously — not ward-specific. "
-                        "General Male 45.5%, Private Female 44.8%, Private Male 42.0%, General Female 41.4%, "
-                        "General Maternity 34.8%, Pediatric 33.9%. One absence means facility-wide intake reduction across all seven wards.\n\n"
-                        "**The staffing change (confirmed from patient activity records):** "
-                        "Last active December 2025 — 109 evaluations that month. Zero evaluations from January 2026 onward. "
-                        "Her load (10–12% per ward) redistributed onto the remaining active doctors. "
-                        "E.Awando's monthly volume increased ~57% from January 2026. No redistribution plan was triggered — "
-                        "the system did not flag this until the concentration crossed the alert threshold months later.\n\n"
-                        "**Private Female:** M.Akinyi had zero involvement in Private Female from September 2025 — "
-                        "four months before her departure. Private Female performance tracks E.Awando's presence directly, "
-                        "not any departure event. Of all wards, private wards have the fewest backup evaluators: "
-                        "Private Female has 5 distinct doctors, Private Male has 7, compared to General Female's 10.\n\n"
-                        "**J.Ogutu** carries 14–17% per ward — a distant second but the only named backup across most wards."
+                        "- E.Awando evaluates **34–46% of admissions in every ward** — the risk is facility-wide, not concentrated in one area.\n"
+                        "- A single absence triggers intake reduction across all wards with no pre-defined cover.\n"
+                        "- M.Akinyi's departure (Dec 2025) added ~57% volume onto E.Awando silently — no flag fired until months later.\n"
+                        "- J.Ogutu is the only confirmed backup but carries a distant 14–17% per ward.\n"
+                        "- Private wards are most exposed: fewest distinct evaluators and no fallback when E.Awando is absent."
                     )
             else:
                 st.caption("E.Awando ward share data not found — username may differ.")
@@ -3084,50 +3165,39 @@ elif page == "Causal Intelligence":
         _r1, _r2, _r3 = st.columns(3, gap="large")
         with _r1:
             kpi_card("Critical Creatinine Patients", "126",
-                     "Jan 2024+ · 134 visit events → 126 unique", COLORS["danger"])
+                     "Since Jan 2024", COLORS["danger"])
         with _r2:
             kpi_card("Not Admitted at Index Visit", "41%",
-                     "52 of 126 patients seen and discharged", COLORS["warning"])
+                     "Seen and discharged without admission", COLORS["warning"])
         with _r3:
             kpi_card("Never Returned to KSH", "28%",
-                     "35 patients — destination unknown", COLORS["coral"])
+                     "Destination unknown", COLORS["coral"])
 
         st.markdown("<div style='margin-top:12px'></div>", unsafe_allow_html=True)
 
         _r4, _r5 = st.columns(2, gap="large")
         with _r4:
             kpi_card("Returned to KSH", "72%",
-                     "91 patients — 95% of admitted returners outpatient only", COLORS["primary"])
+                     "Most came back outpatient only", COLORS["primary"])
         with _r5:
             kpi_card("Dialysis Programme", "Idle since May 2025",
-                     "3 sessions total ever — KES 52K–140K/month unrealised", COLORS["warning"])
+                     "KES 52K–140K/month unrealised", COLORS["warning"])
 
         st.caption(
-            "Of never-admitted patients who returned: 24% were admitted on return — suggesting some "
-            "patients who left without admission deteriorated and required escalation later. "
-            "28% of all critical renal patients never returned to KSH (death, transfer, or no follow-up). "
-            "Dialysis has been idle since May 2025. Escalate to Clinical Director and Renal Lead."
+            "Non-admission is a clinical decision, not patient-driven — DAMA rate matches the facility baseline. "
+            "Dialysis has been idle since May 2025 despite ongoing critical renal activity. "
+            "Escalate to Clinical Director and Renal Lead."
         )
-        dq_note("Analysis covers January 2024 onward. Patient safety finding — not an operational alert.")
+        dq_note("Patient safety finding — not an operational alert. Analysis covers January 2024 onward.")
         with st.expander("Analysis"):
             st.markdown(
-                "**What we asked:** Are critical kidney patients being admitted and followed up?\n\n"
-                "**What we found:** 134 visit events from 126 unique patients (8 had 2+ critical events) "
-                "flagged with critical Creatinine values since January 2024. "
-                "41% were not admitted at the index visit — seen and discharged without inpatient placement.\n\n"
-                "**What we tested and ruled out:** Is non-admission driven by patients leaving against medical advice? "
-                "No — the DAMA rate for admitted critical renal patients (57%) exactly matches the facility-wide baseline (56.82%). "
-                "Critical renal patients do not leave at a higher rate than any other patient group. The decision is clinical, not behavioural.\n\n"
-                "**Return visit tracking (all 126 patients):**\n"
-                "- 72% returned to KSH after their index event.\n"
-                "- Of initially admitted patients who returned: 95% came back outpatient only — no further escalation.\n"
-                "- Of never-admitted patients who returned: 24% were eventually admitted — delayed escalation after the index visit.\n"
-                "- Referral patients waited an average of 18 days before transfer — no rapid referral pathway confirmed in data.\n"
-                "- 1 patient death within 24 hours of admission.\n"
-                "- 35 patients (28%) never returned. Destination unknown — death, transfer, or lost to follow-up.\n\n"
-                "**Dialysis programme:** 3 total sessions ever recorded (March–April 2025). "
-                "Idle since May 2025. Every patient in this cohort with a critical creatinine value had zero dialysis access "
-                "throughout their entire activity window at KSH."
+                "- 41% of critical creatinine patients were discharged without admission at their index visit. "
+                "This is a clinical pathway decision — DAMA rate matches the facility-wide baseline, so patients are not leaving against advice.\n"
+                "- Of those who left without admission and returned: a quarter required admission on their return visit — delayed escalation.\n"
+                "- Referral patients waited an average of **18 days** before transfer. No rapid referral pathway confirmed in data.\n"
+                "- 1 patient death within 24 hours of admission. 28% never returned — death, transfer, or lost to follow-up.\n"
+                "- Every patient in this cohort had **zero dialysis access** throughout their activity window at KSH. "
+                "3 sessions total ever recorded (March–April 2025)."
             )
 
         # ── Go deeper — suggested chat questions ─────────────────────────────

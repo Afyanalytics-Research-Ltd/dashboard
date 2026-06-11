@@ -233,6 +233,26 @@ def q_beds_los(facility=None):
     """)
 
 
+def q_beds_monthly():
+    """G1: monthly bed days + admissions + LOS per ward_name — KSH only.
+    Groups by ward_name (7 distinct wards) not ward_category (5 groups) — Inv 36."""
+    return run_query_df("""
+        SELECT
+            ward_name,
+            admission_month,
+            SUM(total_admissions)                                                AS total_admissions,
+            SUM(discharged_admissions)                                           AS discharged_admissions,
+            SUM(total_bed_days)                                                  AS total_bed_days,
+            ROUND(SUM(total_bed_days)
+                  / NULLIF(SUM(discharged_admissions), 0), 2)                   AS avg_los_days
+        FROM HOSPITALS.REPORTING.rpt_bed_occupancy
+        WHERE facility = 'KISUMU_CLEAN'
+          AND ward_name IS NOT NULL
+        GROUP BY ward_name, admission_month
+        ORDER BY ward_name, admission_month
+    """)
+
+
 def q_dialysis_trend(facility=None):
     """G4: monthly sessions + revenue per session — dual-axis trend."""
     f = _flt(facility)
@@ -444,9 +464,17 @@ def q_imaging_trend(facility=None):
         SELECT
             DATE_TRUNC('month', invoice_date)::DATE  AS revenue_month,
             CASE
-                WHEN item_name ILIKE '%CT%'
-                  OR item_name ILIKE '%angio%'
-                  OR item_name ILIKE '%computed%'     THEN 'CT / Angio'
+                WHEN (   item_name ILIKE 'CT %'
+                      OR item_name ILIKE 'CT-%'
+                      OR item_name ILIKE '% CT %'
+                      OR item_name ILIKE '% CT-%'
+                      OR item_name ILIKE '% CT'
+                      OR item_name ILIKE 'HRCT%'
+                      OR item_name ILIKE '%HRCT %'
+                      OR item_name ILIKE '%computed%'
+                      OR (item_name ILIKE '%angio%'
+                          AND item_name NOT ILIKE '%angiotensin%'))
+                                                      THEN 'CT / Angio'
                 WHEN item_name ILIKE '%echo%'         THEN 'ECHO / Cardiac'
                 WHEN item_name ILIKE '%ultrasound%'
                   OR item_name ILIKE '%USS%'
@@ -463,7 +491,11 @@ def q_imaging_trend(facility=None):
         FROM HOSPITALS.STAGING.stg_procedure_revenue
         WHERE item_type != 'copay'
           AND (
-              item_name ILIKE '%CT%'    OR item_name ILIKE '%angio%'
+              item_name ILIKE 'CT %'       OR item_name ILIKE 'CT-%'
+           OR item_name ILIKE '% CT %'     OR item_name ILIKE '% CT-%'
+           OR item_name ILIKE '% CT'       OR item_name ILIKE 'HRCT%'
+           OR item_name ILIKE '%HRCT %'    OR item_name ILIKE '%computed%'
+           OR (item_name ILIKE '%angio%' AND item_name NOT ILIKE '%angiotensin%')
            OR item_name ILIKE '%echo%'
            OR item_name ILIKE '%ultrasound%' OR item_name ILIKE '%USS%'
            OR item_name ILIKE '%sonograph%'
@@ -475,9 +507,17 @@ def q_imaging_trend(facility=None):
         GROUP BY
             DATE_TRUNC('month', invoice_date)::DATE,
             CASE
-                WHEN item_name ILIKE '%CT%'
-                  OR item_name ILIKE '%angio%'
-                  OR item_name ILIKE '%computed%'     THEN 'CT / Angio'
+                WHEN (   item_name ILIKE 'CT %'
+                      OR item_name ILIKE 'CT-%'
+                      OR item_name ILIKE '% CT %'
+                      OR item_name ILIKE '% CT-%'
+                      OR item_name ILIKE '% CT'
+                      OR item_name ILIKE 'HRCT%'
+                      OR item_name ILIKE '%HRCT %'
+                      OR item_name ILIKE '%computed%'
+                      OR (item_name ILIKE '%angio%'
+                          AND item_name NOT ILIKE '%angiotensin%'))
+                                                      THEN 'CT / Angio'
                 WHEN item_name ILIKE '%echo%'         THEN 'ECHO / Cardiac'
                 WHEN item_name ILIKE '%ultrasound%'
                   OR item_name ILIKE '%USS%'
@@ -579,6 +619,38 @@ def q_doctor_workload_monthly():
     """)
 
 
+def q_doctor_conversion_monthly():
+    """KSH only: monthly evaluation-to-admission conversion rate per doctor.
+    Join path: EVALUATION_VISITS.id → INPATIENT_ADMISSIONS.visit_id (confirmed Inv 31 / CD6).
+    admitted CTE deduplicates INPATIENT_ADMISSIONS to avoid fan-out (same pattern as q_cd12_monthly_rate).
+    Columns: visit_month, username, evaluations, admissions, conversion_rate_pct."""
+    return run_query_df("""
+        WITH admitted AS (
+            SELECT DISTINCT visit_id
+            FROM HOSPITALS.KISUMU_CLEAN.INPATIENT_ADMISSIONS
+        )
+        SELECT
+            DATE_TRUNC('month', TRY_TO_TIMESTAMP(ev.created_at))::DATE  AS visit_month,
+            u.username,
+            COUNT(*)                                                     AS evaluations,
+            COUNT(a.visit_id)                                            AS admissions,
+            ROUND(COUNT(a.visit_id) * 100.0
+                  / NULLIF(COUNT(*), 0), 1)                              AS conversion_rate_pct
+        FROM HOSPITALS.KISUMU_CLEAN.EVALUATION_VISITS ev
+        JOIN HOSPITALS.KISUMU_CLEAN.USERS u ON ev.user = u.id
+        LEFT JOIN admitted a ON a.visit_id = ev.id
+        WHERE ev.deleted_at IS NULL
+          AND u.active = 1
+          AND u.username NOT REGEXP '.*[0-9].*'
+          AND u.username NOT IN ('sudo', 'Billclinton')
+          AND TRY_TO_TIMESTAMP(ev.created_at) >= '2024-01-01'
+        GROUP BY
+            DATE_TRUNC('month', TRY_TO_TIMESTAMP(ev.created_at))::DATE,
+            u.username
+        ORDER BY visit_month, evaluations DESC
+    """)
+
+
 def q_visit_summary():
     """KSH only: monthly total visit count from EVALUATION_VISITS (Inv 27 confirmed table + column).
     created_at is VARCHAR — uses TRY_TO_TIMESTAMP. Filtered to active clean doctors (matches CD11
@@ -601,7 +673,8 @@ def q_visit_summary():
 
 def q_peak_ward_dist():
     """KSH only: ward admission distribution during Monday 14-18h peak vs off-peak (CD5).
-    Join: EVALUATION_VISITS (visit time) -> STG_INPATIENT_ADMISSIONS (WARD_CATEGORY).
+    Join: EVALUATION_VISITS (visit time → peak classification) → STG_INPATIENT_ADMISSIONS (WARD_CATEGORY).
+    STG used for clean WARD_CATEGORY + proper ADMITTED_AT timestamp. Sep 2024 cutoff.
     Columns: time_bucket, ward_category, admissions."""
     return run_query_df("""
         SELECT
@@ -626,8 +699,9 @@ def q_peak_ward_dist():
 
 def q_doctor_ward_share():
     """KSH only: doctor share of admissions per ward (CD6 — E.Awando concentration).
-    Joins INPATIENT_ADMISSIONS -> EVALUATION_VISITS -> USERS to get username (eawando format).
-    Columns: username, ward_name, admissions."""
+    Joins INPATIENT_ADMISSIONS → EVALUATION_VISITS → USERS to get username (eawando format).
+    INPATIENT_ADMISSIONS.doctor_username is a different field — not the canonical username.
+    Sep 2024 cutoff via ADMITTED_AT. Columns: username, ward_name, admissions."""
     return run_query_df("""
         SELECT
             u.username                         AS username,
@@ -720,7 +794,7 @@ def q_cd12_monthly_rate():
 
 def q_lab_monthly():
     """KSH only: monthly lab/imaging volume + abnormal rate — for lab rules (Inv 25b).
-    Source: KISUMU_RAW.EVENTS_RAW. All fields inside JSON payload column.
+    Source: KISUMU_RAW.EVENTS_RAW. All fields inside JSON payload: column.
     Reliable from Sep 2024. flag IN ('H','L') = abnormal."""
     return run_query_df("""
         SELECT

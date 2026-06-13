@@ -814,3 +814,114 @@ def q_lab_monthly():
         GROUP BY DATE_TRUNC('month', TRY_TO_TIMESTAMP(payload:created_at::STRING))::DATE
         ORDER BY lab_month
     """)
+
+
+def q_btr_bti_monthly():
+    """KSH only: monthly BTR + BTI + BOR per ward (Rule 29/31 — Inv 46/48).
+    BTR  = total_admissions / bed_count.
+    BTI  = (available_bed_days - occupied_bed_days) / discharged_admissions.
+    BOR  = total_bed_days / (bed_count * days_in_month) * 100.
+    Columns: ward_name, month, total_admissions, discharged_admissions,
+             total_bed_days, bed_count, btr, bti_days, bor_pct."""
+    return run_query_df("""
+        WITH beds AS (
+            SELECT
+                w.NAME          AS ward_name,
+                COUNT(b.ID)     AS bed_count
+            FROM HOSPITALS.KISUMU_CLEAN.INPATIENT_BEDS b
+            JOIN HOSPITALS.KISUMU_CLEAN.INPATIENT_WARDS w ON b.WARD_ID = w.ID
+            GROUP BY w.NAME
+        ),
+        occ AS (
+            SELECT
+                ward_name,
+                admission_month,
+                total_admissions,
+                discharged_admissions,
+                total_bed_days,
+                DAY(LAST_DAY(admission_month)) AS days_in_month
+            FROM HOSPITALS.REPORTING.rpt_bed_occupancy
+            WHERE facility = 'KISUMU_CLEAN'
+              AND admission_month >= DATEADD('month', -12, DATE_TRUNC('month', CURRENT_DATE))
+              AND admission_month <  DATE_TRUNC('month', CURRENT_DATE)
+              AND discharged_admissions > 0
+        )
+        SELECT
+            o.ward_name,
+            o.admission_month                                                        AS month,
+            o.total_admissions,
+            o.discharged_admissions,
+            o.total_bed_days,
+            b.bed_count,
+            ROUND(o.total_admissions / b.bed_count, 2)                              AS btr,
+            ROUND(
+                (b.bed_count * o.days_in_month - o.total_bed_days)
+                / o.discharged_admissions, 1)                                        AS bti_days,
+            ROUND(o.total_bed_days / (b.bed_count * o.days_in_month) * 100, 1)     AS bor_pct
+        FROM occ o
+        JOIN beds b ON o.ward_name = b.ward_name
+        ORDER BY o.ward_name, o.admission_month
+    """)
+
+
+def q_admission_tat_monthly():
+    """KSH only: monthly fast-track % and p50 TAT for admission TAT alert (Rule 30 — Inv 47).
+    TAT = minutes from evaluation visit creation to first inpatient admission record.
+    Fast-track: TAT < 60 min. Cap at 480 min. Oct 2024+ window.
+    Oct 2025 excluded (pipeline gap). Current partial month excluded.
+    Columns: tat_month, total_admissions, fast_track, fast_pct, p50_tat_min."""
+    return run_query_df("""
+        WITH ia_dedup AS (
+            SELECT
+                visit_id,
+                MIN(created_at) AS admission_at
+            FROM HOSPITALS.KISUMU_CLEAN.INPATIENT_ADMISSIONS
+            WHERE DELETED_AT IS NULL
+            GROUP BY visit_id
+        ),
+        tat AS (
+            SELECT
+                DATE_TRUNC('month', TRY_TO_TIMESTAMP(ev.CREATED_AT))::DATE AS tat_month,
+                DATEDIFF('minute',
+                    TRY_TO_TIMESTAMP(ev.CREATED_AT),
+                    ia.admission_at)                                        AS tat_min
+            FROM HOSPITALS.KISUMU_CLEAN.EVALUATION_VISITS ev
+            JOIN ia_dedup ia ON ia.visit_id = ev.ID
+            WHERE ev.DELETED_AT IS NULL
+              AND TRY_TO_TIMESTAMP(ev.CREATED_AT) >= '2024-10-01'
+              AND TRY_TO_TIMESTAMP(ev.CREATED_AT) <  DATE_TRUNC('month', CURRENT_DATE)
+              AND DATE_TRUNC('month', TRY_TO_TIMESTAMP(ev.CREATED_AT))::DATE != '2025-10-01'
+              AND DATEDIFF('minute',
+                    TRY_TO_TIMESTAMP(ev.CREATED_AT),
+                    ia.admission_at) BETWEEN 1 AND 480
+        )
+        SELECT
+            tat_month,
+            COUNT(*)                                                                        AS total_admissions,
+            SUM(CASE WHEN tat_min < 60 THEN 1 ELSE 0 END)                                  AS fast_track,
+            ROUND(SUM(CASE WHEN tat_min < 60 THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 1)    AS fast_pct,
+            ROUND(MEDIAN(tat_min), 0)                                                       AS p50_tat_min
+        FROM tat
+        GROUP BY tat_month
+        ORDER BY tat_month
+    """)
+
+
+def q_revpab_private_monthly():
+    """KSH only: monthly combined revenue for Private Female + Male (Rule 32 — Inv 49).
+    Private Maternity excluded — sparse volume. Window: last 7 months.
+    Columns: admission_month, total_revenue, total_admissions."""
+    return run_query_df("""
+        SELECT
+            admission_month,
+            SUM(total_admission_revenue) AS total_revenue,
+            SUM(total_admissions)        AS total_admissions
+        FROM HOSPITALS.REPORTING.rpt_bed_occupancy
+        WHERE facility = 'KISUMU_CLEAN'
+          AND ward_name IN ('Private Female', 'Private Male')
+          AND admission_month >= DATEADD('month', -7, DATE_TRUNC('month', CURRENT_DATE))
+          AND admission_month <  DATE_TRUNC('month', CURRENT_DATE)
+          AND admission_month != '2025-10-01'
+        GROUP BY admission_month
+        ORDER BY admission_month
+    """)

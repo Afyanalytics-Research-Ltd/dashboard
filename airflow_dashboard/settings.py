@@ -42,6 +42,8 @@ CSRF_TRUSTED_ORIGINS = [
 # ---------------------------------------------------------------------------
 
 INSTALLED_APPS = [
+    # daphne must be first to override runserver with ASGI
+    'daphne',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -53,12 +55,14 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt',
     'drf_spectacular',
     'django_filters',
+    'channels',
     # Local apps
     'core',
     'authentication',
     'analytics_app',
     'warehouse',
     'airflow_ui',
+    'self_service',
 ]
 
 # ---------------------------------------------------------------------------
@@ -102,6 +106,7 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'airflow_dashboard.wsgi.application'
+ASGI_APPLICATION = 'airflow_dashboard.asgi.application'
 
 # ---------------------------------------------------------------------------
 # Database
@@ -363,6 +368,11 @@ LOGGING = {
             'level': 'DEBUG',
             'propagate': False,
         },
+        'self_service': {
+            'handlers': ['console', 'file'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
     },
 }
 
@@ -391,3 +401,24 @@ AFYA_BRAND = {
 SESSION_COOKIE_AGE = 86400  # 24 hours
 SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SECURE = not DEBUG
+
+# ---------------------------------------------------------------------------
+# Django Channels — Self-Service Analytics WebSocket
+# ---------------------------------------------------------------------------
+
+_REDIS_URL = os.getenv('REDIS_URL', '').strip()
+
+if _REDIS_URL:
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels_redis.core.RedisChannelLayer',
+            'CONFIG': {'hosts': [_REDIS_URL]},
+        }
+    }
+else:
+    # In-memory layer: suitable for single-process dev; not shared across workers
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels.layers.InMemoryChannelLayer',
+        }
+    }

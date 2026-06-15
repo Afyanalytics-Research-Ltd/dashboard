@@ -69,7 +69,13 @@
       "Bash(ls \"\\\\\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\luther\\\\dashboard/templates/analytics/\")",
       "Bash(grep -l \"class Dashboard\" \"\\\\\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\luther\\\\dashboard\"/**/*.py)",
       "Bash(cd /mnt/wsl/PHYSICALDRIVE0p3/home/luther/dashboard)",
-      "Bash(python3 -c ' *)"
+      "Bash(python3 -c ' *)",
+      "Bash(pwd && ls -la /)",
+      "Read(///wsl.localhost/Ubuntu//**)",
+      "Bash(python3 -c \"import sys; print\\(sys.version\\)\")",
+      "Bash(wsl mkdir *)",
+      "Bash(wsl find *)",
+      "Bash(wsl ls *)"
     ],
     "additionalDirectories": [
       "\\home\\luther\\dashboard\\templates\\analytics",
@@ -77,7 +83,11 @@
       "\\home\\luther\\dashboard\\analytics_app\\dashboards\\ksh\\revenue_module",
       "\\\\wsl.localhost\\Ubuntu\\home\\luther\\dashboard\\analytics_app\\dashboards\\ksh\\revenue_module",
       "\\home\\luther\\dashboard\\analytics_app\\dashboards\\ksh",
-      "\\\\wsl.localhost\\Ubuntu\\home\\luther\\dashboard\\analytics_app\\dashboards\\ksh"
+      "\\\\wsl.localhost\\Ubuntu\\home\\luther\\dashboard\\analytics_app\\dashboards\\ksh",
+      "\\home\\luther\\dashboard",
+      "\\\\wsl.localhost\\Ubuntu\\home\\luther\\dashboard",
+      "\\home\\luther\\.claude\\projects\\--wsl-localhost-Ubuntu-home-luther-dashboard\\memory",
+      "\\\\wsl.localhost\\Ubuntu\\home\\luther\\.claude\\projects\\--wsl-localhost-Ubuntu-home-luther-dashboard\\memory"
     ]
   }
 }

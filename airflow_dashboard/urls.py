@@ -26,6 +26,7 @@ urlpatterns = [
     path('warehouse/', include('warehouse.urls', namespace='warehouse')),
     path('pipelines/', include('airflow_ui.urls', namespace='airflow')),
     path('core/', include('core.urls', namespace='core')),
+    path('analytics/chat/', include('self_service.urls', namespace='self_service')),
 
     # REST API v1
     path('api/v1/', include([

@@ -109,3 +109,6 @@ google-api-python-client>=2.120
 google-auth>=2.29
 google-auth-httplib2>=0.2
 python-dotenv>=1.0
+channels>=4.0
+channels-redis>=4.0
+daphne>=4.0

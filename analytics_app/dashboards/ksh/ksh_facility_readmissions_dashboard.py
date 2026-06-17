@@ -34,6 +34,8 @@ from facility_utilization.queries import (
     q_doctor_workload_monthly, q_lab_monthly, q_visit_summary, q_peak_breakdown,
     q_peak_ward_dist, q_doctor_ward_share, q_cd12_monthly_rate,
     q_doctor_conversion_monthly,
+    q_btr_bti_monthly, q_admission_tat_bimodal, q_admission_tat_monthly,
+    q_revpab_private_monthly,
 )
 
 # ── Feature flags ─────────────────────────────────────────────────────────────
@@ -141,6 +143,57 @@ _LAB_ABNORM_CRIT  = 11.0
 
 _DOC_CONC_WATCH   = 40
 _DOC_CONC_CRIT    = 50
+
+# Rule 29 — Ward Idle BTR/BTI (Inv 46) — per-ward P25 BTR floor and P75 BTI ceiling
+_BTR_P25 = {
+    "General Female":    0.62, "General Male":      0.69,
+    "General Maternity": 0.42, "Pediatric General": 0.53,
+    "Private Female":    0.45, "Private Male":      0.25,
+    "Private Maternity": 0.20,
+}
+_BTI_P75 = {
+    "General Female":    46.6, "General Male":      41.7,
+    "General Maternity": 71.7, "Pediatric General": 58.2,
+    "Private Female":    66.8, "Private Male":     118.6,
+    "Private Maternity": 147.0,
+}
+_OCT_2025_GAP  = "2025-10-01"  # pipeline gap month — exclude from all alert computations
+
+# Rule 30 — Admission TAT monthly deterioration (Inv 47)
+_TAT_WATCH     = 45.0    # fast_pct below this for 2 consecutive months = WATCH
+_TAT_CRIT      = 35.0    # fast_pct below this for 1 month = CRITICAL
+_TAT_P75_WATCH = 240.0   # p75 TAT above this (4h) for 2 consecutive months = WATCH
+_TAT_P75_CRIT  = 360.0   # p75 TAT above this (6h) for 1 month = CRITICAL
+
+# Rule 32 — Private ward revenue drop (Inv 49) — combined Private Female + Male vs 3-month rolling avg
+_REVPAB_WATCH_DROP = 25.0   # % drop below 3-month rolling avg triggers WATCH
+
+# Rule 33 — Physician workload (Inv 50) — WATCH when visits > P90 for 2 consecutive months
+# P75 values (clearing threshold for future stateful digest): eawando 734, lowino 481, jogutu 343
+# makinyi excluded — departed Dec 2025
+_DOC_WL_TRACKED = frozenset({"eawando", "lowino", "jogutu"})
+_DOC_WL_P90 = {"eawando": 795, "lowino": 595, "jogutu": 378}
+
+# Rule 34 — CD12 Critical Creatinine Non-Admission (Inv 51)
+# CRITICAL flag format CL/CH confirmed Jul 2025+. Mar–May 2026 data absent (pipeline gap).
+# Staleness guard: skip if latest qualifying month > 3 months ago.
+_CD12_WATCH    = 50.0   # non-admission rate % above this = WATCH (min 8 critical events)
+_CD12_CRIT     = 65.0   # non-admission rate % above this = CRITICAL
+_CD12_MIN_EVTS = 8      # minimum critical events required — below this the rate is noise
+
+# Rule 35 — CT Imaging Volume Drop (Inv 52) — CT/Angio sessions vs 3-month rolling avg
+# Source: stg_procedure_revenue (silver exception — G8 gold table pending)
+# Apr 2026 will fire CRITICAL on first deployment (87 sessions vs avg ~149)
+_IMAGING_WATCH_PCT = 80.0   # sessions < 80% of 3-month rolling avg = WATCH
+_IMAGING_CRIT_PCT  = 65.0   # sessions < 65% of 3-month rolling avg = CRITICAL
+
+# Rule 31 — BOR ward low occupancy (Inv 48) — per-ward P25 BOR floor, 2 consecutive months
+_BOR_P25 = {
+    "General Female":    6.5, "General Male":      7.3,
+    "General Maternity": 3.2, "Pediatric General": 4.0,
+    "Private Female":    3.7, "Private Male":      1.8,
+    "Private Maternity": 3.2,
+}
 
 
 def cl(**kw):
@@ -501,6 +554,11 @@ if page == "Business Overview":
                 "doctor_wl":   q_doctor_workload_monthly()         if _is_ksh else pd.DataFrame(),
                 "lab":         q_lab_monthly()                     if _is_ksh else pd.DataFrame(),
                 "visit_sum":   q_visit_summary().rename(columns=str.lower) if _is_ksh else pd.DataFrame(),
+                "btr_bti":         q_btr_bti_monthly()           if _is_ksh else pd.DataFrame(),
+                "adm_tat_monthly": q_admission_tat_monthly()    if _is_ksh else pd.DataFrame(),
+                "revpab_priv":     q_revpab_private_monthly()   if _is_ksh else pd.DataFrame(),
+                "cd12_rate":       q_cd12_monthly_rate()        if _is_ksh else pd.DataFrame(),
+                "imaging_alert":   q_imaging_trend("KISUMU_CLEAN") if _is_ksh else pd.DataFrame(),
             }
 
     P = st.session_state.p1
@@ -781,6 +839,180 @@ if page == "Business Overview":
         )
     else:
         revpab_cat = pd.DataFrame()
+
+    # Rule 29 pre-compute — Ward idle BTR/BTI (latest complete month per ward)
+    _btr_bti_alert_df = P.get("btr_bti", pd.DataFrame()).copy()
+    _ward_idle_alerts = []   # list of (ward_name, btr, btr_p25, bti, bti_p75, month_lbl)
+    if _is_ksh and len(_btr_bti_alert_df):
+        _btr_bti_alert_df.columns = _btr_bti_alert_df.columns.str.lower()
+        _btr_bti_alert_df = _btr_bti_alert_df[
+            _btr_bti_alert_df["month"].astype(str) != _OCT_2025_GAP
+        ].sort_values("month")
+        for _wi in _btr_bti_alert_df["ward_name"].unique():
+            _wi_p25 = _BTR_P25.get(_wi)
+            _wi_p75 = _BTI_P75.get(_wi)
+            if _wi_p25 is None or _wi_p75 is None:
+                continue
+            _wd = _btr_bti_alert_df[_btr_bti_alert_df["ward_name"] == _wi].tail(1)
+            if not len(_wd):
+                continue
+            _wi_btr     = float(_wd["btr"].iloc[0])
+            _wi_bti     = float(_wd["bti_days"].iloc[0])
+            _wi_mo_lbl  = pd.to_datetime(_wd["month"].iloc[0]).strftime("%b %Y")
+            if _wi_btr < _wi_p25 and _wi_bti > _wi_p75:
+                _ward_idle_alerts.append((_wi, _wi_btr, _wi_p25, _wi_bti, _wi_p75, _wi_mo_lbl))
+
+    # Rule 30 pre-compute — Admission TAT monthly deterioration
+    _tat_mo_df           = P.get("adm_tat_monthly", pd.DataFrame()).copy()
+    _tat_latest_fast_pct = None
+    _tat_latest_p50      = None
+    _tat_latest_p75      = None
+    _tat_latest_month    = None
+    _tat_fast_pcts       = []
+    _tat_p75_vals        = []
+    if _is_ksh and len(_tat_mo_df):
+        _tat_mo_df.columns = _tat_mo_df.columns.str.lower()
+        _tat_mo_df = _tat_mo_df[
+            _tat_mo_df["tat_month"].astype(str) != _OCT_2025_GAP
+        ].sort_values("tat_month")
+        if len(_tat_mo_df):
+            _tat_row             = _tat_mo_df.tail(1).iloc[0]
+            _tat_latest_fast_pct = float(_tat_row["fast_pct"])
+            _tat_latest_p50      = int(_tat_row["p50_tat_min"])
+            _tat_latest_p75      = int(_tat_row["p75_tat_min"]) if "p75_tat_min" in _tat_mo_df.columns else None
+            _tat_latest_month    = _tat_row["tat_month"]
+            _tat_fast_pcts       = _tat_mo_df.tail(2)["fast_pct"].tolist()
+            _tat_p75_vals        = _tat_mo_df.tail(2)["p75_tat_min"].tolist() if "p75_tat_min" in _tat_mo_df.columns else []
+
+    # Rule 31 pre-compute — BOR ward low occupancy (last 2 complete months per ward)
+    # Re-uses P["btr_bti"] — bor_pct column already present from q_btr_bti_monthly()
+    # Suppress if Rule 29 already fired for the same ward (BTR/BTI already covers that signal)
+    _bor_alert_df    = P.get("btr_bti", pd.DataFrame()).copy()
+    _bor_ward_alerts = []   # list of (ward_name, bor_latest, bor_p25, bor_gap, month_lbl)
+    _rule29_wards    = {w for w, *_ in _ward_idle_alerts}
+    if _is_ksh and len(_bor_alert_df):
+        _bor_alert_df.columns = _bor_alert_df.columns.str.lower()
+    if _is_ksh and len(_bor_alert_df) and "bor_pct" in _bor_alert_df.columns:
+        _bor_alert_df = _bor_alert_df[
+            _bor_alert_df["month"].astype(str) != _OCT_2025_GAP
+        ].sort_values("month")
+        for _bw in _bor_alert_df["ward_name"].unique():
+            if _bw in _rule29_wards:
+                continue   # Rule 29 already fired — suppress to avoid double-alert
+            _bw_p25 = _BOR_P25.get(_bw)
+            if _bw_p25 is None:
+                continue
+            _bw_tail = _bor_alert_df[_bor_alert_df["ward_name"] == _bw].tail(2)
+            if len(_bw_tail) < 2:
+                continue
+            _bw_months = pd.to_datetime(_bw_tail["month"]).tolist()
+            # guard: only fire if the 2 rows are truly adjacent calendar months
+            if ((_bw_months[1].year * 12 + _bw_months[1].month)
+                    - (_bw_months[0].year * 12 + _bw_months[0].month)) != 1:
+                continue
+            _bw_vals = _bw_tail["bor_pct"].tolist()
+            if _two_consec(_bw_vals, _bw_p25, direction="below"):
+                _bor_latest  = float(_bw_vals[-1])
+                _bor_mo_lbl  = _bw_months[1].strftime("%b %Y")
+                _bor_ward_alerts.append((_bw, _bor_latest, _bw_p25, round(_bw_p25 - _bor_latest, 1), _bor_mo_lbl))
+
+    # Rule 32 pre-compute — Private ward revenue drop (Inv 49)
+    # Combined Private Female + Male monthly revenue vs 3-month rolling avg
+    _revpab_priv_df = P.get("revpab_priv", pd.DataFrame()).copy()
+    _revpab_alert   = None  # (latest_rev, rolling_avg, drop_pct, latest_adm, month_lbl)
+    if _is_ksh and len(_revpab_priv_df):
+        _revpab_priv_df.columns = _revpab_priv_df.columns.str.lower()
+        _revpab_priv_df = _revpab_priv_df[
+            _revpab_priv_df["admission_month"].astype(str) != _OCT_2025_GAP
+        ].sort_values("admission_month")
+        if len(_revpab_priv_df) >= 4:
+            _rv_tail4        = _revpab_priv_df.tail(4)
+            _rv_rolling_avg  = float(_rv_tail4.head(3)["total_revenue"].mean())
+            _rv_latest       = float(_rv_tail4.iloc[-1]["total_revenue"])
+            _rv_latest_adm   = int(_rv_tail4.iloc[-1]["total_admissions"])
+            _rv_mo_lbl       = pd.to_datetime(_rv_tail4.iloc[-1]["admission_month"]).strftime("%b %Y")
+            if _rv_rolling_avg > 0:
+                _rv_drop_pct = round(100.0 * (1 - _rv_latest / _rv_rolling_avg), 1)
+                if _rv_drop_pct > _REVPAB_WATCH_DROP:
+                    _revpab_alert = (_rv_latest, _rv_rolling_avg, _rv_drop_pct, _rv_latest_adm, _rv_mo_lbl)
+
+    # Rule 33 pre-compute — Physician workload (Inv 50)
+    # Re-uses P["doctor_wl"]. Tracks eawando, lowino, jogutu only (makinyi departed Dec 2025).
+    # WATCH: last 2 consecutive months both > P90. Consecutive-month guard applied.
+    _doc_wl_df     = P.get("doctor_wl", pd.DataFrame()).copy()
+    _doc_wl_alerts = []   # list of (username, latest_visits, p90, month_lbl)
+    if _is_ksh and len(_doc_wl_df):
+        _doc_wl_df.columns = _doc_wl_df.columns.str.lower()
+        _doc_wl_df = _doc_wl_df[
+            _doc_wl_df["visit_month"].astype(str) != _OCT_2025_GAP
+        ].sort_values("visit_month")
+        for _dr in _DOC_WL_TRACKED:
+            _dr_p90  = _DOC_WL_P90.get(_dr)
+            if _dr_p90 is None:
+                continue
+            _dr_tail = _doc_wl_df[_doc_wl_df["username"] == _dr].tail(2)
+            if len(_dr_tail) < 2:
+                continue
+            _dr_months = pd.to_datetime(_dr_tail["visit_month"]).tolist()
+            if ((_dr_months[1].year * 12 + _dr_months[1].month)
+                    - (_dr_months[0].year * 12 + _dr_months[0].month)) != 1:
+                continue   # non-consecutive months — skip
+            _dr_vals = _dr_tail["monthly_visits"].tolist()
+            if _two_consec(_dr_vals, _dr_p90, direction="above"):
+                _doc_wl_alerts.append((
+                    _dr, int(_dr_vals[-1]), _dr_p90,
+                    _dr_months[1].strftime("%b %Y"),
+                ))
+
+    # Rule 34 pre-compute — CD12 Critical Creatinine Non-Admission (Inv 51)
+    # Staleness guard: skip if latest qualifying month is > 3 months before current month.
+    # Mar–May 2026 data absent — this guard ensures stale data doesn't fire as a live alert.
+    _cd12_df    = P.get("cd12_rate", pd.DataFrame()).copy()
+    _cd12_alert = None  # (sev, rate, total_critical, not_admitted, month_lbl)
+    if _is_ksh and len(_cd12_df):
+        _cd12_df.columns = _cd12_df.columns.str.lower()
+        _cd12_df = _cd12_df[
+            _cd12_df["critical_month"].astype(str) != _OCT_2025_GAP
+        ].sort_values("critical_month")
+        _cd12_qual   = _cd12_df[_cd12_df["total_critical"] >= _CD12_MIN_EVTS]
+        if len(_cd12_qual):
+            _cd12_row    = _cd12_qual.tail(1).iloc[0]
+            _cd12_mo     = pd.to_datetime(_cd12_row["critical_month"])
+            _cd12_cutoff = pd.Timestamp.today().normalize() - pd.DateOffset(months=3)
+            if _cd12_mo >= _cd12_cutoff:
+                _cd12_rate_v  = float(_cd12_row["non_admission_rate_pct"])
+                _cd12_total   = int(_cd12_row["total_critical"])
+                _cd12_not_adm = int(_cd12_row["not_admitted"])
+                _cd12_mo_lbl  = _cd12_mo.strftime("%b %Y")
+                if _cd12_rate_v > _CD12_CRIT:
+                    _cd12_alert = ("CRITICAL", _cd12_rate_v, _cd12_total, _cd12_not_adm, _cd12_mo_lbl)
+                elif _cd12_rate_v > _CD12_WATCH:
+                    _cd12_alert = ("WATCH", _cd12_rate_v, _cd12_total, _cd12_not_adm, _cd12_mo_lbl)
+
+    # Rule 35 pre-compute — CT Imaging Volume Drop (Inv 52)
+    # Filters to CT/Angio only. Excludes current partial month in Python (query has no such filter).
+    _img_alert_df = P.get("imaging_alert", pd.DataFrame()).copy()
+    _img_alert    = None  # (sev, sessions_latest, rolling_avg, pct_of_avg, drop_pct, month_lbl)
+    if _is_ksh and len(_img_alert_df):
+        _img_alert_df.columns = _img_alert_df.columns.str.lower()
+        _img_ct = _img_alert_df[_img_alert_df["modality"] == "CT / Angio"].copy()
+        _img_current_mo = pd.Timestamp.today().replace(day=1)
+        _img_ct = _img_ct[
+            (pd.to_datetime(_img_ct["revenue_month"]) < _img_current_mo) &
+            (_img_ct["revenue_month"].astype(str) != _OCT_2025_GAP)
+        ].sort_values("revenue_month")
+        if len(_img_ct) >= 4:
+            _img_tail4       = _img_ct.tail(4)
+            _img_rolling_avg = float(_img_tail4.head(3)["sessions"].mean())
+            _img_latest_sess = int(_img_tail4.iloc[-1]["sessions"])
+            _img_mo_lbl      = pd.to_datetime(_img_tail4.iloc[-1]["revenue_month"]).strftime("%b %Y")
+            if _img_rolling_avg > 0:
+                _img_pct_of_avg = round(100.0 * _img_latest_sess / _img_rolling_avg, 1)
+                _img_drop_pct   = round(100.0 - _img_pct_of_avg, 1)
+                if _img_pct_of_avg < _IMAGING_CRIT_PCT:
+                    _img_alert = ("CRITICAL", _img_latest_sess, _img_rolling_avg, _img_pct_of_avg, _img_drop_pct, _img_mo_lbl)
+                elif _img_pct_of_avg < _IMAGING_WATCH_PCT:
+                    _img_alert = ("WATCH", _img_latest_sess, _img_rolling_avg, _img_pct_of_avg, _img_drop_pct, _img_mo_lbl)
 
     # ── Threshold rules — edit here to adjust alert sensitivity ─────────────
     # _READM_CRITICAL = 15  # READM_HIDDEN
@@ -1262,6 +1494,162 @@ if page == "Business Overview":
                                      "title": "Lab — Abnormal Rate Elevated",
                                      "metric": f"{_lab_latest_abnorm:.1f}%",
                                      "action": "Cross-reference with ward admissions trends"})
+
+            # Rule 29 — Ward Idle BTR/BTI (Inv 46)
+            for _wi_ward, _wi_btr, _wi_btr_p25, _wi_bti, _wi_bti_p75, _wi_mo_lbl in _ward_idle_alerts:
+                _notice_card(
+                    "WATCH",
+                    f"{_wi_ward} — Ward Idle",
+                    f"BTR {_wi_btr:.2f} · BTI {_wi_bti:.0f}d",
+                    f"BTR {_wi_btr_p25 - _wi_btr:.2f} below ward floor ({_wi_btr_p25:.2f}) · "
+                    f"BTI {_wi_bti - _wi_bti_p75:.0f}d above ward ceiling ({_wi_bti_p75:.0f}d)",
+                    f"{_wi_mo_lbl} — {_wi_ward}: {_wi_btr:.2f} admissions/bed (ward floor {_wi_btr_p25:.2f}) "
+                    f"and beds idle avg {_wi_bti:.0f} days (ward ceiling {_wi_bti_p75:.0f}d). "
+                    "Low admissions confirmed by extended idle time — flag to ward manager.",
+                    COLORS["warning"],
+                )
+                _active += 1
+                _notices.append({"level": "WATCH",
+                                 "title": f"{_wi_ward} — Ward Idle",
+                                 "metric": f"BTR {_wi_btr:.2f} · BTI {_wi_bti:.0f}d",
+                                 "action": f"Flag to ward manager — {_wi_ward} below ward baseline"})
+
+            # Rule 30 — Admission TAT monthly deterioration (Inv 47)
+            if _tat_latest_fast_pct is not None:
+                _tat_is_crit      = _tat_latest_fast_pct < _TAT_CRIT
+                _tat_is_watch     = _two_consec(_tat_fast_pcts, _TAT_WATCH, direction="below")
+                _tat_p75_is_crit  = _tat_latest_p75 is not None and _tat_latest_p75 > _TAT_P75_CRIT
+                _tat_p75_is_watch = (len(_tat_p75_vals) == 2 and
+                                     _two_consec(_tat_p75_vals, _TAT_P75_WATCH, direction="above"))
+                if _tat_is_crit or _tat_is_watch or _tat_p75_is_crit or _tat_p75_is_watch:
+                    _tat_sev    = "CRITICAL" if (_tat_is_crit or _tat_p75_is_crit) else "WATCH"
+                    _tat_clr    = COLORS["danger"] if _tat_sev == "CRITICAL" else COLORS["warning"]
+                    _tat_mo_lbl = pd.to_datetime(_tat_latest_month).strftime("%b %Y")
+                    _p75_str    = f" · p75 {_tat_latest_p75} min" if _tat_latest_p75 else ""
+                    _breaches   = []
+                    if _tat_is_crit:        _breaches.append(f"fast-track {_tat_latest_fast_pct:.1f}% < {_TAT_CRIT:.0f}% (single month)")
+                    elif _tat_is_watch:     _breaches.append(f"fast-track {_tat_latest_fast_pct:.1f}% < {_TAT_WATCH:.0f}% × 2 months")
+                    if _tat_p75_is_crit:    _breaches.append(f"p75 TAT {_tat_latest_p75} min > {int(_TAT_P75_CRIT)} min (single month)")
+                    elif _tat_p75_is_watch: _breaches.append(f"p75 TAT {_tat_latest_p75} min > {int(_TAT_P75_WATCH)} min × 2 months")
+                    _notice_card(
+                        _tat_sev,
+                        "Admission TAT Deterioration",
+                        f"{_tat_latest_fast_pct:.1f}% fast-track · p50 {_tat_latest_p50} min{_p75_str}",
+                        " · ".join(_breaches),
+                        f"{_tat_mo_lbl} — {_tat_latest_fast_pct:.1f}% of admissions completed within 60 min. "
+                        f"Median TAT {_tat_latest_p50} min{_p75_str}. "
+                        "Flag to ops lead — review ED-to-ward handoff process.",
+                        _tat_clr,
+                    )
+                    _active += 1
+                    _notices.append({"level": _tat_sev,
+                                     "title": "Admission TAT Deterioration",
+                                     "metric": f"{_tat_latest_fast_pct:.1f}% fast-track · p50 {_tat_latest_p50} min{_p75_str}",
+                                     "action": f"Flag to ops lead — {' · '.join(_breaches)}"})
+
+            # Rule 31 — BOR ward low occupancy (Inv 48)
+            for _bw_ward, _bw_bor, _bw_p25, _bw_gap, _bw_mo_lbl in _bor_ward_alerts:
+                _notice_card(
+                    "WATCH",
+                    f"{_bw_ward} — Low Occupancy",
+                    f"BOR {_bw_bor:.1f}%",
+                    f"{_bw_gap}pp below ward P25 floor ({_bw_p25:.1f}%) · 2 consecutive months",
+                    f"{_bw_mo_lbl} — {_bw_ward} occupancy at {_bw_bor:.1f}% for 2 consecutive months "
+                    f"(ward P25 floor {_bw_p25:.1f}%, gap {_bw_gap}pp). "
+                    "Sustained low occupancy — flag to ward manager to review admission referral patterns.",
+                    COLORS["warning"],
+                )
+                _active += 1
+                _notices.append({"level": "WATCH",
+                                 "title": f"{_bw_ward} — Low Occupancy",
+                                 "metric": f"BOR {_bw_bor:.1f}%",
+                                 "action": f"Flag to ward manager — BOR {_bw_gap}pp below ward P25 floor ({_bw_p25:.1f}%)"})
+
+            # Rule 32 — Private ward revenue drop (Inv 49)
+            if _revpab_alert is not None:
+                _rv_latest, _rv_avg, _rv_drop, _rv_adm, _rv_mo_lbl = _revpab_alert
+                _notice_card(
+                    "WATCH",
+                    "Private Wards — Revenue Drop",
+                    f"KES {_rv_latest/1000:.0f}K · {_rv_adm} admissions",
+                    f"{_rv_drop:.1f}% below 3-month rolling average (KES {_rv_avg/1000:.0f}K)",
+                    f"{_rv_mo_lbl} — Private Female + Male combined revenue KES {_rv_latest/1000:.0f}K "
+                    f"({_rv_drop:.1f}% below 3-month rolling avg of KES {_rv_avg/1000:.0f}K). "
+                    f"{_rv_adm} admissions last month. Flag to finance lead — review private ward admission volume.",
+                    COLORS["warning"],
+                )
+                _active += 1
+                _notices.append({"level": "WATCH",
+                                 "title": "Private Wards — Revenue Drop",
+                                 "metric": f"KES {_rv_latest/1000:.0f}K ({_rv_drop:.1f}% below avg)",
+                                 "action": f"Flag to finance lead — {_rv_drop:.1f}% below 3-month rolling avg"})
+
+            # Rule 33 — Physician workload (Inv 50)
+            for _dr_name, _dr_vis, _dr_p90_v, _dr_mo_lbl in _doc_wl_alerts:
+                _dr_excess = _dr_vis - _dr_p90_v
+                _notice_card(
+                    "WATCH",
+                    f"Dr {_dr_name} — High Visit Load",
+                    f"{_dr_vis} visits",
+                    f"{_dr_excess} above P90 ({_dr_p90_v}) · 2 consecutive months",
+                    f"{_dr_mo_lbl} — {_dr_name} recorded {_dr_vis} evaluation visits "
+                    f"({_dr_excess} above personal P90 of {_dr_p90_v}). "
+                    "Sustained for 2 consecutive months. "
+                    "Flag to ops lead — sustained high load may affect evaluation quality.",
+                    COLORS["warning"],
+                )
+                _active += 1
+                _notices.append({"level": "WATCH",
+                                 "title": f"Dr {_dr_name} — High Visit Load",
+                                 "metric": f"{_dr_vis} visits",
+                                 "action": f"Flag to ops lead — {_dr_name} {_dr_excess} above P90 for 2 months"})
+
+            # Rule 34 — CD12 Critical Creatinine Non-Admission (Inv 51)
+            if _cd12_alert is not None:
+                _c12_sev, _c12_rate, _c12_total, _c12_not_adm, _c12_mo_lbl = _cd12_alert
+                _c12_thresh = _CD12_CRIT if _c12_sev == "CRITICAL" else _CD12_WATCH
+                _c12_gap    = round(_c12_rate - _c12_thresh, 1)
+                _c12_clr    = COLORS["danger"] if _c12_sev == "CRITICAL" else COLORS["warning"]
+                _notice_card(
+                    _c12_sev,
+                    "Renal — Critical Creatinine Non-Admission",
+                    f"{_c12_rate:.1f}% not admitted · {_c12_total} critical events",
+                    f"{_c12_gap}pp above {'critical' if _c12_sev == 'CRITICAL' else 'watch'} threshold "
+                    f"({_c12_thresh:.0f}%) · {_c12_not_adm} of {_c12_total} not admitted",
+                    f"{_c12_mo_lbl} — {_c12_rate:.1f}% of critical creatinine results not followed by admission "
+                    f"({_c12_not_adm} of {_c12_total} patients, {_c12_gap}pp above {_c12_thresh:.0f}% threshold). "
+                    "Flag to clinical lead — review creatinine-flagged patients for admission decision audit.",
+                    _c12_clr,
+                )
+                _active += 1
+                _notices.append({"level": _c12_sev,
+                                 "title": "Renal — Critical Creatinine Non-Admission",
+                                 "metric": f"{_c12_rate:.1f}% not admitted ({_c12_total} events)",
+                                 "action": f"Flag to clinical lead — {_c12_gap}pp above {_c12_thresh:.0f}% threshold"})
+
+            # Rule 35 — CT Imaging Volume Drop (Inv 52)
+            if _img_alert is not None:
+                _img_sev, _img_sess, _img_avg, _img_pct, _img_drop, _img_mo_lbl = _img_alert
+                _img_thresh = _IMAGING_CRIT_PCT if _img_sev == "CRITICAL" else _IMAGING_WATCH_PCT
+                _img_clr    = COLORS["danger"] if _img_sev == "CRITICAL" else COLORS["warning"]
+                _img_avg_r  = round(_img_avg)
+                _notice_card(
+                    _img_sev,
+                    "Imaging — CT Volume Drop",
+                    f"{_img_sess} CT sessions · {_img_pct:.1f}% of 3-month avg",
+                    f"{_img_drop:.1f}% below 3-month rolling average ({_img_avg_r} sessions)",
+                    f"{_img_mo_lbl} — {_img_sess} CT/Angio sessions recorded "
+                    f"({_img_pct:.1f}% of 3-month avg of {_img_avg_r}, drop of {_img_drop:.1f}%). "
+                    f"Below {'critical' if _img_sev == 'CRITICAL' else 'watch'} threshold of {_img_thresh:.0f}% of avg. "
+                    "Flag to imaging lead — review CT scheduling backlog and equipment availability.",
+                    _img_clr,
+                )
+                _active += 1
+                _notices.append({"level": _img_sev,
+                                 "title": "Imaging — CT Volume Drop",
+                                 "metric": f"{_img_sess} sessions ({_img_pct:.1f}% of avg)",
+                                 "action": f"Flag to imaging lead — {_img_drop:.1f}% below "
+                                           f"{'critical' if _img_sev == 'CRITICAL' else 'watch'} threshold"})
 
         st.session_state["active_notices"] = _notices
         write_current_notices(FAC_DISPLAY.get(facility, facility), _notices)

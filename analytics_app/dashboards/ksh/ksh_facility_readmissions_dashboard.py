@@ -2362,6 +2362,7 @@ elif page == "Capacity & Operations":
                 "cd12_rate":   q_cd12_monthly_rate()               if _is_ksh_p3 else pd.DataFrame(),
                 "doctor_conv": q_doctor_conversion_monthly()       if _is_ksh_p3 else pd.DataFrame(),
                 "peak_bk":     q_peak_breakdown()                  if _is_ksh_p3 else pd.DataFrame(),
+                "adm_tat":     q_admission_tat_bimodal()            if _is_ksh_p3 else pd.DataFrame(),
             }
 
     P = st.session_state.p3
@@ -3357,6 +3358,83 @@ elif page == "Capacity & Operations":
                         "Peak = 09:00–12:59 — confirmed highest visit volume window (Inv 29). "
                         "Informant only. Months with <50% of prior 3-month average excluded (pipeline lag)."
                     )
+
+            # ── Admission TAT by Day of Week (B2 / P16-2) ────────────────────
+            _tat_df = P.get("adm_tat", pd.DataFrame())
+            if len(_tat_df):
+                _tat_df = _tat_df.copy()
+                _tat_df.columns = _tat_df.columns.str.lower()
+                _tat_df = _tat_df.sort_values("day_num")
+                st.markdown("<div style='margin-top:28px'></div>", unsafe_allow_html=True)
+                section_header("Admission TAT by Day of Week")
+                _fig_tat = go.Figure()
+                _fig_tat.add_trace(go.Bar(
+                    x=_tat_df["day_name"], y=_tat_df["fast_track"],
+                    name="Fast-track (<60 min)", marker_color=COLORS["success"],
+                    customdata=_tat_df["fast_pct"],
+                    hovertemplate="%{x}: %{y} admissions (%{customdata:.1f}% fast)<extra></extra>",
+                ))
+                _fig_tat.add_trace(go.Bar(
+                    x=_tat_df["day_name"], y=_tat_df["slow_pathway"],
+                    name="Slow pathway (60–480 min)", marker_color=COLORS["warning"],
+                    hovertemplate="%{x}: %{y} admissions<extra></extra>",
+                ))
+                _fig_tat.add_trace(go.Scatter(
+                    x=_tat_df["day_name"], y=_tat_df["p50_tat_min"],
+                    name="Median TAT (min)", mode="lines+markers",
+                    line=dict(color=COLORS["danger"], dash="dot", width=2),
+                    marker=dict(size=7),
+                    yaxis="y2",
+                    hovertemplate="%{x}: p50 = %{y:.0f} min<extra></extra>",
+                ))
+                _fig_tat.add_trace(go.Scatter(
+                    x=_tat_df["day_name"], y=_tat_df["p75_tat_min"],
+                    name="P75 TAT (min)", mode="lines+markers",
+                    line=dict(color=COLORS["warning"], dash="solid", width=2),
+                    marker=dict(size=7),
+                    yaxis="y2",
+                    hovertemplate="%{x}: p75 = %{y:.0f} min<extra></extra>",
+                ))
+                _fig_tat.add_shape(
+                    type="line", xref="paper", yref="y2",
+                    x0=0, x1=1, y0=240, y1=240,
+                    line=dict(color=COLORS["warning"], dash="dot", width=1.5),
+                )
+                _fig_tat.add_annotation(
+                    xref="paper", yref="y2",
+                    x=1.01, y=240, text="4h", showarrow=False,
+                    font=dict(size=9, color=COLORS["warning"]), xanchor="left",
+                )
+                _fig_tat.update_layout(**cl(
+                    height=340, barmode="stack",
+                    yaxis_title="Admissions",
+                    yaxis2=dict(
+                        title="TAT (min)",
+                        overlaying="y", side="right",
+                        tickfont=dict(size=10, color="#6B8CAE"),
+                        gridcolor="#EBF3FB",
+                    ),
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                                xanchor="right", x=1),
+                    margin=dict(l=10, r=10, t=30, b=10),
+                    transition_duration=400,
+                ))
+                st.plotly_chart(_fig_tat, use_container_width=True,
+                                config={"displayModeBar": False})
+                st.caption(
+                    "**Sunday** is the worst day for admission speed — 32.4% fast-track, "
+                    "p50 = 102 min. **Monday** second slowest (46.3%, p50 = 75 min). "
+                    "Tue–Fri most efficient (55–61% fast-track). "
+                    "Fast-track = TAT < 60 min. "
+                    "P75 line shows the worst-quarter wait time — above the 4h amber line means "
+                    "1 in 4 patients waited over 4 hours for a bed on that day."
+                )
+                dq_note(
+                    "TAT = evaluation visit creation → first inpatient admission record. "
+                    "Capped at 480 min (>8h excluded as data quality zone). "
+                    "Sep 2024+ data window. Dedup CTE: 97% of admissions have multiple source rows "
+                    "— first record (MIN created_at) per visit used."
+                )
 
 
 # ══════════════════════════════════════════════════════════════════════════════

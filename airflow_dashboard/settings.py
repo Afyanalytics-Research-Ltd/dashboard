@@ -63,6 +63,7 @@ INSTALLED_APPS = [
     'warehouse',
     'airflow_ui',
     'self_service',
+    'agents',
 ]
 
 # ---------------------------------------------------------------------------
@@ -369,6 +370,11 @@ LOGGING = {
             'propagate': False,
         },
         'self_service': {
+            'handlers': ['console', 'file'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+        'agents': {
             'handlers': ['console', 'file'],
             'level': 'DEBUG',
             'propagate': False,

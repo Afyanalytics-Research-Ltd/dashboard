@@ -35,6 +35,7 @@ urlpatterns = [
         path('warehouse/', include('warehouse.api_urls')),
         path('pipelines/', include('airflow_ui.api_urls')),
         path('core/', include('core.api_urls')),
+        path('agents/', include('agents.api_urls')),
         # OpenAPI schema + docs
         path('schema/', SpectacularAPIView.as_view(), name='api-schema'),
         path('docs/', SpectacularSwaggerView.as_view(url_name='api-schema'), name='api-docs'),

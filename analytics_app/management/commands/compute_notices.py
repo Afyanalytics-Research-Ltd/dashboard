@@ -103,8 +103,9 @@ _BTI_P75 = {
     "Private Male": 118.6, "Private Maternity": 147.0,
 }
 
-# Rule 30 — Admission TAT fast-track rate
-_TAT_WATCH, _TAT_CRIT = 45.0, 35.0
+# Rule 30 — Admission TAT fast-track rate + P75 wait time
+_TAT_WATCH, _TAT_CRIT         = 45.0, 35.0
+_TAT_P75_WATCH, _TAT_P75_CRIT = 240.0, 360.0
 
 # Rule 31 — BOR low occupancy (per-ward P25 from Inv 48)
 _BOR_P25 = {
@@ -430,7 +431,8 @@ def _rule29_ward_idle(df):
 
 
 def _rule30_admission_tat(df):
-    """TAT fast-track — WATCH 2-consec <45%, CRITICAL single <35%."""
+    """TAT fast-track — WATCH 2-consec <45%, CRITICAL single <35%.
+    P75 TAT    — WATCH 2-consec >240 min (4h), CRITICAL single >360 min (6h)."""
     if df.empty or "fast_pct" not in df.columns:
         return []
     d = df[df["tat_month"].astype(str) != _OCT_2025_GAP].sort_values("tat_month")
@@ -438,19 +440,32 @@ def _rule30_admission_tat(df):
         return []
     latest = float(d["fast_pct"].iloc[-1])
     p50    = float(d["p50_tat_min"].iloc[-1]) if "p50_tat_min" in d.columns else None
+    p75    = float(d["p75_tat_min"].iloc[-1]) if "p75_tat_min" in d.columns else None
     mo     = pd.to_datetime(d["tat_month"].iloc[-1]).strftime("%b %Y")
     p50s   = f" · p50 TAT {int(p50)} min" if p50 else ""
-    if latest < _TAT_CRIT:
-        return [_notice("CRITICAL", "Admission TAT Deterioration",
-                        f"{latest:.1f}% fast-track (<60 min) · {mo}{p50s}",
-                        f"Ops lead: only {latest:.1f}% admitted within 60 min — review ED-to-ward handoff immediately")]
-    tail2 = d.tail(2)
-    if len(tail2) == 2 and _consec_adjacent(tail2, "tat_month"):
-        if _two_consec(tail2["fast_pct"].tolist(), _TAT_WATCH, "below"):
-            return [_notice("WATCH", "Admission TAT Deterioration",
-                            f"{latest:.1f}% fast-track · {mo}{p50s} · below {_TAT_WATCH}% 2 months",
-                            "Ops lead: sustained TAT pressure — review ED-to-ward handoff process")]
-    return []
+    p75s   = f" · p75 TAT {int(p75)} min" if p75 else ""
+    tail2  = d.tail(2)
+    consec = len(tail2) == 2 and _consec_adjacent(tail2, "tat_month")
+
+    is_crit_fast  = latest < _TAT_CRIT
+    is_watch_fast = consec and _two_consec(tail2["fast_pct"].tolist(), _TAT_WATCH, "below")
+    is_crit_p75   = p75 is not None and p75 > _TAT_P75_CRIT
+    is_watch_p75  = (p75 is not None and consec and "p75_tat_min" in d.columns and
+                     _two_consec(tail2["p75_tat_min"].tolist(), _TAT_P75_WATCH, "above"))
+
+    if not (is_crit_fast or is_watch_fast or is_crit_p75 or is_watch_p75):
+        return []
+
+    sev      = "CRITICAL" if (is_crit_fast or is_crit_p75) else "WATCH"
+    breaches = []
+    if is_crit_fast:        breaches.append(f"fast-track {latest:.1f}% < {_TAT_CRIT:.0f}% (single month)")
+    elif is_watch_fast:     breaches.append(f"fast-track {latest:.1f}% < {_TAT_WATCH:.0f}% × 2 months")
+    if is_crit_p75:         breaches.append(f"p75 TAT {int(p75)} min > {int(_TAT_P75_CRIT)} min (single month)")
+    elif is_watch_p75:      breaches.append(f"p75 TAT {int(p75)} min > {int(_TAT_P75_WATCH)} min × 2 months")
+
+    return [_notice(sev, "Admission TAT Deterioration",
+                    f"{latest:.1f}% fast-track · {mo}{p50s}{p75s}",
+                    f"Ops lead: review ED-to-ward handoff — {' · '.join(breaches)}")]
 
 
 def _rule31_bor_low(df, fired_wards):

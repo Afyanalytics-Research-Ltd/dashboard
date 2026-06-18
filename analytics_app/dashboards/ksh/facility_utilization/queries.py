@@ -698,12 +698,14 @@ def q_peak_ward_dist():
 
 
 def q_doctor_ward_share():
-    """KSH only: doctor share of admissions per ward (CD6 — E.Awando concentration).
+    """KSH only: doctor share of admissions per ward per month (CD6 — physician concentration).
     Joins INPATIENT_ADMISSIONS → EVALUATION_VISITS → USERS to get username (eawando format).
     INPATIENT_ADMISSIONS.doctor_username is a different field — not the canonical username.
-    Sep 2024 cutoff via ADMITTED_AT. Columns: username, ward_name, admissions."""
+    Sep 2024 cutoff via ADMITTED_AT.
+    Columns: admission_month, username, ward_name, admissions."""
     return run_query_df("""
         SELECT
+            DATE_TRUNC('month', TRY_TO_TIMESTAMP(ia.admitted_at))::DATE AS admission_month,
             u.username                         AS username,
             ia.ward_name,
             COUNT(DISTINCT ia.id)              AS admissions
@@ -716,8 +718,8 @@ def q_doctor_ward_share():
           AND u.username NOT REGEXP '.*[0-9].*'
           AND u.username NOT IN ('sudo', 'Billclinton')
           AND TRY_TO_TIMESTAMP(ia.admitted_at) >= '2024-09-01'
-        GROUP BY 1, 2
-        ORDER BY 3 DESC
+        GROUP BY 1, 2, 3
+        ORDER BY 4 DESC
     """)
 
 
@@ -930,4 +932,151 @@ def q_revpab_private_monthly():
           AND admission_month != '2025-10-01'
         GROUP BY admission_month
         ORDER BY admission_month
+    """)
+
+
+def q_peak_tat_conversion():
+    """KSH only: conversion rate + TAT during Monday 14-17h peak vs off-peak (Inv 58).
+    Conversion = admitted / evaluated. TAT = ev.created_at → first admission. Cap 1–480 min.
+    Columns: time_bucket, total_evaluations, admissions, conversion_pct, valid_tat_n,
+             p50_tat_min, p75_tat_min."""
+    return run_query_df("""
+        WITH ia_dedup AS (
+            SELECT visit_id, MIN(created_at) AS admission_at
+            FROM HOSPITALS.KISUMU_CLEAN.INPATIENT_ADMISSIONS
+            WHERE DELETED_AT IS NULL
+            GROUP BY visit_id
+        ),
+        classified AS (
+            SELECT
+                CASE
+                    WHEN DAYOFWEEKISO(TRY_TO_TIMESTAMP(ev.CREATED_AT)) = 1
+                     AND HOUR(TRY_TO_TIMESTAMP(ev.CREATED_AT)) BETWEEN 14 AND 17
+                    THEN 'Peak (Mon 14-17h)'
+                    ELSE 'Off-Peak'
+                END                                                         AS time_bucket,
+                ia.admission_at IS NOT NULL                                 AS admitted,
+                DATEDIFF('minute',
+                    TRY_TO_TIMESTAMP(ev.CREATED_AT),
+                    ia.admission_at)                                        AS tat_raw
+            FROM HOSPITALS.KISUMU_CLEAN.EVALUATION_VISITS ev
+            LEFT JOIN ia_dedup ia ON ia.visit_id = ev.ID
+            WHERE ev.DELETED_AT IS NULL
+              AND TRY_TO_TIMESTAMP(ev.CREATED_AT) >= '2024-09-01'
+        ),
+        tat_filtered AS (
+            SELECT
+                time_bucket,
+                admitted,
+                CASE WHEN admitted AND tat_raw BETWEEN 1 AND 480 THEN tat_raw END AS tat_min
+            FROM classified
+        )
+        SELECT
+            time_bucket,
+            COUNT(*)                                                        AS total_evaluations,
+            SUM(CASE WHEN admitted THEN 1 ELSE 0 END)                       AS admissions,
+            ROUND(SUM(CASE WHEN admitted THEN 1 ELSE 0 END) * 100.0
+                  / COUNT(*), 1)                                            AS conversion_pct,
+            COUNT(tat_min)                                                  AS valid_tat_n,
+            ROUND(MEDIAN(tat_min), 0)                                       AS p50_tat_min,
+            ROUND(PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY tat_min), 0) AS p75_tat_min
+        FROM tat_filtered
+        GROUP BY time_bucket
+        ORDER BY time_bucket
+    """)
+
+
+def q_peak_doctor_load():
+    """KSH only: doctor evaluation share during Monday 14-17h peak vs off-peak (Inv 58).
+    Columns: time_bucket, username, evaluations, pct_of_bucket."""
+    return run_query_df("""
+        WITH classified AS (
+            SELECT
+                u.username,
+                CASE
+                    WHEN DAYOFWEEKISO(TRY_TO_TIMESTAMP(ev.CREATED_AT)) = 1
+                     AND HOUR(TRY_TO_TIMESTAMP(ev.CREATED_AT)) BETWEEN 14 AND 17
+                    THEN 'Peak (Mon 14-17h)'
+                    ELSE 'Off-Peak'
+                END AS time_bucket
+            FROM HOSPITALS.KISUMU_CLEAN.EVALUATION_VISITS ev
+            JOIN HOSPITALS.KISUMU_CLEAN.USERS u ON ev.user = u.id
+            WHERE ev.DELETED_AT IS NULL
+              AND u.active = 1
+              AND u.username NOT REGEXP '.*[0-9].*'
+              AND u.username NOT IN ('sudo', 'Billclinton')
+              AND TRY_TO_TIMESTAMP(ev.CREATED_AT) >= '2024-09-01'
+        )
+        SELECT
+            time_bucket,
+            username,
+            COUNT(*)                                                        AS evaluations,
+            ROUND(COUNT(*) * 100.0
+                  / SUM(COUNT(*)) OVER (PARTITION BY time_bucket), 1)      AS pct_of_bucket
+        FROM classified
+        GROUP BY time_bucket, username
+        ORDER BY time_bucket, evaluations DESC
+    """)
+
+
+def q_peak_patient_funnel():
+    """KSH only: non-admitted patient return pathway after Monday 14-17h peak (Inv 58).
+    Cohort: Sep 2024–present. Columns: total_non_admitted_peak, returned, never_returned,
+    return_pct, later_admitted, admitted_of_returned_pct, median_days_to_return."""
+    return run_query_df("""
+        WITH peak_evals AS (
+            SELECT
+                ev.ID                                   AS visit_id,
+                ev.PATIENT                              AS patient_id,
+                TRY_TO_TIMESTAMP(ev.CREATED_AT)         AS visit_time
+            FROM HOSPITALS.KISUMU_CLEAN.EVALUATION_VISITS ev
+            WHERE ev.DELETED_AT IS NULL
+              AND DAYOFWEEKISO(TRY_TO_TIMESTAMP(ev.CREATED_AT)) = 1
+              AND HOUR(TRY_TO_TIMESTAMP(ev.CREATED_AT)) BETWEEN 14 AND 17
+              AND TRY_TO_TIMESTAMP(ev.CREATED_AT) >= '2024-09-01'
+        ),
+        peak_non_admitted AS (
+            SELECT pe.*
+            FROM peak_evals pe
+            WHERE NOT EXISTS (
+                SELECT 1 FROM HOSPITALS.KISUMU_CLEAN.INPATIENT_ADMISSIONS ia
+                WHERE ia.visit_id = pe.visit_id AND ia.DELETED_AT IS NULL
+            )
+        ),
+        return_visits AS (
+            SELECT
+                pna.patient_id,
+                pna.visit_time                              AS index_time,
+                MIN(TRY_TO_TIMESTAMP(ev2.CREATED_AT))       AS next_visit_time
+            FROM peak_non_admitted pna
+            JOIN HOSPITALS.KISUMU_CLEAN.EVALUATION_VISITS ev2
+                ON ev2.PATIENT = pna.patient_id
+               AND TRY_TO_TIMESTAMP(ev2.CREATED_AT) > pna.visit_time
+               AND ev2.DELETED_AT IS NULL
+            GROUP BY pna.patient_id, pna.visit_time
+        ),
+        later_admissions AS (
+            SELECT DISTINCT pna.patient_id
+            FROM peak_non_admitted pna
+            JOIN HOSPITALS.KISUMU_CLEAN.EVALUATION_VISITS ev2
+                ON ev2.PATIENT = pna.patient_id
+               AND TRY_TO_TIMESTAMP(ev2.CREATED_AT) > pna.visit_time
+               AND ev2.DELETED_AT IS NULL
+            JOIN HOSPITALS.KISUMU_CLEAN.INPATIENT_ADMISSIONS ia2
+                ON ia2.visit_id = ev2.ID
+               AND ia2.DELETED_AT IS NULL
+        )
+        SELECT
+            COUNT(DISTINCT pna.patient_id)                                          AS total_non_admitted_peak,
+            COUNT(DISTINCT rv.patient_id)                                           AS returned,
+            COUNT(DISTINCT pna.patient_id) - COUNT(DISTINCT rv.patient_id)         AS never_returned,
+            ROUND(COUNT(DISTINCT rv.patient_id) * 100.0
+                  / NULLIF(COUNT(DISTINCT pna.patient_id), 0), 1)                  AS return_pct,
+            COUNT(DISTINCT la.patient_id)                                           AS later_admitted,
+            ROUND(COUNT(DISTINCT la.patient_id) * 100.0
+                  / NULLIF(COUNT(DISTINCT rv.patient_id), 0), 1)                   AS admitted_of_returned_pct,
+            ROUND(MEDIAN(DATEDIFF('day', rv.index_time, rv.next_visit_time)), 0)   AS median_days_to_return
+        FROM peak_non_admitted pna
+        LEFT JOIN return_visits rv    ON rv.patient_id = pna.patient_id
+        LEFT JOIN later_admissions la ON la.patient_id = pna.patient_id
     """)

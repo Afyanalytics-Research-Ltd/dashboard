@@ -36,6 +36,7 @@ from facility_utilization.queries import (
     q_doctor_conversion_monthly,
     q_btr_bti_monthly, q_admission_tat_bimodal, q_admission_tat_monthly,
     q_revpab_private_monthly,
+    q_peak_tat_conversion, q_peak_doctor_load, q_peak_patient_funnel,
 )
 
 # ── Feature flags ─────────────────────────────────────────────────────────────
@@ -1301,14 +1302,14 @@ if page == "Business Overview":
                 "Dialysis — Equipment Idle",
                 f"{months_idle} months",
                 _kes_line,
-                "Last session Apr 2025 · KES 52K–119K per session. "
-                "Referral pipeline needed before equipment utilisation recovers.",
+                "Last session Apr 2025 · 253 patients registered, 78 critical creatinine patients unserved. "
+                "Programme gap — not an equipment gap. Clinical lead review needed.",
                 COLORS["warning"],
             )
             _active += 1
             _notices.append({"level": "WATCH", "title": "Dialysis — Equipment Idle",
                              "metric": f"{months_idle} months",
-                             "action": "Referral pipeline needed to restore utilisation"})
+                             "action": "Programme gap — 78 critical creatinine patients unserved. Clinical lead review needed."})
 
         # ── Phase 13 rules (KSH only) ─────────────────────────────────────────
 
@@ -3452,9 +3453,12 @@ elif page == "Causal Intelligence":
         if not st.session_state.p_causal or st.session_state.p_causal.get("_fac") != fac_key:
             with st.spinner("Loading…"):
                 st.session_state.p_causal = {
-                    "_fac":       fac_key,
-                    "peak_ward":  q_peak_ward_dist(),
-                    "doc_ward":   q_doctor_ward_share(),
+                    "_fac":          fac_key,
+                    "peak_ward":     q_peak_ward_dist(),
+                    "doc_ward":      q_doctor_ward_share(),
+                    "peak_conv":     q_peak_tat_conversion(),
+                    "peak_doc_load": q_peak_doctor_load(),
+                    "peak_funnel":   q_peak_patient_funnel(),
                 }
 
         P7 = st.session_state.p_causal
@@ -3466,109 +3470,245 @@ elif page == "Causal Intelligence":
         st.caption("Confirmed cross-domain findings — what the data connected across departments")
         st.markdown("<div style='margin-bottom:20px'></div>", unsafe_allow_html=True)
 
-        # ── CD5: Monday Peak → Medical — Female ──────────────────────────────
+        # ── CD5: Monday Peak — System Stress Confirmed ───────────────────────
 
-        section_header("Monday Afternoon: Private Wards Go Dark (CD5)")
+        section_header("Monday Afternoon Peak · System Stress Across Four Dimensions (CD5)")
 
-        _pw = P7["peak_ward"].copy()
-        _pw.columns = [c.lower() for c in _pw.columns]
+        _pc = P7["peak_conv"].copy()
+        _pc.columns = [c.lower() for c in _pc.columns]
+        _pk_row = _pc[_pc["time_bucket"].str.startswith("Peak")]
+        _op_row = _pc[_pc["time_bucket"] == "Off-Peak"]
 
-        if len(_pw):
-            # Compute ward % within each bucket
-            _pw_tot = _pw.groupby("time_bucket")["admissions"].transform("sum")
-            _pw["pct"] = (_pw["admissions"] / _pw_tot * 100).round(1)
+        if len(_pk_row) and len(_op_row):
+            _pk = _pk_row.iloc[0]
+            _op = _op_row.iloc[0]
 
-            _peak_df   = _pw[_pw["time_bucket"] == "Peak"].sort_values("admissions", ascending=False)
-            _offpk_df  = _pw[_pw["time_bucket"] == "Off-Peak"].sort_values("admissions", ascending=False)
+            # ── KPI row: conversion + TAT ─────────────────────────────────
+            _kc1, _kc2, _kc3, _kc4 = st.columns(4, gap="large")
+            with _kc1:
+                kpi_card(
+                    "Conversion · Peak",
+                    f"{_pk['conversion_pct']}%",
+                    f"Mon 14–17h · n={int(_pk['total_evaluations']):,}",
+                    COLORS["danger"],
+                )
+            with _kc2:
+                kpi_card(
+                    "Conversion · Off-Peak",
+                    f"{_op['conversion_pct']}%",
+                    f"All other hours · n={int(_op['total_evaluations']):,}",
+                    COLORS["primary"],
+                )
+            with _kc3:
+                kpi_card(
+                    "TAT · Peak",
+                    f"P50 {int(_pk['p50_tat_min'])} min",
+                    f"P75 {int(_pk['p75_tat_min'])} min · n={int(_pk['valid_tat_n']):,}",
+                    COLORS["danger"],
+                )
+            with _kc4:
+                kpi_card(
+                    "TAT · Off-Peak",
+                    f"P50 {int(_op['p50_tat_min'])} min",
+                    f"P75 {int(_op['p75_tat_min'])} min · n={int(_op['valid_tat_n']):,}",
+                    COLORS["primary"],
+                )
 
-            _all_wards = list(set(_peak_df["ward_category"].tolist() + _offpk_df["ward_category"].tolist()))
-            _peak_pct  = dict(zip(_peak_df["ward_category"], _peak_df["pct"]))
-            _offpk_pct = dict(zip(_offpk_df["ward_category"], _offpk_df["pct"]))
-
-            # Delta: peak share minus off-peak share per ward
-            _delta_rows = [
-                {"ward": w, "delta": round(_peak_pct.get(w, 0) - _offpk_pct.get(w, 0), 1)}
-                for w in _all_wards
-            ]
-            _delta_df = pd.DataFrame(_delta_rows).sort_values("delta")
-
-            _fig_cd5 = go.Figure()
-            _fig_cd5.add_bar(
-                x=_delta_df["delta"],
-                y=_delta_df["ward"],
-                orientation="h",
-                marker_color=[
-                    COLORS["danger"] if d > 0 else COLORS["primary"]
-                    for d in _delta_df["delta"]
-                ],
-                text=_delta_df["delta"].apply(lambda d: f"{d:+.1f} pp"),
-                textposition="outside",
-                hovertemplate="<b>%{y}</b>: %{x:+.1f} pp during peak<extra></extra>",
-                showlegend=False,
+            # Private capture callout — derived from existing peak_ward data
+            _pw2 = P7["peak_ward"].copy()
+            _pw2.columns = [c.lower() for c in _pw2.columns]
+            _pw2["ward_type"] = _pw2["ward_category"].apply(
+                lambda w: "Private" if any(x in w.lower() for x in ("private", "amenity")) else "General"
             )
-            _fig_cd5.add_vline(x=0, line_width=1, line_color="#CBD5E1", line_dash="solid")
-            _fig_cd5.update_layout(**cl(
-                height=max(260, len(_delta_df) * 44),
-                xaxis_title="Change in admission share · Monday 14–18h vs all other hours (pp)",
-                margin=dict(l=0, r=70, t=10, b=30),
+            _pw2_agg = _pw2.groupby(["time_bucket", "ward_type"])["admissions"].sum().reset_index()
+            _pw2_tot = _pw2_agg.groupby("time_bucket")["admissions"].sum().reset_index()
+            _pw2_tot.columns = ["time_bucket", "total"]
+            _pw2_agg = _pw2_agg.merge(_pw2_tot, on="time_bucket")
+            _pw2_agg["share"] = (_pw2_agg["admissions"] / _pw2_agg["total"] * 100).round(1)
+            _priv_pk = _pw2_agg[
+                (_pw2_agg["time_bucket"] == "Peak") & (_pw2_agg["ward_type"] == "Private")
+            ]["share"].values
+            _priv_op = _pw2_agg[
+                (_pw2_agg["time_bucket"] == "Off-Peak") & (_pw2_agg["ward_type"] == "Private")
+            ]["share"].values
+            if len(_priv_pk) and len(_priv_op):
+                st.markdown(
+                    f"<div style='margin-top:8px;padding:8px 14px;background:#F8FAFC;"
+                    f"border-left:3px solid #CBD5E1;border-radius:4px;font-size:12px;color:#475569'>"
+                    f"Private ward capture: <b>{_priv_op[0]}%</b> off-peak → "
+                    f"<b style='color:#DC2626'>{_priv_pk[0]}%</b> during peak "
+                    f"· observed shift only · Sep 2024–May 2026</div>",
+                    unsafe_allow_html=True,
+                )
+
+            dq_note(
+                "Peak window: Mon 14:00–17:59 · Sep 2024 onward. "
+                "Coverage gap confirmed — scheduling review. Escalate: Medical Director."
+            )
+
+            st.markdown("<div style='margin-top:24px'></div>", unsafe_allow_html=True)
+
+            # ── Doctor load chart ─────────────────────────────────────────
+            _dl = P7["peak_doc_load"].copy()
+            _dl.columns = [c.lower() for c in _dl.columns]
+
+            # Top 4 by peak evaluations, sorted by peak pct ascending for chart display
+            _dl_peak = _dl[_dl["time_bucket"].str.startswith("Peak")].copy()
+            _top4 = _dl_peak.nlargest(4, "evaluations")["username"].tolist()
+            _top4_sorted = (
+                _dl_peak[_dl_peak["username"].isin(_top4)]
+                .sort_values("pct_of_bucket")["username"]
+                .tolist()
+            )
+            _dl_filt = _dl[_dl["username"].isin(_top4)].copy()
+            _pk_dl = _dl_filt[_dl_filt["time_bucket"].str.startswith("Peak")].set_index("username")
+            _op_dl = _dl_filt[_dl_filt["time_bucket"] == "Off-Peak"].set_index("username")
+
+            _fig_dl = go.Figure()
+            _fig_dl.add_bar(
+                name="Off-Peak",
+                x=[_op_dl.loc[d, "pct_of_bucket"] if d in _op_dl.index else 0 for d in _top4_sorted],
+                y=_top4_sorted,
+                orientation="h",
+                marker_color=COLORS["primary"],
+                opacity=0.75,
+                text=[
+                    f"{_op_dl.loc[d, 'pct_of_bucket']:.1f}% · {int(_op_dl.loc[d, 'evaluations']):,}"
+                    if d in _op_dl.index else ""
+                    for d in _top4_sorted
+                ],
+                textposition="outside",
+                hovertemplate="<b>%{y}</b> off-peak: %{x:.1f}%<extra></extra>",
+            )
+            _fig_dl.add_bar(
+                name="Peak · Mon 14–17h",
+                x=[_pk_dl.loc[d, "pct_of_bucket"] if d in _pk_dl.index else 0 for d in _top4_sorted],
+                y=_top4_sorted,
+                orientation="h",
+                marker_color=COLORS["danger"],
+                text=[
+                    f"{_pk_dl.loc[d, 'pct_of_bucket']:.1f}% · {int(_pk_dl.loc[d, 'evaluations']):,}"
+                    if d in _pk_dl.index else ""
+                    for d in _top4_sorted
+                ],
+                textposition="outside",
+                hovertemplate="<b>%{y}</b> peak: %{x:.1f}%<extra></extra>",
+            )
+            _fig_dl.update_layout(**cl(
+                barmode="group",
+                height=300,
+                xaxis_title="Share of evaluations in time bucket · Sep 2024–May 2026 (%)",
+                xaxis_range=[0, 65],
+                margin=dict(l=0, r=160, t=10, b=30),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
             ))
-            st.plotly_chart(_fig_cd5, use_container_width=True, config={"displayModeBar": False})
+            st.plotly_chart(_fig_dl, use_container_width=True, config={"displayModeBar": False})
 
-            # Physician coverage callout — confirmed from CD5 investigation
-            _pc1, _pc2 = st.columns(2, gap="large")
-            with _pc1:
-                st.markdown(
-                    "<div style='border:1.5px solid #FEE2E2;border-radius:8px;padding:12px 16px;"
-                    "background:#FFF5F5'>"
-                    "<div style='font-size:10px;font-weight:800;letter-spacing:1.5px;"
-                    "text-transform:uppercase;color:#DC2626;margin-bottom:4px'>Medical — Female · Peak</div>"
-                    "<div style='font-size:22px;font-weight:700;color:#1E3A5F'>3–4 physicians</div>"
-                    "<div style='font-size:12px;color:#64748B;margin-top:2px'>absorbing all peak footfall</div>"
-                    "</div>",
-                    unsafe_allow_html=True,
-                )
-            with _pc2:
-                st.markdown(
-                    "<div style='border:1.5px solid #E2E8F0;border-radius:8px;padding:12px 16px;"
-                    "background:#F8FAFC'>"
-                    "<div style='font-size:10px;font-weight:800;letter-spacing:1.5px;"
-                    "text-transform:uppercase;color:#64748B;margin-bottom:4px'>Private Wards · Peak</div>"
-                    "<div style='font-size:22px;font-weight:700;color:#1E3A5F'>0 physicians</div>"
-                    "<div style='font-size:12px;color:#64748B;margin-top:2px'>0 new admissions</div>"
-                    "</div>",
-                    unsafe_allow_html=True,
+            st.markdown("<div style='margin-top:24px'></div>", unsafe_allow_html=True)
+
+            # ── Patient funnel ────────────────────────────────────────────
+            _pf = P7["peak_funnel"].copy()
+            _pf.columns = [c.lower() for c in _pf.columns]
+            if len(_pf):
+                _pfr = _pf.iloc[0]
+                _pf_total   = int(_pfr["total_non_admitted_peak"])
+                _pf_never   = int(_pfr["never_returned"])
+                _pf_nvr_pct = round(100 - float(_pfr["return_pct"]), 1)
+                _pf_later   = int(_pfr["later_admitted"])
+                _pf_lat_pct = float(_pfr["admitted_of_returned_pct"])
+
+                _ff1, _ff2, _ff3 = st.columns(3, gap="large")
+                with _ff1:
+                    kpi_card(
+                        "Not Admitted · Peak Window",
+                        f"{_pf_total:,}",
+                        "Evaluated Mon 14–17h, no admission · Sep 2024–May 2026",
+                        COLORS["warning"],
+                    )
+                with _ff2:
+                    kpi_card(
+                        "Never Returned to KSH",
+                        f"{_pf_nvr_pct}%",
+                        f"{_pf_never:,} patients · destination unknown",
+                        COLORS["danger"],
+                    )
+                with _ff3:
+                    kpi_card(
+                        "Eventually Admitted",
+                        f"{_pf_lat_pct}%",
+                        f"of returnees · {_pf_later:,} patients",
+                        COLORS["coral"],
+                    )
+
+                dq_note(
+                    "No follow-up protocol identified in EMR. "
+                    "44% of peak non-admissions have no subsequent KSH contact recorded. "
+                    "Observation window: Sep 2024–May 2026."
                 )
 
-            st.markdown("<div style='margin-top:10px'></div>", unsafe_allow_html=True)
-            dq_note("Peak window: Monday 14:00–17:59. Physician counts from CD5 investigation (Sep 2024 onward).")
             with st.expander("Analysis"):
                 st.markdown(
-                    "- When Monday 14–18h volume peaks, every active doctor concentrates toward Medical — Female. "
-                    "Private wards lose coverage — not because patients stop arriving, but because no one is left to evaluate them.\n"
-                    "- Facility-wide physician count: **12 off-peak → 3–4 during peak**.\n"
-                    "- Private Female, Private Male, Private Maternity: **0 physicians, 0 new admissions** during peak window."
+                    "- Conversion drops 33% during peak (5.9% → 3.9%) against a 2,466-evaluation window — "
+                    "not a low-volume artefact.\n"
+                    "- TAT nearly doubles at median (43 → 78 min). P75 rises from 173 → 196 min — "
+                    "peak pushes the median into the slow zone; the upper tail was already high off-peak.\n"
+                    "- Doctor load redistribution is the structural driver: lowino absorbs 49.2% of peak "
+                    "evaluations (vs 17.1% off-peak) while eawando's share falls from 37.1% to 28.1%. "
+                    "Peak window and facility-wide concentration risk (CD6) have different key actors.\n"
+                    "- Private ward capture falls 30% (11.9% → 8.4%). Observed shift — case-mix "
+                    "contribution not isolated.\n"
+                    "- 44% of non-admitted peak patients never returned to KSH. Of those who returned, "
+                    "only 17.3% were eventually admitted — peak non-admission is largely permanent patient "
+                    "loss, not deferral. Observation window: Sep 2024–May 2026."
                 )
+
         else:
-            st.caption("Peak ward data not available.")
+            st.caption("Peak operational data not available.")
 
         st.markdown("<div style='margin-top:32px'></div>", unsafe_allow_html=True)
 
-        # ── CD6: E.Awando Single Point of Failure ────────────────────────────
+        # ── CD6: Physician Dependence ─────────────────────────────────────────
 
-        section_header("One Doctor Drives Facility-Wide Intake — Concentration Risk (CD6)")
+        section_header("Physician Dependence · Concentration Risk (CD6)")
 
         _dw = P7["doc_ward"].copy()
         _dw.columns = [c.lower() for c in _dw.columns]
 
         if len(_dw):
-            # Ward totals
-            _ward_tot = _dw.groupby("ward_name")["admissions"].sum().reset_index()
-            _ward_tot.columns = ["ward_name", "ward_total"]
-            _dw = _dw.merge(_ward_tot, on="ward_name")
-            _dw["pct"] = (_dw["admissions"] / _dw["ward_total"] * 100).round(1)
+            # Name formatter: first char = initial, rest = surname (eawando → E. Awando)
+            def _fmt_doc(u):
+                u = u.strip()
+                return f"{u[0].upper()}. {u[1:].capitalize()}" if len(u) > 1 else u.upper()
 
-            # E.Awando rows — match on username contains 'awando' (handles casing/format variance)
-            _aw = _dw[_dw["username"].str.lower().str.contains("awando", na=False)].sort_values("pct", ascending=True)
+            # KPI: dominant doctor for latest complete month (current month may be partial)
+            import datetime as _dt
+            _cur_month    = _dt.date.today().replace(day=1)
+            _dw_complete  = _dw[_dw["admission_month"] < _cur_month]
+            _latest_month = _dw_complete["admission_month"].max() if len(_dw_complete) else _dw["admission_month"].max()
+            _dw_latest    = _dw[_dw["admission_month"] == _latest_month]
+            _doc_latest   = _dw_latest.groupby("username")["admissions"].sum()
+            _fac_latest   = _doc_latest.sum()
+            _dom_doc      = _doc_latest.idxmax()
+            _dom_pct      = round(float(_doc_latest.max()) / float(_fac_latest) * 100, 1)
+            _month_lbl    = pd.Timestamp(_latest_month).strftime("%b %Y")
+
+            kpi_card(
+                "Physician Dependence",
+                _fmt_doc(_dom_doc),
+                f"{_dom_pct}% of facility admissions · {_month_lbl}",
+                COLORS["danger"] if _dom_pct >= 30 else COLORS["warning"],
+            )
+
+            st.markdown("<div style='margin-top:16px'></div>", unsafe_allow_html=True)
+
+            # Chart: aggregate all months for full historical ward concentration
+            _dw_agg   = _dw.groupby(["username", "ward_name"])["admissions"].sum().reset_index()
+            _ward_tot = _dw_agg.groupby("ward_name")["admissions"].sum().reset_index()
+            _ward_tot.columns = ["ward_name", "ward_total"]
+            _dw_agg   = _dw_agg.merge(_ward_tot, on="ward_name")
+            _dw_agg["pct"] = (_dw_agg["admissions"] / _dw_agg["ward_total"] * 100).round(1)
+
+            _aw = _dw_agg[_dw_agg["username"] == _dom_doc].sort_values("pct", ascending=True)
 
             if len(_aw):
                 _aw["display_ward"] = _aw["ward_name"]
@@ -3583,7 +3723,7 @@ elif page == "Causal Intelligence":
                     ],
                     text=_aw["pct"].apply(lambda p: f"{p:.0f}%"),
                     textposition="outside",
-                    hovertemplate="<b>%{y}</b>: E.Awando %{x:.1f}% of ward admissions<extra></extra>",
+                    hovertemplate=f"<b>%{{y}}</b>: {_fmt_doc(_dom_doc)} %{{x:.1f}}% of ward admissions<extra></extra>",
                     showlegend=False,
                 )
                 _fig_cd6.add_vline(
@@ -3593,7 +3733,7 @@ elif page == "Causal Intelligence":
                 )
                 _fig_cd6.update_layout(**cl(
                     height=max(240, len(_aw) * 44),
-                    xaxis_title="% of ward admissions attributed to E.Awando",
+                    xaxis_title=f"% of ward admissions attributed to {_fmt_doc(_dom_doc)}",
                     xaxis_range=[0, 70],
                     margin=dict(l=0, r=60, t=10, b=30),
                 ))

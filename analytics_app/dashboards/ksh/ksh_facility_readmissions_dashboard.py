@@ -3262,10 +3262,71 @@ elif page == "Capacity & Operations":
                     _conv_lat["display_name"] = _conv_lat["USERNAME"].apply(
                         lambda u: f"{u[0].upper()}.{u[1:].capitalize()}"
                     )
-                    _fac_conv_rate = round(
-                        _conv_lat["ADMISSIONS"].sum()
-                        / max(_conv_lat["EVALUATIONS"].sum(), 1) * 100, 1
+                    # Trend: evaluations (bars) vs conversion rate (line) — co-movement signal
+                    # Built first so KPI uses the same unfiltered population as the chart
+                    _trend = (
+                        _conv_df.groupby("VISIT_MONTH")[["EVALUATIONS", "ADMISSIONS"]]
+                        .sum().reset_index()
                     )
+                    _trend["fac_conv_pct"] = (
+                        _trend["ADMISSIONS"] / _trend["EVALUATIONS"].clip(lower=1) * 100
+                    ).round(1)
+                    _baseline_conv = round(
+                        _trend["ADMISSIONS"].sum() / max(_trend["EVALUATIONS"].sum(), 1) * 100, 1
+                    )
+                    _latest_row = _trend[_trend["VISIT_MONTH"] == _conv_latest_mo]
+                    _fac_conv_rate = float(_latest_row["fac_conv_pct"].iloc[0]) if len(_latest_row) else _baseline_conv
+
+                    kpi_card(
+                        "Facility Conversion Rate",
+                        f"{_fac_conv_rate}%",
+                        f"{pd.to_datetime(_conv_latest_mo).strftime('%b %Y')} · admissions ÷ evaluation visits",
+                        COLORS["primary"],
+                    )
+                    st.markdown("<div style='margin-top:16px'></div>", unsafe_allow_html=True)
+                    _fig_trend = make_subplots(specs=[[{"secondary_y": True}]])
+                    _fig_trend.add_bar(
+                        x=_trend["VISIT_MONTH"], y=_trend["EVALUATIONS"],
+                        name="Evaluations", marker_color=COLORS["muted"],
+                        opacity=0.6, secondary_y=False,
+                        hovertemplate="%{x|%b %Y}: %{y:,} evaluations<extra></extra>",
+                    )
+                    _fig_trend.add_scatter(
+                        x=_trend["VISIT_MONTH"], y=_trend["fac_conv_pct"],
+                        name="Conversion %", mode="lines+markers",
+                        line=dict(color=COLORS["primary"], width=2),
+                        marker=dict(size=6),
+                        secondary_y=True,
+                        hovertemplate="%{x|%b %Y}: %{y:.1f}%<extra></extra>",
+                    )
+                    _fig_trend.add_hline(
+                        y=_baseline_conv, line_dash="dot",
+                        line_color=COLORS["primary"], line_width=1,
+                        secondary_y=True,
+                        annotation_text=f"Baseline {_baseline_conv}%",
+                        annotation_font_size=9,
+                        annotation_font_color=COLORS["primary"],
+                    )
+                    _fig_trend.update_layout(**cl(
+                        height=240,
+                        legend=dict(orientation="h", y=1.12, x=0),
+                        margin=dict(l=0, r=60, t=10, b=30),
+                        barmode="overlay",
+                    ))
+                    _fig_trend.update_yaxes(title_text="Evaluations", secondary_y=False)
+                    _fig_trend.update_yaxes(
+                        title_text="Conversion %", secondary_y=True,
+                        ticksuffix="%", rangemode="tozero",
+                    )
+                    st.plotly_chart(_fig_trend, use_container_width=True,
+                                    config={"displayModeBar": False})
+                    dq_note(
+                        "Bars = monthly evaluation volume. Line = facility conversion rate. "
+                        "Both moving together = demand signal. "
+                        "Evaluations high but conversion drops = process signal (TAT, staffing)."
+                    )
+                    st.markdown("<div style='margin-top:16px'></div>", unsafe_allow_html=True)
+
                     _fig_conv = go.Figure()
                     _fig_conv.add_bar(
                         x=_conv_lat["CONVERSION_RATE_PCT"],
@@ -3745,10 +3806,6 @@ elif page == "Causal Intelligence":
                     f"One doctor absence = facility-wide intake drop across all 7 wards simultaneously — not one ward. "
                     f"J.Ogutu (14–17% per ward) is the only named backup. "
                     f"Review: Medical Director."
-                )
-                dq_note(
-                    "M.Akinyi departed Dec 2025 — E.Awando's load increased ~57% with no triggered flag. "
-                    "Private wards have fewest backup evaluators: Private Female 5 doctors, Private Male 7, vs General Female 10."
                 )
                 with st.expander("Analysis"):
                     st.markdown(

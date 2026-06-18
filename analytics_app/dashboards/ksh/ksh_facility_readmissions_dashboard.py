@@ -3798,9 +3798,9 @@ elif page == "Causal Intelligence":
                     _sim = _sim_raw.copy()
                     _sim.columns = _sim.columns.str.upper()
                     _sim_total_eval = int(_sim["EVALUATIONS"].sum())
-                    _sim_total_adm  = int(_sim["ADMISSIONS"].sum())
-                    _sim_dom        = _sim[_sim["USERNAME"].str.lower() == _dom_doc.lower()]
-                    _sim_dom_adm    = int(_sim_dom["ADMISSIONS"].sum())
+                    # Admissions from _dw (COUNT DISTINCT ia.id per doctor) — no fan-out
+                    _sim_total_adm  = int(_dw["admissions"].sum())
+                    _sim_dom_adm    = int(_dw[_dw["username"] == _dom_doc]["admissions"].sum())
                     _actual_rate    = round(_sim_total_adm / max(_sim_total_eval, 1) * 100, 1)
                     _sim_rate       = round((_sim_total_adm - _sim_dom_adm) / max(_sim_total_eval, 1) * 100, 1)
                     _drop           = round(_actual_rate - _sim_rate, 1)
@@ -3808,7 +3808,7 @@ elif page == "Causal Intelligence":
                     with _s1:
                         kpi_card("Actual Conversion Rate",
                                  f"{_actual_rate}%",
-                                 "Sep 2024 onward · all doctors",
+                                 "Via evaluation pathway · all doctors",
                                  COLORS["primary"])
                     with _s2:
                         kpi_card(f"Without {_fmt_doc(_dom_doc)}",

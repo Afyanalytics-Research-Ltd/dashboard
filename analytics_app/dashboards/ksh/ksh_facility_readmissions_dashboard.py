@@ -2328,7 +2328,6 @@ elif page == "Revenue Leakage" and AR_PAGE_ENABLED:  # AR_PAGE_DISABLED — see 
                 file_name="recovery_priority.csv",
                 mime="text/csv")
 
-        dq_note("AAR KSH: Zero collections recorded across all months — including Oct 2024 when 69 invoices were dispatched. Non-paying payer: root cause required before any recovery sprint (E7).")
 
     # ── Executive Recommendation ──────────────────────────────────────────────
 
@@ -2423,10 +2422,10 @@ elif page == "Capacity & Operations":
             kpi_card("Top Ward RevPAB", top_revpab_val, top_revpab_label, COLORS["warning"])
         with c4:
             if dial_sessions == 0:
-                kpi_card("Dialysis Revenue Potential",
-                         "KES 52K–140K/mo",
-                         "3–5 specialist referrals · Zero capital investment",
-                         COLORS["success"], icon="✓")
+                kpi_card("Dialysis Programme Gap",
+                         "253 registered · 0 sessions",
+                         "78 critical creatinine patients unserved · 6 machines idle since Apr 2025",
+                         COLORS["warning"], icon="⚠")
             else:
                 kpi_card("Dialysis Sessions / Month", str(dial_sessions), "Most recent month", COLORS["purple"])
     else:
@@ -2612,12 +2611,6 @@ elif page == "Capacity & Operations":
                         f"Private wards earn <strong>{_rmult:.1f}×</strong> more per bed-day "
                         f"but hold only <strong>{_rpvt_pct:.0f}%</strong> of admissions. "
                         "Filling private capacity is the highest-yield lever available."
-                    )
-                if facility == "KISUMU_CLEAN":
-                    dq_note(
-                        "Insured exposure · If 20–30% of insured admissions carry private-tier "
-                        "authorisation but are placed in general wards: "
-                        "<strong>KES 970K–1.4M/year billed at the wrong rate.</strong>"
                     )
 
         if facility == "KISUMU_CLEAN":
@@ -2959,7 +2952,6 @@ elif page == "Capacity & Operations":
                 dq_note(
                     "Lab volume: distinct patient visits with at least one lab result. "
                     "WATCH <430/month for 2 consecutive months; CRITICAL <350 single month. "
-                    "Oct 2025: 371 visits (44% drop) — facility-wide across all test categories. "
                     "Abnormal rate: % of all lab test results flagged H or L (high or low) across every test type — "
                     "not specific to any one test. A rising rate signals a sicker patient mix or a specific category spiking. "
                     "WATCH >9% for 2 months; CRITICAL >11%."
@@ -3041,12 +3033,6 @@ elif page == "Capacity & Operations":
                         COLORS["muted"],
                     )
 
-                dq_note(
-                    "KSH sees critical kidney patients every month. 41% leave without being admitted. "
-                    "Dialysis has been unused since April 2025 — not because demand is absent, "
-                    "but because patients are not reaching inpatient care. "
-                    "Action: Clinical Lead to review the renal admission pathway."
-                )
                 st.markdown("<div style='margin-bottom:8px'></div>", unsafe_allow_html=True)
 
         if facility == "KISUMU_CLEAN":
@@ -3122,7 +3108,6 @@ elif page == "Capacity & Operations":
                 st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
                 dq_note(
                     "Imaging revenue sourced from billing items (stg_procedure_revenue). "
-                    "CT dominates — KES 3–7M/month. MRI highest per-session rate (avg KES 35K+). "
                     "Invoices generated but not submitted post-Sep 2025. "
                     "Note: these same items appear within the 'Investigations (incl. fees)' block on the Service Mix page — "
                     "do not add figures from both pages. Pending promotion to gold table G8."
@@ -3236,11 +3221,7 @@ elif page == "Capacity & Operations":
                 transition_duration=400,
             ))
             st.plotly_chart(_fig_wl, use_container_width=True, config={"displayModeBar": False})
-            dq_note(
-                "makinyi departed Dec 2025 (~172 visits/month). Load redistributed silently: "
-                "E.Awando +57%, E.Lowino +66% in the following months. "
-                "Concentration rule fires when top doctor exceeds 40% of monthly visits (Inv 24)."
-            )
+            dq_note("Concentration rule fires when top doctor exceeds 40% of monthly visits.")
 
             # ── Conversion Rate per Doctor ────────────────────────────────────
             _conv_df = P.get("doctor_conv", pd.DataFrame())
@@ -3430,73 +3411,73 @@ elif page == "Capacity & Operations":
                 _tat_df = _tat_df.sort_values("day_num")
                 st.markdown("<div style='margin-top:28px'></div>", unsafe_allow_html=True)
                 section_header("Admission TAT by Day of Week")
-                _fig_tat = go.Figure()
-                _fig_tat.add_trace(go.Bar(
-                    x=_tat_df["day_name"], y=_tat_df["fast_track"],
-                    name="Fast-track (<60 min)", marker_color=COLORS["success"],
-                    customdata=_tat_df["fast_pct"],
-                    hovertemplate="%{x}: %{y} admissions (%{customdata:.1f}% fast)<extra></extra>",
-                ))
-                _fig_tat.add_trace(go.Bar(
-                    x=_tat_df["day_name"], y=_tat_df["slow_pathway"],
-                    name="Slow pathway (60–480 min)", marker_color=COLORS["warning"],
-                    hovertemplate="%{x}: %{y} admissions<extra></extra>",
-                ))
-                _fig_tat.add_trace(go.Scatter(
-                    x=_tat_df["day_name"], y=_tat_df["p50_tat_min"],
-                    name="Median TAT (min)", mode="lines+markers",
-                    line=dict(color=COLORS["danger"], dash="dot", width=2),
-                    marker=dict(size=7),
-                    yaxis="y2",
-                    hovertemplate="%{x}: p50 = %{y:.0f} min<extra></extra>",
-                ))
-                _fig_tat.add_trace(go.Scatter(
-                    x=_tat_df["day_name"], y=_tat_df["p75_tat_min"],
-                    name="P75 TAT (min)", mode="lines+markers",
-                    line=dict(color=COLORS["warning"], dash="solid", width=2),
-                    marker=dict(size=7),
-                    yaxis="y2",
-                    hovertemplate="%{x}: p75 = %{y:.0f} min<extra></extra>",
-                ))
-                _fig_tat.add_shape(
-                    type="line", xref="paper", yref="y2",
-                    x0=0, x1=1, y0=240, y1=240,
-                    line=dict(color=COLORS["warning"], dash="dot", width=1.5),
+                _fig_tat = make_subplots(specs=[[{"secondary_y": True}]])
+                _bar_colors = [
+                    COLORS["danger"] if p < 45
+                    else COLORS["warning"] if p < 55
+                    else COLORS["success"]
+                    for p in _tat_df["fast_pct"]
+                ]
+                _fig_tat.add_bar(
+                    x=_tat_df["day_name"], y=_tat_df["fast_pct"],
+                    name="Admission speed",
+                    marker_color=_bar_colors,
+                    text=_tat_df["fast_pct"].apply(lambda p: f"{p:.0f}%"),
+                    textposition="outside",
+                    secondary_y=False,
+                    showlegend=False,
+                    hovertemplate="%{x}: %{y:.1f}% admitted fast · 1-in-4 wait: "
+                                  + _tat_df["p75_tat_min"].apply(lambda v: f"{v:.0f} min").astype(str)
+                                  + "<extra></extra>",
                 )
-                _fig_tat.add_annotation(
-                    xref="paper", yref="y2",
-                    x=1.01, y=240, text="4h", showarrow=False,
-                    font=dict(size=9, color=COLORS["warning"]), xanchor="left",
+                _fig_tat.add_scatter(
+                    x=_tat_df["day_name"], y=_tat_df["total_evaluations"],
+                    name="Visit load (total evaluations)",
+                    mode="lines+markers",
+                    line=dict(color=COLORS["primary"], width=2, dash="dot"),
+                    marker=dict(size=7),
+                    secondary_y=True,
+                    hovertemplate="%{x}: %{y:,} evaluation visits<extra></extra>",
                 )
+                for _lbl, _clr in [
+                    ("Fast — majority admitted within 1 hour", COLORS["success"]),
+                    ("Mixed — roughly half wait over 1 hour", COLORS["warning"]),
+                    ("Slow — majority wait over 1 hour", COLORS["danger"]),
+                ]:
+                    _fig_tat.add_scatter(
+                        x=[None], y=[None], mode="markers",
+                        marker=dict(color=_clr, size=10, symbol="square"),
+                        name=_lbl, secondary_y=False, showlegend=True,
+                    )
                 _fig_tat.update_layout(**cl(
-                    height=340, barmode="stack",
-                    yaxis_title="Admissions",
-                    yaxis2=dict(
-                        title="TAT (min)",
-                        overlaying="y", side="right",
-                        tickfont=dict(size=10, color="#6B8CAE"),
-                        gridcolor="#EBF3FB",
-                    ),
-                    legend=dict(orientation="h", yanchor="bottom", y=1.02,
-                                xanchor="right", x=1),
-                    margin=dict(l=10, r=10, t=30, b=10),
-                    transition_duration=400,
+                    height=320,
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                    margin=dict(l=10, r=60, t=30, b=10),
                 ))
+                _fig_tat.update_yaxes(
+                    title_text="Admission speed (%)", ticksuffix="%",
+                    range=[0, 100], secondary_y=False,
+                )
+                _fig_tat.update_yaxes(
+                    title_text="Visit load", secondary_y=True,
+                    rangemode="tozero",
+                )
                 st.plotly_chart(_fig_tat, use_container_width=True,
                                 config={"displayModeBar": False})
+                _worst = _tat_df.sort_values("fast_pct").iloc[0]
+                _second = _tat_df.sort_values("fast_pct").iloc[1]
                 st.caption(
-                    "**Sunday** is the worst day for admission speed — 32.4% fast-track, "
-                    "p50 = 102 min. **Monday** second slowest (46.3%, p50 = 75 min). "
-                    "Tue–Fri most efficient (55–61% fast-track). "
-                    "Fast-track = TAT < 60 min. "
-                    "P75 line shows the worst-quarter wait time — above the 4h amber line means "
-                    "1 in 4 patients waited over 4 hours for a bed on that day."
+                    f"**{_worst['day_name']}** slowest — {_worst['fast_pct']:.1f}% admitted fast, "
+                    f"1 in 4 waited {_worst['p75_tat_min']:.0f}+ min. "
+                    f"**{_second['day_name']}** second slowest ({_second['fast_pct']:.1f}%, "
+                    f"1 in 4 waited {_second['p75_tat_min']:.0f}+ min). "
+                    "When visit load line is high and bars are red — volume is driving the delay."
                 )
                 dq_note(
+                    "Admission speed = % of admissions with bed assignment under 60 min. "
+                    "1-in-4 wait = the time that 75% of patients were below (1 in 4 waited longer). "
                     "TAT = evaluation visit creation → first inpatient admission record. "
-                    "Capped at 480 min (>8h excluded as data quality zone). "
-                    "Sep 2024+ data window. Dedup CTE: 97% of admissions have multiple source rows "
-                    "— first record (MIN created_at) per visit used."
+                    "Capped at 480 min. Sep 2024+ window."
                 )
 
 
@@ -3602,10 +3583,7 @@ elif page == "Causal Intelligence":
                     unsafe_allow_html=True,
                 )
 
-            dq_note(
-                "Peak window: Mon 14:00–17:59 · Sep 2024 onward. "
-                "Coverage gap confirmed — scheduling review. Escalate: Medical Director."
-            )
+            dq_note("Peak window: Mon 14:00–17:59 · Sep 2024 onward.")
 
             st.markdown("<div style='margin-top:24px'></div>", unsafe_allow_html=True)
 
@@ -3701,11 +3679,6 @@ elif page == "Causal Intelligence":
                         COLORS["coral"],
                     )
 
-                dq_note(
-                    "No follow-up protocol identified in EMR. "
-                    "44% of peak non-admissions have no subsequent KSH contact recorded. "
-                    "Observation window: Sep 2024–May 2026."
-                )
 
             with st.expander("Analysis"):
                 st.markdown(
@@ -4145,7 +4118,7 @@ elif page == "Readmissions":
                 if facility == "KISUMU_CLEAN":
                     _mm_note = (f"Medical Male at {med_male_latest:.0f}% in latest month. "
                                 if med_male_latest is not None else "")
-                    dq_note(f"{_mm_note}AMA discharge log + 72hr callback protocol recommended.")
+                    if _mm_note: dq_note(_mm_note.strip())
 
         # AMA KPI — shown for both facilities when benchmark data is available
         ama_df = benchmark[
@@ -4466,9 +4439,6 @@ elif page == "Service Mix":
             st.plotly_chart(pfig, use_container_width=True,
                             config={"displayModeBar": False})
 
-            if facility == "TENRI":
-                dq_note("~KES 529K rebate unattributed (26 items — NHIF-discount applied to cash invoices, "
-                        "no claim filed). Tracked as E12.")
 
     # ── Tab 3: How Dependent Are We ───────────────────────────────────────────
 
@@ -4499,8 +4469,6 @@ elif page == "Service Mix":
                                    yaxis_range=[0, 110],
                                    legend=dict(orientation="h", y=1.08)))
             st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
-            dq_note("KSH insured revenue recognition collapsed from ~80% → ~20% in Jan 2026. "
-                    "Patient volume unchanged — dispatch failure prevents recognition.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════

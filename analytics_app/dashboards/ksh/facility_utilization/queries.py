@@ -872,6 +872,66 @@ def q_btr_bti_monthly():
     """)
 
 
+def q_admission_tat_bimodal():
+    """KSH only: admission TAT by day of week — fast-track % + evaluation volume (B2 / P16-2).
+    TAT = minutes from evaluation visit creation to first admission record.
+    Dedup CTE required: 97% of INPATIENT_ADMISSIONS visit_ids have multiple rows (C2 confirmed).
+    Fast-track: TAT < 60 min. Slow pathway: TAT 60-480 min. Cap at 480 min (>8h = data quality zone).
+    visits CTE counts ALL evaluation visits per day (no admission join) — volume context.
+    Sep 2024+ data window (reliable per Inv 25b/29). No doctor filter — full population.
+    Columns: day_num, day_name, total_admissions, fast_track, slow_pathway, fast_pct,
+             p50_tat_min, p75_tat_min, total_evaluations."""
+    return run_query_df("""
+        WITH ia_dedup AS (
+            SELECT
+                visit_id,
+                MIN(created_at) AS admission_at
+            FROM HOSPITALS.KISUMU_CLEAN.INPATIENT_ADMISSIONS
+            WHERE DELETED_AT IS NULL
+            GROUP BY visit_id
+        ),
+        tat AS (
+            SELECT
+                DAYOFWEEK(TRY_TO_TIMESTAMP(ev.CREATED_AT))         AS day_num,
+                DAYNAME(TRY_TO_TIMESTAMP(ev.CREATED_AT))           AS day_name,
+                DATEDIFF('minute',
+                    TRY_TO_TIMESTAMP(ev.CREATED_AT),
+                    ia.admission_at)                                AS tat_min
+            FROM HOSPITALS.KISUMU_CLEAN.EVALUATION_VISITS ev
+            JOIN ia_dedup ia ON ia.visit_id = ev.ID
+            WHERE ev.DELETED_AT IS NULL
+              AND TRY_TO_TIMESTAMP(ev.CREATED_AT) >= '2024-09-01'
+              AND DATEDIFF('minute',
+                    TRY_TO_TIMESTAMP(ev.CREATED_AT),
+                    ia.admission_at) BETWEEN 1 AND 480
+        ),
+        visits AS (
+            SELECT
+                DAYOFWEEK(TRY_TO_TIMESTAMP(created_at))            AS day_num,
+                COUNT(*)                                            AS total_evaluations
+            FROM HOSPITALS.KISUMU_CLEAN.EVALUATION_VISITS
+            WHERE DELETED_AT IS NULL
+              AND TRY_TO_TIMESTAMP(created_at) >= '2024-09-01'
+            GROUP BY 1
+        )
+        SELECT
+            t.day_num,
+            t.day_name,
+            COUNT(*)                                                                AS total_admissions,
+            SUM(CASE WHEN t.tat_min < 60 THEN 1 ELSE 0 END)                        AS fast_track,
+            SUM(CASE WHEN t.tat_min >= 60 THEN 1 ELSE 0 END)                       AS slow_pathway,
+            ROUND(SUM(CASE WHEN t.tat_min < 60 THEN 1 ELSE 0 END)
+                  * 100.0 / COUNT(*), 1)                                            AS fast_pct,
+            ROUND(MEDIAN(t.tat_min), 0)                                             AS p50_tat_min,
+            ROUND(PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY t.tat_min), 0)      AS p75_tat_min,
+            v.total_evaluations
+        FROM tat t
+        JOIN visits v ON v.day_num = t.day_num
+        GROUP BY t.day_num, t.day_name, v.total_evaluations
+        ORDER BY t.day_num
+    """)
+
+
 def q_admission_tat_monthly():
     """KSH only: monthly fast-track % and p50 TAT for admission TAT alert (Rule 30 — Inv 47).
     TAT = minutes from evaluation visit creation to first inpatient admission record.

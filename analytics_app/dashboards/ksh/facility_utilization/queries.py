@@ -628,6 +628,7 @@ def q_doctor_conversion_monthly():
         WITH admitted AS (
             SELECT DISTINCT visit_id
             FROM HOSPITALS.KISUMU_CLEAN.INPATIENT_ADMISSIONS
+            WHERE ward_name IS NOT NULL
         )
         SELECT
             DATE_TRUNC('month', TRY_TO_TIMESTAMP(ev.created_at))::DATE  AS visit_month,
@@ -643,7 +644,7 @@ def q_doctor_conversion_monthly():
           AND u.active = 1
           AND u.username NOT REGEXP '.*[0-9].*'
           AND u.username NOT IN ('sudo', 'Billclinton')
-          AND TRY_TO_TIMESTAMP(ev.created_at) >= '2024-01-01'
+          AND TRY_TO_TIMESTAMP(ev.created_at) >= '2024-09-01'
         GROUP BY
             DATE_TRUNC('month', TRY_TO_TIMESTAMP(ev.created_at))::DATE,
             u.username

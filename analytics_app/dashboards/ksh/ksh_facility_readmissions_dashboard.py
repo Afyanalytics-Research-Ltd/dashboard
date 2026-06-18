@@ -3501,6 +3501,7 @@ elif page == "Causal Intelligence":
                     "peak_conv":     q_peak_tat_conversion(),
                     "peak_doc_load": q_peak_doctor_load(),
                     "peak_funnel":   q_peak_patient_funnel(),
+                    "doctor_conv":   q_doctor_conversion_monthly(),
                 }
 
         P7 = st.session_state.p_causal
@@ -3787,6 +3788,36 @@ elif page == "Causal Intelligence":
                         "- M.Akinyi's departure (Dec 2025) added ~57% volume onto E.Awando silently — no flag fired until months later.\n"
                         "- J.Ogutu is the only confirmed backup but carries a distant 14–17% per ward.\n"
                         "- Private wards are most exposed: fewest distinct evaluators and no fallback when E.Awando is absent."
+                    )
+
+                # ── Simulated absence impact ──────────────────────────────────
+                st.markdown("<div style='margin-top:20px'></div>", unsafe_allow_html=True)
+                section_header("Simulated Impact — If E.Awando Is Absent")
+                _sim_raw = P7.get("doctor_conv", pd.DataFrame())
+                if len(_sim_raw):
+                    _sim = _sim_raw.copy()
+                    _sim.columns = _sim.columns.str.upper()
+                    _sim_total_eval = int(_sim["EVALUATIONS"].sum())
+                    _sim_total_adm  = int(_sim["ADMISSIONS"].sum())
+                    _sim_dom        = _sim[_sim["USERNAME"].str.lower() == _dom_doc.lower()]
+                    _sim_dom_adm    = int(_sim_dom["ADMISSIONS"].sum())
+                    _actual_rate    = round(_sim_total_adm / max(_sim_total_eval, 1) * 100, 1)
+                    _sim_rate       = round((_sim_total_adm - _sim_dom_adm) / max(_sim_total_eval, 1) * 100, 1)
+                    _drop           = round(_actual_rate - _sim_rate, 1)
+                    _s1, _s2 = st.columns(2, gap="large")
+                    with _s1:
+                        kpi_card("Actual Conversion Rate",
+                                 f"{_actual_rate}%",
+                                 "Sep 2024 onward · all doctors",
+                                 COLORS["primary"])
+                    with _s2:
+                        kpi_card(f"Without {_fmt_doc(_dom_doc)}",
+                                 f"{_sim_rate}%",
+                                 f"−{_drop} percentage points · simulation",
+                                 COLORS["danger"])
+                    st.caption(
+                        f"Simulation: {_fmt_doc(_dom_doc)}'s {_sim_dom_adm:,} admissions removed. "
+                        "Evaluation volume held constant. This is a modelled estimate, not a measured outcome."
                     )
             else:
                 st.caption("E.Awando ward share data not found — username may differ.")

@@ -108,10 +108,10 @@ _TAT_WATCH, _TAT_CRIT         = 45.0, 35.0
 _TAT_P75_WATCH, _TAT_P75_CRIT = 240.0, 360.0
 
 # Rule 31 — BOR low occupancy (per-ward P25 from Inv 48)
-_BOR_P25 = {
-    "General Female": 6.5, "General Male": 7.3, "General Maternity": 3.2,
-    "Pediatric General": 4.0, "Private Female": 3.7,
-    "Private Male": 1.8, "Private Maternity": 3.2,
+_BOR_P25 = {  # P25 floors from Inv 48 re-run — corrected 32-bed denominator (Inv 54, 2026-06-18)
+    "General Female": 40.0, "General Male": 46.7, "General Maternity": 11.1,
+    "Pediatric General": 23.7, "Private Female": 11.8,
+    "Private Male": 9.7, "Private Maternity": 8.1,
 }
 
 # Rule 32 — Private ward revenue drop

@@ -821,16 +821,22 @@ def q_btr_bti_monthly():
     BTR  = total_admissions / bed_count.
     BTI  = (available_bed_days - occupied_bed_days) / discharged_admissions.
     BOR  = total_bed_days / (bed_count * days_in_month) * 100.
+    Beds: hardcoded per-ward counts (32 total, Inv 54 confirmed 2026-06-18). Do NOT query INPATIENT_BEDS —
+    Snowflake inflates to 161 via flatten duplicates + orphaned ward IDs.
     Columns: ward_name, month, total_admissions, discharged_admissions,
              total_bed_days, bed_count, btr, bti_days, bor_pct."""
     return run_query_df("""
         WITH beds AS (
-            SELECT
-                w.NAME          AS ward_name,
-                COUNT(b.ID)     AS bed_count
-            FROM HOSPITALS.KISUMU_CLEAN.INPATIENT_BEDS b
-            JOIN HOSPITALS.KISUMU_CLEAN.INPATIENT_WARDS w ON b.WARD_ID = w.ID
-            GROUP BY w.NAME
+            SELECT ward_name, bed_count
+            FROM (VALUES
+                ('General Female',    7),
+                ('General Maternity', 7),
+                ('Pediatric General', 6),
+                ('General Male',      4),
+                ('Private Male',      3),
+                ('Private Female',    3),
+                ('Private Maternity', 2)
+            ) AS t(ward_name, bed_count)
         ),
         occ AS (
             SELECT

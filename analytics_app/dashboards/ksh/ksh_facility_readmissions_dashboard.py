@@ -144,18 +144,19 @@ _LAB_ABNORM_CRIT  = 11.0
 _DOC_CONC_WATCH   = 40
 _DOC_CONC_CRIT    = 50
 
-# Rule 29 — Ward Idle BTR/BTI (Inv 46) — per-ward P25 BTR floor and P75 BTI ceiling
+# Rule 29 — Ward Idle BTR/BTI — per-ward P25 BTR floor and P75 BTI ceiling
+# Recalibrated 2026-06-18 using corrected 32-bed denominator (Inv 54). Full Sep 2024–Apr 2026 window.
 _BTR_P25 = {
-    "General Female":    0.62, "General Male":      0.69,
-    "General Maternity": 0.42, "Pediatric General": 0.53,
-    "Private Female":    0.45, "Private Male":      0.25,
-    "Private Maternity": 0.20,
+    "General Female":    3.86, "General Male":      4.50,
+    "General Maternity": 1.43, "Pediatric General": 3.17,
+    "Private Female":    1.50, "Private Male":      1.33,
+    "Private Maternity": 0.50,
 }
 _BTI_P75 = {
-    "General Female":    46.6, "General Male":      41.7,
-    "General Maternity": 71.7, "Pediatric General": 58.2,
-    "Private Female":    66.8, "Private Male":     118.6,
-    "Private Maternity": 147.0,
+    "General Female":     4.6, "General Male":       3.7,
+    "General Maternity": 19.0, "Pediatric General":  7.4,
+    "Private Female":    18.0, "Private Male":      20.2,
+    "Private Maternity": 56.0,
 }
 _OCT_2025_GAP  = "2025-10-01"  # pipeline gap month — exclude from all alert computations
 
@@ -188,11 +189,11 @@ _IMAGING_WATCH_PCT = 80.0   # sessions < 80% of 3-month rolling avg = WATCH
 _IMAGING_CRIT_PCT  = 65.0   # sessions < 65% of 3-month rolling avg = CRITICAL
 
 # Rule 31 — BOR ward low occupancy (Inv 48) — per-ward P25 BOR floor, 2 consecutive months
-_BOR_P25 = {
-    "General Female":    6.5, "General Male":      7.3,
-    "General Maternity": 3.2, "Pediatric General": 4.0,
-    "Private Female":    3.7, "Private Male":      1.8,
-    "Private Maternity": 3.2,
+_BOR_P25 = {  # P25 floors from Inv 48 re-run — corrected 32-bed denominator (Inv 54, 2026-06-18)
+    "General Female":    40.0, "General Male":      46.7,
+    "General Maternity": 11.1, "Pediatric General": 23.7,
+    "Private Female":    11.8, "Private Male":       9.7,
+    "Private Maternity":  8.1,
 }
 
 

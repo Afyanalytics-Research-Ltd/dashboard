@@ -273,6 +273,76 @@ def q_dialysis_trend(facility=None):
     """)
 
 
+def q_dialysis_ops_monthly():
+    """KSH only: monthly dialysis throughput + utilisation from FINANCE_INVOICES.
+    Replaces q_dialysis_trend() for KSH — rpt_dialysis.total_sessions is broken
+    (reads DIALYSIS_SESSIONS, which only captured 3 records Mar–Apr 2025; Inv 63).
+    Source: HOSPITALS.KISUMU_CLEAN.FINANCE_INVOICES JOIN FINANCE_INVOICE_ITEMS.
+    Timestamps are billing-time (fi.created_at), not confirmed clinical service time.
+    For NHIF (pay-after-completion model) this is a strong session proxy.
+    Session definition: item_name LIKE '%dialysis service fee%' OR = 'haemodialysis'.
+      Classified once in CTE — covers all observed NHIF and cash session billing codes.
+    Capacity denominator: 264/month = 6 machines × 2 sessions/day × 22 operating days.
+      Theoretical maximum — assumes all 6 machines operational, Mon–Fri, no downtime.
+    is_partial_month: TRUE when the last invoice in that month falls before the 25th
+      (same partial-month logic as KSH_DATA_END.day < 25 used elsewhere in codebase).
+    Data boundary: April 21 2026 (Inv 64) — last month is partial, no May/Jun data.
+    Columns: invoice_month, sessions_billed, sessions_insured, sessions_cash,
+             session_fee_revenue, total_dialysis_revenue, ancillary_revenue,
+             avg_session_fee, utilisation_pct_theoretical, is_partial_month."""
+    return run_query_df("""
+        WITH all_dialysis AS (
+            SELECT
+                fi.company_id,
+                ii.item_name,
+                ii.amount,
+                TRY_TO_TIMESTAMP(fi.created_at::STRING)                            AS invoice_ts,
+                DATE_TRUNC('month',
+                    TRY_TO_TIMESTAMP(fi.created_at::STRING))::DATE                 AS invoice_month,
+                CASE
+                    WHEN LOWER(ii.item_name) LIKE '%dialysis service fee%'
+                      OR LOWER(ii.item_name) = 'haemodialysis'
+                    THEN TRUE ELSE FALSE
+                END                                                                AS is_session_fee
+            FROM HOSPITALS.KISUMU_CLEAN.FINANCE_INVOICES fi
+            JOIN HOSPITALS.KISUMU_CLEAN.FINANCE_INVOICE_ITEMS ii
+                ON ii.invoice_id = fi.id
+            WHERE LOWER(ii.item_name) LIKE '%dialysis%'
+              AND fi.deleted_at IS NULL
+              AND ii.deleted_at IS NULL
+              AND ii.amount     >  0
+        ),
+        monthly AS (
+            SELECT
+                invoice_month,
+                SUM(CASE WHEN is_session_fee                              THEN 1 ELSE 0 END) AS sessions_billed,
+                SUM(CASE WHEN is_session_fee AND company_id IS NOT NULL   THEN 1 ELSE 0 END) AS sessions_insured,
+                SUM(CASE WHEN is_session_fee AND company_id IS NULL       THEN 1 ELSE 0 END) AS sessions_cash,
+                ROUND(SUM(CASE WHEN is_session_fee THEN amount ELSE 0 END), 0)              AS session_fee_revenue,
+                ROUND(SUM(amount), 0)                                                        AS total_dialysis_revenue,
+                ROUND(SUM(amount)
+                      - SUM(CASE WHEN is_session_fee THEN amount ELSE 0 END), 0)            AS ancillary_revenue,
+                MAX(invoice_ts)::DATE                                                        AS last_invoice_date
+            FROM all_dialysis
+            WHERE invoice_month IS NOT NULL
+            GROUP BY invoice_month
+        )
+        SELECT
+            invoice_month,
+            sessions_billed,
+            sessions_insured,
+            sessions_cash,
+            session_fee_revenue,
+            total_dialysis_revenue,
+            ancillary_revenue,
+            ROUND(session_fee_revenue / NULLIF(sessions_billed, 0), 0)   AS avg_session_fee,
+            ROUND(100.0 * sessions_billed / 264.0, 1)                    AS utilisation_pct_theoretical,
+            DAY(last_invoice_date) < 25                                   AS is_partial_month
+        FROM monthly
+        ORDER BY invoice_month
+    """)
+
+
 def q_specialty_admissions():
     """G4b: TENRI only — day case % + LOS by ward, monthly trend."""
     return run_query_df("""
@@ -820,14 +890,14 @@ def q_lab_monthly():
 
 
 def q_btr_bti_monthly():
-    """KSH only: monthly BTR + BTI + BOR per ward (Rule 29/31 — Inv 46/48).
-    BTR  = total_admissions / bed_count.
-    BTI  = (available_bed_days - occupied_bed_days) / discharged_admissions.
+    """KSH only: monthly BTR + BTI + BOR per ward (A2 / P16-6 Ward Turnover Efficiency).
+    BTR  = total_admissions / bed_count  (admissions per available bed per month).
+    BTI  = (available_bed_days - occupied_bed_days) / discharged_admissions  (avg empty days between admissions).
     BOR  = total_bed_days / (bed_count * days_in_month) * 100.
     Beds: hardcoded per-ward counts (32 total, Inv 54 confirmed 2026-06-18). Do NOT query INPATIENT_BEDS —
-    Snowflake inflates to 161 via flatten duplicates + orphaned ward IDs.
-    Columns: ward_name, month, total_admissions, discharged_admissions,
-             total_bed_days, bed_count, btr, bti_days, bor_pct."""
+    Snowflake inflates to 161 via flatten duplicates + orphaned ward IDs. Partial months excluded (< current
+    month). Oct 2025 pipeline gap noted (Inv 32).
+    Columns: ward_name, month, total_admissions, discharged_admissions, total_bed_days, bed_count, btr, bti_days, bor_pct."""
     return run_query_df("""
         WITH beds AS (
             SELECT ward_name, bed_count
@@ -934,11 +1004,13 @@ def q_admission_tat_bimodal():
 
 
 def q_admission_tat_monthly():
-    """KSH only: monthly fast-track % and p50 TAT for admission TAT alert (Rule 30 — Inv 47).
+    """KSH only: monthly fast-track % and p50/p75 TAT for admission TAT alert (Rule 30 / Inv 47).
     TAT = minutes from evaluation visit creation to first inpatient admission record.
-    Fast-track: TAT < 60 min. Cap at 480 min. Oct 2024+ window.
-    Oct 2025 excluded (pipeline gap). Current partial month excluded.
-    Columns: tat_month, total_admissions, fast_track, fast_pct, p50_tat_min."""
+    Dedup CTE required: 97% of INPATIENT_ADMISSIONS visit_ids have multiple rows.
+    Fast-track: TAT < 60 min. Cap at 480 min (data quality zone).
+    Window: Oct 2024+ (Sep 2024 excluded — confirmed partial first month, Inv 47).
+    Oct 2025 excluded (pipeline gap, Inv 32). Current partial month excluded.
+    Columns: tat_month, total_admissions, fast_track, fast_pct, p50_tat_min, p75_tat_min."""
     return run_query_df("""
         WITH ia_dedup AS (
             SELECT
@@ -969,7 +1041,8 @@ def q_admission_tat_monthly():
             COUNT(*)                                                                        AS total_admissions,
             SUM(CASE WHEN tat_min < 60 THEN 1 ELSE 0 END)                                  AS fast_track,
             ROUND(SUM(CASE WHEN tat_min < 60 THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 1)    AS fast_pct,
-            ROUND(MEDIAN(tat_min), 0)                                                       AS p50_tat_min
+            ROUND(MEDIAN(tat_min), 0)                                                       AS p50_tat_min,
+            ROUND(PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY tat_min), 0)                AS p75_tat_min
         FROM tat
         GROUP BY tat_month
         ORDER BY tat_month
@@ -977,8 +1050,11 @@ def q_admission_tat_monthly():
 
 
 def q_revpab_private_monthly():
-    """KSH only: monthly combined revenue for Private Female + Male (Rule 32 — Inv 49).
-    Private Maternity excluded — sparse volume. Window: last 7 months.
+    """KSH only: monthly combined revenue for Private Female + Male (Rule 32 / Inv 49).
+    Metric: total_admission_revenue combined across both wards per month.
+    Private Maternity excluded — admission volume too sparse for a stable rolling baseline.
+    Source: rpt_bed_occupancy gold table (same as BTR/BTI/BOR).
+    Window: last 7 months to guarantee 4+ months after Oct 2025 exclusion.
     Columns: admission_month, total_revenue, total_admissions."""
     return run_query_df("""
         SELECT

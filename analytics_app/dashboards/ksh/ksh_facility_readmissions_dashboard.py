@@ -37,6 +37,7 @@ from facility_utilization.queries import (
     q_btr_bti_monthly, q_admission_tat_bimodal, q_admission_tat_monthly,
     q_revpab_private_monthly,
     q_peak_tat_conversion, q_peak_doctor_load, q_peak_patient_funnel,
+    q_dialysis_ops_monthly,
 )
 
 # ── Feature flags ─────────────────────────────────────────────────────────────
@@ -549,6 +550,7 @@ if page == "Business Overview":
                 # "readm_ward":  q_readmission_ward_trend(facility),
                 "payer":       q_payer_trend(facility),
                 "dialysis":    q_dialysis_trend(facility),
+                "dialysis_ops": q_dialysis_ops_monthly() if _is_ksh else pd.DataFrame(),
                 # Phase 13 — KSH-only intelligence layer data
                 "ward_adm":    q_ward_admissions_monthly(facility) if _is_ksh else pd.DataFrame(),
                 "ward_los":    q_ward_los_monthly(facility)        if _is_ksh else pd.DataFrame(),
@@ -631,9 +633,23 @@ if page == "Business Overview":
     dial = P["dialysis"].copy()
     if len(dial):
         dial = dial[dial["FACILITY"] == facility]
-    if len(dial):
+    if facility == "KISUMU_CLEAN":
+        # KSH: use FINANCE_INVOICES ops data — rpt_dialysis.total_sessions is broken (Inv 63)
+        _dial_ops = P.get("dialysis_ops", pd.DataFrame()).copy()
+        _dial_ops_complete = (
+            _dial_ops[~_dial_ops["IS_PARTIAL_MONTH"]]
+            if len(_dial_ops) and "IS_PARTIAL_MONTH" in _dial_ops.columns
+            else _dial_ops
+        )
+        if len(_dial_ops_complete):
+            _last_ops = pd.to_datetime(_dial_ops_complete["INVOICE_MONTH"]).max()
+            _ops_end  = pd.Timestamp("2026-04-01")
+            months_idle = (_ops_end.year - _last_ops.year) * 12 + (_ops_end.month - _last_ops.month)
+        else:
+            months_idle = None
+    elif len(dial):
         last_session = pd.to_datetime(dial["SESSION_MONTH"]).max()
-        _data_end_dt = pd.Timestamp("2026-04-01" if facility == "KISUMU_CLEAN" else TENRI_DATA_END)
+        _data_end_dt = pd.Timestamp(TENRI_DATA_END)
         months_idle  = (_data_end_dt.year - last_session.year) * 12 + (_data_end_dt.month - last_session.month)
     else:
         months_idle = None
@@ -1605,14 +1621,14 @@ if page == "Business Overview":
                     "Dialysis — Equipment Idle",
                     f"{months_idle} months",
                     _kes_line,
-                    "Last session Apr 2025 · 253 patients registered, 78 critical creatinine patients unserved. "
-                    "Programme gap — not an equipment gap. Clinical lead review needed.",
+                    "Last session Apr 2025 · 22 enrolled, 5 ever scheduled, 3 sessions delivered (9% slot fulfilment). "
+                    "77 of 78 admitted critical creatinine patients never enrolled. Process gap — not an equipment gap. Clinical lead review needed.",
                     COLORS["warning"],
                 )
                 _active += 1
                 _notices.append({"level": "WATCH", "title": "Dialysis — Equipment Idle",
                                  "metric": f"{months_idle} months",
-                                 "action": "Programme gap — 78 critical creatinine patients unserved. Clinical lead review needed."})
+                                 "action": "Programme gap — 77 of 78 admitted critical creatinine patients never enrolled in dialysis. Clinical lead review needed."})
 
             # Rule 35 — CT Imaging Volume Drop (Inv 52)
             if _img_alert is not None:
@@ -1678,8 +1694,6 @@ if page == "Business Overview":
                 f'</div>',
                 unsafe_allow_html=True,
             )
-
-
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2338,7 +2352,6 @@ elif page == "Revenue Leakage" and AR_PAGE_ENABLED:  # AR_PAGE_DISABLED — see 
                 file_name="recovery_priority.csv",
                 mime="text/csv")
 
-
     # ── Executive Recommendation ──────────────────────────────────────────────
 
 
@@ -2360,6 +2373,7 @@ elif page == "Capacity & Operations":
                 "beds_los":      q_beds_los(facility),
                 "beds_monthly":  q_beds_monthly() if _is_ksh_p3 else pd.DataFrame(),
                 "dialysis":    q_dialysis_trend(facility),
+                "dialysis_ops": q_dialysis_ops_monthly() if _is_ksh_p3 else pd.DataFrame(),
                 "specialty":   q_specialty_admissions(),
                 "imaging":     q_imaging_trend(facility),
                 # Phase 13 ward intelligence (KSH only)
@@ -2373,7 +2387,8 @@ elif page == "Capacity & Operations":
                 "cd12_rate":   q_cd12_monthly_rate()               if _is_ksh_p3 else pd.DataFrame(),
                 "doctor_conv": q_doctor_conversion_monthly()       if _is_ksh_p3 else pd.DataFrame(),
                 "peak_bk":     q_peak_breakdown()                  if _is_ksh_p3 else pd.DataFrame(),
-                "adm_tat":     q_admission_tat_bimodal()            if _is_ksh_p3 else pd.DataFrame(),
+                "btr_bti":     q_btr_bti_monthly()           if _is_ksh_p3 else pd.DataFrame(),
+                "adm_tat":     q_admission_tat_bimodal()     if _is_ksh_p3 else pd.DataFrame(),
             }
 
     P = st.session_state.p3
@@ -2382,6 +2397,12 @@ elif page == "Capacity & Operations":
     beds_r    = P["beds_revpab"]
     beds_l    = P["beds_los"]
     dialysis  = _filter_epoch(P["dialysis"], "SESSION_MONTH")
+    _dial_ops_raw = P.get("dialysis_ops", pd.DataFrame()).copy()
+    fac_dialysis_ops = (
+        _dial_ops_raw[~_dial_ops_raw["IS_PARTIAL_MONTH"]]
+        if len(_dial_ops_raw) and "IS_PARTIAL_MONTH" in _dial_ops_raw.columns
+        else _dial_ops_raw
+    )
     specialty = _filter_epoch(P["specialty"], "ADMISSION_MONTH")
     imaging   = _filter_epoch(P["imaging"], "REVENUE_MONTH")
 
@@ -2560,24 +2581,6 @@ elif page == "Capacity & Operations":
                         COLORS["warning"])
 
         with col_r:
-            section_header("Avg Length of Stay by Ward Category")
-            if len(beds_l):
-                fig = go.Figure()
-                fac_colors = {"TENRI": COLORS["primary"], "KISUMU_CLEAN": COLORS["success"]}
-                for fac in beds_l["FACILITY"].unique():
-                    sub = beds_l[beds_l["FACILITY"] == fac]
-                    fig.add_bar(
-                        name=FAC_DISPLAY.get(fac, fac),
-                        x=sub["AVG_LOS_DAYS"],
-                        y=sub["WARD_CATEGORY"],
-                        orientation="h",
-                        marker_color=fac_colors.get(fac, COLORS["muted"]))
-                fig.update_layout(
-                    **cl(barmode="group", height=380, xaxis_title="Avg Days",
-                         legend=dict(orientation="h", y=1.08)))
-                st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
-
-            st.markdown("<div style='margin-top:20px'></div>", unsafe_allow_html=True)
             section_header("Ward Revenue per Bed-Day")
             _rvpb_raw = beds_r.copy() if len(beds_r) else pd.DataFrame()
             if len(_rvpb_raw):
@@ -2615,7 +2618,6 @@ elif page == "Capacity & Operations":
                         f"but hold only <strong>{_rpvt_pct:.0f}%</strong> of admissions. "
                         "Filling private capacity is the highest-yield lever available."
                     )
-
         if facility == "KISUMU_CLEAN":
             st.markdown("<div style='margin-top:20px'></div>", unsafe_allow_html=True)
             section_header("Private Ward Under-Billing — Rate Differential Confirmed")
@@ -2881,6 +2883,64 @@ elif page == "Capacity & Operations":
                     "Bed days = discharged admissions only — open admissions excluded."
                 )
 
+        # ── Ward Turnover Efficiency (KSH only / B3 / P16-6) ─────────────────
+        _btr_df = P.get("btr_bti", pd.DataFrame())
+        if _is_ksh_p3 and len(_btr_df):
+            _btr_df = _btr_df.copy()
+            _btr_df.columns = _btr_df.columns.str.lower()
+            _btr_df = _btr_df[_btr_df["month"].notna()].sort_values(["ward_name", "month"])
+            if len(_btr_df):
+                st.markdown("<div style='margin-top:28px'></div>", unsafe_allow_html=True)
+                section_header("Ward Turnover Efficiency")
+                _btr_wards = sorted(_btr_df["ward_name"].unique())
+                _sel_btr   = st.selectbox("Select ward", _btr_wards, key="btr_ward_sel")
+                _btr_w     = _btr_df[_btr_df["ward_name"] == _sel_btr].copy()
+                _btr_w["month_lbl"] = pd.to_datetime(_btr_w["month"]).dt.strftime("%b %Y")
+                _fig_btr = go.Figure()
+                _fig_btr.add_trace(go.Bar(
+                    x=_btr_w["month_lbl"], y=_btr_w["btr"],
+                    name="BTR", marker_color=COLORS["primary"],
+                    hovertemplate="%{x}: BTR %{y:.2f}<extra></extra>",
+                ))
+                _fig_btr.add_trace(go.Scatter(
+                    x=_btr_w["month_lbl"], y=_btr_w["bti_days"],
+                    name="BTI (days)", mode="lines+markers",
+                    line=dict(color=COLORS["warning"], width=2),
+                    marker=dict(size=7),
+                    yaxis="y2",
+                    hovertemplate="%{x}: BTI %{y:.1f} days<extra></extra>",
+                ))
+                _btr_alos = (
+                    _btr_w["total_bed_days"].sum()
+                    / max(_btr_w["total_admissions"].sum(), 1)
+                )
+                _fig_btr.update_layout(**cl(
+                    height=320,
+                    yaxis_title="BTR (admissions / bed)",
+                    yaxis2=dict(
+                        title="BTI (empty days between admissions)",
+                        overlaying="y", side="right",
+                        tickfont=dict(size=10, color="#6B8CAE"),
+                    ),
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                                xanchor="right", x=1),
+                    margin=dict(l=10, r=10, t=30, b=10),
+                    transition_duration=400,
+                ))
+                st.plotly_chart(_fig_btr, use_container_width=True,
+                                config={"displayModeBar": False})
+                st.caption(
+                    f"**BTR** (Bed Turnover Rate) = admissions ÷ available beds. "
+                    f"**BTI** (Bed Turnover Interval) = avg days a bed sits empty between admissions "
+                    f"— lower BTI = faster cycling. "
+                    f"**ALOS** = {_btr_alos:.1f} days (12-month avg, {_sel_btr})."
+                )
+                dq_note(
+                    "Oct 2025 excluded — source pipeline data gap (Inv 32). "
+                    "Descriptive framing — no external KSH benchmark; "
+                    "internal ward median is the reference baseline."
+                )
+
         # ── Admission TAT by Day of Week ──────────────────────────────────────
         if _is_ksh_p3:
             _tat_df = P.get("adm_tat", pd.DataFrame())
@@ -3090,42 +3150,111 @@ elif page == "Capacity & Operations":
             st.markdown("<div style='margin-top:24px'></div>", unsafe_allow_html=True)
             section_header("Dialysis — Why It Connects to the Above")
             _d3c1, _d3c2, _d3c3 = st.columns(3, gap="large")
+            _dial_peak_row   = fac_dialysis_ops.nlargest(1, "SESSIONS_BILLED") if len(fac_dialysis_ops) else pd.DataFrame()
+            _dial_peak_sess  = int(_dial_peak_row["SESSIONS_BILLED"].iloc[0])  if len(_dial_peak_row) else 0
+            _dial_peak_month = (pd.to_datetime(_dial_peak_row["INVOICE_MONTH"].iloc[0]).strftime("%b %Y")
+                                if len(_dial_peak_row) else "")
+            _dial_rev_sorted = fac_dialysis_ops.sort_values("INVOICE_MONTH")
+            if len(_dial_rev_sorted) >= 2:
+                _rev_latest = float(_dial_rev_sorted.iloc[-1]["SESSION_FEE_REVENUE"])
+                _rev_prev   = float(_dial_rev_sorted.iloc[-2]["SESSION_FEE_REVENUE"])
+                _rev_chg    = (_rev_latest - _rev_prev) / max(_rev_prev, 1) * 100
+                _rev_arrow  = "▲" if _rev_chg >= 0 else "▼"
+                _rev_clr    = COLORS["success"] if _rev_chg >= 0 else COLORS["danger"]
+                _rev_sub    = (f'<span style="color:{_rev_clr};font-weight:700">'
+                               f'{_rev_arrow} {abs(_rev_chg):.1f}%</span> vs prior month')
+            elif len(_dial_rev_sorted) == 1:
+                _rev_latest = float(_dial_rev_sorted.iloc[-1]["SESSION_FEE_REVENUE"])
+                _rev_clr    = COLORS["success"]
+                _rev_sub    = "First complete month on record"
+            else:
+                _rev_latest = 0
+                _rev_clr    = COLORS["muted"]
+                _rev_sub    = "—"
             with _d3c1:
-                kpi_card("Registered Patients", "253",
-                         "Requiring dialysis at KSH", COLORS["danger"])
+                kpi_card("Programme Sessions",
+                         str(_dial_peak_sess) if _dial_peak_sess else "—",
+                         f"Peak {_dial_peak_month} · NHIF-funded", COLORS["primary"])
             with _d3c2:
-                kpi_card("Sessions Delivered", "0",
-                         "Since May 2025 · 6 machines idle", COLORS["warning"], icon="⚠")
+                kpi_card("Monthly Session Revenue",
+                         fmt_kes(_rev_latest) if _rev_latest else "—",
+                         _rev_sub,
+                         _rev_clr)
             with _d3c3:
-                kpi_card("Monthly Revenue Gap", "KES 52K–140K",
-                         "Foregone at historical session rate", COLORS["muted"])
-            _dial3 = fac_dialysis.sort_values("SESSION_MONTH") if len(fac_dialysis) else pd.DataFrame()
+                kpi_card("CD12 Routing Gap", "96.8%",
+                         "122 of 126 critical creatinine patients not in programme", COLORS["danger"])
+            _dial3 = fac_dialysis_ops.sort_values("INVOICE_MONTH") if len(fac_dialysis_ops) else pd.DataFrame()
             if len(_dial3):
-                _fig_dial = go.Figure()
-                _dial_colors = [
-                    COLORS["danger"] if s == 0 else COLORS["primary"]
-                    for s in _dial3["TOTAL_SESSIONS"]
-                ]
-                _fig_dial.add_bar(
-                    x=_dial3["SESSION_MONTH"], y=_dial3["TOTAL_SESSIONS"],
-                    marker_color=_dial_colors,
-                    hovertemplate="%{x|%b %Y}: %{y} sessions<extra></extra>",
-                    showlegend=False,
+                # Chart 1 — sessions by payer: stacked NHIF / cash (growth story)
+                _fig_dial1 = go.Figure()
+                _fig_dial1.add_bar(
+                    x=_dial3["INVOICE_MONTH"], y=_dial3["SESSIONS_INSURED"],
+                    name="NHIF", marker_color=COLORS["primary"],
+                    hovertemplate="%{x|%b %Y}: %{y} NHIF<extra></extra>",
                 )
-                _fig_dial.update_layout(**cl(
-                    height=200, yaxis_title="Sessions / month",
-                    margin=dict(l=0, r=0, t=10, b=30),
+                _fig_dial1.add_bar(
+                    x=_dial3["INVOICE_MONTH"], y=_dial3["SESSIONS_CASH"],
+                    name="Cash", marker_color=COLORS["warning"],
+                    hovertemplate="%{x|%b %Y}: %{y} cash<extra></extra>",
+                )
+                _fig_dial1.update_layout(**cl(
+                    barmode="stack", height=230, yaxis_title="Sessions / month",
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                                xanchor="right", x=1, font=dict(size=10)),
+                    margin=dict(l=0, r=0, t=30, b=30),
                 ))
-                st.plotly_chart(_fig_dial, use_container_width=True,
+                st.plotly_chart(_fig_dial1, use_container_width=True,
                                 config={"displayModeBar": False})
+
+                # Charts 2 + 3 — utilisation % and session revenue side by side
+                _dc1, _dc2 = st.columns(2, gap="medium")
+                with _dc1:
+                    st.caption("Utilisation — % of one-shift theoretical max (264 sessions/month)")
+                    _fig_util = go.Figure()
+                    _fig_util.add_scatter(
+                        x=_dial3["INVOICE_MONTH"],
+                        y=_dial3["UTILISATION_PCT_THEORETICAL"],
+                        mode="lines+markers",
+                        line=dict(color=COLORS["primary"], width=2),
+                        marker=dict(size=6),
+                        hovertemplate="%{x|%b %Y}: %{y:.1f}%<extra></extra>",
+                        showlegend=False,
+                    )
+                    _fig_util.add_hline(y=100, line_dash="dot",
+                                        line_color=COLORS["muted"],
+                                        annotation_text="100% cap")
+                    _fig_util.update_layout(**cl(
+                        height=200, yaxis_title="Utilisation %",
+                        margin=dict(l=0, r=0, t=10, b=30),
+                    ))
+                    _fig_util.update_yaxes(range=[0, 115])
+                    st.plotly_chart(_fig_util, use_container_width=True,
+                                    config={"displayModeBar": False})
+                with _dc2:
+                    st.caption("Session fee revenue per month (NHIF + cash, KES)")
+                    _fig_rev = go.Figure()
+                    _fig_rev.add_bar(
+                        x=_dial3["INVOICE_MONTH"],
+                        y=(_dial3["SESSION_FEE_REVENUE"] / 1_000).round(0),
+                        marker_color=COLORS["success"],
+                        hovertemplate="%{x|%b %Y}: KES %{y:.0f}K<extra></extra>",
+                        showlegend=False,
+                    )
+                    _fig_rev.update_layout(**cl(
+                        height=200, yaxis_title="KES (thousands)",
+                        margin=dict(l=0, r=0, t=10, b=30),
+                    ))
+                    st.plotly_chart(_fig_rev, use_container_width=True,
+                                    config={"displayModeBar": False})
             info_card(
-                "The critical creatinine patients tracked above are the same population requiring dialysis. "
-                "KSH has 6 machines, 253 registered patients, and zero sessions since May 2025. "
-                "Patients are being evaluated, flagged as critical, and discharged — with no dialysis access. "
-                "For the full patient safety analysis see Causal Intelligence → CD12.",
-                border_color=COLORS["danger"],
+                "KSH dialysis programme is operational — 135 sessions in December 2025, predominantly "
+                "NHIF-funded at KES 10,650/session. Running at 35–51% of one-shift theoretical capacity "
+                "(6 machines, 264 sessions/month maximum). Data to April 21 2026. "
+                "The clinical gap is referral routing: 122 of 126 patients with critical creatinine results "
+                "(96.8%) have no dialysis billing record. Capacity exists — the pathway from critical "
+                "creatinine detection to dialysis enrolment is not functioning. See Causal Intelligence → CD12.",
+                border_color=COLORS["warning"],
             )
-            dq_note("Revenue gap estimated at KES 52K–140K/month based on 3 historical sessions (Mar–Apr 2025).")
 
         if facility == "KISUMU_CLEAN":
             fac_img = imaging[imaging["FACILITY"] == facility].copy() if "FACILITY" in imaging.columns else imaging.copy()
@@ -3505,6 +3634,7 @@ elif page == "Capacity & Operations":
                     )
 
 
+
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE 4 — Patients Coming Back
 # ══════════════════════════════════════════════════════════════════════════════
@@ -3872,12 +4002,13 @@ elif page == "Causal Intelligence":
             kpi_card("Returned to KSH", "72%",
                      "Most came back outpatient only", COLORS["primary"])
         with _r5:
-            kpi_card("Dialysis Programme", "Idle since May 2025",
-                     "KES 52K–140K/month unrealised", COLORS["warning"])
+            kpi_card("Dialysis Routing Gap", "96.8%",
+                     "122 of 126 patients never billed for dialysis", COLORS["danger"])
 
         st.caption(
             "Non-admission is a clinical decision, not patient-driven — DAMA rate matches the facility baseline. "
-            "Dialysis has been idle since May 2025 despite ongoing critical renal activity. "
+            "The dialysis programme is operational (80–135 sessions/month, NHIF-funded), "
+            "but 96.8% of critical creatinine patients are not being routed into it. "
             "Escalate to Clinical Director and Renal Lead."
         )
         dq_note("Patient safety finding — not an operational alert. Analysis covers January 2024 onward.")
@@ -3888,8 +4019,9 @@ elif page == "Causal Intelligence":
                 "- Of those who left without admission and returned: a quarter required admission on their return visit — delayed escalation.\n"
                 "- Referral patients waited an average of **18 days** before transfer. No rapid referral pathway confirmed in data.\n"
                 "- 1 patient death within 24 hours of admission. 28% never returned — death, transfer, or lost to follow-up.\n"
-                "- Every patient in this cohort had **zero dialysis access** throughout their activity window at KSH. "
-                "3 sessions total ever recorded (March–April 2025)."
+                "- Every patient in this cohort had **no dialysis billing record** at KSH. "
+                "The programme served 80–135 sessions/month (NHIF-funded) — the clinical referral pathway "
+                "from critical creatinine detection to dialysis enrolment is not functioning."
             )
 
         # ── Go deeper — suggested chat questions ─────────────────────────────
@@ -4173,7 +4305,8 @@ elif page == "Readmissions":
                 if facility == "KISUMU_CLEAN":
                     _mm_note = (f"Medical Male at {med_male_latest:.0f}% in latest month. "
                                 if med_male_latest is not None else "")
-                    if _mm_note: dq_note(_mm_note.strip())
+                    if _mm_note:
+                        dq_note(_mm_note.strip())
 
         # AMA KPI — shown for both facilities when benchmark data is available
         ama_df = benchmark[

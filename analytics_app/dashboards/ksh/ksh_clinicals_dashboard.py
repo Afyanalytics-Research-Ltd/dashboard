@@ -452,6 +452,6 @@ else:  # Head of Clinician — all analytics tabs, no patient card
     ])
     with tabs[0]: V.render_tab_opd_ipd(filters, run_query)
     with tabs[1]: V.render_tab_clinical_activity(filters, run_query)
-    with tabs[2]: V.render_tab_conversion_value(filters, run_query)
+    with tabs[2]: V.render_tab2_patient_acquisition(filters, run_query)
     with tabs[3]: V.render_tab3_retention(filters, run_query)
     with tabs[4]: V.render_tab4_disease_burden(filters, run_query)

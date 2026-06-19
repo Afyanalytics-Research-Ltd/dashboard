@@ -1268,50 +1268,7 @@ if page == "Business Overview":
         # if _readm_rising and mm_rate <= _READM_WATCH:
         #     ...
 
-        # Rule 3 — Theatre completion below target (KSH only)
-        if th_comp_rate is not None and th_comp_rate < _THEATRE_WATCH:
-            _sev = "CRITICAL" if th_comp_rate < _THEATRE_CRIT else "WATCH"
-            _col = COLORS["danger"] if th_comp_rate < _THEATRE_CRIT else COLORS["warning"]
-            _gap_line = (
-                f"Est. KES {fmt_kes(_th_rev_gap)}/month in unbilled capacity"
-                if _th_rev_gap else
-                f"Down {th_peak_rate - th_comp_rate:.0f}pp from peak {th_peak_rate:.0f}% in {th_peak_lbl}"
-            )
-            _notice_card(
-                _sev,
-                "Theatre — Completion Below Target",
-                f"{th_comp_rate:.0f}%",
-                _gap_line,
-                f"Trailing 3-month average · peak was {th_peak_rate:.0f}% in {th_peak_lbl}. "
-                "Check cancellation and no-show rates on Capacity & Ops page.",
-                _col,
-            )
-            _active += 1
-            _notices.append({"level": _sev, "title": "Theatre — Completion Below Target",
-                             "metric": f"{th_comp_rate:.0f}%",
-                             "action": "Check cancellation and no-show rates on Capacity & Ops"})
-
-        # Rule 4 — Dialysis idle (KSH only)
-        if months_idle is not None and months_idle >= _DIALYSIS_IDLE and facility == "KISUMU_CLEAN":
-            _kes_line = (
-                f"Est. KES {fmt_kes(_dial_kes_low)}–{fmt_kes(_dial_kes_high)} foregone at historical session rate"
-                if _dial_kes_low else "Insufficient session history to estimate foregone revenue"
-            )
-            _notice_card(
-                "WATCH",
-                "Dialysis — Equipment Idle",
-                f"{months_idle} months",
-                _kes_line,
-                "Last session Apr 2025 · 253 patients registered, 78 critical creatinine patients unserved. "
-                "Programme gap — not an equipment gap. Clinical lead review needed.",
-                COLORS["warning"],
-            )
-            _active += 1
-            _notices.append({"level": "WATCH", "title": "Dialysis — Equipment Idle",
-                             "metric": f"{months_idle} months",
-                             "action": "Programme gap — 78 critical creatinine patients unserved. Clinical lead review needed."})
-
-        # ── Phase 13 rules (KSH only) ─────────────────────────────────────────
+        # ── Phase 13 rules (KSH only) — domain order: Capacity → Patient Flow → Staffing → Lab & Diagnostics → Theatre
 
         if _is_ksh:
 
@@ -1319,6 +1276,8 @@ if page == "Business Overview":
             # Re-enable when clinical page is built. Data intact in rpt_readmissions gold table.
             # _WARD_READM_OTHERS = [...]
             # for _wk, _wlabel in _WARD_READM_OTHERS: ...
+
+            # ── CAPACITY ──────────────────────────────────────────────────────
 
             # Rules 10-14 — Ward traffic volume (Inv 21)
             _WARD_TRAFFIC_ALL = [
@@ -1383,6 +1342,64 @@ if page == "Business Overview":
                                      "metric": f"{_latest_lv:.1f}d median",
                                      "action": f"Investigate discharge delays — {_wlabel}"})
 
+            # Rule 29 — Ward Idle BTR/BTI (Inv 46)
+            for _wi_ward, _wi_btr, _wi_btr_p25, _wi_bti, _wi_bti_p75, _wi_mo_lbl in _ward_idle_alerts:
+                _notice_card(
+                    "WATCH",
+                    f"{_wi_ward} — Ward Idle",
+                    f"BTR {_wi_btr:.2f} · BTI {_wi_bti:.0f}d",
+                    f"BTR {_wi_btr_p25 - _wi_btr:.2f} below ward floor ({_wi_btr_p25:.2f}) · "
+                    f"BTI {_wi_bti - _wi_bti_p75:.0f}d above ward ceiling ({_wi_bti_p75:.0f}d)",
+                    f"{_wi_mo_lbl} — {_wi_ward}: {_wi_btr:.2f} admissions/bed (ward floor {_wi_btr_p25:.2f}) "
+                    f"and beds idle avg {_wi_bti:.0f} days (ward ceiling {_wi_bti_p75:.0f}d). "
+                    "Low admissions confirmed by extended idle time — flag to ward manager.",
+                    COLORS["warning"],
+                )
+                _active += 1
+                _notices.append({"level": "WATCH",
+                                 "title": f"{_wi_ward} — Ward Idle",
+                                 "metric": f"BTR {_wi_btr:.2f} · BTI {_wi_bti:.0f}d",
+                                 "action": f"Flag to ward manager — {_wi_ward} below ward baseline"})
+
+            # Rule 31 — BOR ward low occupancy (Inv 48)
+            for _bw_ward, _bw_bor, _bw_p25, _bw_gap, _bw_mo_lbl in _bor_ward_alerts:
+                _notice_card(
+                    "WATCH",
+                    f"{_bw_ward} — Low Occupancy",
+                    f"BOR {_bw_bor:.1f}%",
+                    f"{_bw_gap}pp below ward P25 floor ({_bw_p25:.1f}%) · 2 consecutive months",
+                    f"{_bw_mo_lbl} — {_bw_ward} occupancy at {_bw_bor:.1f}% for 2 consecutive months "
+                    f"(ward P25 floor {_bw_p25:.1f}%, gap {_bw_gap}pp). "
+                    "Sustained low occupancy — flag to ward manager to review admission referral patterns.",
+                    COLORS["warning"],
+                )
+                _active += 1
+                _notices.append({"level": "WATCH",
+                                 "title": f"{_bw_ward} — Low Occupancy",
+                                 "metric": f"BOR {_bw_bor:.1f}%",
+                                 "action": f"Flag to ward manager — BOR {_bw_gap}pp below ward P25 floor ({_bw_p25:.1f}%)"})
+
+            # Rule 32 — Private ward revenue drop (Inv 49)
+            if _revpab_alert is not None:
+                _rv_latest, _rv_avg, _rv_drop, _rv_adm, _rv_mo_lbl = _revpab_alert
+                _notice_card(
+                    "WATCH",
+                    "Private Wards — Revenue Drop",
+                    f"KES {_rv_latest/1000:.0f}K · {_rv_adm} admissions",
+                    f"{_rv_drop:.1f}% below 3-month rolling average (KES {_rv_avg/1000:.0f}K)",
+                    f"{_rv_mo_lbl} — Private Female + Male combined revenue KES {_rv_latest/1000:.0f}K "
+                    f"({_rv_drop:.1f}% below 3-month rolling avg of KES {_rv_avg/1000:.0f}K). "
+                    f"{_rv_adm} admissions last month. Flag to finance lead — review private ward admission volume.",
+                    COLORS["warning"],
+                )
+                _active += 1
+                _notices.append({"level": "WATCH",
+                                 "title": "Private Wards — Revenue Drop",
+                                 "metric": f"KES {_rv_latest/1000:.0f}K ({_rv_drop:.1f}% below avg)",
+                                 "action": f"Flag to finance lead — {_rv_drop:.1f}% below 3-month rolling avg"})
+
+            # ── PATIENT FLOW ──────────────────────────────────────────────────
+
             # Rules 20-24 — Patient Request rate per ward (Inv 23)
             for _wk, _wlabel in _WARD_TRAFFIC_ALL:
                 _pw = _PR_WATCH.get(_wk)
@@ -1413,6 +1430,41 @@ if page == "Business Overview":
                                      "title": f"{_wlabel} — Patient Request Rate",
                                      "metric": f"{_latest_pv:.0f}%",
                                      "action": f"Address Patient Request discharge drivers — {_wlabel}"})
+
+            # Rule 30 — Admission TAT monthly deterioration (Inv 47)
+            if _tat_latest_fast_pct is not None:
+                _tat_is_crit      = _tat_latest_fast_pct < _TAT_CRIT
+                _tat_is_watch     = _two_consec(_tat_fast_pcts, _TAT_WATCH, direction="below")
+                _tat_p75_is_crit  = _tat_latest_p75 is not None and _tat_latest_p75 > _TAT_P75_CRIT
+                _tat_p75_is_watch = (len(_tat_p75_vals) == 2 and
+                                     _two_consec(_tat_p75_vals, _TAT_P75_WATCH, direction="above"))
+                if _tat_is_crit or _tat_is_watch or _tat_p75_is_crit or _tat_p75_is_watch:
+                    _tat_sev    = "CRITICAL" if (_tat_is_crit or _tat_p75_is_crit) else "WATCH"
+                    _tat_clr    = COLORS["danger"] if _tat_sev == "CRITICAL" else COLORS["warning"]
+                    _tat_mo_lbl = pd.to_datetime(_tat_latest_month).strftime("%b %Y")
+                    _p75_str    = f" · p75 {_tat_latest_p75} min" if _tat_latest_p75 else ""
+                    _breaches   = []
+                    if _tat_is_crit:        _breaches.append(f"fast-track {_tat_latest_fast_pct:.1f}% < {_TAT_CRIT:.0f}% (single month)")
+                    elif _tat_is_watch:     _breaches.append(f"fast-track {_tat_latest_fast_pct:.1f}% < {_TAT_WATCH:.0f}% × 2 months")
+                    if _tat_p75_is_crit:    _breaches.append(f"p75 TAT {_tat_latest_p75} min > {int(_TAT_P75_CRIT)} min (single month)")
+                    elif _tat_p75_is_watch: _breaches.append(f"p75 TAT {_tat_latest_p75} min > {int(_TAT_P75_WATCH)} min × 2 months")
+                    _notice_card(
+                        _tat_sev,
+                        "Admission TAT Deterioration",
+                        f"{_tat_latest_fast_pct:.1f}% fast-track · p50 {_tat_latest_p50} min{_p75_str}",
+                        " · ".join(_breaches),
+                        f"{_tat_mo_lbl} — {_tat_latest_fast_pct:.1f}% of admissions completed within 60 min. "
+                        f"Median TAT {_tat_latest_p50} min{_p75_str}. "
+                        "Flag to ops lead — review ED-to-ward handoff process.",
+                        _tat_clr,
+                    )
+                    _active += 1
+                    _notices.append({"level": _tat_sev,
+                                     "title": "Admission TAT Deterioration",
+                                     "metric": f"{_tat_latest_fast_pct:.1f}% fast-track · p50 {_tat_latest_p50} min{_p75_str}",
+                                     "action": f"Flag to ops lead — {' · '.join(_breaches)}"})
+
+            # ── STAFFING ──────────────────────────────────────────────────────
 
             # Rule 25 — Doctor workload: concentration risk (Inv 24)
             if _top_doc_pct > _DOC_CONC_WATCH:
@@ -1451,6 +1503,28 @@ if page == "Business Overview":
                                  "title": f"Staffing — {_bn[0]} Burnout Signal",
                                  "metric": f"{_bn[2]:,} visits ({_bn[1]:.0f}% of avg)",
                                  "action": f"Flag to clinical lead — {_bn[0]} volume unsustainable."})
+
+            # Rule 33 — Physician workload (Inv 50)
+            for _dr_name, _dr_vis, _dr_p90_v, _dr_mo_lbl in _doc_wl_alerts:
+                _dr_excess = _dr_vis - _dr_p90_v
+                _notice_card(
+                    "WATCH",
+                    f"Dr {_dr_name} — High Visit Load",
+                    f"{_dr_vis} visits",
+                    f"{_dr_excess} above P90 ({_dr_p90_v}) · 2 consecutive months",
+                    f"{_dr_mo_lbl} — {_dr_name} recorded {_dr_vis} evaluation visits "
+                    f"({_dr_excess} above personal P90 of {_dr_p90_v}). "
+                    "Sustained for 2 consecutive months. "
+                    "Flag to ops lead — sustained high load may affect evaluation quality.",
+                    COLORS["warning"],
+                )
+                _active += 1
+                _notices.append({"level": "WATCH",
+                                 "title": f"Dr {_dr_name} — High Visit Load",
+                                 "metric": f"{_dr_vis} visits",
+                                 "action": f"Flag to ops lead — {_dr_name} {_dr_excess} above P90 for 2 months"})
+
+            # ── LAB & DIAGNOSTICS ─────────────────────────────────────────────
 
             # Rule 27 — Lab volume drop (Inv 25b)
             if _lab_latest_visits is not None:
@@ -1497,115 +1571,6 @@ if page == "Business Overview":
                                      "metric": f"{_lab_latest_abnorm:.1f}%",
                                      "action": "Cross-reference with ward admissions trends"})
 
-            # Rule 29 — Ward Idle BTR/BTI (Inv 46)
-            for _wi_ward, _wi_btr, _wi_btr_p25, _wi_bti, _wi_bti_p75, _wi_mo_lbl in _ward_idle_alerts:
-                _notice_card(
-                    "WATCH",
-                    f"{_wi_ward} — Ward Idle",
-                    f"BTR {_wi_btr:.2f} · BTI {_wi_bti:.0f}d",
-                    f"BTR {_wi_btr_p25 - _wi_btr:.2f} below ward floor ({_wi_btr_p25:.2f}) · "
-                    f"BTI {_wi_bti - _wi_bti_p75:.0f}d above ward ceiling ({_wi_bti_p75:.0f}d)",
-                    f"{_wi_mo_lbl} — {_wi_ward}: {_wi_btr:.2f} admissions/bed (ward floor {_wi_btr_p25:.2f}) "
-                    f"and beds idle avg {_wi_bti:.0f} days (ward ceiling {_wi_bti_p75:.0f}d). "
-                    "Low admissions confirmed by extended idle time — flag to ward manager.",
-                    COLORS["warning"],
-                )
-                _active += 1
-                _notices.append({"level": "WATCH",
-                                 "title": f"{_wi_ward} — Ward Idle",
-                                 "metric": f"BTR {_wi_btr:.2f} · BTI {_wi_bti:.0f}d",
-                                 "action": f"Flag to ward manager — {_wi_ward} below ward baseline"})
-
-            # Rule 30 — Admission TAT monthly deterioration (Inv 47)
-            if _tat_latest_fast_pct is not None:
-                _tat_is_crit      = _tat_latest_fast_pct < _TAT_CRIT
-                _tat_is_watch     = _two_consec(_tat_fast_pcts, _TAT_WATCH, direction="below")
-                _tat_p75_is_crit  = _tat_latest_p75 is not None and _tat_latest_p75 > _TAT_P75_CRIT
-                _tat_p75_is_watch = (len(_tat_p75_vals) == 2 and
-                                     _two_consec(_tat_p75_vals, _TAT_P75_WATCH, direction="above"))
-                if _tat_is_crit or _tat_is_watch or _tat_p75_is_crit or _tat_p75_is_watch:
-                    _tat_sev    = "CRITICAL" if (_tat_is_crit or _tat_p75_is_crit) else "WATCH"
-                    _tat_clr    = COLORS["danger"] if _tat_sev == "CRITICAL" else COLORS["warning"]
-                    _tat_mo_lbl = pd.to_datetime(_tat_latest_month).strftime("%b %Y")
-                    _p75_str    = f" · p75 {_tat_latest_p75} min" if _tat_latest_p75 else ""
-                    _breaches   = []
-                    if _tat_is_crit:        _breaches.append(f"fast-track {_tat_latest_fast_pct:.1f}% < {_TAT_CRIT:.0f}% (single month)")
-                    elif _tat_is_watch:     _breaches.append(f"fast-track {_tat_latest_fast_pct:.1f}% < {_TAT_WATCH:.0f}% × 2 months")
-                    if _tat_p75_is_crit:    _breaches.append(f"p75 TAT {_tat_latest_p75} min > {int(_TAT_P75_CRIT)} min (single month)")
-                    elif _tat_p75_is_watch: _breaches.append(f"p75 TAT {_tat_latest_p75} min > {int(_TAT_P75_WATCH)} min × 2 months")
-                    _notice_card(
-                        _tat_sev,
-                        "Admission TAT Deterioration",
-                        f"{_tat_latest_fast_pct:.1f}% fast-track · p50 {_tat_latest_p50} min{_p75_str}",
-                        " · ".join(_breaches),
-                        f"{_tat_mo_lbl} — {_tat_latest_fast_pct:.1f}% of admissions completed within 60 min. "
-                        f"Median TAT {_tat_latest_p50} min{_p75_str}. "
-                        "Flag to ops lead — review ED-to-ward handoff process.",
-                        _tat_clr,
-                    )
-                    _active += 1
-                    _notices.append({"level": _tat_sev,
-                                     "title": "Admission TAT Deterioration",
-                                     "metric": f"{_tat_latest_fast_pct:.1f}% fast-track · p50 {_tat_latest_p50} min{_p75_str}",
-                                     "action": f"Flag to ops lead — {' · '.join(_breaches)}"})
-
-            # Rule 31 — BOR ward low occupancy (Inv 48)
-            for _bw_ward, _bw_bor, _bw_p25, _bw_gap, _bw_mo_lbl in _bor_ward_alerts:
-                _notice_card(
-                    "WATCH",
-                    f"{_bw_ward} — Low Occupancy",
-                    f"BOR {_bw_bor:.1f}%",
-                    f"{_bw_gap}pp below ward P25 floor ({_bw_p25:.1f}%) · 2 consecutive months",
-                    f"{_bw_mo_lbl} — {_bw_ward} occupancy at {_bw_bor:.1f}% for 2 consecutive months "
-                    f"(ward P25 floor {_bw_p25:.1f}%, gap {_bw_gap}pp). "
-                    "Sustained low occupancy — flag to ward manager to review admission referral patterns.",
-                    COLORS["warning"],
-                )
-                _active += 1
-                _notices.append({"level": "WATCH",
-                                 "title": f"{_bw_ward} — Low Occupancy",
-                                 "metric": f"BOR {_bw_bor:.1f}%",
-                                 "action": f"Flag to ward manager — BOR {_bw_gap}pp below ward P25 floor ({_bw_p25:.1f}%)"})
-
-            # Rule 32 — Private ward revenue drop (Inv 49)
-            if _revpab_alert is not None:
-                _rv_latest, _rv_avg, _rv_drop, _rv_adm, _rv_mo_lbl = _revpab_alert
-                _notice_card(
-                    "WATCH",
-                    "Private Wards — Revenue Drop",
-                    f"KES {_rv_latest/1000:.0f}K · {_rv_adm} admissions",
-                    f"{_rv_drop:.1f}% below 3-month rolling average (KES {_rv_avg/1000:.0f}K)",
-                    f"{_rv_mo_lbl} — Private Female + Male combined revenue KES {_rv_latest/1000:.0f}K "
-                    f"({_rv_drop:.1f}% below 3-month rolling avg of KES {_rv_avg/1000:.0f}K). "
-                    f"{_rv_adm} admissions last month. Flag to finance lead — review private ward admission volume.",
-                    COLORS["warning"],
-                )
-                _active += 1
-                _notices.append({"level": "WATCH",
-                                 "title": "Private Wards — Revenue Drop",
-                                 "metric": f"KES {_rv_latest/1000:.0f}K ({_rv_drop:.1f}% below avg)",
-                                 "action": f"Flag to finance lead — {_rv_drop:.1f}% below 3-month rolling avg"})
-
-            # Rule 33 — Physician workload (Inv 50)
-            for _dr_name, _dr_vis, _dr_p90_v, _dr_mo_lbl in _doc_wl_alerts:
-                _dr_excess = _dr_vis - _dr_p90_v
-                _notice_card(
-                    "WATCH",
-                    f"Dr {_dr_name} — High Visit Load",
-                    f"{_dr_vis} visits",
-                    f"{_dr_excess} above P90 ({_dr_p90_v}) · 2 consecutive months",
-                    f"{_dr_mo_lbl} — {_dr_name} recorded {_dr_vis} evaluation visits "
-                    f"({_dr_excess} above personal P90 of {_dr_p90_v}). "
-                    "Sustained for 2 consecutive months. "
-                    "Flag to ops lead — sustained high load may affect evaluation quality.",
-                    COLORS["warning"],
-                )
-                _active += 1
-                _notices.append({"level": "WATCH",
-                                 "title": f"Dr {_dr_name} — High Visit Load",
-                                 "metric": f"{_dr_vis} visits",
-                                 "action": f"Flag to ops lead — {_dr_name} {_dr_excess} above P90 for 2 months"})
-
             # Rule 34 — CD12 Critical Creatinine Non-Admission (Inv 51)
             if _cd12_alert is not None:
                 _c12_sev, _c12_rate, _c12_total, _c12_not_adm, _c12_mo_lbl = _cd12_alert
@@ -1628,6 +1593,26 @@ if page == "Business Overview":
                                  "title": "Renal — Critical Creatinine Non-Admission",
                                  "metric": f"{_c12_rate:.1f}% not admitted ({_c12_total} events)",
                                  "action": f"Flag to clinical lead — {_c12_gap}pp above {_c12_thresh:.0f}% threshold"})
+
+            # Rule 4 — Dialysis idle (KSH only)
+            if months_idle is not None and months_idle >= _DIALYSIS_IDLE:
+                _kes_line = (
+                    f"Est. {fmt_kes(_dial_kes_low)}–{fmt_kes(_dial_kes_high)} foregone at historical session rate"
+                    if _dial_kes_low else "Insufficient session history to estimate foregone revenue"
+                )
+                _notice_card(
+                    "WATCH",
+                    "Dialysis — Equipment Idle",
+                    f"{months_idle} months",
+                    _kes_line,
+                    "Last session Apr 2025 · 253 patients registered, 78 critical creatinine patients unserved. "
+                    "Programme gap — not an equipment gap. Clinical lead review needed.",
+                    COLORS["warning"],
+                )
+                _active += 1
+                _notices.append({"level": "WATCH", "title": "Dialysis — Equipment Idle",
+                                 "metric": f"{months_idle} months",
+                                 "action": "Programme gap — 78 critical creatinine patients unserved. Clinical lead review needed."})
 
             # Rule 35 — CT Imaging Volume Drop (Inv 52)
             if _img_alert is not None:
@@ -1652,6 +1637,31 @@ if page == "Business Overview":
                                  "metric": f"{_img_sess} sessions ({_img_pct:.1f}% of avg)",
                                  "action": f"Flag to imaging lead — {_img_drop:.1f}% below "
                                            f"{'critical' if _img_sev == 'CRITICAL' else 'watch'} threshold"})
+
+            # ── THEATRE ───────────────────────────────────────────────────────
+
+            # Rule 3 — Theatre completion below target (KSH only)
+            if th_comp_rate is not None and th_comp_rate < _THEATRE_WATCH:
+                _sev = "CRITICAL" if th_comp_rate < _THEATRE_CRIT else "WATCH"
+                _col = COLORS["danger"] if th_comp_rate < _THEATRE_CRIT else COLORS["warning"]
+                _gap_line = (
+                    f"Est. {fmt_kes(_th_rev_gap)}/month in unbilled capacity"
+                    if _th_rev_gap else
+                    f"Down {th_peak_rate - th_comp_rate:.0f}pp from peak {th_peak_rate:.0f}% in {th_peak_lbl}"
+                )
+                _notice_card(
+                    _sev,
+                    "Theatre — Completion Below Target",
+                    f"{th_comp_rate:.0f}%",
+                    _gap_line,
+                    f"Trailing 3-month average · peak was {th_peak_rate:.0f}% in {th_peak_lbl}. "
+                    "Check cancellation and no-show rates on Capacity & Ops page.",
+                    _col,
+                )
+                _active += 1
+                _notices.append({"level": _sev, "title": "Theatre — Completion Below Target",
+                                 "metric": f"{th_comp_rate:.0f}%",
+                                 "action": "Check cancellation and no-show rates on Capacity & Ops"})
 
         st.session_state["active_notices"] = _notices
         write_current_notices(FAC_DISPLAY.get(facility, facility), _notices)
@@ -2409,8 +2419,8 @@ elif page == "Capacity & Operations":
 
     th_dot = _dot(th_trend["COMPLETION_RATE_PCT"] if len(th_trend) else None, higher_is_good=True)
 
-    c1, c2, c3, c4 = st.columns(4)
     if facility == "KISUMU_CLEAN":
+        c1, c2, c3 = st.columns(3)
         with c1:
             kpi_card("Theatre Completion", f"{th_recent_rate:.1f}%",
                      f"Trailing 3 months · all-time avg: {th_overall_rate:.1f}% {th_dot}",
@@ -2420,15 +2430,8 @@ elif page == "Capacity & Operations":
                      "Trailing 3-month avg", COLORS["success"])
         with c3:
             kpi_card("Top Ward RevPAB", top_revpab_val, top_revpab_label, COLORS["warning"])
-        with c4:
-            if dial_sessions == 0:
-                kpi_card("Dialysis Programme Gap",
-                         "253 registered · 0 sessions",
-                         "78 critical creatinine patients unserved · 6 machines idle since Apr 2025",
-                         COLORS["warning"], icon="⚠")
-            else:
-                kpi_card("Dialysis Sessions / Month", str(dial_sessions), "Most recent month", COLORS["purple"])
     else:
+        c1, c2, c3, c4 = st.columns(4)
         avg_los = float(beds_l["AVG_LOS_DAYS"].mean()) if len(beds_l) else 0
         spec_dc_pct = float(specialty["DAY_CASE_PCT"].mean()) if len(specialty) else 0
         with c1:
@@ -2878,6 +2881,88 @@ elif page == "Capacity & Operations":
                     "Bed days = discharged admissions only — open admissions excluded."
                 )
 
+        # ── Admission TAT by Day of Week ──────────────────────────────────────
+        if _is_ksh_p3:
+            _tat_df = P.get("adm_tat", pd.DataFrame())
+            if len(_tat_df):
+                _tat_df = _tat_df.copy()
+                _tat_df.columns = _tat_df.columns.str.lower()
+                _tat_df = _tat_df.sort_values("day_num")
+                st.markdown("<div style='margin-top:28px'></div>", unsafe_allow_html=True)
+                section_header("Admission TAT — How Fast Are Beds Being Assigned")
+                _fig_tat = make_subplots(specs=[[{"secondary_y": True}]])
+                _bar_colors = [
+                    COLORS["danger"] if p < 45
+                    else COLORS["warning"] if p < 55
+                    else COLORS["success"]
+                    for p in _tat_df["fast_pct"]
+                ]
+                _fig_tat.add_bar(
+                    x=_tat_df["day_name"], y=_tat_df["fast_pct"],
+                    name="Admission speed",
+                    marker_color=_bar_colors,
+                    text=_tat_df["fast_pct"].apply(lambda p: f"{p:.0f}%"),
+                    textposition="outside",
+                    secondary_y=False,
+                    showlegend=False,
+                    hovertemplate="%{x}: %{y:.1f}% admitted fast · 1-in-4 wait: "
+                                  + _tat_df["p75_tat_min"].apply(lambda v: f"{v:.0f} min").astype(str)
+                                  + "<extra></extra>",
+                )
+                _fig_tat.add_scatter(
+                    x=_tat_df["day_name"], y=_tat_df["total_evaluations"],
+                    name="Visit load (total evaluations)",
+                    mode="lines+markers",
+                    line=dict(color=COLORS["primary"], width=2, dash="dot"),
+                    marker=dict(size=7),
+                    secondary_y=True,
+                    hovertemplate="%{x}: %{y:,} evaluation visits<extra></extra>",
+                )
+                for _lbl, _clr in [
+                    ("Fast — majority admitted within 1 hour", COLORS["success"]),
+                    ("Mixed — roughly half wait over 1 hour", COLORS["warning"]),
+                    ("Slow — majority wait over 1 hour", COLORS["danger"]),
+                ]:
+                    _fig_tat.add_scatter(
+                        x=[None], y=[None], mode="markers",
+                        marker=dict(color=_clr, size=10, symbol="square"),
+                        name=_lbl, secondary_y=False, showlegend=True,
+                    )
+                _fig_tat.update_layout(**cl(
+                    height=320,
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                    margin=dict(l=10, r=60, t=30, b=10),
+                ))
+                _fig_tat.update_yaxes(
+                    title_text="Admission speed (%)", ticksuffix="%",
+                    range=[0, 100], secondary_y=False,
+                )
+                _fig_tat.update_yaxes(
+                    title_text="Visit load", secondary_y=True,
+                    rangemode="tozero",
+                )
+                st.plotly_chart(_fig_tat, use_container_width=True,
+                                config={"displayModeBar": False})
+                _worst = _tat_df.sort_values("fast_pct").iloc[0]
+                _second = _tat_df.sort_values("fast_pct").iloc[1]
+                st.caption(
+                    f"**{_worst['day_name']}** slowest — {_worst['fast_pct']:.1f}% admitted fast, "
+                    f"1 in 4 waited {_worst['p75_tat_min']:.0f}+ min. "
+                    f"**{_second['day_name']}** second slowest ({_second['fast_pct']:.1f}%, "
+                    f"1 in 4 waited {_second['p75_tat_min']:.0f}+ min). "
+                    "When visit load line is high and bars are red — volume is driving the delay."
+                )
+                dq_note(
+                    "Admission speed = % of admissions with bed assignment under 60 min. "
+                    "1-in-4 wait = the time that 75% of patients were below (1 in 4 waited longer). "
+                    "TAT = evaluation visit creation → first inpatient admission record. "
+                    "Capped at 480 min. Sep 2024+ window."
+                )
+                st.caption(
+                    "▸ When visit load spikes (Monday peak), TAT degrades — conversion drops and "
+                    "patients are lost. See **Causal Intelligence → CD5** for the full cross-domain impact."
+                )
+
     # ── Tab 3: Lab & Diagnostics ──────────────────────────────────────────────
 
     with tab3:
@@ -2963,77 +3048,84 @@ elif page == "Capacity & Operations":
             _cd12 = P["cd12_rate"].copy().rename(columns=str.lower)
             _cd12 = _cd12.sort_values("critical_month")
             if len(_cd12) >= 2:
-                section_header("Renal Patients — Admission Gap")
-                _cd12_c1, _cd12_c2 = st.columns([2, 1], gap="large")
-
-                with _cd12_c1:
-                    fig_cd12 = go.Figure()
-                    # Point annotations: "not_admitted/total" shown at each marker
-                    _cd12_labels = [
-                        f"{int(r.not_admitted)}/{int(r.total_critical)}"
-                        for r in _cd12.itertuples()
-                    ]
-                    fig_cd12.add_scatter(
-                        x=_cd12["critical_month"],
-                        y=_cd12["non_admission_rate_pct"],
-                        mode="lines+markers+text",
-                        marker=dict(size=7, color=COLORS["coral"]),
-                        line=dict(color=COLORS["coral"], width=2),
-                        text=_cd12_labels,
-                        textposition="top center",
-                        textfont=dict(size=10, color=COLORS["coral"]),
-                        hovertemplate=(
-                            "%{x|%b %Y}: %{y:.1f}% not admitted"
-                            " (%{text} patients)<extra></extra>"
-                        ),
-                        showlegend=False,
-                    )
-                    fig_cd12.add_hline(
-                        y=41, line_dash="dot", line_color=COLORS["muted"], line_width=1.5,
-                        annotation_text="CD12 baseline 41%",
-                        annotation_font_size=9,
-                        annotation_font_color=COLORS["muted"],
-                        annotation_position="top left",
-                    )
-                    fig_cd12.update_layout(**cl(
-                        height=280, yaxis_title="Non-admission rate (%)",
-                        yaxis=dict(range=[0, 85]),
-                        margin=dict(l=0, r=0, t=24, b=30),
-                    ))
-                    st.plotly_chart(fig_cd12, use_container_width=True,
-                                    config={"displayModeBar": False})
-
-                with _cd12_c2:
-                    if len(_cd12) >= 3:
-                        _cd12_3mo  = _cd12.tail(3)
-                        _cd12_avg  = round(
-                            _cd12_3mo["not_admitted"].sum()
-                            / max(_cd12_3mo["total_critical"].sum(), 1) * 100, 1
-                        )
-                        _cd12_lbl  = (
-                            pd.to_datetime(_cd12_3mo["critical_month"].iloc[0]).strftime("%b %Y")
-                            + " – "
-                            + pd.to_datetime(_cd12_3mo["critical_month"].iloc[-1]).strftime("%b %Y")
-                        )
-                    else:
-                        _cd12_avg = float(_cd12["non_admission_rate_pct"].iloc[-1])
-                        _cd12_lbl = "latest month"
-                    _cd12_last = _cd12.iloc[-1]
-                    kpi_card(
-                        f"Avg  {_cd12_lbl}",
-                        f"{_cd12_avg}%",
-                        "not admitted after critical Creatinine",
-                        COLORS["coral"],
-                    )
-                    st.markdown("<div style='margin-top:12px'></div>", unsafe_allow_html=True)
-                    kpi_card(
-                        pd.to_datetime(_cd12_last["critical_month"]).strftime("%b %Y"),
-                        f"{int(_cd12_last['not_admitted'])}/{int(_cd12_last['total_critical'])} not admitted",
-                        f"{_cd12_last['non_admission_rate_pct']:.0f}% — latest month",
-                        COLORS["muted"],
-                    )
-
+                section_header("Renal Patients — Critical Creatinine Non-Admission Rate")
+                fig_cd12 = go.Figure()
+                _cd12_labels = [
+                    f"{int(r.not_admitted)}/{int(r.total_critical)}"
+                    for r in _cd12.itertuples()
+                ]
+                fig_cd12.add_scatter(
+                    x=_cd12["critical_month"],
+                    y=_cd12["non_admission_rate_pct"],
+                    mode="lines+markers+text",
+                    marker=dict(size=7, color=COLORS["coral"]),
+                    line=dict(color=COLORS["coral"], width=2),
+                    text=_cd12_labels,
+                    textposition="top center",
+                    textfont=dict(size=10, color=COLORS["coral"]),
+                    hovertemplate=(
+                        "%{x|%b %Y}: %{y:.1f}% not admitted"
+                        " (%{text} patients)<extra></extra>"
+                    ),
+                    showlegend=False,
+                )
+                fig_cd12.add_hline(
+                    y=41, line_dash="dot", line_color=COLORS["muted"], line_width=1.5,
+                    annotation_text="CD12 baseline 41%",
+                    annotation_font_size=9,
+                    annotation_font_color=COLORS["muted"],
+                    annotation_position="top left",
+                )
+                fig_cd12.update_layout(**cl(
+                    height=300, yaxis_title="Non-admission rate (%)",
+                    yaxis=dict(range=[0, 85]),
+                    margin=dict(l=0, r=0, t=24, b=30),
+                ))
+                st.plotly_chart(fig_cd12, use_container_width=True,
+                                config={"displayModeBar": False})
                 st.markdown("<div style='margin-bottom:8px'></div>", unsafe_allow_html=True)
+
+        # ── Dialysis — Programme Status (KSH only) ────────────────────────────
+        if _is_ksh_p3:
+            st.markdown("<div style='margin-top:24px'></div>", unsafe_allow_html=True)
+            section_header("Dialysis — Why It Connects to the Above")
+            _d3c1, _d3c2, _d3c3 = st.columns(3, gap="large")
+            with _d3c1:
+                kpi_card("Registered Patients", "253",
+                         "Requiring dialysis at KSH", COLORS["danger"])
+            with _d3c2:
+                kpi_card("Sessions Delivered", "0",
+                         "Since May 2025 · 6 machines idle", COLORS["warning"], icon="⚠")
+            with _d3c3:
+                kpi_card("Monthly Revenue Gap", "KES 52K–140K",
+                         "Foregone at historical session rate", COLORS["muted"])
+            _dial3 = fac_dialysis.sort_values("SESSION_MONTH") if len(fac_dialysis) else pd.DataFrame()
+            if len(_dial3):
+                _fig_dial = go.Figure()
+                _dial_colors = [
+                    COLORS["danger"] if s == 0 else COLORS["primary"]
+                    for s in _dial3["TOTAL_SESSIONS"]
+                ]
+                _fig_dial.add_bar(
+                    x=_dial3["SESSION_MONTH"], y=_dial3["TOTAL_SESSIONS"],
+                    marker_color=_dial_colors,
+                    hovertemplate="%{x|%b %Y}: %{y} sessions<extra></extra>",
+                    showlegend=False,
+                )
+                _fig_dial.update_layout(**cl(
+                    height=200, yaxis_title="Sessions / month",
+                    margin=dict(l=0, r=0, t=10, b=30),
+                ))
+                st.plotly_chart(_fig_dial, use_container_width=True,
+                                config={"displayModeBar": False})
+            info_card(
+                "The critical creatinine patients tracked above are the same population requiring dialysis. "
+                "KSH has 6 machines, 253 registered patients, and zero sessions since May 2025. "
+                "Patients are being evaluated, flagged as critical, and discharged — with no dialysis access. "
+                "For the full patient safety analysis see Causal Intelligence → CD12.",
+                border_color=COLORS["danger"],
+            )
+            dq_note("Revenue gap estimated at KES 52K–140K/month based on 3 historical sessions (Mar–Apr 2025).")
 
         if facility == "KISUMU_CLEAN":
             fac_img = imaging[imaging["FACILITY"] == facility].copy() if "FACILITY" in imaging.columns else imaging.copy()
@@ -3239,7 +3331,7 @@ elif page == "Capacity & Operations":
                 _conv_lat = _conv_lat[_conv_lat["EVALUATIONS"] >= 10].copy()
                 if len(_conv_lat):
                     st.markdown("<div style='margin-top:16px'></div>", unsafe_allow_html=True)
-                    section_header("Conversion Rate per Doctor — Latest Month")
+                    section_header("Facility Conversion Rate")
                     _conv_lat["display_name"] = _conv_lat["USERNAME"].apply(
                         lambda u: f"{u[0].upper()}.{u[1:].capitalize()}"
                     )
@@ -3306,7 +3398,8 @@ elif page == "Capacity & Operations":
                         "Both moving together = demand signal. "
                         "Evaluations high but conversion drops = process signal (TAT, staffing)."
                     )
-                    st.markdown("<div style='margin-top:16px'></div>", unsafe_allow_html=True)
+                    st.markdown("<div style='margin-top:24px'></div>", unsafe_allow_html=True)
+                    section_header("Conversion Rate per Doctor — Latest Month")
 
                     _fig_conv = go.Figure()
                     _fig_conv.add_bar(
@@ -3346,6 +3439,10 @@ elif page == "Capacity & Operations":
                         "Differences reflect case-mix as much as clinical decision-making — "
                         "a doctor seeing more severe cases will convert at a higher rate. "
                         "Dotted line = facility average for the month."
+                    )
+                    st.caption(
+                        "▸ When conversion concentrates in one doctor, the facility is exposed to absence risk. "
+                        "See **Causal Intelligence → CD6** for concentration analysis and absence simulation."
                     )
 
             # ── Peak vs Off-Peak visit load (Step 7) ─────────────────────────
@@ -3402,83 +3499,10 @@ elif page == "Capacity & Operations":
                         "Peak = 09:00–12:59 — confirmed highest visit volume window (Inv 29). "
                         "Informant only. Months with <50% of prior 3-month average excluded (pipeline lag)."
                     )
-
-            # ── Admission TAT by Day of Week (B2 / P16-2) ────────────────────
-            _tat_df = P.get("adm_tat", pd.DataFrame())
-            if len(_tat_df):
-                _tat_df = _tat_df.copy()
-                _tat_df.columns = _tat_df.columns.str.lower()
-                _tat_df = _tat_df.sort_values("day_num")
-                st.markdown("<div style='margin-top:28px'></div>", unsafe_allow_html=True)
-                section_header("Admission TAT by Day of Week")
-                _fig_tat = make_subplots(specs=[[{"secondary_y": True}]])
-                _bar_colors = [
-                    COLORS["danger"] if p < 45
-                    else COLORS["warning"] if p < 55
-                    else COLORS["success"]
-                    for p in _tat_df["fast_pct"]
-                ]
-                _fig_tat.add_bar(
-                    x=_tat_df["day_name"], y=_tat_df["fast_pct"],
-                    name="Admission speed",
-                    marker_color=_bar_colors,
-                    text=_tat_df["fast_pct"].apply(lambda p: f"{p:.0f}%"),
-                    textposition="outside",
-                    secondary_y=False,
-                    showlegend=False,
-                    hovertemplate="%{x}: %{y:.1f}% admitted fast · 1-in-4 wait: "
-                                  + _tat_df["p75_tat_min"].apply(lambda v: f"{v:.0f} min").astype(str)
-                                  + "<extra></extra>",
-                )
-                _fig_tat.add_scatter(
-                    x=_tat_df["day_name"], y=_tat_df["total_evaluations"],
-                    name="Visit load (total evaluations)",
-                    mode="lines+markers",
-                    line=dict(color=COLORS["primary"], width=2, dash="dot"),
-                    marker=dict(size=7),
-                    secondary_y=True,
-                    hovertemplate="%{x}: %{y:,} evaluation visits<extra></extra>",
-                )
-                for _lbl, _clr in [
-                    ("Fast — majority admitted within 1 hour", COLORS["success"]),
-                    ("Mixed — roughly half wait over 1 hour", COLORS["warning"]),
-                    ("Slow — majority wait over 1 hour", COLORS["danger"]),
-                ]:
-                    _fig_tat.add_scatter(
-                        x=[None], y=[None], mode="markers",
-                        marker=dict(color=_clr, size=10, symbol="square"),
-                        name=_lbl, secondary_y=False, showlegend=True,
+                    st.caption(
+                        "▸ This peak costs more than congestion — conversion drops 33%, TAT spikes 81%, "
+                        "and 44% of deflected patients never return. See **Causal Intelligence → CD5**."
                     )
-                _fig_tat.update_layout(**cl(
-                    height=320,
-                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                    margin=dict(l=10, r=60, t=30, b=10),
-                ))
-                _fig_tat.update_yaxes(
-                    title_text="Admission speed (%)", ticksuffix="%",
-                    range=[0, 100], secondary_y=False,
-                )
-                _fig_tat.update_yaxes(
-                    title_text="Visit load", secondary_y=True,
-                    rangemode="tozero",
-                )
-                st.plotly_chart(_fig_tat, use_container_width=True,
-                                config={"displayModeBar": False})
-                _worst = _tat_df.sort_values("fast_pct").iloc[0]
-                _second = _tat_df.sort_values("fast_pct").iloc[1]
-                st.caption(
-                    f"**{_worst['day_name']}** slowest — {_worst['fast_pct']:.1f}% admitted fast, "
-                    f"1 in 4 waited {_worst['p75_tat_min']:.0f}+ min. "
-                    f"**{_second['day_name']}** second slowest ({_second['fast_pct']:.1f}%, "
-                    f"1 in 4 waited {_second['p75_tat_min']:.0f}+ min). "
-                    "When visit load line is high and bars are red — volume is driving the delay."
-                )
-                dq_note(
-                    "Admission speed = % of admissions with bed assignment under 60 min. "
-                    "1-in-4 wait = the time that 75% of patients were below (1 in 4 waited longer). "
-                    "TAT = evaluation visit creation → first inpatient admission record. "
-                    "Capped at 480 min. Sep 2024+ window."
-                )
 
 
 # ══════════════════════════════════════════════════════════════════════════════

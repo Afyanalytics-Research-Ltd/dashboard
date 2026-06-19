@@ -14,6 +14,7 @@
 # Environment
 .env
 venv/
+venv_dash/
 __pycache__/
 *.pyc
 *.pyo
@@ -249,3 +250,9 @@ __marimo__/
 *.csv
 rsa_key*
 service_account.json
+
+# exclude for personal development files
+*.ipynb
+ksh_clinicals_dashboard_copy.py
+preprocessing/*.jsonl
+*.tmp.*

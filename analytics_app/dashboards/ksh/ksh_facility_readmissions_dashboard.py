@@ -3055,11 +3055,11 @@ elif page == "Capacity & Operations":
                 mod_summary = (
                     recent.groupby("MODALITY")
                     .agg(sessions=("SESSIONS", "sum"),
-                         revenue=("REVENUE", "sum"),
-                         avg_per=("AVG_PER_SESSION", "mean"))
+                         revenue=("REVENUE", "sum"))
                     .reindex([m for m in MODALITY_ORDER if m in recent.groupby("MODALITY").groups])
                     .reset_index()
                 )
+                mod_summary["avg_per"] = mod_summary["revenue"] / mod_summary["sessions"]
                 total_img_rev = mod_summary["revenue"].sum()
                 section_header(
                     f"Imaging — {fmt_kes(total_img_rev)} across "
@@ -3073,7 +3073,7 @@ elif page == "Capacity & Operations":
                             row["MODALITY"],
                             fmt_kes(row["revenue"]),
                             f"{int(row['sessions'])} sessions · "
-                            f"KES {int(row['avg_per']):,}/session",
+                            f"avg KES {int(row['avg_per']):,}/session",
                             MODALITY_COLORS.get(row["MODALITY"], COLORS["primary"]),
                         )
 

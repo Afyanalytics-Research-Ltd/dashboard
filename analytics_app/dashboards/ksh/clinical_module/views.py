@@ -1,4 +1,4 @@
-"""
+﻿"""
 views.py — Afya Clinical Analytics
 =====================================
 Render functions only. All SQL lives in queries.py.
@@ -8,7 +8,6 @@ Each function calls queries.load_* and builds charts.
   render_tab2_segmentation
   render_tab3_retention
   render_tab4_disease_burden
-  render_tab5_workload
   render_clinician_view
 """
 
@@ -21,12 +20,13 @@ import streamlit as st
 import streamlit.components.v1 as _stcomp
 
 import ksh.clinical_module.queries as Q
+from ksh.clinical_module.ui_template import render_sortable_table
 
 _PATIENT_LIST_COMPONENT = _stcomp.declare_component(
     "patient_list",
     path=_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "patient_list_component"),
 )
-from ksh.clinical_module.ui_template import AFYA_BLUE, TEAL, COOL_BLUE, ORANGE, CORAL, PURPLE, GRAY, MUTED, BG_LIGHT, BORDER, GREEN
+from ksh.clinical_module.ui_template import AFYA_BLUE, TEAL, COOL_BLUE, ORANGE, CORAL, PURPLE, GRAY, MUTED, BG_LIGHT, BORDER, GREEN, AMBER
 from ksh.clinical_module.charts import (
     line_chart, bar_chart, hbar_chart, stacked_bar, stacked_area,
     funnel_chart, heatmap, scatter, donut, table_fig, bullet, sparkline,
@@ -48,6 +48,12 @@ def _note(t, w=False): _H().get("note", lambda t,warn=False: None)(t, w)
 def _n(v):
     return _H().get("fmt_num", lambda v: str(v))(v)
 
+def _nf(v):
+    """Full integer with commas — no K/M abbreviation."""
+    if v is None: return "—"
+    try: return f"{int(float(v)):,}"
+    except: return str(v)
+
 def _p(v, d=1):
     return _H().get("fmt_pct", lambda v, d=1: str(v))(v, d)
 
@@ -60,20 +66,20 @@ def _k(v):
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _render_wait_time_chart(df: pd.DataFrame):
-    """Two-panel P90 wait-time chart — pure HTML/CSS, no external dependencies."""
+    """Two-panel average wait-time chart — values in minutes, no external dependencies."""
     import math as _m
 
-    def _fh(hrs):
-        """Format decimal hours → '2 hr 15 min' plain string."""
-        if hrs is None: return "—"
-        try: hrs = float(hrs)
+    def _fm(mins):
+        """Format minutes → '2 hr 15 min' or '45 min'."""
+        if mins is None: return "—"
+        try: mins = float(mins)
         except: return "—"
-        if _m.isnan(hrs): return "—"
-        mins = round(hrs * 60)
-        h, m = divmod(mins, 60)
-        if h == 0: return f"{m} min"
-        if m == 0: return f"{h} hr"
-        return f"{h} hr {m} min"
+        if _m.isnan(mins): return "—"
+        m = round(mins)
+        h, rm = divmod(m, 60)
+        if h == 0: return f"{rm} min"
+        if rm == 0: return f"{h} hr"
+        return f"{h} hr {rm} min"
 
     def _safe(row, col):
         v = row.get(col)
@@ -83,10 +89,10 @@ def _render_wait_time_chart(df: pd.DataFrame):
             return None if _m.isnan(f) else f
         except: return None
 
-    def _classify(p90, tgt):
-        if p90 is None or tgt is None: return None
-        if p90 <= tgt: return "within"
-        if p90 <= tgt * 1.5: return "warn"
+    def _classify(avg, tgt):
+        if avg is None or tgt is None: return None
+        if avg <= tgt: return "within"
+        if avg <= tgt * 1.5: return "warn"
         return "breach"
 
     S_COL  = {"within": "#1D9E75", "warn": "#EF9F27", "breach": "#E24B4A"}
@@ -94,26 +100,15 @@ def _render_wait_time_chart(df: pd.DataFrame):
     S_BG   = {"within": "#E1F5EE", "warn": "#FEF3C7", "breach": "#FEE2E2"}
     S_TXT  = {"within": "#0F6E56", "warn": "#854F0B", "breach": "#A32D2D"}
 
-    def _desc(vtype, p90, tgt, status):
+    def _desc(vtype, avg, tgt, status):
         vt = "inpatients" if vtype == "Inpatient" else "outpatients"
-        p90f, tgtf = _fh(p90), _fh(tgt)
+        avgf, tgtf = _fm(avg), _fm(tgt)
         if status == "breach":
-            x = round(float(p90) / float(tgt), 1)
-            return (f"Most {vt} move through this stage without significant delay. "
-                    f"But 1 in 10 waited more than {p90f} — {x}× longer than the {tgtf} target.")
+            x = round(float(avg) / float(tgt), 1)
+            return f"Average wait for {vt} is {avgf} — {x}× the {tgtf} target."
         if status == "warn":
-            return (f"Most {vt} are seen within the target window. "
-                    f"But 1 in 10 waited over {p90f} — the tail is beginning to stretch.")
-        return f"9 in 10 {vt} passed through this stage within {p90f}."
-
-    def _exc_line(pct, tgt, vtype):
-        if pct is None or tgt is None: return ""
-        vt = "inpatients" if vtype == "Inpatient" else "outpatients"
-        pf = float(pct)
-        c = "#A32D2D" if pf > 20 else ("#854F0B" if pf >= 5 else "#0F6E56")
-        return (f'<div style="font-size:11px;margin-top:3px;">'
-                f'<span style="color:{c};font-weight:600;">'
-                f'{pf:.1f}% of {vt} waited longer than the {_fh(tgt)} target</span></div>')
+            return f"Average wait for {vt} is {avgf}, approaching the {tgtf} target."
+        return f"Average wait for {vt} is {avgf}, within the {tgtf} target."
 
     def _gap_row(name, is_last):
         bb = "" if is_last else "border-bottom:0.5px solid rgba(0,0,0,0.06);"
@@ -121,12 +116,11 @@ def _render_wait_time_chart(df: pd.DataFrame):
                 f'<div style="border:0.5px dashed #d1d5db;border-radius:8px;padding:8px 10px;">'
                 f'<div style="font-style:italic;font-size:11px;color:#9ca3af;">{name}</div>'
                 f'<div style="font-size:10px;color:#9ca3af;margin-top:3px;">'
-                f'Timestamps not recorded in system — this stage cannot currently be measured'
-                f'</div></div></div>')
+                f'No data recorded for this stage</div></div></div>')
 
-    def _bar_row(name, p90, tgt, status, pct_exc, vtype, x_max, is_last):
-        bb   = "" if is_last else "border-bottom:0.5px solid rgba(0,0,0,0.06);"
-        bar_w = min(100, round(float(p90) / x_max * 100, 1))
+    def _bar_row(name, avg, tgt, status, vtype, x_max, is_last):
+        bb    = "" if is_last else "border-bottom:0.5px solid rgba(0,0,0,0.06);"
+        bar_w = min(100, round(float(avg) / x_max * 100, 1))
         col   = S_COL.get(status, "#6b7280") if status else "#6b7280"
         tick  = ""
         if tgt is not None:
@@ -135,91 +129,76 @@ def _render_wait_time_chart(df: pd.DataFrame):
                     f'width:2px;background:#7F77DD;border-radius:1px;z-index:2;"></div>'
                     f'<div style="position:absolute;left:{tp}%;top:-18px;'
                     f'transform:translateX(-50%);font-size:9px;color:#534AB7;'
-                    f'white-space:nowrap;z-index:2;">{_fh(tgt)}</div>')
+                    f'white-space:nowrap;z-index:2;">{_fm(tgt)}</div>')
         badge = ""
         if status:
             badge = (f'<span style="font-size:10px;padding:2px 7px;border-radius:20px;'
                      f'background:{S_BG[status]};color:{S_TXT[status]};font-weight:600;">'
                      f'{S_BDGE[status]}</span>')
         desc_html = (f'<div style="font-size:11px;color:#6b7280;margin-top:4px;">'
-                     f'{_desc(vtype, p90, tgt, status)}</div>') if status else ""
-        exc_html  = _exc_line(pct_exc, tgt, vtype) if pct_exc is not None else ""
+                     f'{_desc(vtype, avg, tgt, status)}</div>') if status else ""
         return (
             f'<div style="padding:10px 0;{bb}">'
             f'  <div style="display:flex;justify-content:space-between;align-items:center;">'
             f'    <span style="font-size:12px;font-weight:500;color:#111827;">{name}</span>'
             f'    <div style="display:flex;align-items:center;gap:6px;">'
-            f'      <span style="font-size:12px;font-weight:600;color:#111827;">{_fh(p90)}</span>'
+            f'      <span style="font-size:12px;font-weight:600;color:#111827;">{_fm(avg)}</span>'
             f'      {badge}</div></div>'
             f'  <div style="position:relative;height:10px;background:#f5f5f3;'
             f'border-radius:4px;margin:16px 0 6px;">'
             f'    <div style="width:{bar_w}%;height:100%;background:{col};border-radius:4px;"></div>'
             f'    {tick}</div>'
-            f'  {desc_html}{exc_html}'
+            f'  {desc_html}'
             f'</div>'
         )
 
+    # Targets in minutes
+    _STAGES = [
+        ("avg_mins_triage_to_consult",   "Triage → Consultation",  60),
+        ("avg_mins_consult_to_lab",      "Consult → Lab Result",  120),
+        ("avg_mins_lab_turnaround",      "Lab Turnaround",         60),
+        ("avg_mins_consult_to_dispense", "Consult → Dispense",     30),
+    ]
+
     def _panel(row, vtype):
-        tr_tgt = 0.5 if vtype == "Inpatient" else 0.25
-        co_tgt = 1.0
-        total  = _safe(row, "total_visits")
+        total   = _safe(row, "total_visits")
         total_s = f"{int(total):,}" if total is not None else "—"
+        avg_tot = _safe(row, "avg_total_to_consult_mins")
 
-        p90_tr  = _safe(row, "p90_hrs_to_triage")
-        p90_co  = _safe(row, "p90_hrs_triage_to_consult")
-        p90_lab = _safe(row, "p90_hrs_consult_to_lab")
-        ptr_rec = _safe(row, "pct_triage_recorded")  or 0
-        pco_rec = _safe(row, "pct_consult_recorded") or 0
-        plab_rec= _safe(row, "pct_lab_recorded")     or 0
-        pexc_tr = _safe(row, "pct_exceeding_triage_target")
-        pexc_co = _safe(row, "pct_exceeding_consult_target")
+        avgs     = [(_safe(row, col), lbl, tgt) for col, lbl, tgt in _STAGES]
+        present  = [v for v, _, _ in avgs if v is not None]
+        tgts_all = [tgt for _, _, tgt in _STAGES]
+        x_max    = max(_m.ceil(max(present + tgts_all) * 1.1), 60) if present else 120
+        scale    = f"Avg wait times · {total_s} visits"
 
-        gap_tr  = ptr_rec  < 50
-        gap_co  = pco_rec  < 50
-        gap_lab = plab_rec < 50 or p90_lab is None
-
-        s_tr = None if gap_tr  else _classify(p90_tr,  tr_tgt)
-        s_co = None if gap_co  else _classify(p90_co,  co_tgt)
-
-        p90s = [v for v in [p90_tr, p90_co] + ([p90_lab] if not gap_lab else []) if v]
-        x_max = max(_m.ceil(max(p90s)) * 1.1, 0.5) if p90s else 2.0
-        xd    = _m.ceil(x_max)
-        scale = (f"Scale: 0–{xd} hr · {total_s} visits"
-                 if vtype == "Inpatient"
-                 else f"Scale: 0–{xd} hr · independent scale · {total_s} visits")
-
-        # Verdict
-        statuses = [s for s in [s_tr, s_co] if s is not None]
-        vt_l = "inpatients" if vtype == "Inpatient" else "outpatients"
+        statuses = [_classify(v, tgt) for v, _, tgt in avgs if v is not None]
+        vt_l     = "inpatients" if vtype == "Inpatient" else "outpatients"
         if "breach" in statuses:
-            ws = "Arrival → Triage" if s_tr == "breach" else "Triage → Consultation"
-            wp = pexc_tr if s_tr == "breach" else pexc_co
-            wps = f"{float(wp):.0f}%" if wp is not None else "a significant share"
             vbg, vbd = "#FFF0F0", "#E24B4A"
-            vtx = (f'<strong>Action needed.</strong> {ws} is the critical failure point — '
-                   f'{wps} of {vt_l} are waiting beyond acceptable limits.')
+            vtx = f'<strong>Action needed.</strong> One or more stages are breaching targets for {vt_l}.'
         elif "warn" in statuses:
-            ws = "Arrival → Triage" if s_tr == "warn" else "Triage → Consultation"
-            wp = pexc_tr if s_tr == "warn" else pexc_co
-            wps = f"{float(wp):.0f}%" if wp is not None else "some"
             vbg, vbd = "#FAEEDA", "#EF9F27"
-            vtx = (f'<strong>Watch closely.</strong> {ws} is approaching its limit — '
-                   f'{wps} of {vt_l} are waiting longer than the target.')
+            vtx = f'<strong>Watch closely.</strong> Wait times are approaching limits for {vt_l}.'
         elif statuses:
             vbg, vbd = "#E1F5EE", "#1D9E75"
-            vtx = '<strong>On track.</strong> All stages are currently within target wait times.'
+            vtx = '<strong>On track.</strong> All stages are within target wait times.'
         else:
             vbg, vbd = "#f8fafc", "#d1d5db"
-            vtx = 'Insufficient timestamp data to assess wait-time status.'
+            vtx = 'No wait-time data available for this visit type.'
 
         rows = ""
-        rows += (_gap_row("Arrival → Triage", False)
-                 if gap_tr  else _bar_row("Arrival → Triage",       p90_tr,  tr_tgt, s_tr,  pexc_tr, vtype, x_max, False))
-        rows += (_gap_row("Triage → Consultation", False)
-                 if gap_co  else _bar_row("Triage → Consultation",  p90_co,  co_tgt, s_co,  pexc_co, vtype, x_max, False))
-        rows += (_gap_row("Consult → Lab Result", False)
-                 if gap_lab else _bar_row("Consult → Lab Result",   p90_lab, None,   None,  None,    vtype, x_max, False))
-        rows += _gap_row("Lab Result → Discharge", True)
+        for i, (avg, lbl, tgt) in enumerate(avgs):
+            is_last = (i == len(avgs) - 1)
+            if avg is None:
+                rows += _gap_row(lbl, is_last)
+            else:
+                rows += _bar_row(lbl, avg, tgt, _classify(avg, tgt), vtype, x_max, is_last)
+
+        tot_html = ""
+        if avg_tot is not None:
+            tot_html = (f'<div style="margin-top:10px;padding:8px 10px;background:#f8fafc;'
+                        f'border-radius:6px;font-size:11px;color:#374151;">'
+                        f'<strong>Avg arrival → consultation:</strong> {_fm(avg_tot)}</div>')
 
         return (
             f'<div style="flex:1;background:#fff;border:0.5px solid rgba(0,0,0,0.12);'
@@ -232,24 +211,15 @@ def _render_wait_time_chart(df: pd.DataFrame):
             f'border-radius:0 6px 6px 0;font-size:11px;color:#374151;margin-bottom:12px;">'
             f'    {vtx}</div>'
             f'  {rows}'
+            f'  {tot_html}'
             f'</div>'
         )
 
-    # ── Assemble panels ───────────────────────────────────────────────────
-    panels, gap_names = [], []
+    panels = []
     for vtype in ["Inpatient", "Outpatient"]:
         sub = df[df["visit_type"] == vtype]
         if sub.empty: continue
-        row = sub.iloc[0].to_dict()
-        panels.append(_panel(row, vtype))
-        ptr = float(row.get("pct_triage_recorded")  or 0)
-        pco = float(row.get("pct_consult_recorded") or 0)
-        plb = float(row.get("pct_lab_recorded")     or 0)
-        if ptr < 50 and "Arrival → Triage"      not in gap_names: gap_names.append("Arrival → Triage")
-        if pco < 50 and "Triage → Consultation" not in gap_names: gap_names.append("Triage → Consultation")
-        if plb < 50 and "Consult → Lab Result"  not in gap_names: gap_names.append("Consult → Lab Result")
-    if "Lab Result → Discharge" not in gap_names:
-        gap_names.append("Lab Result → Discharge")
+        panels.append(_panel(sub.iloc[0].to_dict(), vtype))
 
     legend = (
         '<div style="display:flex;flex-wrap:wrap;gap:14px;margin-bottom:12px;">'
@@ -263,28 +233,2466 @@ def _render_wait_time_chart(df: pd.DataFrame):
         + '</div>'
     )
 
-    n = len(gap_names)
-    footer = ""
-    if gap_names:
-        sw = "stage" if n == 1 else "stages"
-        iw = "is" if n == 1 else "are"
-        it = "it" if n == 1 else "them"
-        sl = ", ".join(gap_names)
-        footer = (f'<div style="margin-top:14px;padding:10px 14px;background:#f8fafc;'
-                  f'border-radius:8px;font-size:11px;color:#6b7280;">'
-                  f'{n} {sw} {iw} not shown above because the timestamps needed to measure {it} '
-                  f'are not currently recorded in the system. These gaps mean the full patient '
-                  f'journey cannot yet be measured end to end. Recommend adding result receipt '
-                  f'timestamps at: <strong>{sl}</strong>.</div>')
-
     html = (
         '<div style="background:#f5f5f3;padding:12px;'
         'font-family:system-ui,-apple-system,sans-serif;">'
         + legend
         + '<div style="display:flex;gap:12px;">' + "".join(panels) + '</div>'
-        + footer + '</div>'
+        + '</div>'
     )
-    _stcomp.html(html, height=620, scrolling=False)
+    _stcomp.html(html, height=560, scrolling=False)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PATIENT CONVERSION & VALUE TAB
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── Colour palette ────────────────────────────────────────────────────────────
+_CV_TEAL   = "#1D9E75"
+_CV_PURPLE = "#7F77DD"
+_CV_BLUE   = "#378ADD"
+_CV_AMBER  = "#EF9F27"
+_CV_RED    = "#E24B4A"
+_CV_GREY   = "#888780"
+
+
+
+def _cv_section(label: str):
+    st.markdown(
+        f'<div style="display:flex;align-items:center;gap:10px;margin:20px 0 12px">'
+        f'<span style="font-size:9px;font-weight:700;text-transform:uppercase;'
+        f'letter-spacing:0.08em;color:{_CV_GREY};white-space:nowrap">{label}</span>'
+        f'<div style="flex:1;height:0.5px;background:rgba(0,0,0,0.10)"></div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def _cv_kpi(label: str, value: str, sub: str = "", color: str = "#111827"):
+    st.markdown(
+        f'<div style="background:#fff;border:0.5px solid rgba(0,0,0,0.10);'
+        f'border-radius:12px;padding:12px 14px">'
+        f'<div style="font-size:11px;color:{_CV_GREY};margin-bottom:4px">{label}</div>'
+        f'<div style="font-size:22px;font-weight:600;color:{color};line-height:1.1">{value}</div>'
+        f'<div style="font-size:11px;color:{_CV_GREY};margin-top:3px">{sub}</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def _cv_insight(text: str):
+    st.markdown(
+        f'<div style="border-left:3px solid #0072CE;background:#EBF5FF;'
+        f'border-radius:0 4px 4px 0;padding:10px 14px;'
+        f'font-size:13px;color:#003467;margin-top:8px;line-height:1.7">{text}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+
+
+def _fmt_kes(v) -> str:
+    if v is None:
+        return "—"
+    try:
+        f = float(v)
+        if abs(f) >= 1_000_000:
+            return f"KES {f/1_000_000:.1f}M"
+        if abs(f) >= 1_000:
+            return f"KES {f/1_000:.0f}K"
+        return f"KES {f:,.0f}"
+    except Exception:
+        return str(v)
+
+
+def render_tab_conversion_value(filters: dict, run_query):
+    """Patient Conversion & Value tab — 3 sections."""
+    import pandas as _pd
+    import plotly.graph_objects as _go
+    from plotly.subplots import make_subplots as _msp
+
+    pc = _H().get("pc", lambda f: st.plotly_chart(f, use_container_width=True))
+    _CHART_BASE = dict(
+        paper_bgcolor="#fff", plot_bgcolor="#fff",
+        margin=dict(l=0, r=0, t=6, b=0),
+        font=dict(family="system-ui, sans-serif", size=12, color="#111827"),
+    )
+    _AX = dict(showgrid=True, gridcolor="rgba(0,0,0,0.05)",
+               showline=False, tickfont=dict(size=11, color=_CV_GREY))
+
+    def _panel_start(title="", subtitle=""):
+        parts = [
+            '<div style="background:#fff;border:0.5px solid rgba(0,0,0,0.10);'
+            'border-radius:12px;padding:12px 14px;margin-bottom:8px">',
+        ]
+        if title:
+            parts.append(f'<div style="font-size:12px;font-weight:500;color:#111827;'
+                         f'margin-bottom:2px">{title}</div>')
+        if subtitle:
+            parts.append(f'<div style="font-size:10px;color:{_CV_GREY};'
+                         f'margin-bottom:8px">{subtitle}</div>')
+        st.markdown("".join(parts), unsafe_allow_html=True)
+
+    def _panel_end():
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    # ══════════════════════════════════════════════════════════════════════
+    # SECTION 1 — Patient overview
+    # ══════════════════════════════════════════════════════════════════════
+    _cv_section("Section 1 — Patient overview")
+
+    try:
+        df_ov = Q.load_cv_overview(filters, run_query)
+        if not df_ov.empty:
+            r = df_ov.iloc[0]
+            total     = int(r.get("total_patients", 0) or 0)
+            chronic   = int(r.get("chronic_patients", 0) or 0)
+            repeat    = int(r.get("repeat_patients", 0) or 0)
+            single    = int(r.get("single_visit_patients", 0) or 0)
+            avg_vis   = float(r.get("avg_visits_per_patient", 0) or 0)
+            new_p     = int(r.get("new_patients", 0) or 0)
+            ret_p     = int(r.get("returning_patients", 0) or 0)
+
+            chronic_pct = round(chronic / total * 100, 1) if total else 0
+            repeat_pct  = round(repeat  / total * 100, 1) if total else 0
+            single_pct  = round(single  / total * 100, 1) if total else 0
+            ret_pct     = round(ret_p   / total * 100, 1) if total else 0
+
+            c1,c2,c3,c4,c5,c6 = st.columns(6)
+            with c1: _cv_kpi("Total patients", f"{total:,}", "All visits in period")
+            with c2: _cv_kpi("Chronic patients", f"{chronic:,}", f"{chronic_pct}% of patients", _CV_AMBER)
+            with c3: _cv_kpi("Repeat patients", f"{repeat:,}", f"{repeat_pct}% repeat rate", _CV_TEAL)
+            with c4: _cv_kpi("Single visit", f"{single:,}", f"{single_pct}% of patients", _CV_GREY)
+            with c5: _cv_kpi("Avg visits / patient", f"{avg_vis:.1f}", "per patient")
+            with c6: _cv_kpi("Returning", f"{ret_pct:.0f}%",
+                             f"{new_p:,} new · {ret_p:,} returning")
+    except Exception as e:
+        st.warning(f"Overview: {e}")
+
+    # ══════════════════════════════════════════════════════════════════════
+    # SECTION 2 — Patient profile & conversion signals
+    # ══════════════════════════════════════════════════════════════════════
+    _cv_section("Section 2 — Patient profile and conversion signals")
+
+    try:
+        import json as _jcv
+        df_dem = Q.load_cv_demographics(filters, run_query)
+        df_cg  = Q.load_cv_cohort_growth(filters, run_query)
+
+        col_age, col_bubble = st.columns(2)
+
+        # ── Left: Patients by age group — stacked by gender ──────────────
+        with col_age:
+            _panel_start("Patients by age group", "Patient count by age group and gender")
+            if not df_dem.empty:
+                df_dem["_gen"] = df_dem["gender"].str.upper().str.strip().map(
+                    {"F": "Female", "FEMALE": "Female", "M": "Male", "MALE": "Male"}
+                ).fillna("_drop")
+                # exclude Unknown age group and non-M/F genders
+                _dem_f = df_dem[
+                    (df_dem["age_group"] != "Unknown") &
+                    (df_dem["_gen"] != "_drop")
+                ]
+                _g_age = (_dem_f.groupby(["age_group", "_gen"])["patients"]
+                          .sum().reset_index())
+                _age_ord = (_dem_f.groupby("age_group")["patients"]
+                            .sum().sort_values(ascending=True).index.tolist())
+                _GC = {"Female": _CV_PURPLE, "Male": _CV_TEAL}
+                fig_a = _go.Figure()
+                for _g in ["Male", "Female"]:
+                    _gdf = (_g_age[_g_age["_gen"] == _g]
+                            .set_index("age_group").reindex(_age_ord)
+                            .fillna(0).reset_index())
+                    if _gdf["patients"].sum() == 0:
+                        continue
+                    fig_a.add_trace(_go.Bar(
+                        y=_gdf["age_group"], x=_gdf["patients"],
+                        name=_g, orientation="h",
+                        marker_color=_GC[_g],
+                    ))
+                _cb_age = {**_CHART_BASE, "margin": dict(t=44, b=8, l=4, r=8)}
+                fig_a.update_layout(
+                    **_cb_age, height=430, barmode="stack",
+                    xaxis={**_AX, "nticks": 4, "showgrid": False},
+                    yaxis={**_AX, "showgrid": False},
+                    legend=dict(orientation="h", y=1.04, x=0, font=dict(size=10)),
+                )
+                pc(fig_a)
+            _panel_end()
+
+        # ── Right: Age cohort growth index — SVG bubble grid ─────────────
+        with col_bubble:
+            _panel_start("Age cohort growth index",
+                         "Index = visits ÷ prior month × 100 · Above 100 = growth · Below 100 = decline · 100 = flat")
+            if not df_cg.empty:
+                df_cg["visit_month"] = _pd.to_datetime(df_cg["visit_month"])
+                df_cg = df_cg.sort_values("visit_month")
+                _cgr = df_cg.copy()
+                _cgr["month"] = _cgr["visit_month"].dt.strftime("%Y-%m")
+                _cgr = _cgr.rename(columns={"patients": "count"})
+                _cg_json = _jcv.dumps(
+                    _cgr[["age_group", "month", "count"]].to_dict(orient="records")
+                )
+                _bubble_html = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  padding:8px 10px 10px;background:#F0F2F5;border-radius:6px;}}
+.lgd{{display:flex;gap:10px;align-items:center;margin-bottom:8px;flex-wrap:wrap}}
+.li{{display:flex;align-items:center;gap:4px;font-size:10px;color:#6B7280}}
+.gw{{overflow-x:auto}}
+</style></head>
+<body>
+<div class="lgd" id="lgd"></div>
+<div class="gw" id="grid"></div>
+<script>
+const RAW={_cg_json};
+const AGE_ORDER=['Toddler (0-4)','Child (5-12)','Adolescent (13-17)','Youth (18-24)',
+  'Young Adult (25-34)','Adult (35-44)','Middle Age (45-54)','Older Adult (55-64)','Senior (65+)'];
+const MO=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+const piv={{}};
+RAW.forEach(r=>{{
+  if(!piv[r.age_group])piv[r.age_group]={{}};
+  piv[r.age_group][r.month]=+(r.count||0);
+}});
+const allMo=[...new Set(RAW.map(r=>r.month))].sort();
+const cols=allMo.slice(1);
+const ages=AGE_ORDER.filter(ag=>piv[ag]);
+
+const LW=122,CW=26,CH=42,HH=52,PB=10;
+const W=LW+cols.length*CW, H=HH+ages.length*CH+PB;
+
+function bs(idx){{
+  if(idx===null)return{{f:'rgba(180,178,169,0.18)',s:'rgba(120,118,109,0.3)',r:2.5}};
+  const d=idx-100,a=Math.abs(d);
+  const r=Math.min(13,Math.max(2.5,2.5+a/100*10.5));
+  if(a<=6)return{{f:'rgba(180,178,169,0.18)',s:'rgba(120,118,109,0.3)',r}};
+  if(d>0){{
+    const f=a<25?'rgba(29,158,117,0.35)':a<60?'rgba(29,158,117,0.65)':'rgba(29,158,117,0.9)';
+    return{{f,s:'rgba(15,110,86,0.6)',r}};
+  }}
+  const f=a<25?'rgba(226,75,74,0.35)':a<60?'rgba(226,75,74,0.65)':'rgba(226,75,74,0.9)';
+  return{{f,s:'rgba(163,45,45,0.6)',r}};
+}}
+const NS='http://www.w3.org/2000/svg';
+function el(t,a){{const e=document.createElementNS(NS,t);Object.entries(a||{{}}).forEach(([k,v])=>e.setAttribute(k,v));return e;}}
+function tx(s,a){{const t=el('text',a);t.textContent=s;return t;}}
+
+const svg=el('svg',{{viewBox:'0 0 '+W+' '+H,width:W,height:H}});
+
+cols.forEach((mo,ci)=>{{
+  const[yr,mn]=mo.split('-'),cx=LW+ci*CW+CW/2;
+  svg.appendChild(tx(MO[+mn-1],{{x:cx,y:18,'text-anchor':'middle','font-size':'9',fill:'#9CA3AF'}}));
+  svg.appendChild(tx(yr,{{x:cx,y:30,'text-anchor':'middle','font-size':'8',fill:'#C0BDB4'}}));
+}});
+
+ages.forEach((ag,ri)=>{{
+  const cy0=HH+ri*CH+CH/2;
+  svg.appendChild(tx(ag,{{x:LW-8,y:cy0+4,'text-anchor':'end','font-size':'10',fill:'#6B7280'}}));
+  cols.forEach((mo,ci)=>{{
+    const prevMo=allMo[ci];
+    const curr=(piv[ag]||{{}})[mo]||0,prev=(piv[ag]||{{}})[prevMo]||0;
+    const idx=prev>0?Math.round(curr/prev*100):null;
+    const dev=idx!==null?idx-100:0;
+    const{{f,s,r}}=bs(idx);
+    const cx=LW+ci*CW+CW/2;
+    const moL=MO[+mo.split('-')[1]-1]+' '+mo.split('-')[0];
+    const tip=ag+' — '+moL+(idx!==null?': index '+idx+' ('+(dev>=0?'+':'')+dev+')':': no prior');
+    const c=el('circle',{{cx,cy:cy0,r,fill:f,stroke:s,'stroke-width':'0.8'}});
+    const tEl=document.createElementNS(NS,'title');tEl.textContent=tip;c.appendChild(tEl);
+    svg.appendChild(c);
+    if(idx!==null&&Math.abs(dev)>=25){{
+      const lb=(dev>=0?'+':'')+dev;
+      const t=el('text',{{x:cx,y:cy0+3,'text-anchor':'middle','font-size':'7',
+        fill:dev>=0?'#085041':'#791F1F','pointer-events':'none'}});
+      t.textContent=lb;svg.appendChild(t);
+    }}
+  }});
+}});
+document.getElementById('grid').appendChild(svg);
+
+[
+  {{label:'Strong growth',r:7,f:'rgba(29,158,117,0.9)',s:'rgba(15,110,86,0.6)'}},
+  {{label:'Mild growth',r:4.5,f:'rgba(29,158,117,0.35)',s:'rgba(15,110,86,0.6)'}},
+  {{label:'Flat',r:2.5,f:'rgba(180,178,169,0.18)',s:'rgba(120,118,109,0.3)'}},
+  {{label:'Mild decline',r:4.5,f:'rgba(226,75,74,0.35)',s:'rgba(163,45,45,0.6)'}},
+  {{label:'Strong decline',r:7,f:'rgba(226,75,74,0.9)',s:'rgba(163,45,45,0.6)'}},
+].forEach(it=>{{
+  const sz=it.r*2,d=document.createElement('div');
+  d.className='li';
+  d.innerHTML='<svg width="'+sz+'" height="'+sz+'" viewBox="0 0 '+sz+' '+sz+'">'
+    +'<circle cx="'+it.r+'" cy="'+it.r+'" r="'+(it.r-0.5)+'" fill="'+it.f+'" stroke="'+it.s+'" stroke-width="0.8"/>'
+    +'</svg>'+it.label;
+  document.getElementById('lgd').appendChild(d);
+}});
+</script></body></html>"""
+                _stcomp.html(_bubble_html, height=500, scrolling=True)
+            _panel_end()
+
+    except Exception as e:
+        st.error(f"Demographics / cohort: {e}")
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # ── RETENTION AND ACQUISITION ─────────────────────────────────────────
+    _cv_section("Retention and Acquisition")
+
+    # ── Row 3 — Benchmark comparison + New vs returning volumes ──────────
+    try:
+        df_nr   = Q.load_cv_new_returning_trend(filters, run_query)
+        _tenri  = Q.load_tenri_benchmark(run_query)
+        if df_nr.empty:
+            st.caption(f"⚠ New/returning: no data — schemas={filters.get('source_schemas')}")
+        if not df_nr.empty:
+            df_nr["visit_month"] = _pd.to_datetime(df_nr["visit_month"])
+            pivot = df_nr.pivot(index="visit_month", columns="patient_type",
+                                values="patients").fillna(0)
+            months = sorted(pivot.index)
+
+            c1, c2 = st.columns(2)
+
+            # Panel 1 — Actual vs Tenri Benchmark
+            with c1:
+                _panel_start("Actual Patient Volume vs. Tendri Hospital Benchmarks",
+                             "Your facility split vs. Tendri hospital benchmark")
+
+                _L4 = _tenri
+                total_new = int(df_nr[df_nr["patient_type"] == "New"]["patients"].sum())
+                total_ret = int(df_nr[df_nr["patient_type"] == "Returning"]["patients"].sum())
+                total     = (total_new + total_ret) or 1
+                actual    = {"New": round(total_new / total * 100, 1),
+                             "Returning": round(total_ret / total * 100, 1)}
+
+                categories = ["New Patients", "Returning Patients"]
+                keys       = ["New", "Returning"]
+                bm_vals    = [_L4[k] for k in keys]
+                act_vals   = [actual[k] for k in keys]
+
+                fig_bm = _go.Figure()
+                fig_bm.add_trace(_go.Bar(
+                    x=categories, y=bm_vals,
+                    name="Tendri Benchmark",
+                    marker_color="rgba(180,180,180,0.65)",
+                    text=[f"{v:.0f}%" for v in bm_vals],
+                    textposition="outside",
+                    textfont=dict(size=11, color="#888780"),
+                ))
+                act_colors = [_CV_TEAL for _ in keys]
+                fig_bm.add_trace(_go.Bar(
+                    x=categories, y=act_vals,
+                    name="Your Facility",
+                    marker_color=act_colors,
+                    text=[f"{v:.0f}%" for v in act_vals],
+                    textposition="outside",
+                    textfont=dict(size=11, color="#111827"),
+                ))
+
+                # Delta annotations above facility bars
+                # Grouped bar offsets: benchmark ~-0.2, facility ~+0.2 from category center
+                for ci, k in enumerate(keys):
+                    delta = actual[k] - _L4[k]
+                    label = f"+{delta:.0f}% Above Tendri" if delta >= 0 else f"{delta:.0f}% Below Tendri"
+                    color = "#1D9E75" if delta >= 0 else "#A32D2D"
+                    fig_bm.add_annotation(
+                        x=ci + 0.2, y=act_vals[ci] + 6,
+                        text=label,
+                        showarrow=True, arrowhead=2, arrowwidth=1.5,
+                        arrowcolor=color, font=dict(size=10, color=color),
+                        ax=0, ay=-28,
+                        xref="x", yref="y",
+                    )
+
+                fig_bm.update_layout(
+                    **_CHART_BASE, height=260, barmode="group",
+                    xaxis={**_AX, "showgrid": False},
+                    yaxis={**_AX, "ticksuffix": "%", "range": [0, 100]},
+                    legend=dict(orientation="h", y=1.08, x=0, font=dict(size=10)),
+                    bargroupgap=0.15,
+                )
+                pc(fig_bm)
+
+                parts = []
+                for k, label in [("New", "new"), ("Returning", "returning")]:
+                    d = actual[k] - _L4[k]
+                    sign = "above" if d >= 0 else "below"
+                    parts.append(f"{label.capitalize()} patients {abs(d):.0f} pct pts {sign} Tendri benchmark")
+                _cv_insight(" · ".join(parts))
+                _panel_end()
+
+            # Panel 2 — New vs returning dual line
+            with c2:
+                _panel_start("New vs returning volumes",
+                             "Monthly patient counts by type")
+                new_vals = pivot.get("New", _pd.Series(dtype=float)).reindex(months, fill_value=0)
+                ret_vals = pivot.get("Returning", _pd.Series(dtype=float)).reindex(months, fill_value=0)
+                fig_nv = _go.Figure()
+                fig_nv.add_trace(_go.Scatter(
+                    x=months, y=new_vals.values, name="New",
+                    mode="lines+markers",
+                    line=dict(color=_CV_TEAL, width=2), marker=dict(size=4),
+                ))
+                fig_nv.add_trace(_go.Scatter(
+                    x=months, y=ret_vals.values, name="Returning",
+                    mode="lines+markers",
+                    line=dict(color=_CV_PURPLE, width=2), marker=dict(size=4),
+                ))
+                fig_nv.update_layout(**_CHART_BASE, height=260,
+                                     xaxis={**_AX, "showgrid": False, "tickformat": "%b %y"},
+                                     yaxis=_AX,
+                                     legend=dict(orientation="h", y=1.08, x=0, font=dict(size=10)))
+                pc(fig_nv)
+                corr = _pd.Series(new_vals.values).corr(_pd.Series(ret_vals.values))
+                if not _pd.isna(corr):
+                    trend = "move together" if corr > 0.5 else ("diverge" if corr < 0 else "are loosely correlated")
+                    _cv_insight(f"New and returning patients {trend} (r={corr:.2f})")
+                _panel_end()
+    except Exception as e:
+        st.error(f"New vs returning error: {e}")
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # ── Row 4 — Acquisition Segment Retention ────────────────────────────
+    try:
+        import json as _json
+        df_seg = Q.load_acquisition_segments(filters, run_query)
+        if df_seg.empty:
+            st.caption(f"⚠ Acquisition segments: no data — schemas={filters.get('source_schemas')}")
+        if not df_seg.empty:
+            for _c in ("new_patients", "returning_patients", "total_visits",
+                       "new_pct", "returning_pct", "returning_per_new_ratio",
+                       "divergence_from_threshold"):
+                df_seg[_c] = pd.to_numeric(df_seg[_c], errors="coerce").fillna(0)
+
+            seg_rows  = df_seg.to_dict(orient="records")
+            data_json = _json.dumps(seg_rows)
+
+            html_acq = f"""<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  *{{box-sizing:border-box;margin:0;padding:0}}
+  :root{{
+    --color-background-primary:#ffffff;
+    --color-text-primary:#111827;
+    --color-text-secondary:#6B7280;
+    --color-border-tertiary:#E5E7EB;
+    --color-background-card:#F9FAFB;
+  }}
+  body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+        background:var(--color-background-primary);
+        color:var(--color-text-primary);padding:12px 4px;}}
+  .cards{{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;margin-bottom:18px}}
+  .card{{
+    border:1px solid var(--color-border-tertiary);
+    border-radius:8px;padding:12px 14px;
+    background:var(--color-background-card);
+    cursor:pointer;transition:box-shadow .15s,border-color .15s;
+    border-left:4px solid transparent;
+  }}
+  .card:hover{{box-shadow:0 2px 8px rgba(0,0,0,.08);border-color:#D1D5DB}}
+  .card.concern{{border-left-color:#E24B4A}}
+  .card.active{{box-shadow:0 0 0 2px #185FA5;border-color:#185FA5}}
+  .card-name{{font-size:11px;font-weight:600;text-transform:uppercase;
+              letter-spacing:.04em;color:var(--color-text-secondary);margin-bottom:6px}}
+  .card-ratio{{font-size:22px;font-weight:700;line-height:1;margin-bottom:4px}}
+  .card-sub{{font-size:11px;color:var(--color-text-secondary);margin-bottom:8px}}
+  .pbar-wrap{{height:6px;background:#E5E7EB;border-radius:3px;overflow:hidden;margin-bottom:6px}}
+  .pbar-fill{{height:100%;border-radius:3px}}
+  .badge{{display:inline-flex;align-items:center;gap:4px;
+          font-size:10px;font-weight:600;padding:2px 7px;border-radius:999px}}
+  .badge-green{{background:#D1FAE5;color:#065F46}}
+  .badge-red{{background:#FEE2E2;color:#991B1B}}
+  .badge-blue{{background:#DBEAFE;color:#1E40AF}}
+  .legend{{display:flex;gap:16px;margin-bottom:8px;flex-wrap:wrap}}
+  .legend-item{{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--color-text-secondary)}}
+  .legend-dot{{width:10px;height:10px;border-radius:2px}}
+  #drilldown{{margin-top:18px;padding:14px;border:1px solid var(--color-border-tertiary);
+               border-radius:8px;background:var(--color-background-card);display:none}}
+  #drilldown-title{{font-size:13px;font-weight:600;margin-bottom:12px;color:var(--color-text-primary)}}
+  #postop-warn{{font-size:12px;color:#92400E;background:#FEF3C7;border:1px solid #FDE68A;
+                border-radius:6px;padding:10px 14px;display:none}}
+  .insight-bar{{margin-top:10px;padding:8px 12px;border-radius:6px;font-size:11px;
+                background:#FEF3C7;color:#92400E;border:1px solid #FDE68A;display:none}}
+  canvas{{max-width:100%}}
+</style>
+</head>
+<body>
+<div class="cards" id="cards"></div>
+<div class="legend" id="legend"></div>
+<div style="height:300px;position:relative"><canvas id="segChart"></canvas></div>
+<div id="drilldown">
+  <div id="drilldown-title"></div>
+  <div id="postop-warn">
+    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
+         fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:4px">
+      <path d="M12 9v4"/><path d="M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636-2.87l-8.106-13.536a1.914 1.914 0 0 0-3.274 0z"/>
+      <path d="M12 16h.01"/>
+    </svg>
+    Post-Op data quality: age-group drill-down is not available for Post-Op. Patient classification relies on doctor note keywords which may be incomplete.
+  </div>
+  <canvas id="ageChart"></canvas>
+  <div class="insight-bar" id="insightBar"></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+const RAW = {data_json};
+
+const segMap = {{}};
+RAW.forEach(r => {{
+  const s = r.acquisition_segment;
+  if (!segMap[s]) segMap[s] = {{seg:s, new:0, ret:0, visits:0, signal:'', rows:[]}};
+  segMap[s].new    += +(r.new_patients||0);
+  segMap[s].ret    += +(r.returning_patients||0);
+  segMap[s].visits += +(r.total_visits||0);
+  segMap[s].signal  = r.ratio_signal;
+  segMap[s].rows.push(r);
+}});
+
+const ORDER = ['Chronic','Oncology','Maternal','Mental Health'];
+const segs  = ORDER.filter(s => segMap[s]);
+
+function ratio(s)   {{ return s.new > 0 ? s.ret / s.new : 0; }}
+function newPct(s)  {{ const t = s.new + s.ret; return t ? (s.new / t * 100) : 0; }}
+function retPct(s)  {{ const t = s.new + s.ret; return t ? (s.ret / t * 100) : 0; }}
+function fmt(n,d=2) {{ return n.toLocaleString('en-US',{{minimumFractionDigits:d,maximumFractionDigits:d}}); }}
+function fmtI(n)    {{ return Math.round(n).toLocaleString('en-US'); }}
+
+function signalBadge(sig) {{
+  if (sig === 'AS_EXPECTED') return `<span class="badge badge-green">
+    <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24"
+         fill="none" stroke="currentColor" stroke-width="2.5">
+      <circle cx="12" cy="12" r="9"/><path d="M9 12l2 2l4-4"/>
+    </svg>As expected</span>`;
+  if (sig === 'CONCERN') return `<span class="badge badge-red">
+    <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24"
+         fill="none" stroke="currentColor" stroke-width="2.5">
+      <path d="M12 9v4"/><path d="M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636-2.87l-8.106-13.536a1.914 1.914 0 0 0-3.274 0z"/>
+      <path d="M12 16h.01"/>
+    </svg>Concern</span>`;
+  return `<span class="badge badge-blue">
+    <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24"
+         fill="none" stroke="currentColor" stroke-width="2.5">
+      <circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12.01" y2="8"/>
+      <polyline points="11 12 12 12 12 16 13 16"/>
+    </svg>Review data</span>`;
+}}
+
+function retColor(sig) {{
+  if (sig === 'AS_EXPECTED') return '#0F6E56';
+  if (sig === 'CONCERN')     return '#E24B4A';
+  return '#185FA5';
+}}
+
+const cardsEl = document.getElementById('cards');
+segs.forEach((s, i) => {{
+  const d   = segMap[s];
+  const r   = ratio(d);
+  const rp  = retPct(d);
+  const np  = newPct(d);
+  const sig = d.signal;
+  const div = document.createElement('div');
+  div.className = 'card' + (sig === 'CONCERN' ? ' concern' : '');
+  div.dataset.idx = i;
+  div.innerHTML = `
+    <div class="card-name">${{s}}</div>
+    <div class="card-ratio">${{fmt(r)}}x<small style="font-size:12px;font-weight:400;color:var(--color-text-secondary)"> R:N</small></div>
+    <div class="card-sub">${{fmt(np,1)}}% new · ${{fmt(rp,1)}}% returning</div>
+    <div class="pbar-wrap"><div class="pbar-fill" style="width:${{rp.toFixed(1)}}%;background:${{retColor(sig)}}"></div></div>
+    ${{signalBadge(sig)}}
+  `;
+  div.addEventListener('click', () => showDrilldown(s, div));
+  cardsEl.appendChild(div);
+}});
+
+const legendEl = document.getElementById('legend');
+legendEl.innerHTML = `
+  <div class="legend-item"><div class="legend-dot" style="background:#185FA5"></div>New Patients</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#6BADA0"></div>Returning Patients</div>
+`;
+
+// plugin — draw signal indicator above each Returning bar (like benchmark chart arrows)
+const indicatorPlugin = {{
+  id: 'indicatorLabels',
+  afterDatasetsDraw(chart) {{
+    const ctx  = chart.ctx;
+    const retMeta = chart.getDatasetMeta(1); // dataset index 1 = Returning
+    segs.forEach((s, i) => {{
+      const bar = retMeta.data[i];
+      if (!bar) return;
+      const d   = segMap[s];
+      const sig = d.signal;
+      const r   = ratio(d);
+      const div = +(d.rows[0]?.divergence_from_threshold ?? 0);
+      let label, color;
+      if (sig === 'AS_EXPECTED') {{
+        const sign = div >= 0 ? '+' : '';
+        label = `${{sign}}${{fmt(div)}}x Above Expected`;
+        color = '#0F6E56';
+      }} else if (sig === 'CONCERN') {{
+        label = `-${{fmt(Math.abs(div))}}x Below Expected`;
+        color = '#E24B4A';
+      }} else {{
+        label = 'Review Data';
+        color = '#185FA5';
+      }}
+      // arrow pointing down to bar
+      const arrowX = bar.x;
+      const arrowY = bar.y - 6;
+      ctx.save();
+      ctx.fillStyle = color;
+      ctx.font = 'bold 10px -apple-system,sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(label, arrowX, arrowY - 14);
+      // small downward arrow
+      ctx.beginPath();
+      ctx.moveTo(arrowX, arrowY - 2);
+      ctx.lineTo(arrowX, arrowY - 10);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(arrowX - 4, arrowY - 5);
+      ctx.lineTo(arrowX, arrowY - 1);
+      ctx.lineTo(arrowX + 4, arrowY - 5);
+      ctx.stroke();
+      ctx.restore();
+    }});
+  }}
+}};
+
+const segCtx = document.getElementById('segChart').getContext('2d');
+new Chart(segCtx, {{
+  type: 'bar',
+  plugins: [indicatorPlugin],
+  data: {{
+    labels: segs,
+    datasets: [
+      {{
+        label: 'New Patients',
+        data: segs.map(s => segMap[s].new),
+        backgroundColor: '#185FA5',
+        borderRadius: 3,
+      }},
+      {{
+        label: 'Returning Patients',
+        data: segs.map(s => segMap[s].ret),
+        backgroundColor: '#6BADA0',
+        borderRadius: 3,
+      }}
+    ]
+  }},
+  options: {{
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {{
+      legend: {{ display: false }},
+      tooltip: {{
+        callbacks: {{
+          title: items => items[0].label,
+          label: ctx => {{
+            const s = segs[ctx.dataIndex];
+            const d = segMap[s];
+            return [
+              ` New: ${{fmtI(d.new)}}`,
+              ` Returning: ${{fmtI(d.ret)}}`,
+              ` R:N ratio: ${{fmt(ratio(d))}}x`
+            ];
+          }}
+        }}
+      }}
+    }},
+    scales: {{
+      x: {{ grid: {{ display: false }}, ticks: {{ font: {{ size: 11 }} }} }},
+      y: {{
+        beginAtZero: true,
+        grace: 0,
+        grid: {{ color: 'rgba(0,0,0,.06)' }},
+        ticks: {{ font: {{ size: 10 }}, callback: v => fmtI(v) }}
+      }}
+    }},
+    layout: {{ padding: {{ top: 36, bottom: 0 }} }}
+  }}
+}});
+
+let ageChartInst = null;
+function showDrilldown(segName, cardEl) {{
+  document.querySelectorAll('.card').forEach(c => c.classList.remove('active'));
+  cardEl.classList.add('active');
+
+  const drillEl   = document.getElementById('drilldown');
+  const titleEl   = document.getElementById('drilldown-title');
+  const postopEl  = document.getElementById('postop-warn');
+  const ageCanvas = document.getElementById('ageChart');
+  const insightEl = document.getElementById('insightBar');
+
+  drillEl.style.display = 'block';
+  titleEl.textContent   = segName + ' — Returning per New Ratio by Age Group';
+
+  postopEl.style.display  = 'none';
+  ageCanvas.style.display = 'block';
+
+  const rows = segMap[segName].rows
+    .filter(r => r.new_patients > 0)
+    .sort((a,b) => a.age_group.localeCompare(b.age_group));
+
+  const labels = rows.map(r => r.age_group);
+  const ratios = rows.map(r => +r.returning_per_new_ratio || 0);
+  const colors = ratios.map(v => v >= 1.0 ? '#0F6E56' : '#E24B4A');
+
+  const h = Math.max(180, labels.length * 42 + 60);
+  ageCanvas.style.height = h + 'px';
+  ageCanvas.height = h;
+
+  if (ageChartInst) ageChartInst.destroy();
+  ageChartInst = new Chart(ageCanvas.getContext('2d'), {{
+    type: 'bar',
+    data: {{
+      labels,
+      datasets: [{{
+        data: ratios,
+        backgroundColor: colors,
+        borderRadius: 3,
+        barThickness: 22,
+      }}]
+    }},
+    options: {{
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {{
+        legend: {{ display: false }},
+        annotation: {{
+          annotations: {{
+            threshold: {{
+              type: 'line', scaleID: 'x', value: 1.0,
+              borderColor: '#BA7517', borderWidth: 2, borderDash: [5,4],
+              label: {{ content: '1.0 threshold', enabled: true, position: 'start',
+                        font: {{ size: 9 }}, color: '#BA7517', backgroundColor: 'transparent' }}
+            }}
+          }}
+        }},
+        tooltip: {{
+          callbacks: {{ label: ctx => ` R:N ratio: ${{fmt(ctx.parsed.x)}}` }}
+        }}
+      }},
+      scales: {{
+        x: {{
+          min: 0,
+          grid: {{ color: 'rgba(0,0,0,.06)' }},
+          ticks: {{ font: {{ size: 10 }}, callback: v => fmt(v) }}
+        }},
+        y: {{ grid: {{ display: false }}, ticks: {{ font: {{ size: 10 }} }} }}
+      }}
+    }}
+  }});
+
+  const below = labels.filter((_, i) => ratios[i] < 1.0);
+  if (below.length) {{
+    insightEl.style.display = 'block';
+    insightEl.innerHTML = `
+      <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24"
+           fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:middle;margin-right:5px">
+        <path d="M12 9v4"/><path d="M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636-2.87l-8.106-13.536a1.914 1.914 0 0 0-3.274 0z"/>
+        <path d="M12 16h.01"/>
+      </svg>
+      <strong>Below retention threshold (R:N &lt; 1.0):</strong> ${{below.join(', ')}}
+    `;
+  }} else {{
+    insightEl.style.display = 'none';
+  }}
+}}
+</script>
+</body>
+</html>"""
+
+            _stcomp.html(html_acq, height=520, scrolling=False)
+    except Exception as e:
+        st.error(f"Acquisition segments error: {e}")
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # ── Patient Profile Dashboard ─────────────────────────────────────────
+    _cv_section("Patient Profile — What Brings Patients In")
+    try:
+        import json as _jpp
+        df_pp = Q.load_patient_profile(filters, run_query)
+        if not df_pp.empty:
+            df_pp = df_pp.drop_duplicates(subset=["visit_id"]).copy()
+            df_pp["gender_clean"] = (df_pp["gender"].str.upper().str.strip()
+                                     .map({"F": "Female", "FEMALE": "Female",
+                                           "M": "Male",   "MALE":   "Male"})
+                                     .fillna("Other"))
+            _PP_AGE_ORDER = [
+                "Toddler (0-4)", "Child (5-12)", "Adolescent (13-17)", "Youth (18-24)",
+                "Young Adult (25-34)", "Adult (35-44)", "Middle Age (45-54)",
+                "Older Adult (55-64)", "Senior (65+)",
+            ]
+
+            # ── V1: top-10 diagnoses + drill-down by age group ───────────
+            _dn = df_pp[df_pp["patient_type"] == "new"].groupby("clean_diagnosis")["visit_id"].count()
+            _dr = df_pp[df_pp["patient_type"] == "returning"].groupby("clean_diagnosis")["visit_id"].count()
+            _dt = _dn.add(_dr, fill_value=0).nlargest(10)
+            _v1_diag = [{"label": l, "new": int(_dn.get(l, 0)), "ret": int(_dr.get(l, 0))}
+                        for l in _dt.index.tolist()]
+            _v1_drill = {}
+            for _lbl in _dt.index.tolist():
+                _dsub = df_pp[df_pp["clean_diagnosis"].str.contains(
+                    _lbl.replace("(", r"\(").replace(")", r"\)"), case=False, na=False, regex=True
+                )]
+                _dgb = _dsub.groupby(["age_group", "patient_type"])["visit_id"].count()
+                _da  = [a for a in _PP_AGE_ORDER if a in _dsub["age_group"].unique()]
+                _v1_drill[_lbl] = {
+                    "ages": _da,
+                    "new":  [int(_dgb.get((a, "new"),       0)) for a in _da],
+                    "ret":  [int(_dgb.get((a, "returning"),  0)) for a in _da],
+                }
+
+            # ── V2: gender split by specific diagnoses ────────────────────
+            _FO_KW = ["antenatal","maternal","postnatal","anc","pnc",
+                      "gynaecological","reproductive"]
+            _REPR_EXCL = {
+                "Toddler (0-4)", "Child (5-12)",
+                "Older Adult (55-64)", "Senior (65+)",
+            }
+            _V2_TABS = [
+                "Oncology", "Chronic Upper Airway",
+                "Hypertension", "Neurologic", "Antenatal Care",
+            ]
+            _V2_PAT = {
+                "Oncology":           "oncolog",
+                "Chronic Upper Airway":"upper airway",
+                "Hypertension":       "hypertension",
+                "Neurologic":         "neurolog",
+                "Antenatal Care":     "antenatal",
+            }
+            def _v2_build(df_sub, tab):
+                is_fo = any(kw in tab.lower() for kw in _FO_KW)
+                if is_fo:
+                    df_sub = df_sub[
+                        (df_sub["gender_clean"] == "Female") &
+                        (~df_sub["age_group"].isin(_REPR_EXCL))
+                    ]
+                _gb  = df_sub.groupby(["age_group","gender_clean","patient_type"])["visit_id"].count()
+                ages = [a for a in _PP_AGE_ORDER if a in df_sub["age_group"].unique()]
+                return {
+                    "ages":     ages,
+                    "male_new": [int(_gb.get((a,"Male","new"),      0)) for a in ages],
+                    "male_ret": [int(_gb.get((a,"Male","returning"), 0)) for a in ages],
+                    "fem_new":  [int(_gb.get((a,"Female","new"),     0)) for a in ages],
+                    "fem_ret":  [int(_gb.get((a,"Female","returning"),0)) for a in ages],
+                    "female_only": is_fo,
+                }
+            _v2 = {}
+            for _tab in _V2_TABS:
+                _pat = _V2_PAT[_tab]
+                _tdf = df_pp[df_pp["clean_diagnosis"].str.lower().str.contains(_pat, na=False)]
+                _v2[_tab] = _v2_build(_tdf, _tab)
+
+            # ── V3: Inpatient vs outpatient ───────────────────────────────
+            _new_df    = df_pp[df_pp["patient_type"] == "new"]
+            _v3_new_op = int((_new_df["visit_type"] == "outpatient").sum())
+            _v3_new_ip = int((_new_df["visit_type"] == "inpatient").sum())
+            _v3_segs   = []
+            for _s in ["CHRONIC", "ONCOLOGY", "MATERNAL", "MENTAL_HEALTH"]:
+                _sd = _new_df[_new_df["acquisition_segment"] == _s]
+                _v3_segs.append({
+                    "seg": _s,
+                    "op":  int((_sd["visit_type"] == "outpatient").sum()),
+                    "ip":  int((_sd["visit_type"] == "inpatient").sum()),
+                })
+
+            _pp_data = _jpp.dumps({
+                "v1": {"diag": _v1_diag, "drill": _v1_drill},
+                "v2": _v2,
+                "v2tabs": _V2_TABS,
+                "v3": {"new_op": _v3_new_op, "new_ip": _v3_new_ip, "segs": _v3_segs},
+            })
+
+            _pp_html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.30.0/dist/tabler-icons.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root{{
+  --clr-primary:#185FA5;--clr-green:#0F6E56;--clr-purple:#3C3489;
+  --clr-blue-lt:#B5D4F4;--clr-pink:#D4537E;--clr-pink-lt:#F4C0D1;
+  --clr-bg:#FAFAFA;--clr-card:#FFFFFF;--clr-border:rgba(0,0,0,0.08);
+  --clr-text:#111827;--clr-sub:#6B7280;--clr-ins:#F3F4F6;
+  --radius:8px;
+}}
+*{{box-sizing:border-box;margin:0;padding:0}}
+html,body{{height:100%;overflow:hidden}}
+body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  font-size:12px;background:var(--clr-bg);color:var(--clr-text);
+  display:flex;flex-direction:column}}
+h2.sr{{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}}
+/* tab bar — never shrinks */
+.tab-bar{{flex-shrink:0;display:flex;gap:6px;padding:10px 12px 0;
+  border-bottom:1px solid var(--clr-border);background:var(--clr-card)}}
+.tab-btn{{padding:5px 12px;border:1px solid transparent;border-radius:20px;cursor:pointer;
+  font-size:11px;font-weight:500;color:var(--clr-sub);background:transparent;transition:.12s}}
+.tab-btn.active{{background:var(--clr-ins);border-color:var(--clr-primary);color:var(--clr-primary)}}
+/* views fill remaining height as a flex column */
+.view{{display:none;flex:1;flex-direction:column;padding:10px 12px;gap:8px;min-height:0}}
+.view.active{{display:flex}}
+/* card fills available flex space */
+.grow-card{{flex:1;display:flex;flex-direction:column;min-height:0;
+  background:var(--clr-card);border:1px solid var(--clr-border);border-radius:var(--radius);padding:10px 12px}}
+/* static card (metrics, drill) */
+.card{{background:var(--clr-card);border:1px solid var(--clr-border);border-radius:var(--radius);
+  padding:10px 12px;flex-shrink:0}}
+.drill-card{{background:var(--clr-card);border:1px solid var(--clr-border);border-radius:var(--radius);
+  padding:10px 12px;flex-shrink:0;display:none}}
+.drill-title{{font-size:11px;font-weight:600;color:var(--clr-text);margin-bottom:8px}}
+/* chart wrapper fills card */
+.chart-wrap{{flex:1;position:relative;min-height:0}}
+/* shared elements that never grow */
+.legend{{flex-shrink:0;display:flex;gap:12px;flex-wrap:wrap;margin-bottom:6px;align-items:center}}
+.leg-item{{display:flex;align-items:center;gap:4px;font-size:10px;color:var(--clr-sub)}}
+.leg-sq{{width:10px;height:10px;border-radius:2px;flex-shrink:0}}
+.helper{{font-size:10px;color:var(--clr-sub);font-style:italic;margin-left:auto}}
+.diag-tabs{{flex-shrink:0;display:flex;gap:6px;flex-wrap:wrap}}
+.diag-btn{{padding:4px 10px;border:1px solid var(--clr-border);border-radius:20px;
+  cursor:pointer;font-size:10px;font-weight:500;color:var(--clr-sub);background:transparent}}
+.diag-btn.active{{background:var(--clr-ins);border-color:var(--clr-primary);color:var(--clr-primary)}}
+.metrics{{flex-shrink:0;display:flex;gap:10px}}
+.metric{{background:var(--clr-card);border:1px solid var(--clr-border);border-radius:var(--radius);
+  padding:10px 14px;flex:1}}
+.metric .mlabel{{font-size:10px;color:var(--clr-sub);text-transform:uppercase;letter-spacing:.05em}}
+.metric .mval{{font-size:22px;font-weight:700;color:var(--clr-text);margin:2px 0}}
+.metric .msub{{font-size:10px;color:var(--clr-sub)}}
+/* insight — fixed at bottom, never grows */
+.insight{{flex-shrink:0;background:var(--clr-ins);border-radius:var(--radius);padding:8px 12px;
+  display:flex;align-items:flex-start;gap:8px;font-size:11px;color:var(--clr-sub)}}
+.insight i{{font-size:14px;flex-shrink:0;margin-top:1px}}
+canvas{{display:block;width:100%!important;height:100%!important}}
+</style>
+</head>
+<body>
+<h2 class="sr">Patient profile analytics — Kisumu Specialists</h2>
+<div class="tab-bar">
+  <button class="tab-btn active" onclick="switchTab('v1',this)">What brings patients in</button>
+  <button class="tab-btn" onclick="switchTab('v2',this)">Gender split</button>
+  <button class="tab-btn" onclick="switchTab('v3',this)">Inpatient vs outpatient</button>
+</div>
+
+<!-- VIEW 1 -->
+<div id="v1" class="view active">
+  <div class="grow-card">
+    <div class="legend">
+      <span class="leg-item"><span class="leg-sq" style="background:#185FA5"></span>New patients</span>
+      <span class="leg-item"><span class="leg-sq" style="background:#0F6E56"></span>Returning patients</span>
+      <span class="helper">Click a bar to see age group breakdown</span>
+    </div>
+    <div class="chart-wrap">
+      <canvas id="v1c" role="img" aria-label="Top 10 diagnoses by new and returning visits">No data</canvas>
+    </div>
+  </div>
+  <div class="drill-card" id="v1-drill">
+    <div class="drill-title" id="v1-drill-title"></div>
+    <div class="legend">
+      <span class="leg-item"><span class="leg-sq" style="background:#185FA5"></span>New</span>
+      <span class="leg-item"><span class="leg-sq" style="background:#0F6E56"></span>Returning</span>
+    </div>
+    <div id="v1-drill-wrap" style="position:relative">
+      <canvas id="v1dc" role="img" aria-label="Age group breakdown for selected diagnosis">No data</canvas>
+    </div>
+  </div>
+  <div class="insight">
+    <i class="ti ti-info-circle"></i>
+    <span>Oncology and Chronic Upper Airway are the top drivers for both new and returning patients.
+    Hypertension shows the largest gap — returning vs new — consistent with ongoing chronic management.
+    Gynaecological NCD skews toward new patients which warrants investigation as a chronic condition that should generate follow-up.</span>
+  </div>
+</div>
+
+<!-- VIEW 2 -->
+<div id="v2" class="view">
+  <div class="diag-tabs" id="v2-tabs"></div>
+  <div class="grow-card">
+    <div class="legend" id="v2-legend"></div>
+    <div class="chart-wrap">
+      <canvas id="v2c" role="img" aria-label="Gender split by age group and diagnosis">No data</canvas>
+    </div>
+  </div>
+  <div class="insight" id="v2-ins"></div>
+</div>
+
+<!-- VIEW 3 -->
+<div id="v3" class="view">
+  <div class="metrics" id="v3-metrics"></div>
+  <div class="grow-card">
+    <div class="legend">
+      <span class="leg-item"><span class="leg-sq" style="background:#185FA5"></span>Outpatient</span>
+      <span class="leg-item"><span class="leg-sq" style="background:#3C3489"></span>Inpatient</span>
+    </div>
+    <div class="chart-wrap">
+      <canvas id="v3c" role="img" aria-label="Inpatient vs outpatient new patients by segment">No data</canvas>
+    </div>
+  </div>
+  <div class="insight">
+    <i class="ti ti-info-circle"></i>
+    <span>Most new patients arrive as outpatients across all segments.
+    Maternal has the highest inpatient rate for new patients — likely emergency and high-risk first presentations.
+    New chronic patients arriving as inpatients signals advanced or unmanaged disease at first presentation.</span>
+  </div>
+</div>
+
+<script>
+const D={_pp_data};
+function fmt(n){{return n==null?'—':Number(n).toLocaleString()}}
+function pct(n,t){{return t?((n/t)*100).toFixed(1)+'%':'—'}}
+const SEG_LABELS={{'CHRONIC':'Chronic','ONCOLOGY':'Oncology','MATERNAL':'Maternal','MENTAL_HEALTH':'Mental Health'}};
+
+// ── tab switch ──────────────────────────────────────────────────────────
+function switchTab(id,btn){{
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  btn.classList.add('active');
+}}
+
+// ── VIEW 1 ──────────────────────────────────────────────────────────────
+let v1Chart=null, v1DrillChart=null;
+(function(){{
+  const v=D.v1;
+  const labels=v.diag.map(d=>d.label);
+  if(v1Chart)v1Chart.destroy();
+  v1Chart=new Chart(document.getElementById('v1c'),{{
+    type:'bar',
+    data:{{labels,datasets:[
+      {{label:'New',     data:v.diag.map(d=>d.new), backgroundColor:'#185FA5',borderRadius:3}},
+      {{label:'Returning',data:v.diag.map(d=>d.ret),backgroundColor:'#0F6E56',borderRadius:3}},
+    ]}},
+    options:{{
+      indexAxis:'y',responsive:true,maintainAspectRatio:false,
+      onClick(_e,els){{
+        if(!els.length)return;
+        const lbl=labels[els[0].index];
+        openDrill(lbl);
+      }},
+      plugins:{{legend:{{display:false}},tooltip:{{callbacks:{{
+        label:c=>c.dataset.label+': '+fmt(c.raw)
+      }}}}}},
+      scales:{{
+        x:{{grid:{{color:'rgba(0,0,0,.05)'}},ticks:{{font:{{size:10}},callback:v=>fmt(v)}}}},
+        y:{{grid:{{display:false}},ticks:{{font:{{size:10}}}}}},
+      }}
+    }}
+  }});
+}})();
+
+function openDrill(label){{
+  const dd=D.v1.drill[label];
+  if(!dd||!dd.ages.length)return;
+  const panel=document.getElementById('v1-drill');
+  document.getElementById('v1-drill-title').textContent=label;
+  const h=Math.max(160,dd.ages.length*44+80);
+  document.getElementById('v1-drill-wrap').style.height=h+'px';
+  panel.style.display='block';
+  if(v1DrillChart){{v1DrillChart.destroy();v1DrillChart=null;}}
+  v1DrillChart=new Chart(document.getElementById('v1dc'),{{
+    type:'bar',
+    data:{{labels:dd.ages,datasets:[
+      {{label:'New',     data:dd.new,backgroundColor:'#185FA5',borderRadius:3}},
+      {{label:'Returning',data:dd.ret,backgroundColor:'#0F6E56',borderRadius:3}},
+    ]}},
+    options:{{
+      indexAxis:'y',responsive:true,maintainAspectRatio:false,
+      plugins:{{legend:{{display:false}},tooltip:{{callbacks:{{label:c=>c.dataset.label+': '+fmt(c.raw)}}}}}},
+      scales:{{
+        x:{{grid:{{color:'rgba(0,0,0,.05)'}},ticks:{{font:{{size:10}},callback:v=>fmt(v)}}}},
+        y:{{grid:{{display:false}},ticks:{{font:{{size:10}}}}}},
+      }}
+    }}
+  }});
+  setTimeout(()=>panel.scrollIntoView({{behavior:'smooth',block:'nearest'}}),80);
+}}
+
+// ── VIEW 2 ──────────────────────────────────────────────────────────────
+let v2Chart=null;
+const V2_INSIGHTS={{
+  'Oncology':'<i class="ti ti-info-circle"></i><span>Senior males show the strongest returning dominance — likely prostate and haematological cancers requiring sustained management. Female oncology peaks in Adult (35–44) for new patients, suggesting reproductive cancers as a key driver.</span>',
+  'Chronic Upper Airway':'<i class="ti ti-info-circle"></i><span>Volume dominated by Toddler and Child age groups for both genders — paediatric respiratory conditions are the primary driver. Gender balance is near-equal across all age groups.</span>',
+  'Hypertension':'<i class="ti ti-info-circle"></i><span>Both genders show strong returning dominance in older age groups. Male new patients are consistently lower than female across all age groups — consistent with under-detection of hypertension in males at first presentation.</span>',
+  'Neurologic':'<i class="ti ti-info-circle"></i><span>Female patients dominate Adult (35–44) returning visits — worth investigating for conditions like migraine and multiple sclerosis which are more prevalent in women.</span>',
+  'Antenatal Care':'<i class="ti ti-info-circle"></i><span>Female-only diagnosis. Young Adult (25–34) dominates with strong returning ratio — the primary maternal cohort. Any Adolescent (13–17) visits should be validated as possible data quality issues before presenting.</span>',
+}};
+function buildV2(tab){{
+  const sd=D.v2[tab];
+  if(!sd)return;
+  const lgd=document.getElementById('v2-legend');
+  if(sd.female_only){{
+    lgd.innerHTML='<span class="leg-item"><span class="leg-sq" style="background:#D4537E"></span>Female — new</span>'
+      +'<span class="leg-item"><span class="leg-sq" style="background:#F4C0D1"></span>Female — returning</span>';
+  }}else{{
+    lgd.innerHTML='<span class="leg-item"><span class="leg-sq" style="background:#185FA5"></span>Male — new</span>'
+      +'<span class="leg-item"><span class="leg-sq" style="background:#B5D4F4"></span>Male — returning</span>'
+      +'<span class="leg-item"><span class="leg-sq" style="background:#D4537E"></span>Female — new</span>'
+      +'<span class="leg-item"><span class="leg-sq" style="background:#F4C0D1"></span>Female — returning</span>';
+  }}
+  if(v2Chart){{v2Chart.destroy();v2Chart=null;}}
+  const datasets=[];
+  if(!sd.female_only){{
+    datasets.push({{label:'Male — new',    data:sd.male_new,backgroundColor:'#185FA5',borderRadius:3}});
+    datasets.push({{label:'Male — ret',    data:sd.male_ret,backgroundColor:'#B5D4F4',borderRadius:3}});
+  }}
+  datasets.push({{label:'Female — new',  data:sd.fem_new, backgroundColor:'#D4537E',borderRadius:3}});
+  datasets.push({{label:'Female — ret',  data:sd.fem_ret, backgroundColor:'#F4C0D1',borderRadius:3}});
+  v2Chart=new Chart(document.getElementById('v2c'),{{
+    type:'bar',
+    data:{{labels:sd.ages,datasets}},
+    options:{{
+      indexAxis:'y',responsive:true,maintainAspectRatio:false,
+      plugins:{{legend:{{display:false}},tooltip:{{callbacks:{{label:c=>c.dataset.label+': '+fmt(c.raw)}}}}}},
+      scales:{{
+        x:{{grid:{{color:'rgba(0,0,0,.05)'}},ticks:{{font:{{size:10}},callback:v=>fmt(v)}}}},
+        y:{{grid:{{display:false}},ticks:{{font:{{size:10}}}}}},
+      }}
+    }}
+  }});
+  document.getElementById('v2-ins').innerHTML=V2_INSIGHTS[tab]||'';
+}}
+(function(){{
+  const tabs=document.getElementById('v2-tabs');
+  D.v2tabs.forEach((t,i)=>{{
+    const b=document.createElement('button');
+    b.className='diag-btn'+(i===0?' active':'');
+    b.textContent=t;
+    b.onclick=()=>{{
+      document.querySelectorAll('#v2-tabs .diag-btn').forEach(x=>x.classList.remove('active'));
+      b.classList.add('active');buildV2(t);
+    }};
+    tabs.appendChild(b);
+  }});
+  buildV2(D.v2tabs[0]);
+}})();
+
+// ── VIEW 3 ──────────────────────────────────────────────────────────────
+(function(){{
+  const v=D.v3;
+  const tot=v.new_op+v.new_ip;
+  document.getElementById('v3-metrics').innerHTML=
+    '<div class="metric"><div class="mlabel">New — outpatient</div><div class="mval">'+fmt(v.new_op)+'</div><div class="msub">'+pct(v.new_op,tot)+' of new visits</div></div>'+
+    '<div class="metric"><div class="mlabel">New — inpatient</div><div class="mval">'+fmt(v.new_ip)+'</div><div class="msub">'+pct(v.new_ip,tot)+' of new visits</div></div>'+
+    '<div class="metric"><div class="mlabel">Inpatient rate (new)</div><div class="mval">'+pct(v.new_ip,tot)+'</div><div class="msub">Across all segments</div></div>';
+  const labels=v.segs.map(s=>SEG_LABELS[s.seg]||s.seg);
+  new Chart(document.getElementById('v3c'),{{
+    type:'bar',
+    data:{{labels,datasets:[
+      {{label:'Outpatient',data:v.segs.map(s=>s.op),backgroundColor:'#185FA5',borderRadius:4}},
+      {{label:'Inpatient', data:v.segs.map(s=>s.ip),backgroundColor:'#3C3489',borderRadius:4}},
+    ]}},
+    options:{{
+      responsive:true,maintainAspectRatio:false,
+      plugins:{{legend:{{display:false}},tooltip:{{callbacks:{{
+        label:c=>{{
+          const s=v.segs[c.dataIndex];
+          return c.dataset.label+': '+fmt(c.raw)+' ('+pct(c.raw,s.op+s.ip)+')';
+        }}
+      }}}}}},
+      scales:{{
+        x:{{grid:{{display:false}},ticks:{{font:{{size:11}}}}}},
+        y:{{grid:{{color:'rgba(0,0,0,.05)'}},ticks:{{font:{{size:10}},callback:v=>fmt(v)}}}},
+      }}
+    }}
+  }});
+}})();
+</script>
+</body>
+</html>"""
+            _stcomp.html(_pp_html, height=740, scrolling=True)
+    except Exception as e:
+        st.error(f"Patient profile dashboard: {e}")
+
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# WARD DEEP-DIVE — DIP DETECTION + H3 DIAGNOSIS TRENDS
+# ══════════════════════════════════════════════════════════════════════════════
+
+_DIAG_COLOR_MAP = {
+    "communicable - typhoid":          "#EF9F27",
+    "communicable - other infectious": "#E24B4A",
+    "ncd - respiratory":               "#D85A30",
+    "cancer / oncology":               "#7F77DD",
+    "musculoskeletal":                 "#888780",
+}
+_DIAG_FALLBACK = ["#378ADD", "#1D9E75", "#9B59B6", "#2D2D2A"]
+
+
+def _diag_color(name: str, rank: int) -> str:
+    c = _DIAG_COLOR_MAP.get(name.lower().strip())
+    if c:
+        return c
+    return _DIAG_FALLBACK[rank % len(_DIAG_FALLBACK)]
+
+
+def _detect_dip(df: "pd.DataFrame") -> dict:
+    """Detect most recent sustained dip: ≥3 consecutive months where the
+    3-month rolling avg is >15% below the prior 6-month baseline."""
+    no_dip = {
+        "dip_detected": False,
+        "baseline_avg": float(df["total_admissions"].mean()) if not df.empty else 0,
+    }
+    if df.empty or len(df) < 9:
+        return no_dip
+
+    df = df.sort_values("admit_month").copy().reset_index(drop=True)
+    df["rolling_3m"]   = df["total_admissions"].rolling(3, min_periods=3).mean()
+    df["baseline_6m"]  = df["total_admissions"].rolling(6, min_periods=6).mean().shift(1)
+    df["is_candidate"] = (
+        df["rolling_3m"].notna()
+        & df["baseline_6m"].notna()
+        & (df["rolling_3m"] < df["baseline_6m"] * 0.85)
+    )
+
+    runs, cur = [], []
+    for _, row in df.iterrows():
+        if row["is_candidate"]:
+            cur.append(row["admit_month"])
+        else:
+            if len(cur) >= 3:
+                runs.append(list(cur))
+            cur = []
+    if len(cur) >= 3:
+        runs.append(list(cur))
+
+    if not runs:
+        return no_dip
+
+    dip_months = runs[-1]
+    dip_set    = set(dip_months)
+    non_dip    = df[~df["admit_month"].isin(dip_set)]
+    baseline   = float(non_dip["total_admissions"].mean()) if not non_dip.empty else float(df["total_admissions"].mean())
+    dip_avg    = float(df[df["admit_month"].isin(dip_set)]["total_admissions"].mean())
+
+    return {
+        "dip_detected":   True,
+        "dip_months":     dip_months,
+        "dip_months_set": dip_set,
+        "dip_start":      dip_months[0],
+        "dip_end":        dip_months[-1],
+        "baseline_avg":   baseline,
+        "dip_avg":        dip_avg,
+    }
+
+
+def _dip_vrect(fig, dip_info: dict):
+    """Overlay dip-period shading and labels on a Plotly figure."""
+    if not dip_info.get("dip_detected"):
+        return
+    dip_months = dip_info.get("dip_months", [])
+    if not dip_months:
+        return
+    try:
+        import pandas as _pd
+        x0 = dip_months[0]  - _pd.DateOffset(days=15)
+        x1 = dip_months[-1] + _pd.DateOffset(days=15)
+        fig.add_vrect(x0=x0, x1=x1, fillcolor="rgba(239,159,39,0.12)",
+                      layer="below", line_width=0)
+        for xv in (x0, x1):
+            fig.add_vline(x=str(xv)[:10], line_dash="dash",
+                          line_color="rgba(239,159,39,0.4)", line_width=1)
+        mid = x0 + (x1 - x0) / 2
+        fig.add_annotation(
+            x=str(mid)[:10], y=1.0, yref="paper", text="Dip period",
+            showarrow=False, font=dict(size=9, color="#854F0B"),
+            bgcolor="rgba(0,0,0,0)", xanchor="center", yanchor="top",
+        )
+    except Exception:
+        pass
+
+
+def _strip(color: str, text: str):
+    bg     = {"red": "#FFF5F5", "amber": "#FFFBEB", "green": "#F0FFF4",
+              "neutral": "#F4F8FC"}.get(color, "#F4F8FC")
+    border = {"red": "#C53030", "amber": "#D97706", "green": "#276749",
+              "neutral": "#0072CE"}.get(color, "#0072CE")
+    st.markdown(
+        f'<div style="background:{bg};border-left:3px solid {border};'
+        f'border-radius:0 4px 4px 0;padding:10px 14px;font-size:13px;'
+        f'margin-top:6px;line-height:1.7;color:#003467">{text}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def _render_h3(df_dx: "pd.DataFrame", dip_info: dict, ward_name: str):
+    """Hypothesis 3 — Diagnosis trend lines."""
+    import plotly.graph_objects as _go
+    import pandas as _pd
+
+    dip_detected = dip_info.get("dip_detected", False)
+
+    if dip_detected:
+        ds = dip_info["dip_start"].strftime("%b %Y")
+        de = dip_info["dip_end"].strftime("%b %Y")
+        panel_title = f"Which diagnoses dropped in {ds}–{de} and recovered?"
+    else:
+        panel_title = f"Which diagnoses are driving {ward_name} admissions?"
+
+    st.markdown(
+        f'<div style="font-size:12px;font-weight:500;color:#111827;margin-bottom:8px">'
+        f'{panel_title}</div>',
+        unsafe_allow_html=True,
+    )
+
+    if df_dx.empty:
+        st.caption("No diagnosis data for this ward / period.")
+        _strip("neutral", "No data returned from the diagnosis query. Check that STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED has records linked to this ward.")
+        return
+
+    df_dx = df_dx.copy()
+    df_dx["visit_month"] = _pd.to_datetime(df_dx["visit_month"])
+
+    # Rank diagnoses by total volume
+    totals = (
+        df_dx.groupby("diagnosis_name")["monthly_visit_count"]
+        .sum()
+        .sort_values(ascending=False)
+    )
+    ranked = list(totals.index)           # rank 0 = highest
+
+    # Build complete month spine so gaps are explicit nulls (not connected)
+    all_months = sorted(df_dx["visit_month"].unique())
+    month_map  = {m: i for i, m in enumerate(all_months)}
+
+    fig = _go.Figure()
+    for rank, diag in enumerate(ranked):
+        sub   = df_dx[df_dx["diagnosis_name"] == diag].set_index("visit_month")
+        y     = [float(sub.loc[m, "monthly_visit_count"]) if m in sub.index else None
+                 for m in all_months]
+        color = _diag_color(diag, rank)
+        solid = rank < 2
+        fig.add_trace(_go.Scatter(
+            x=all_months,
+            y=y,
+            name=diag,
+            mode="lines",
+            connectgaps=False,
+            line=dict(
+                color=color,
+                width=2 if solid else 1.5,
+                dash="solid" if solid else "dash",
+            ),
+            marker=dict(size=0),
+            hovertemplate=(
+                f"<b>{diag}</b><br>"
+                "%{x|%b %Y}: %{y:.0f} admissions<extra></extra>"
+            ),
+        ))
+
+    _dip_vrect(fig, dip_info)
+
+    fig.update_layout(
+        height=230,
+        margin=dict(l=0, r=0, t=6, b=0),
+        paper_bgcolor="#fff",
+        plot_bgcolor="#fff",
+        legend=dict(
+            orientation="h",
+            yanchor="bottom", y=1.01,
+            xanchor="left", x=0,
+            font=dict(size=10, color="#6b7280"),
+            bgcolor="rgba(0,0,0,0)",
+        ),
+        xaxis=dict(
+            showgrid=False,
+            showline=False,
+            tickformat="%b %y",
+            nticks=6,
+            tickfont=dict(size=10, color="#9ca3af"),
+        ),
+        yaxis=dict(
+            title="Admissions",
+            showgrid=True,
+            gridcolor="rgba(0,0,0,0.05)",
+            showline=False,
+            nticks=5,
+            tickfont=dict(size=10, color="#9ca3af"),
+            title_font=dict(size=11, color="#9ca3af"),
+        ),
+        hovermode="x unified",
+    )
+    _H().get("pc", lambda f: st.plotly_chart(f, use_container_width=True))(fig)
+
+    # ── Verdict logic ──────────────────────────────────────────────────────
+    dip_set = dip_info.get("dip_months_set", set())
+
+    dip_drivers, baselines = [], []
+
+    if dip_detected and dip_set:
+        dip_start = dip_info["dip_start"]
+        dip_end   = dip_info["dip_end"]
+
+        for diag in ranked:
+            sub = df_dx[df_dx["diagnosis_name"] == diag].set_index("visit_month")["monthly_visit_count"]
+
+            pre_rows  = sub[sub.index < dip_start].tail(3)
+            dip_rows  = sub[sub.index.isin(dip_set)]
+            post_rows = sub[sub.index > dip_end].head(3)
+
+            pre_avg  = float(pre_rows.mean())  if not pre_rows.empty  else 0
+            dip_avg  = float(dip_rows.mean())  if not dip_rows.empty  else 0
+            post_avg = float(post_rows.mean()) if not post_rows.empty else 0
+
+            if pre_avg > 0 and dip_avg < pre_avg * 0.70 and post_avg >= pre_avg * 0.80:
+                dip_drivers.append(diag)
+
+            mean_v = float(sub.mean())
+            std_v  = float(sub.std())
+            if mean_v > 0 and (std_v / mean_v) < 0.20:
+                baselines.append(diag)
+
+        first_post = (
+            min(m for m in df_dx["visit_month"].unique() if m > dip_end).strftime("%b %Y")
+            if any(m > dip_end for m in df_dx["visit_month"].unique()) else "recovery"
+        )
+
+        if dip_drivers and baselines:
+            driver_str   = " and ".join(dip_drivers[:2])
+            baseline_str = baselines[0]
+            verdict = (
+                f"{driver_str} were the engines — both dropped in the dip and "
+                f"recovered in {first_post}. {baseline_str} remained flat throughout "
+                f"— a consistent baseline condition, not a seasonal driver."
+            )
+            strip_c = "amber"
+            strip_t = (
+                f"{driver_str} drove both the dip and the recovery. "
+                f"This pattern is consistent with seasonal variation in admissions. "
+                f"Monitor whether the same dip recurs in the same months next year."
+            )
+        elif dip_drivers:
+            driver_str = " and ".join(dip_drivers[:2])
+            verdict = (
+                f"{driver_str} drove both the dip and the recovery. "
+                f"All top conditions showed some seasonal variation in this period."
+            )
+            strip_c = "amber"
+            strip_t = (
+                f"{driver_str} are the primary seasonal engines for this ward. "
+                f"Monitor whether the same dip recurs in the same months next year."
+            )
+        else:
+            verdict = (
+                f"No single diagnosis drove the dip. The decline was broad-based "
+                f"across all top conditions — investigate external demand factors "
+                f"for {dip_info['dip_start'].strftime('%b %Y')} – "
+                f"{dip_info['dip_end'].strftime('%b %Y')}."
+            )
+            strip_c = "green"
+            strip_t = (
+                "No dominant diagnosis drove the dip — it was a broad-based demand "
+                "decline. Hypothesis 3 does not explain the dip. Focus investigation "
+                "on new patient acquisition and external demand factors."
+            )
+    else:
+        # No dip — dominant diagnosis framing
+        top1 = ranked[0] if len(ranked) > 0 else "—"
+        top2 = ranked[1] if len(ranked) > 1 else "—"
+        verdict = (
+            f"{top1} accounts for the largest share of admissions in this ward. "
+            f"{top2} is the next largest contributor."
+        )
+        strip_c = "neutral"
+        strip_t = (
+            f"No sustained dip was detected. The trend lines show relative stability "
+            f"across the top diagnoses. {top1} is the dominant driver to monitor."
+        )
+
+    # Verdict card
+    st.markdown(
+        f'<div style="background:#F4F8FC;border-radius:6px;padding:8px 10px;margin-top:8px">'
+        f'<div style="font-size:10px;text-transform:uppercase;color:#9ca3af;'
+        f'letter-spacing:1px;margin-bottom:3px">VERDICT</div>'
+        f'<div style="font-size:11px;font-weight:500;color:#111827;line-height:1.5">'
+        f'{verdict}</div></div>',
+        unsafe_allow_html=True,
+    )
+    _strip(strip_c, strip_t)
+
+
+def render_ward_deepdive(filters: dict, run_query):
+    """Ward deep-dive section — diagnosis trend analysis (Hypothesis 3)."""
+    import pandas as _pd
+
+    st.markdown(
+        '<div style="font-size:11px;font-weight:700;color:#0072CE;text-transform:uppercase;'
+        'letter-spacing:2px;padding:8px 0 6px;border-bottom:2px solid #EBF3FB;'
+        'margin-bottom:12px">Ward Deep-Dive — Diagnosis Trend Analysis</div>',
+        unsafe_allow_html=True,
+    )
+
+    # Ward dropdown
+    try:
+        df_wards = Q.load_deepdive_ward_list(filters, run_query)
+    except Exception as e:
+        st.warning(f"Could not load ward list: {e}")
+        return
+
+    if df_wards.empty:
+        st.caption("No ward data for the current filters.")
+        return
+
+    ward_list = df_wards["ward"].tolist()
+    if ("deepdive_ward" not in st.session_state
+            or st.session_state["deepdive_ward"] not in ward_list):
+        st.session_state["deepdive_ward"] = ward_list[0]
+
+    selected_ward = st.selectbox(
+        "Select ward to investigate",
+        options=ward_list,
+        key="deepdive_ward",
+    )
+
+    # Dip detection
+    try:
+        df_monthly = Q.load_deepdive_monthly(filters, run_query, selected_ward)
+        df_monthly["admit_month"] = _pd.to_datetime(df_monthly["admit_month"])
+        df_monthly = df_monthly.sort_values("admit_month").reset_index(drop=True)
+        dip_info = _detect_dip(df_monthly)
+    except Exception as e:
+        st.warning(f"Dip detection failed: {e}")
+        dip_info = {"dip_detected": False, "baseline_avg": 0}
+
+    # Section header
+    if dip_info.get("dip_detected"):
+        ds = dip_info["dip_start"].strftime("%b %Y")
+        de = dip_info["dip_end"].strftime("%b %Y")
+        title    = f"Why did {selected_ward} dip in {ds} – {de}?"
+        subtitle = "Diagnosis trend analysis — which conditions drove the dip and which recovered?"
+    else:
+        title    = f"What is driving {selected_ward} admissions?"
+        subtitle = "Trend analysis across the top 5 diagnoses for this ward."
+
+    st.markdown(
+        f'<div style="font-size:13px;font-weight:500;color:#111827;margin-bottom:2px">'
+        f'{title}</div>'
+        f'<div style="font-size:11px;color:#6b7280;margin-bottom:12px">{subtitle}</div>',
+        unsafe_allow_html=True,
+    )
+
+    # Get ward_id and load diagnosis data
+    try:
+        ward_id = Q.load_deepdive_ward_id(filters, run_query, selected_ward)
+        if ward_id is None:
+            st.warning(f"No ward_id found for '{selected_ward}' — cannot load diagnosis data.")
+            return
+        df_dx = Q.load_h3_diagnosis_trends(filters, run_query, ward_id)
+        df_dx["visit_month"] = _pd.to_datetime(df_dx["visit_month"])
+    except Exception as e:
+        st.warning(f"Diagnosis query failed: {e}")
+        return
+
+    _render_h3(df_dx, dip_info, selected_ward)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB — OPD TO IPD CONVERSION
+# ══════════════════════════════════════════════════════════════════════════════
+
+def render_tab_opd_ipd(filters: dict, run_query):
+    """OPD to IPD Conversion Rate — Sections A–E."""
+
+    # ── local palette ──────────────────────────────────────────────────────
+    _B  = "#185FA5"
+    _G  = "#0F6E56"
+    _R  = "#E24B4A"
+    _Am = "#BA7517"
+    _Pu = "#534AB7"
+    _Pk = "#D4537E"
+    _Mu = "#B4B2A9"
+
+    def _sf(v, d=0.0):
+        try: return float(v)
+        except: return d
+
+    def _warn_bar(text: str):
+        st.markdown(
+            f'<div style="border-left:3px solid {_R};background:#FCEBEB;'
+            f'padding:10px 14px;margin:6px 0;border-radius:0 4px 4px 0;">'
+            f'<span style="font-size:13px;color:#003467;line-height:1.7;">{text}</span></div>',
+            unsafe_allow_html=True,
+        )
+
+    def _leg(items):
+        """Inline legend: [(label, color, 'solid'|'dashed'|'dotted')]"""
+        parts = []
+        for lbl, col, sty in items:
+            if sty == "dashed":
+                sw = (f'<span style="display:inline-block;width:18px;height:2px;'
+                      f'background:repeating-linear-gradient(90deg,{col} 0 4px,'
+                      f'transparent 4px 8px);vertical-align:middle;margin-right:4px;"></span>')
+            elif sty == "dotted":
+                sw = (f'<span style="display:inline-block;width:18px;height:2px;'
+                      f'background:repeating-linear-gradient(90deg,{col} 0 2px,'
+                      f'transparent 2px 5px);vertical-align:middle;margin-right:4px;"></span>')
+            else:
+                sw = (f'<span style="display:inline-block;width:18px;height:2px;'
+                      f'background:{col};vertical-align:middle;margin-right:4px;"></span>')
+            parts.append(f'<span style="margin-right:14px;font-size:11px;color:#374151;">'
+                         f'{sw}{lbl}</span>')
+        st.markdown('<div style="margin-bottom:4px">' + "".join(parts) + '</div>',
+                    unsafe_allow_html=True)
+
+    # ── load dataframes ────────────────────────────────────────────────────
+    df_overall     = pd.DataFrame()
+    df_monthly     = pd.DataFrame()
+    df_disease     = pd.DataFrame()
+    df_comorbidity = pd.DataFrame()
+    df_retention   = pd.DataFrame()
+    df_escalation  = pd.DataFrame()
+    df_triangle    = pd.DataFrame()
+
+    try: df_overall     = Q.load_opd_ipd_overall(filters, run_query)
+    except Exception as e: st.warning(f"Overall KPIs: {e}")
+    try: df_monthly     = Q.load_opd_ipd_monthly_rate(filters, run_query)
+    except Exception as e: st.warning(f"Monthly trend: {e}")
+    try: df_disease     = Q.load_opd_ipd_disease_mix(filters, run_query)
+    except Exception as e: st.warning(f"Disease mix: {e}")
+    try: df_comorbidity = Q.load_opd_ipd_comorbidity(filters, run_query)
+    except Exception as e: st.warning(f"Comorbidity: {e}")
+    try: df_retention   = Q.load_opd_ipd_retention(filters, run_query)
+    except Exception as e: st.warning(f"Retention: {e}")
+    try: df_escalation  = Q.load_opd_ipd_escalation_72h(filters, run_query)
+    except Exception as e: st.warning(f"Escalation: {e}")
+    try: df_triangle    = Q.load_operational_triangle(filters, run_query)
+    except Exception as e: st.warning(f"Triangle: {e}")
+
+    # ── numeric coercion ──────────────────────────────────────────────────
+    _coerce = [
+        (df_overall,     ["true_average_opd_to_ipd_rate", "total_opd_to_ipd",
+                          "total_opd_visits"]),
+        (df_monthly,     ["monthly_opd_to_ipd_rate"]),
+        (df_disease,     ["total_opd_cases_with_this_diagnosis",
+                          "successful_ipd_admissions"]),
+        (df_comorbidity, ["total_opd_visits", "conversion_rate_pct",
+                          "delta_from_group_avg"]),
+        (df_retention,   ["total_opd_visits", "ipd_admissions",
+                          "conversion_rate_pct"]),
+        (df_escalation,  ["total_escalations"]),
+        (df_triangle,    ["conversion_rate_pct", "avg_visits_per_clinician",
+                          "wait_time_gap_mins"]),
+    ]
+    for df, cols in _coerce:
+        for c in cols:
+            if not df.empty and c in df.columns:
+                df[c] = pd.to_numeric(df[c], errors="coerce")
+
+    # ── derived header values ─────────────────────────────────────────────
+    overall_rate = _sf(df_overall["true_average_opd_to_ipd_rate"].iloc[0]
+                       if not df_overall.empty else 0)
+    total_ipd    = int(_sf(df_overall["total_opd_to_ipd"].iloc[0]
+                       if not df_overall.empty else 0))
+    total_opd_v  = int(_sf(df_overall["total_opd_visits"].iloc[0]
+                       if not df_overall.empty and "total_opd_visits" in df_overall.columns
+                       else 0))
+
+    ret_rate = 0.0
+    if not df_retention.empty and "acquisition_segment" in df_retention.columns:
+        _m = (
+            (df_retention["acquisition_segment"] == "RETENTION_UNIVERSE_TOTAL") &
+            (df_retention["visit_month"].isna()) &
+            (df_retention["age_group"].isna())
+        )
+        _rv = df_retention[_m]
+        if not _rv.empty:
+            ret_rate = _sf(_rv["conversion_rate_pct"].iloc[0])
+
+    mix_gap = round(ret_rate - overall_rate, 2)
+
+    strain_ct, total_months_ct = 0, 0
+    if not df_triangle.empty and "strain_signal" in df_triangle.columns:
+        total_months_ct = len(df_triangle)
+        strain_ct = int(
+            df_triangle["strain_signal"].isin(["HIGH_STRAIN", "CAPACITY_GAP"]).sum())
+
+    # ── HEADER KPI STRIP ─────────────────────────────────────────────────
+    k1, k2, k3, k4, k5 = st.columns(5)
+    with k1: _kpi("Overall Conversion Rate", f"{overall_rate:.2f}%",
+                  "All OPD visits · Sep 2024–Apr 2026", AFYA_BLUE)
+    with k2: _kpi("Complex Patient Conversion Rate", f"{ret_rate:.2f}%",
+                  "Patients with ≥2 visits or a chronic condition",
+                  GREEN if ret_rate > overall_rate else MUTED)
+    with k3: _kpi("Mix Gap",
+                  f"+{mix_gap:.2f} pct points" if mix_gap >= 0 else f"{mix_gap:.2f} pct points",
+                  "Acute walk-ins suppressing headline",
+                  AMBER if mix_gap > 0 else MUTED)
+    with k4: _kpi("Total IPD Admissions", f"{total_ipd:,}",
+                  "From OPD across all visits", COOL_BLUE)
+    with k5: _kpi("Strain Months",
+                  f"{strain_ct} / {total_months_ct}" if total_months_ct else "—",
+                  "High workload · below avg conversion",
+                  CORAL if strain_ct >= 3 else MUTED)
+
+    _gap(16)
+
+    # ── SECTION A — CONVERSION RATE OVERVIEW ─────────────────────────────
+    _sh("A — Conversion Rate Overview", mt=8)
+
+    # Four segment cards — keys must match _SEGMENT_CASE SQL output (title-case)
+    _SEG_META = {
+        "Chronic":      {"label": "Chronic",      "color": _B,  "ref_lo": 8,  "ref_hi": 15},
+        "Maternal":     {"label": "Maternal",     "color": _G,  "ref_lo": 15, "ref_hi": 25},
+        "Oncology":     {"label": "Oncology",     "color": _R,  "ref_lo": 15, "ref_hi": 25},
+        "Mental Health":{"label": "Mental Health","color": _Pu, "ref_lo": 8,  "ref_hi": 15},
+    }
+    if not df_retention.empty:
+        df_segs = df_retention[
+            df_retention["visit_month"].isna() &
+            df_retention["age_group"].isna() &
+            ~df_retention["acquisition_segment"].isin(["RETENTION_UNIVERSE_TOTAL"])
+        ].copy()
+    else:
+        df_segs = pd.DataFrame()
+
+    sc1, sc2, sc3, sc4 = st.columns(4)
+    for col_s, seg_key in zip([sc1, sc2, sc3, sc4],
+                               ["Chronic", "Maternal", "Oncology", "Mental Health"]):
+        meta = _SEG_META[seg_key]
+        rate, visits, admissions = 0.0, 0, 0
+        if not df_segs.empty and seg_key in df_segs["acquisition_segment"].values:
+            r = df_segs[df_segs["acquisition_segment"] == seg_key].iloc[0]
+            rate       = _sf(r.get("conversion_rate_pct"))
+            visits     = int(_sf(r.get("total_opd_visits")))
+            admissions = int(_sf(r.get("ipd_admissions")))
+        if rate >= meta["ref_hi"]:
+            bc, bb, bt = _G, "#E8F7F4", f"Within ref {meta['ref_lo']}–{meta['ref_hi']}%"
+        elif rate >= meta["ref_lo"]:
+            bc, bb, bt = _Am, "#FEF3C7", f"Ref {meta['ref_lo']}–{meta['ref_hi']}%"
+        else:
+            bc, bb, bt = _R, "#FEE2E2", f"Below ref {meta['ref_lo']}–{meta['ref_hi']}%"
+        with col_s:
+            st.markdown(
+                f'<div style="background:#fff;border:0.5px solid {BORDER};'
+                f'border-top:3px solid {meta["color"]};border-radius:8px;'
+                f'padding:14px 14px 10px;margin-bottom:8px">'
+                f'<div style="font-size:10px;font-weight:700;color:{MUTED};'
+                f'text-transform:uppercase;letter-spacing:1.2px;margin-bottom:4px">'
+                f'{meta["label"]}</div>'
+                f'<div style="font-size:26px;font-weight:700;color:{meta["color"]};'
+                f'line-height:1.1;margin-bottom:4px">{rate:.2f}%</div>'
+                f'<div style="font-size:11px;color:{MUTED};margin-bottom:6px">'
+                f'{visits:,} visits · {admissions:,} admissions</div>'
+                f'<span style="font-size:10px;font-weight:700;padding:2px 8px;'
+                f'border-radius:20px;background:{bb};color:{bc}">{bt}</span>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
+    _gap(12)
+
+    # Monthly trend prep
+    if not df_monthly.empty and "conversion_month" in df_monthly.columns:
+        df_monthly["conversion_month"] = pd.to_datetime(
+            df_monthly["conversion_month"], errors="coerce")
+        df_mon_s = df_monthly[
+            df_monthly["conversion_month"] >= "2024-09-01"
+        ].sort_values("conversion_month")
+    else:
+        df_mon_s = pd.DataFrame()
+
+    ch1, ch2 = st.columns(2)
+
+    _OV_GRAY = "#6B7280"   # visible gray for the avg/overall reference lines
+
+    with ch1:
+        _leg([("Monthly rate", _B, "solid"), (f"Avg {overall_rate:.2f}%", _OV_GRAY, "dashed")])
+        _ov_max  = df_mon_s["monthly_opd_to_ipd_rate"].max() if not df_mon_s.empty else 10
+        _ov_ceil = max(10, round(_ov_max * 1.2))
+        fig_ov = go.Figure()
+        if not df_mon_s.empty:
+            fig_ov.add_trace(go.Scatter(
+                x=df_mon_s["conversion_month"],
+                y=df_mon_s["monthly_opd_to_ipd_rate"],
+                mode="lines+markers",
+                line=dict(color=_B, width=2.5), marker=dict(size=5, color=_B),
+                showlegend=False,
+                hovertemplate="%{x|%b %y}: <b>%{y:.2f}%</b><extra></extra>",
+            ))
+            fig_ov.add_hline(y=overall_rate,
+                             line=dict(color=_OV_GRAY, dash="dash", width=1.5),
+                             annotation_text=f"Avg {overall_rate:.2f}%",
+                             annotation_font=dict(size=10, color=_OV_GRAY),
+                             annotation_position="right")
+        fig_ov.update_layout(
+            height=280, margin=dict(l=0, r=80, t=36, b=0),
+            plot_bgcolor="white", paper_bgcolor="white", showlegend=False,
+            title=dict(text="Monthly Overall Conversion Rate",
+                       font=dict(size=11, color=COOL_BLUE),
+                       x=0, xanchor="left", pad=dict(t=4)),
+            xaxis=dict(tickformat="%b %y", tickfont=dict(size=10), title=""),
+            yaxis=dict(range=[0, _ov_ceil], ticksuffix="%",
+                       tickfont=dict(size=10), title=""),
+        )
+        _pc(fig_ov)
+
+    with ch2:
+        _leg([("Complex patients", _G, "solid"), ("Overall", _OV_GRAY, "dashed")])
+        if not df_retention.empty and "visit_month" in df_retention.columns:
+            df_retention["visit_month"] = pd.to_datetime(
+                df_retention["visit_month"], errors="coerce")
+            # Aggregate all retention-universe segments per month
+            _age_null = df_retention["age_group"].isna() | (df_retention["age_group"] == "")
+            df_ret_mon = df_retention[
+                df_retention["visit_month"].notna() &
+                _age_null &
+                (~df_retention["acquisition_segment"].isin(
+                    ["RETENTION_UNIVERSE_TOTAL"])) &
+                (df_retention["visit_month"] >= pd.Timestamp("2024-09-01"))
+            ].groupby("visit_month").agg(
+                total_opd=("total_opd_visits", "sum"),
+                total_ipd=("ipd_admissions", "sum"),
+            ).reset_index()
+            df_ret_mon["ret_rate"] = (
+                df_ret_mon["total_ipd"] /
+                df_ret_mon["total_opd"].replace(0, pd.NA) * 100
+            ).round(2)
+            df_ret_mon = df_ret_mon.sort_values("visit_month")
+        else:
+            df_ret_mon = pd.DataFrame()
+
+        _dual_max  = max(
+            df_ret_mon["ret_rate"].max() if not df_ret_mon.empty else 0,
+            df_mon_s["monthly_opd_to_ipd_rate"].max() if not df_mon_s.empty else 0,
+        )
+        _dual_ceil = max(16, round(_dual_max * 1.2))
+
+        fig_dual = go.Figure()
+        if not df_ret_mon.empty:
+            fig_dual.add_trace(go.Scatter(
+                x=df_ret_mon["visit_month"], y=df_ret_mon["ret_rate"],
+                mode="lines+markers",
+                line=dict(color=_G, width=2.5), marker=dict(size=5, color=_G),
+                showlegend=False,
+                hovertemplate="%{x|%b %y}: <b>%{y:.2f}%</b><extra></extra>",
+            ))
+        if not df_mon_s.empty:
+            fig_dual.add_trace(go.Scatter(
+                x=df_mon_s["conversion_month"],
+                y=df_mon_s["monthly_opd_to_ipd_rate"],
+                mode="lines+markers",
+                line=dict(color=_OV_GRAY, width=2, dash="dash"),
+                marker=dict(size=3, color=_OV_GRAY),
+                showlegend=False,
+                hovertemplate="%{x|%b %y}: <b>%{y:.2f}%</b><extra></extra>",
+            ))
+        fig_dual.update_layout(
+            height=280, margin=dict(l=0, r=30, t=36, b=0),
+            plot_bgcolor="white", paper_bgcolor="white", showlegend=False,
+            title=dict(text="Complex Patients vs Overall Conversion Rate",
+                       font=dict(size=11, color=COOL_BLUE),
+                       x=0, xanchor="left", pad=dict(t=4)),
+            xaxis=dict(tickformat="%b %y", tickfont=dict(size=10), title=""),
+            yaxis=dict(range=[0, _dual_ceil], ticksuffix="%",
+                       tickfont=dict(size=10), title=""),
+        )
+        _pc(fig_dual)
+
+    # Section A dynamic insight
+    _seg_refs = {
+        "Oncology":     (15, 25),
+        "Maternal":     (15, 25),
+        "Chronic":      (8,  15),
+        "Mental Health":(8,  15),
+    }
+    _below_segs = []
+    if not df_segs.empty:
+        for _seg, (_lo, _hi) in _seg_refs.items():
+            _r = df_segs[df_segs["acquisition_segment"] == _seg]
+            if not _r.empty:
+                _seg_rate = _sf(_r["conversion_rate_pct"].iloc[0])
+                if _seg_rate < _lo:
+                    _below_segs.append(
+                        f"{_seg} ({_seg_rate:.1f}% vs {_lo}–{_hi}% reference)")
+    _below_text = ", ".join(_below_segs) if _below_segs else "all segments within reference"
+    st.markdown(
+        f'<div style="border-left:3px solid {_B};background:#EBF5FF;'
+        f'padding:10px 14px;font-size:13px;margin-top:10px;border-radius:0 4px 4px 0;">'
+        f'<ul style="list-style:none;margin:0;padding:0;color:#003467;line-height:1.7;">'
+        f'<li>· The complex patient conversion rate sits above the overall rate every month — '
+        f'acute walk-ins suppress the headline figure. The overall rate understates '
+        f'the true admission rate for patients with chronic or multi-visit needs.</li>'
+        f'<li style="margin-top:3px;">· Segments below international reference: {_below_text}.</li>'
+        f'<li style="margin-top:3px;">· Action: review OPD assessment criteria for below-reference '
+        f'segments. Low conversion on complex patients suggests either '
+        f'under-detection of severity at OPD or barriers to admission.</li>'
+        f'</ul></div>',
+        unsafe_allow_html=True,
+    )
+    _gap(16)
+
+    # ── SECTION B — DIAGNOSIS BENCHMARK ──────────────────────────────────
+    _sh("B — Diagnosis Benchmark Comparison", mt=8)
+    try:
+        if not df_disease.empty:
+            df_bench = df_disease[
+                df_disease["total_opd_cases_with_this_diagnosis"] >= 50
+            ].groupby("cleaned_diagnosis_name").agg(
+                opd=("total_opd_cases_with_this_diagnosis", "sum"),
+                ipd=("successful_ipd_admissions", "sum"),
+            ).reset_index()
+            df_bench["actual_rate"] = (
+                df_bench["ipd"] / df_bench["opd"].replace(0, pd.NA) * 100
+            ).round(2)
+            df_bench = df_bench.sort_values("actual_rate", ascending=False).head(12)
+            _ref_map = {
+                "Typhoid": 8, "Malaria": 8, "Sepsis": 8,
+                "Chronic Upper Airway": 8, "Chr Upper Airway": 8,
+                "Oncology": 15, "Gynaecological NCD": 15,
+                "Maternal: Other": 15, "Hypertension": 8,
+                "Antenatal Care": 15, "Neurologic": 10,
+            }
+            df_bench["ref_lower"] = (
+                df_bench["cleaned_diagnosis_name"].map(_ref_map).fillna(8))
+            df_bench["bar_color"] = df_bench.apply(
+                lambda r: _G if r["actual_rate"] >= r["ref_lower"] else _R, axis=1)
+            df_bench = df_bench.sort_values("actual_rate", ascending=True)
+
+            _leg([("Above reference", _G, "solid"),
+                  ("Below reference", _R, "solid"),
+                  ("Reference lower bound", _Am, "dashed")])
+            _dx_max  = df_bench["actual_rate"].max() if not df_bench.empty else 32
+            _dx_ceil = max(35, round(_dx_max * 1.25))   # headroom for outside labels
+            fig_dx = go.Figure()
+            fig_dx.add_trace(go.Bar(
+                y=df_bench["cleaned_diagnosis_name"],
+                x=df_bench["actual_rate"],
+                orientation="h",
+                marker_color=df_bench["bar_color"].tolist(),
+                text=[f"{v:.1f}%" for v in df_bench["actual_rate"]],
+                textposition="outside",
+                cliponaxis=False,
+                showlegend=False,
+                hovertemplate="<b>%{y}</b><br>Actual: %{x:.2f}%<extra></extra>",
+            ))
+            for _rv in sorted(df_bench["ref_lower"].unique()):
+                fig_dx.add_vline(
+                    x=_rv,
+                    line=dict(color=_Am, width=2, dash="dash"),
+                    annotation_text=f"Ref {int(_rv)}%",
+                    annotation_font=dict(size=10, color=_Am),
+                    annotation_position="top",
+                )
+            fig_dx.update_layout(
+                height=max(340, len(df_bench) * 44 + 80),
+                margin=dict(l=0, r=90, t=36, b=20),
+                plot_bgcolor="white", paper_bgcolor="white", showlegend=False,
+                title=dict(text="OPD to IPD Conversion Rate by Diagnosis",
+                           font=dict(size=11, color=COOL_BLUE),
+                           x=0, xanchor="left", pad=dict(t=4)),
+                xaxis=dict(title="", range=[0, _dx_ceil],
+                           ticksuffix="%", tickfont=dict(size=10)),
+                yaxis=dict(title=""),
+            )
+            _pc(fig_dx)
+            # Section B dynamic insight
+            _below_dx = df_bench[df_bench["actual_rate"] < df_bench["ref_lower"]]\
+                .sort_values("actual_rate")
+            if not _below_dx.empty:
+                _w = _below_dx.iloc[0]
+                _worst_text = (
+                    f"{_w['cleaned_diagnosis_name']} has the largest gap — "
+                    f"{_w['actual_rate']:.1f}% actual vs {_w['ref_lower']:.0f}%"
+                    f" reference lower bound."
+                )
+            else:
+                _worst_text = "All diagnoses are at or above their reference lower bound."
+            _htn = df_bench[df_bench["cleaned_diagnosis_name"].str.contains(
+                "Hypertension|HTN", na=False)]
+            _htn_text = ""
+            if not _htn.empty and _htn.iloc[0]["actual_rate"] < 5:
+                _htn_text = (
+                    f" Hypertension at {_htn.iloc[0]['actual_rate']:.1f}% suggests "
+                    f"hypertensive urgency patients are almost never admitted — "
+                    f"review whether outpatient-only management is clinically appropriate."
+                )
+            st.markdown(
+                f'<div style="border-left:3px solid {_R};background:#FCEBEB;'
+                f'padding:10px 14px;font-size:13px;margin-top:10px;border-radius:0 4px 4px 0;">'
+                f'<ul style="list-style:none;margin:0;padding:0;color:#003467;line-height:1.7;">'
+                f'<li>· {_worst_text}{_htn_text}</li>'
+                f'<li style="margin-top:3px;">· Reference ranges are from Shawky (2024) '
+                f'international benchmarks — directional guidance only, not directly '
+                f'comparable to Kenyan private hospital context.</li>'
+                f'<li style="margin-top:3px;">· Action: for each diagnosis below its reference, '
+                f'review the OPD assessment protocol — are severity criteria being applied '
+                f'consistently? Are admissions being deferred for non-clinical reasons?</li>'
+                f'</ul></div>',
+                unsafe_allow_html=True,
+            )
+    except Exception as e:
+        st.warning(f"Diagnosis benchmark: {e}")
+    _gap(16)
+
+    # ── SECTION C — CLINICAL LEAKAGE SIGNALS ─────────────────────────────
+    _sh("C — Clinical Leakage Signals", mt=8)
+    try:
+        cl, cr = st.columns(2)
+
+        with cl:
+            if not df_comorbidity.empty:
+                df_comorb_overall = df_comorbidity[
+                    ~df_comorbidity["patient_group"].str.contains(" — ", na=False)
+                ].copy()
+
+                _single_rate   = 0.0
+                _comorbid_rate = 0.0
+                if not df_comorb_overall.empty:
+                    _s = df_comorb_overall[
+                        df_comorb_overall["patient_group"] == "Single Diagnosis"]
+                    _c = df_comorb_overall[
+                        df_comorb_overall["patient_group"] == "Comorbid"]
+                    _single_rate   = _sf(_s["conversion_rate_pct"].iloc[0]) \
+                                     if not _s.empty else 0.0
+                    _comorbid_rate = _sf(_c["conversion_rate_pct"].iloc[0]) \
+                                     if not _c.empty else 0.0
+                is_concern = _comorbid_rate < _single_rate
+
+                _COMB_ORD   = ["Single Diagnosis", "Comorbid", "Chronic Comorbid"]
+                _COMB_COL   = {"Single Diagnosis": _B, "Comorbid": _R,
+                                "Chronic Comorbid": _G}
+                cc1, cc2, cc3 = st.columns(3)
+                for col_c, grp in zip([cc1, cc2, cc3], _COMB_ORD):
+                    rate, delta, vis = 0.0, 0.0, 0
+                    if (not df_comorb_overall.empty and
+                            grp in df_comorb_overall["patient_group"].values):
+                        r     = df_comorb_overall[
+                            df_comorb_overall["patient_group"] == grp].iloc[0]
+                        rate  = _sf(r.get("conversion_rate_pct"))
+                        delta = _sf(r.get("delta_from_group_avg"))
+                        vis   = int(_sf(r.get("total_opd_visits")))
+                    d_col = _G if delta >= 0 else _R
+                    d_lbl = f"+{delta:.2f} pct points" if delta >= 0 else f"{delta:.2f} pct points"
+                    concern = grp == "Comorbid" and is_concern
+                    bdr = (f"border:1px solid {_R};" if concern
+                           else f"border:0.5px solid {BORDER};")
+                    badge = (
+                        f'<span style="font-size:10px;font-weight:700;padding:2px 8px;'
+                        f'border-radius:20px;background:#FEE2E2;color:{_R};'
+                        f'margin-right:4px">Concern</span> ') if concern else ""
+                    with col_c:
+                        st.markdown(
+                            f'<div style="background:#fff;{bdr}border-radius:8px;'
+                            f'padding:12px 12px 8px;margin-bottom:8px">'
+                            f'<div style="font-size:10px;font-weight:700;color:{MUTED};'
+                            f'text-transform:uppercase;letter-spacing:1px;margin-bottom:3px">'
+                            f'{grp}</div>'
+                            f'<div style="font-size:22px;font-weight:700;'
+                            f'color:{_COMB_COL[grp]};line-height:1.1">{rate:.2f}%</div>'
+                            f'<div style="font-size:11px;color:{MUTED};margin:3px 0">'
+                            f'{vis:,} visits</div>'
+                            f'{badge}'
+                            f'<span style="font-size:11px;color:{d_col}">{d_lbl} vs avg</span>'
+                            f'</div>',
+                            unsafe_allow_html=True,
+                        )
+
+                df_comorb_monthly = df_comorbidity[
+                    df_comorbidity["patient_group"].str.contains(" — ", na=False)
+                ].copy()
+                df_comorb_monthly["group"] = (
+                    df_comorb_monthly["patient_group"].str.split(" — ").str[0])
+                df_comorb_monthly["month"] = pd.to_datetime(
+                    df_comorb_monthly["patient_group"].str.split(" — ").str[1],
+                    errors="coerce")
+                df_comorb_monthly = df_comorb_monthly.sort_values("month")
+
+                if not df_comorb_monthly.empty:
+                    _leg([("Single Diagnosis", _B, "solid"),
+                          ("Comorbid", _R, "dashed"),
+                          ("Chronic Comorbid", _G, "dotted")])
+                    fig_com = go.Figure()
+                    _COM_STYLES = {
+                        "Single Diagnosis": dict(color=_B, dash="solid"),
+                        "Comorbid":         dict(color=_R, dash="dash"),
+                        "Chronic Comorbid": dict(color=_G, dash="dot"),
+                    }
+                    for grp, sty in _COM_STYLES.items():
+                        sub = df_comorb_monthly[
+                            df_comorb_monthly["group"] == grp].sort_values("month")
+                        if not sub.empty:
+                            fig_com.add_trace(go.Scatter(
+                                x=sub["month"], y=sub["conversion_rate_pct"],
+                                mode="lines", line=dict(width=2, **sty),
+                                showlegend=False,
+                                hovertemplate=(f"{grp} %{{x|%b %y}}: "
+                                               f"<b>%{{y:.1f}}%</b><extra></extra>"),
+                            ))
+                    _y_max = (df_comorb_monthly["conversion_rate_pct"].max() or 22)
+                    _y_ceil = max(22, round(_y_max * 1.2))
+                    fig_com.update_layout(
+                        height=280, margin=dict(l=0, r=10, t=36, b=0),
+                        plot_bgcolor="white", paper_bgcolor="white", showlegend=False,
+                        title=dict(text="Monthly Conversion by Comorbidity Group",
+                                   font=dict(size=11, color=COOL_BLUE),
+                                   x=0, xanchor="left", pad=dict(t=4)),
+                        xaxis=dict(tickformat="%b %y", tickfont=dict(size=10), title=""),
+                        yaxis=dict(range=[0, _y_ceil], ticksuffix="%",
+                                   tickfont=dict(size=10), title=""),
+                    )
+                    _pc(fig_com)
+
+        with cr:
+            if not df_retention.empty:
+                df_chronic_age = df_retention[
+                    (df_retention["acquisition_segment"] == "Chronic") &
+                    (df_retention["age_group"].notna()) &
+                    (df_retention["visit_month"].isna())
+                ][["age_group", "total_opd_visits",
+                   "ipd_admissions", "conversion_rate_pct"]].copy()
+                df_chronic_age = df_chronic_age.sort_values(
+                    "conversion_rate_pct", ascending=True)
+
+                if not df_chronic_age.empty:
+                    _leg([("≥ 8% (within ref)", _B, "solid"),
+                          ("< 8% (below ref)", _R, "solid")])
+                    _chr_max  = df_chronic_age["conversion_rate_pct"].max()
+                    _chr_ceil = max(22, round(_chr_max * 1.3))
+                    fig_chr = go.Figure(go.Bar(
+                        y=df_chronic_age["age_group"],
+                        x=df_chronic_age["conversion_rate_pct"],
+                        orientation="h",
+                        marker_color=[_B if v >= 8 else _R
+                                      for v in df_chronic_age["conversion_rate_pct"]],
+                        text=[f"{v:.1f}%"
+                              for v in df_chronic_age["conversion_rate_pct"]],
+                        textposition="outside",
+                        cliponaxis=False,
+                        showlegend=False,
+                        hovertemplate="<b>%{y}</b><br>%{x:.2f}%<extra></extra>",
+                    ))
+                    fig_chr.add_vline(x=8, line=dict(color=_Am, dash="dot", width=1.5))
+                    fig_chr.update_layout(
+                        height=max(320, len(df_chronic_age) * 42 + 80),
+                        margin=dict(l=0, r=80, t=36, b=20),
+                        plot_bgcolor="white", paper_bgcolor="white", showlegend=False,
+                        title=dict(text="Chronic Patient Conversion by Age Group",
+                                   font=dict(size=11, color=COOL_BLUE),
+                                   x=0, xanchor="left", pad=dict(t=4)),
+                        xaxis=dict(title="", range=[0, _chr_ceil], ticksuffix="%"),
+                        yaxis=dict(title=""),
+                    )
+                    _pc(fig_chr)
+
+        # Section C dynamic insight
+        try:
+            _s_rate = _sf(df_comorb_overall[
+                df_comorb_overall["patient_group"] == "Single Diagnosis"
+            ]["conversion_rate_pct"].iloc[0]) if not df_comorb_overall.empty else 0.0
+            _c_rate = _sf(df_comorb_overall[
+                df_comorb_overall["patient_group"] == "Comorbid"
+            ]["conversion_rate_pct"].iloc[0]) if not df_comorb_overall.empty else 0.0
+            if _c_rate < _s_rate:
+                _comorb_signal = (
+                    f"Comorbid patients ({_c_rate:.1f}%) are converting at a lower rate "
+                    f"than single-diagnosis patients ({_s_rate:.1f}%) despite having 2+ "
+                    f"conditions — a clinical leakage signal."
+                )
+            else:
+                _comorb_signal = (
+                    f"Comorbid patients ({_c_rate:.1f}%) are converting at a higher rate "
+                    f"than single-diagnosis patients ({_s_rate:.1f}%), as expected."
+                )
+            _age_text = ""
+            if not df_chronic_age.empty:
+                _la = df_chronic_age.sort_values("conversion_rate_pct").iloc[0]
+                _age_text = (
+                    f"{_la['age_group']} is the lowest converting chronic age group "
+                    f"at {_la['conversion_rate_pct']:.1f}%."
+                )
+            st.markdown(
+                f'<div style="border-left:3px solid {_R};background:#FCEBEB;'
+                f'padding:10px 14px;font-size:13px;margin-top:10px;border-radius:0 4px 4px 0;">'
+                f'<ul style="list-style:none;margin:0;padding:0;color:#003467;line-height:1.7;">'
+                f'<li>· {_comorb_signal}</li>'
+                f'<li style="margin-top:3px;">· {_age_text}</li>'
+                f'<li style="margin-top:3px;">· Action: review OPD escalation criteria for '
+                f'comorbid patients. A patient with 2+ chronic conditions who is not being '
+                f'admitted at a higher rate than single-diagnosis patients suggests '
+                f'comorbidity is not being weighted in the admission decision.</li>'
+                f'</ul></div>',
+                unsafe_allow_html=True,
+            )
+        except Exception:
+            pass
+    except Exception as e:
+        st.warning(f"Leakage signals: {e}")
+    _gap(16)
+
+    # ── SECTION D — 72-HOUR ESCALATION ───────────────────────────────────
+    _sh("D — Same-Day / 72-Hour Escalation", mt=8)
+    try:
+        dl, dr = st.columns([3, 2])
+
+        with dl:
+            if not df_escalation.empty:
+                df_esc_age = df_escalation[
+                    df_escalation["age_group"].notna() &
+                    (df_escalation["age_group"] != "Unknown") &
+                    (df_escalation["clean_diagnosis"] != "Unknown")
+                ].groupby("age_group")["total_escalations"].sum().reset_index()
+                df_esc_age = df_esc_age.sort_values(
+                    "total_escalations", ascending=True)
+
+                if not df_esc_age.empty:
+                    fig_esc = go.Figure(go.Bar(
+                        y=df_esc_age["age_group"],
+                        x=df_esc_age["total_escalations"],
+                        orientation="h",
+                        marker_color=_B,
+                        text=df_esc_age["total_escalations"].astype(int).astype(str),
+                        textposition="outside",
+                        showlegend=False,
+                        hovertemplate=(
+                            "<b>%{y}</b><br>%{x} escalations<extra></extra>"),
+                    ))
+                    _esc_max  = df_esc_age["total_escalations"].max()
+                    _esc_ceil = max(10, round(_esc_max * 1.25))
+                    fig_esc.update_layout(
+                        height=max(260, len(df_esc_age) * 44 + 80),
+                        margin=dict(l=0, r=70, t=36, b=20),
+                        plot_bgcolor="white", paper_bgcolor="white", showlegend=False,
+                        title=dict(text="72h Escalations by Age Group",
+                                   font=dict(size=11, color=COOL_BLUE),
+                                   x=0, xanchor="left", pad=dict(t=4)),
+                        xaxis=dict(title="Escalations", tickfont=dict(size=10),
+                                   range=[0, _esc_ceil]),
+                        yaxis=dict(title=""),
+                    )
+                    _pc(fig_esc)
+
+        with dr:
+            total_esc = 0
+            top_dx    = "—"
+            if not df_escalation.empty:
+                total_esc = int(df_escalation["total_escalations"].sum())
+                _known = df_escalation[
+                    df_escalation["clean_diagnosis"] != "Unknown"]
+                if not _known.empty:
+                    top_dx = (
+                        _known.groupby("clean_diagnosis")["total_escalations"]
+                        .sum().idxmax()
+                    )
+            esc_rate = round(total_esc / total_opd_v * 100, 2) if total_opd_v else 0.0
+            _kpi("Total 72h Escalations", f"{total_esc:,}",
+                 "OPD visit → admission within 72h", COOL_BLUE)
+            _gap(8)
+            _kpi("Escalation Rate", f"{esc_rate:.2f}%",
+                 "of all OPD visits",
+                 AMBER if esc_rate < 1 else CORAL)
+            _gap(8)
+            _kpi("Top Classified Diagnosis", top_dx,
+                 "Full breakdown pending ICD code fix", MUTED)
+
+        # Section D dynamic insight
+        try:
+            _esc_rate = round(total_esc / total_opd_v * 100, 1) if total_opd_v else 0.0
+            _top_age_row = df_esc_age.sort_values(
+                "total_escalations", ascending=False).iloc[0] \
+                if not df_esc_age.empty else None
+            _known_dx = df_escalation[
+                df_escalation["clean_diagnosis"] != "Unknown"
+            ].groupby("clean_diagnosis")["total_escalations"].sum() \
+                if not df_escalation.empty else pd.Series(dtype=float)
+            _top_dx_name = _known_dx.idxmax() if not _known_dx.empty else "Unknown"
+            _top_dx_n    = int(_known_dx.max()) if not _known_dx.empty else 0
+            _age_line = (
+                f"{_top_age_row['age_group']} is the most escalated age group "
+                f"({int(_top_age_row['total_escalations']):,} escalations). "
+                f"{_top_dx_name} is the leading classified diagnosis ({_top_dx_n:,} escalations)."
+            ) if _top_age_row is not None else ""
+            _action_age = _top_age_row["age_group"] if _top_age_row is not None else "affected"
+            st.markdown(
+                f'<div style="border-left:3px solid {_R};background:#FCEBEB;'
+                f'padding:10px 14px;font-size:13px;margin-top:10px;border-radius:0 4px 4px 0;">'
+                f'<ul style="list-style:none;margin:0;padding:0;color:#003467;line-height:1.7;">'
+                f'<li>· {total_esc:,} patients returned for inpatient admission within 72 hours '
+                f'of an OPD visit ({_esc_rate:.1f}% of all OPD visits). These are patients '
+                f'whose condition was not recognised as admission-requiring at first contact.</li>'
+                f'<li style="margin-top:3px;">· {_age_line}</li>'
+                f'<li style="margin-top:3px;">· Action: implement a paediatric early warning '
+                f'score (PEWS) at OPD triage for {_action_age} presentations to reduce '
+                f'missed escalations. Resolve ICD10 coding gaps to enable full diagnosis '
+                f'breakdown — a large share currently remains unclassified.</li>'
+                f'</ul></div>',
+                unsafe_allow_html=True,
+            )
+        except Exception:
+            pass
+    except Exception as e:
+        st.warning(f"Escalation: {e}")
+    _gap(16)
+
+    # ── SECTION E — CLINICIAN WORKLOAD VS CONVERSION RATE ────────────────
+    _sh("E — Clinician Workload vs Conversion Rate", mt=8)
+    try:
+        if not df_triangle.empty:
+            df_tri = df_triangle.sort_values("visit_month").copy()
+
+            strain_months = df_tri[
+                df_tri["strain_signal"].isin(["HIGH_STRAIN", "CAPACITY_GAP"])]
+            normal_months = df_tri[df_tri["strain_signal"] == "AS_EXPECTED"]
+            avg_strain = round(strain_months["conversion_rate_pct"].mean(), 2) \
+                         if not strain_months.empty else 0.0
+            avg_normal = round(normal_months["conversion_rate_pct"].mean(), 2) \
+                         if not normal_months.empty else 0.0
+            conversion_gap = round(avg_normal - avg_strain, 2)
+            peak_wl    = df_tri["avg_visits_per_clinician"].max()
+            peak_month = pd.to_datetime(
+                df_tri.loc[df_tri["avg_visits_per_clinician"].idxmax(),
+                           "visit_month"]
+            ).strftime("%b %Y")
+
+            gap_col = _R if conversion_gap > 0.5 else (_Am if conversion_gap > 0 else _G)
+
+            ek1, ek2, ek3, ek4 = st.columns(4)
+            with ek1: _kpi("Conversion — Normal Months", f"{avg_normal:.2f}%",
+                           "Months within expected clinician load", GREEN)
+            _strain_month_labels = (
+                ", ".join(
+                    pd.to_datetime(m).strftime("%b %Y")
+                    for m in strain_months["visit_month"].sort_values()
+                ) if not strain_months.empty else "—"
+            )
+            with ek2: _kpi("Conversion — High Load Months", f"{avg_strain:.2f}%",
+                           _strain_month_labels,
+                           CORAL)
+            with ek3: _kpi("Conversion Gap", f"{conversion_gap:+.2f} pct pts",
+                           "Positive = overload suppressing admissions",
+                           gap_col)
+            with ek4: _kpi("Peak Workload Month", peak_month,
+                           f"{peak_wl:.1f} avg visits per clinician", CORAL if peak_wl > 80 else MUTED)
+
+            _gap(12)
+            _leg([("Conversion rate %", _B, "solid"),
+                  ("Clinician load (scaled)", _Pu, "dashed")])
+            st.caption(
+                "Purple dashed line = clinician load. When load rises and conversion drops, "
+                "patients may be under-admitted due to capacity pressure. "
+                "Shaded months = high load periods."
+            )
+
+            _wl_max = df_tri["avg_visits_per_clinician"].max() or 1
+            fig_tri = go.Figure()
+            for _, row in strain_months.iterrows():
+                fig_tri.add_vrect(
+                    x0=row["visit_month"], x1=row["visit_month"],
+                    fillcolor="rgba(226,75,74,0.08)",
+                    line_width=0, layer="below",
+                )
+            fig_tri.add_trace(go.Scatter(
+                x=df_tri["visit_month"], y=df_tri["conversion_rate_pct"],
+                mode="lines+markers",
+                line=dict(color=_B, width=2), marker=dict(size=4),
+                showlegend=False,
+                hovertemplate="%{x|%b %y}: <b>%{y:.2f}%</b><extra></extra>",
+            ))
+            fig_tri.add_trace(go.Scatter(
+                x=df_tri["visit_month"],
+                y=df_tri["avg_visits_per_clinician"] / _wl_max * 10,
+                mode="lines",
+                line=dict(color=_Pu, width=1.5, dash="dash"),
+                showlegend=False,
+                customdata=df_tri["avg_visits_per_clinician"],
+                hovertemplate=("%{x|%b %y}: <b>%{customdata:.1f}</b>"
+                               " visits/clinician<extra></extra>"),
+            ))
+            fig_tri.update_layout(
+                height=280, margin=dict(l=0, r=30, t=36, b=0),
+                plot_bgcolor="white", paper_bgcolor="white", showlegend=False,
+                title=dict(text="Conversion Rate vs Clinician Workload",
+                           font=dict(size=11, color=COOL_BLUE),
+                           x=0, xanchor="left", pad=dict(t=4)),
+                xaxis=dict(tickformat="%b %y", tickfont=dict(size=10), title=""),
+                yaxis=dict(title="", range=[0, 12], ticksuffix="%",
+                           tickfont=dict(size=10)),
+            )
+            _pc(fig_tri)
+
+            # Strain callout rows — no wait time column
+            strain_callout = df_tri[df_tri["strain_signal"] != "AS_EXPECTED"]
+            if not strain_callout.empty:
+                _gap(8)
+                for _, sr in strain_callout.iterrows():
+                    signal  = str(sr.get("strain_signal", "CAPACITY_GAP"))
+                    month_s = (pd.to_datetime(sr["visit_month"]).strftime("%b %Y")
+                               if pd.notna(sr.get("visit_month")) else "—")
+                    conv = _sf(sr.get("conversion_rate_pct"))
+                    wl   = _sf(sr.get("avg_visits_per_clinician"))
+                    if signal == "HIGH_STRAIN":
+                        row_bg, row_txt = "#FCEBEB", "#791F1F"
+                    else:
+                        row_bg, row_txt = "#FEF3E2", "#7A3B00"
+                    st.markdown(
+                        f'<div style="display:flex;align-items:center;gap:10px;'
+                        f'padding:8px 12px;margin-bottom:4px;border-radius:6px;'
+                        f'background:{row_bg};">'
+                        f'<span style="font-size:11px;font-weight:700;color:{row_txt};'
+                        f'min-width:80px">{month_s}</span>'
+                        f'<span style="font-size:10px;font-weight:700;padding:2px 8px;'
+                        f'border-radius:20px;background:{row_txt}20;color:{row_txt}">'
+                        f'{signal.replace("_", " ")}</span>'
+                        f'<span style="font-size:11px;color:{row_txt};">'
+                        f'Conv: {conv:.2f}% &nbsp;·&nbsp; {wl:.1f} visits/clinician'
+                        f'</span>'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
+
+            # Dynamic insight bar
+            if conversion_gap > 1.0:
+                _signal = (
+                    f"In {len(strain_months)} high-load months, conversion averaged "
+                    f"{avg_strain:.2f}% — {conversion_gap:.2f} pct pts below the {avg_normal:.2f}% "
+                    f"seen in {len(normal_months)} normal months. "
+                    f"Clinician overload is suppressing admission decisions."
+                )
+                _action = (
+                    f"Action: review clinical staffing for months where average load exceeds "
+                    f"{peak_wl:.0f} visits per clinician. Additional staff during peak periods "
+                    f"would allow admission decisions to be made on clinical grounds "
+                    f"rather than capacity constraints."
+                )
+            elif conversion_gap > 0:
+                _signal = (
+                    f"A {conversion_gap:.2f} pct pts conversion gap exists between high-load months "
+                    f"({avg_strain:.2f}%) and normal months ({avg_normal:.2f}%). The relationship "
+                    f"is present but not yet clinically significant."
+                )
+                _action = (
+                    f"Action: monitor monthly. If gap exceeds 1.0pp, review clinical staffing "
+                    f"levels for months where average load exceeds {peak_wl:.0f} visits per clinician."
+                )
+            else:
+                _signal = (
+                    f"No conversion gap between high-load and normal months "
+                    f"({avg_strain:.2f}% vs {avg_normal:.2f}%). Clinician workload is not "
+                    f"currently suppressing admission decisions."
+                )
+                _action = "No staffing action required based on current data."
+
+            _gap_bg = {"#C53030": "#FCEBEB", "#D97706": "#FAEEDA"}.get(gap_col, "#EBF5FF")
+            st.markdown(
+                f'<div style="border-left:3px solid {gap_col};background:{_gap_bg};'
+                f'padding:10px 14px;font-size:13px;margin-top:10px;'
+                f'border-radius:0 4px 4px 0;">'
+                f'<ul style="list-style:none;margin:0;padding:0;color:#003467;line-height:1.7;">'
+                f'<li>· {_signal}</li>'
+                f'<li style="margin-top:3px;">· {_action}</li>'
+                f'</ul></div>',
+                unsafe_allow_html=True,
+            )
+    except Exception as e:
+        st.warning(f"Workload vs conversion: {e}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -377,10 +2785,11 @@ def render_tab1_operations(filters: dict, run_query):
             with c2:
                 st.markdown("**Ward Summary**")
                 _pc(table_fig(
-                    df_wb[["ward", "admissions", "pct_share", "avg_los_days",
-                            "avg_admission_cost"]].head(12),
+                    df_wb[["ward", "admissions", "pct_share", "num_beds",
+                            "avg_los_days", "avg_admission_cost"]].head(12),
                     col_labels={"ward": "Ward", "admissions": "Admissions",
-                                "pct_share": "Share %", "avg_los_days": "Avg LOS (d)",
+                                "pct_share": "Share %", "num_beds": "Beds",
+                                "avg_los_days": "Avg LOS (d)",
                                 "avg_admission_cost": "Avg Cost"},
                     fmt={"avg_admission_cost": "KES", "pct_share": "pct"},
                     height=320,
@@ -473,24 +2882,24 @@ def render_tab1_operations(filters: dict, run_query):
                 height=310,
                 paper_bgcolor="#fff", plot_bgcolor="#fff",
                 margin=dict(l=0, r=10, t=6, b=0),
-                font=dict(size=11, color="#374151"),
+                font=dict(size=13, color="#374151"),
                 xaxis=dict(
                     showgrid=False, showline=False,
-                    tickfont=dict(size=10, color="#9ca3af"),
+                    tickfont=dict(size=12, color="#9ca3af"),
                     tickformat="%b %y",
                 ),
                 yaxis=dict(
                     showgrid=True, gridcolor="rgba(0,0,0,0.05)", showline=False,
-                    tickfont=dict(size=10, color="#9ca3af"),
+                    tickfont=dict(size=12, color="#9ca3af"),
                     title=dict(
                         text="Index (base month = 100)" if use_index else "Admissions",
-                        font=dict(size=10, color="#9ca3af"),
+                        font=dict(size=12, color="#9ca3af"),
                     ),
                     rangemode="tozero" if not use_index else "normal",
                 ),
                 legend=dict(
                     orientation="h", yanchor="bottom", y=1.01, xanchor="left", x=0,
-                    font=dict(size=10, color="#374151"),
+                    font=dict(size=12, color="#374151"),
                     bgcolor="rgba(0,0,0,0)",
                     traceorder="normal",
                 ),
@@ -522,6 +2931,81 @@ def render_tab1_operations(filters: dict, run_query):
                 )
     except Exception as e:
         st.warning(f"Ward trend: {e}")
+
+    _gap(16)
+
+    # ── WARD DEEP-DIVE ────────────────────────────────────────────────────
+    try:
+        render_ward_deepdive(filters, run_query)
+    except Exception as _dd_e:
+        st.warning(f"Ward deep-dive: {_dd_e}")
+
+    _gap(12)
+
+    # Ward 5: Top-3 ward operational summary table
+    try:
+        df_ws = Q.load_top_ward_summary(filters, run_query)
+        if not df_ws.empty:
+            st.markdown("**What Are the Busiest Wards Treating?**")
+            _note(
+                "Top 3 wards by admissions. Pressure = recent 3-month avg vs prior 3-month avg. "
+                "Seasonality: CV > 0.3 = seasonal pattern, < 0.15 = consistent."
+            )
+
+            for _c in ("admissions", "pressure_pct", "cv_seasonality", "top_condition_pct",
+                       "new_pct", "returning_pct", "top_payer_pct",
+                       "avg_los_days", "investigation_rate_pct",
+                       "patients_per_clinician", "clinicians"):
+                if _c in df_ws.columns:
+                    df_ws[_c] = pd.to_numeric(df_ws[_c], errors="coerce")
+
+            rows = []
+            for _, r in df_ws.iterrows():
+                pressure_pct = r.get("pressure_pct", 0) or 0
+                pressure_sig = r.get("pressure_signal", "Stable")
+                pressure_arrow = {"Rising": "↑", "Easing": "↓", "Stable": "→"}.get(
+                    pressure_sig, "→"
+                )
+                cv = float(r.get("cv_seasonality") or 0)
+                seasonality = "Seasonal" if cv > 0.30 else ("Consistent" if cv < 0.15 else "Mixed")
+
+                cond_str = r.get("top_conditions") or "—"
+
+                payer      = r.get("top_payer") or "—"
+                payer_pct  = r.get("top_payer_pct") or 0
+                payer_str  = f"{payer} ({int(payer_pct)}%)"
+
+                los = r.get("avg_los_days")
+                los_str = f"{float(los):.1f} days" if pd.notna(los) and los else "—"
+
+                inv_rate = r.get("investigation_rate_pct")
+                inv_str  = f"{int(inv_rate)}%" if pd.notna(inv_rate) and inv_rate else "—"
+
+                ratio = r.get("patients_per_clinician")
+                clin  = r.get("clinicians")
+                ratio_str = (f"{float(ratio):.0f}:1  ({int(clin)} clinicians)"
+                             if pd.notna(ratio) and ratio else "—")
+
+                rows.append({
+                    "Ward":              r.get("ward", "—"),
+                    "Admissions":        f"{int(r.get('admissions', 0)):,}",
+                    "Pressure":          f"{pressure_sig} {pressure_arrow} ({int(pressure_pct):+d}%)",
+                    "Seasonality":       seasonality,
+                    "Top Conditions":    cond_str,
+                    "New / Returning":   f"{int(r.get('new_pct', 0))}% new · {int(r.get('returning_pct', 0))}% returning",
+                    "Top Payer":         payer_str,
+                    "Avg Admission":     los_str,
+                    "Investigation Rate": inv_str,
+                    "Pts / Clinician":   ratio_str,
+                })
+
+            _pc(table_fig(
+                pd.DataFrame(rows),
+                col_labels={},
+                height=max(200, len(rows) * 52 + 60),
+            ))
+    except Exception as e:
+        st.warning(f"Ward summary: {e}")
 
     _gap(12)
 
@@ -556,7 +3040,6 @@ def render_tab1_operations(filters: dict, run_query):
         df_active = Q.load_ward_active_vs_hours(filters, run_query)
         if not df_active.empty:
             bar_col = "total_admissions" if "total_admissions" in df_active.columns else "active_admissions"
-            _note("Average admission time is calculated from completed admissions only. Ongoing admissions are excluded.")
 
             # Correlation annotation
             valid = df_active[[bar_col, "avg_admission_hours"]].dropna()
@@ -603,2334 +3086,94 @@ def render_tab1_operations(filters: dict, run_query):
 
     _gap(12)
 
-    # Ward 4: Cost per ward vs patient volumes — bubble chart with quadrants
-    try:
-        df_cost = Q.load_ward_cost_volume(filters, run_query)
-        if not df_cost.empty:
-            st.markdown("**Cost per Admission vs Volume by Ward**")
-            _note(
-                "Bubble size = total revenue. Cost = invoice line items per admitted visit. "
-                "Quadrant lines = median admissions and median avg cost.",
-                w=True,
-            )
-            med_x = df_cost["admissions"].median()
-            med_y = df_cost["avg_admission_cost"].median()
 
-            # Normalise bubble size: 10–50px range
-            rev = df_cost["total_revenue"].fillna(0)
-            rev_range = max(rev.max() - rev.min(), 1)
-            bubble_sizes = ((rev - rev.min()) / rev_range * 40 + 10).tolist()
-
-            fig_cost = go.Figure()
-
-            # Quadrant reference lines
-            fig_cost.add_shape(type="line", x0=med_x, x1=med_x,
-                               y0=0, y1=1, yref="paper",
-                               line=dict(color=GRAY, width=1, dash="dot"))
-            fig_cost.add_shape(type="line", x0=0, x1=1, xref="paper",
-                               y0=med_y, y1=med_y,
-                               line=dict(color=GRAY, width=1, dash="dot"))
-
-            # Quadrant labels
-            quad_style = dict(xref="paper", yref="paper", showarrow=False,
-                              font=dict(size=9, color=MUTED), bgcolor="rgba(255,255,255,0.7)")
-            fig_cost.add_annotation(x=0.02, y=0.98, xanchor="left", yanchor="top",
-                                    text="<b>Investigate</b><br><i>Inefficiency or niche premium?</i>",
-                                    **quad_style)
-            fig_cost.add_annotation(x=0.98, y=0.98, xanchor="right", yanchor="top",
-                                    text="<b>Revenue engine</b><br><i>Protect and optimise</i>",
-                                    **quad_style)
-            fig_cost.add_annotation(x=0.02, y=0.02, xanchor="left", yanchor="bottom",
-                                    text="<b>Underutilised</b><br><i>Capacity opportunity</i>",
-                                    **quad_style)
-            fig_cost.add_annotation(x=0.98, y=0.02, xanchor="right", yanchor="bottom",
-                                    text="<b>Operational workhorse</b><br><i>Efficiency model</i>",
-                                    **quad_style)
-
-            fig_cost.add_trace(go.Scatter(
-                x=df_cost["admissions"],
-                y=df_cost["avg_admission_cost"],
-                mode="markers+text",
-                text=df_cost["ward"],
-                textposition="top center",
-                textfont=dict(size=9, family="Montserrat", color=COOL_BLUE),
-                marker=dict(
-                    size=bubble_sizes,
-                    color=AFYA_BLUE,
-                    opacity=0.75,
-                    line=dict(color="white", width=0.5),
-                ),
-                customdata=df_cost[["total_revenue", "revenue_per_patient"]].values,
-                hovertemplate=(
-                    "<b>%{text}</b><br>"
-                    "Admissions: %{x:,}<br>"
-                    "Avg Cost: KES %{y:,.0f}<br>"
-                    "Total Revenue: KES %{customdata[0]:,.0f}<br>"
-                    "Revenue/Patient: KES %{customdata[1]:,.0f}"
-                    "<extra></extra>"
-                ),
-                showlegend=False,
-            ))
-
-            fig_cost.update_layout(
-                height=380,
-                margin=dict(l=0, r=0, t=10, b=0),
-                plot_bgcolor="white", paper_bgcolor="white",
-                xaxis=dict(title="Admissions", showgrid=True,
-                           gridcolor="#EBF3FB", zeroline=False),
-                yaxis=dict(title="Avg Cost per Admission (KES)", showgrid=True,
-                           gridcolor="#EBF3FB", zeroline=False,
-                           tickformat=",.0f"),
-            )
-            _pc(fig_cost)
-    except Exception as e:
-        st.warning(f"Ward cost/volume: {e}")
-
-    _gap(12)
-
-    # Ward 5: Top-3 ward operational summary table
-    try:
-        df_ws = Q.load_top_ward_summary(filters, run_query)
-        if not df_ws.empty:
-            st.markdown("**What Are the Busiest Wards Treating?**")
-            _note(
-                "Top 3 wards by admissions. Pressure = recent 3-month avg vs prior 3-month avg. "
-                "Seasonality: CV > 0.3 = seasonal pattern, < 0.15 = consistent."
-            )
-
-            for _c in ("admissions", "pressure_pct", "cv_seasonality", "top_condition_pct",
-                       "new_pct", "returning_pct", "top_payer_pct",
-                       "avg_los_days", "investigation_rate_pct",
-                       "patients_per_clinician", "clinicians"):
-                if _c in df_ws.columns:
-                    df_ws[_c] = pd.to_numeric(df_ws[_c], errors="coerce")
-
-            rows = []
-            for _, r in df_ws.iterrows():
-                pressure_pct = r.get("pressure_pct", 0) or 0
-                pressure_sig = r.get("pressure_signal", "Stable")
-                pressure_arrow = {"Rising": "↑", "Easing": "↓", "Stable": "→"}.get(
-                    pressure_sig, "→"
-                )
-                cv = float(r.get("cv_seasonality") or 0)
-                seasonality = "Seasonal" if cv > 0.30 else ("Consistent" if cv < 0.15 else "Mixed")
-
-                top_cond     = r.get("top_condition") or "—"
-                cond_pct     = r.get("top_condition_pct") or 0
-                cond_pattern = r.get("condition_pattern") or ""
-                cond_str     = f"{top_cond} ({int(cond_pct)}%)"
-                if cond_pattern == "Varies":
-                    cond_str += " + others"
-
-                payer      = r.get("top_payer") or "—"
-                payer_pct  = r.get("top_payer_pct") or 0
-                payer_str  = f"{payer} ({int(payer_pct)}%)"
-
-                los = r.get("avg_los_days")
-                los_str = f"{float(los):.1f} days" if pd.notna(los) and los else "—"
-
-                inv_rate = r.get("investigation_rate_pct")
-                inv_str  = f"{int(inv_rate)}%" if pd.notna(inv_rate) and inv_rate else "—"
-
-                ratio = r.get("patients_per_clinician")
-                clin  = r.get("clinicians")
-                ratio_str = (f"{float(ratio):.0f}:1  ({int(clin)} clinicians)"
-                             if pd.notna(ratio) and ratio else "—")
-
-                rows.append({
-                    "Ward":              r.get("ward", "—"),
-                    "Admissions":        f"{int(r.get('admissions', 0)):,}",
-                    "Pressure":          f"{pressure_sig} {pressure_arrow} ({int(pressure_pct):+d}%)",
-                    "Seasonality":       seasonality,
-                    "Top Condition":     cond_str,
-                    "New / Returning":   f"{int(r.get('new_pct', 0))}% new · {int(r.get('returning_pct', 0))}% returning",
-                    "Top Payer":         payer_str,
-                    "Avg Admission":     los_str,
-                    "Investigation Rate": inv_str,
-                    "Pts / Clinician":   ratio_str,
-                })
-
-            _pc(table_fig(
-                pd.DataFrame(rows),
-                col_labels={},
-                height=max(200, len(rows) * 52 + 60),
-            ))
-    except Exception as e:
-        st.warning(f"Ward summary: {e}")
-
-    _gap(12)
-
-    # ── DIAGNOSIS COST OUTLIERS ───────────────────────────────────────────
-    _sh("Which Diagnoses Are Driving Disproportionate Cost?", mt=8)
+    # ── C3: SAME-DAY ESCALATION ───────────────────────────────────────────
+    _sh("C3 — Same-Day Escalation: Outpatient Visits That Led to Admission", mt=8)
     _note(
-        "A ratio above 1.0 means this diagnosis consumes more cost share than its "
-        "patient volume justifies. Use as a flag — deeper drug and investigation "
-        "breakdowns belong in inpatient analytics."
+        "Outpatient visits where the patient was admitted as an inpatient on the same visit. "
+        "High rates in a condition may indicate patients arriving too late, underscoring the "
+        "need for earlier intervention or community referral pathways."
     )
     try:
-        df_dc = Q.load_diagnosis_cost_outliers(filters, run_query)
-        if not df_dc.empty:
-            for _c in ("visit_count", "avg_cost_per_case", "total_cost",
-                       "volume_share_pct", "cost_share_pct", "cost_volume_ratio"):
-                df_dc[_c] = pd.to_numeric(df_dc[_c], errors="coerce")
-
-            overall_avg_cost = float(
-                (df_dc["total_cost"].sum() / df_dc["visit_count"].sum())
-                if df_dc["visit_count"].sum() > 0 else 0
-            )
-
-            def _ratio_color(r):
-                if r >= 2.0:   return CORAL
-                if r >= 1.5:   return ORANGE
-                return TEAL
-
-            colors = [_ratio_color(r) for r in df_dc["cost_volume_ratio"]]
-            sizes  = df_dc["total_cost"]
-            s_min, s_max = float(sizes.min()), float(sizes.max())
-            s_range = s_max - s_min or 1
-            bubble_sizes = [12 + (float(v) - s_min) / s_range * 28
-                            for v in sizes]
-
-            c1, c2 = st.columns([3, 2])
-            with c1:
-                fig_dc = go.Figure()
-                fig_dc.add_trace(go.Scatter(
-                    x=df_dc["visit_count"],
-                    y=df_dc["avg_cost_per_case"],
-                    mode="markers+text",
-                    marker=dict(
-                        color=colors,
-                        size=bubble_sizes,
-                        opacity=0.82,
-                        line=dict(color="white", width=1),
-                    ),
-                    text=df_dc["diagnosis_group"],
-                    textposition="top center",
-                    textfont=dict(size=8, color=MUTED),
-                    customdata=df_dc[["cost_volume_ratio", "cost_share_pct",
-                                      "volume_share_pct", "total_cost"]].values,
-                    hovertemplate=(
-                        "<b>%{text}</b><br>"
-                        "Visits: %{x:,}<br>"
-                        "Avg cost/case: %{y:,.0f}<br>"
-                        "Cost share: %{customdata[1]:.1f}%<br>"
-                        "Volume share: %{customdata[2]:.1f}%<br>"
-                        "Ratio: %{customdata[0]:.2f}x<extra></extra>"
-                    ),
-                ))
-                # Overall avg cost reference line
-                fig_dc.add_shape(
-                    type="line",
-                    xref="paper", yref="y",
-                    x0=0, x1=1,
-                    y0=overall_avg_cost, y1=overall_avg_cost,
-                    line=dict(color=GRAY, width=1.5, dash="dash"),
-                )
-                fig_dc.add_annotation(
-                    xref="paper", yref="y",
-                    x=1.01, y=overall_avg_cost,
-                    text="Avg cost",
-                    xanchor="left", yanchor="middle",
-                    showarrow=False,
-                    font=dict(size=8, color=GRAY),
-                )
-                fig_dc.update_layout(
-                    height=380,
-                    margin=dict(l=0, r=60, t=20, b=0),
-                    plot_bgcolor="white", paper_bgcolor="white",
-                    xaxis=dict(title="Visit Count", showgrid=False),
-                    yaxis=dict(
-                        title="Avg Cost per Case",
-                        showgrid=True, gridcolor="#EBF3FB",
-                    ),
-                )
-                _pc(fig_dc)
-                _note(
-                    "Bubble size = total cost. "
-                    "Red = ratio ≥ 2×  ·  Orange = 1.5–2×  ·  Teal = below 1.5×. "
-                    "Diagnoses above the dashed line cost more per case than the average."
-                )
-
-            with c2:
-                tbl = df_dc[["diagnosis_group", "visit_count",
-                              "avg_cost_per_case", "cost_volume_ratio"]].copy()
-                tbl["cost_volume_ratio"] = tbl["cost_volume_ratio"].apply(
-                    lambda v: f"{v:.2f}×" if pd.notna(v) else "—"
-                )
-                tbl["avg_cost_per_case"] = tbl["avg_cost_per_case"].apply(
-                    lambda v: f"{int(v):,}" if pd.notna(v) else "—"
-                )
-                tbl["visit_count"] = tbl["visit_count"].apply(
-                    lambda v: f"{int(v):,}" if pd.notna(v) else "—"
-                )
-                _pc(table_fig(
-                    tbl.head(12).rename(columns={
-                        "diagnosis_group":   "Diagnosis",
-                        "visit_count":       "Visits",
-                        "avg_cost_per_case": "Avg Cost",
-                        "cost_volume_ratio": "Ratio",
-                    }),
-                    col_labels={},
-                    height=380,
-                ))
-    except Exception as e:
-        st.warning(f"Diagnosis cost outliers: {e}")
-
-    _gap(12)
-
-    # ── SECTION B: SPIKE & DIP DETECTION ─────────────────────────────────
-    _sh("B — When did volume behave unusually?", mt=8)
-
-    try:
-        df_vol = Q.load_monthly_volume_anomalies(filters, run_query)
-        if not df_vol.empty:
-            df_vol = df_vol.copy()
-            df_vol["month_label"] = pd.to_datetime(
-                df_vol["visit_month"], errors="coerce"
-            ).dt.strftime("%Y-%m")
-
-            # Drop the first partial month from chart — it skews visuals
-            df_chart = df_vol[df_vol["month_type"] != "Partial"].copy()
-
-            avg_vol = float(df_vol["avg_vol"].iloc[0])
-            sd_vol  = float(df_vol["sd_vol"].iloc[0])
-
-            spikes = df_chart[df_chart["month_type"] == "Spike"]
-            dips   = df_chart[df_chart["month_type"] == "Dip"]
-
-            # Fallback: no months cross 1.0 SD → use top-2 / bottom-2
-            use_fallback = spikes.empty and dips.empty
-            if use_fallback:
-                spikes = df_chart.nlargest(2, "total_visits").copy()
-                spikes["month_type"] = "Highest"
-                dips = df_chart.nsmallest(2, "total_visits").copy()
-                dips["month_type"] = "Lowest"
-                _note(
-                    "No months exceeded ±1 SD from the mean. "
-                    "Showing the 2 highest and 2 lowest volume months instead."
-                )
-
-            # ── Time-series bar chart ──────────────────────────────────────
-            type_color = {"Spike": ORANGE, "Dip": CORAL,
-                          "Highest": ORANGE, "Lowest": CORAL, "Normal": AFYA_BLUE}
-            bar_colors = [type_color.get(t, AFYA_BLUE) for t in df_chart["month_type"]]
-
-            fig_vol = go.Figure()
-
-            # ±1 SD shaded band (normal range)
-            fig_vol.add_shape(
-                type="rect", xref="paper", yref="y",
-                x0=0, x1=1,
-                y0=avg_vol - sd_vol, y1=avg_vol + sd_vol,
-                fillcolor=GRAY, opacity=0.10, line_width=0,
-            )
-
-            # Spike threshold — upper edge of normal range
-            fig_vol.add_hline(
-                y=avg_vol + sd_vol,
-                line=dict(color=ORANGE, width=1.5, dash="dash"),
-                annotation_text=f"Spike threshold  ({avg_vol + sd_vol:,.0f})",
-                annotation_position="right",
-                annotation_font=dict(size=9, color=ORANGE),
-            )
-
-            # Dip threshold — lower edge of normal range
-            fig_vol.add_hline(
-                y=avg_vol - sd_vol,
-                line=dict(color=CORAL, width=1.5, dash="dash"),
-                annotation_text=f"Dip threshold  ({avg_vol - sd_vol:,.0f})",
-                annotation_position="right",
-                annotation_font=dict(size=9, color=CORAL),
-            )
-
-            fig_vol.add_trace(go.Bar(
-                x=df_chart["month_label"],
-                y=df_chart["total_visits"],
-                marker_color=bar_colors,
-                hovertemplate=(
-                    "<b>%{x}</b><br>Visits: %{y:,}<extra></extra>"
-                ),
-                showlegend=False,
-            ))
-
-            # Legend patches (manual)
-            for label, color in [("Spike / Highest", ORANGE),
-                                  ("Dip / Lowest", CORAL),
-                                  ("Normal", AFYA_BLUE)]:
-                fig_vol.add_trace(go.Bar(
-                    x=[None], y=[None], name=label,
-                    marker_color=color, showlegend=True,
-                ))
-
-            fig_vol.update_layout(
-                height=300,
-                margin=dict(l=0, r=60, t=10, b=0),
-                plot_bgcolor="white", paper_bgcolor="white",
-                xaxis=dict(showgrid=False),
-                yaxis=dict(title="Total Visits", showgrid=True,
-                           gridcolor="#EBF3FB"),
-                legend=dict(orientation="h", yanchor="bottom", y=1.02,
-                            xanchor="right", x=1),
-                barmode="overlay",
-            )
-            _pc(fig_vol)
-
-            # ── Summary tables with diagnosis context ─────────────────────
-            spike_label = "Highest Volume Months" if use_fallback else "Spike Months"
-            dip_label   = "Lowest Volume Months"  if use_fallback else "Dip Months"
-
-            def _fmt_mom(row):
-                if row.get("first_in_range") == 1:
-                    return "prior period outside range"
-                v = row.get("mom_pct")
-                return f"{v:+.1f}%" if v is not None else "—"
-
-            # Diagnosis context: top diagnosis + new/returning per anomalous month
-            try:
-                df_dx = Q.load_diagnosis_by_month(filters, run_query)
-            except Exception:
-                df_dx = pd.DataFrame()
-
-            normal_months = df_chart[df_chart["month_type"] == "Normal"]["visit_month"].tolist()
-            if not df_dx.empty and normal_months:
-                baseline_new = (df_dx[df_dx["visit_month"].isin(normal_months)]
-                                .groupby("visit_month")["new_patients"].sum().mean())
-                baseline_ret = (df_dx[df_dx["visit_month"].isin(normal_months)]
-                                .groupby("visit_month")["returning_patients"].sum().mean())
-            else:
-                baseline_new = baseline_ret = None
-
-            def _enrich(df_in):
-                rows = []
-                for _, r in df_in.iterrows():
-                    m = r["visit_month"]
-                    mom = _fmt_mom(r)
-                    if not df_dx.empty:
-                        mdf = df_dx[df_dx["visit_month"] == m]
-                        top_dx = (mdf.groupby("diagnosis_group")["visit_count"]
-                                  .sum().idxmax() if not mdf.empty else "—")
-                        new_pt = int(mdf["new_patients"].sum())
-                        ret_pt = int(mdf["returning_patients"].sum())
-                    else:
-                        top_dx, new_pt, ret_pt = "—", None, None
-                    rows.append({
-                        "month_label":   r["month_label"],
-                        "total_visits":  int(r["total_visits"]),
-                        "z_score":       r["z_score"],
-                        "mom_display":   mom,
-                        "top_diagnosis": top_dx,
-                        "new_patients":  new_pt,
-                        "returning_pts": ret_pt,
-                    })
-                return pd.DataFrame(rows)
-
-            col_labels = {
-                "month_label":   "Month",
-                "total_visits":  "Visits",
-                "z_score":       "Z-Score",
-                "mom_display":   "MoM Change",
-                "top_diagnosis": "Top Diagnosis",
-                "new_patients":  "New Patients",
-                "returning_pts": "Returning Patients",
-            }
-
-            c1, c2 = st.columns(2)
-            with c1:
-                st.markdown(f"**{spike_label}**")
-                tdf = _enrich(spikes)
-                _pc(table_fig(tdf, col_labels=col_labels,
-                              height=max(120, len(tdf) * 36 + 60)))
-            with c2:
-                st.markdown(f"**{dip_label}**")
-                tdf = _enrich(dips)
-                _pc(table_fig(tdf, col_labels=col_labels,
-                              height=max(120, len(tdf) * 36 + 60)))
-
-            if baseline_new is not None:
-                _note(
-                    f"Baseline avg (normal months): "
-                    f"{baseline_new:,.0f} new patients / month, "
-                    f"{baseline_ret:,.0f} returning patients / month."
-                )
-
-    except Exception as e:
-        st.warning(f"Volume anomalies: {e}")
-
-    _gap(12)
-
-    # ── SECTION C: PATIENT WAIT TIMES ────────────────────────────────────
-    _sh("C — Patient Wait Times by Stage", mt=8)
-    _note(
-        "Shows the time that 1 in 10 of the slowest patients waited at each stage "
-        "(P90). Each panel is on its own scale. Targets are fixed clinical benchmarks."
-    )
-    try:
-        df_jt = Q.load_journey_times(filters, run_query)
-        if not df_jt.empty:
-            _render_wait_time_chart(df_jt)
-    except Exception as e:
-        st.warning(f"Journey times: {e}")
-
-    _gap(12)
-
-    # Lab / investigation turnaround by clinical discipline
-    _sh("Lab & Investigation Turnaround by Clinical Discipline", mt=8)
-    try:
-        _note(
-            "Grouped by clinical discipline from procedure_discipline — "
-            "Haematology, Clinical Chemistry, Microbiology & Infectious Disease, "
-            "Immunology & Serology, Endocrinology & Hormones, Pathology & Cytology, "
-            "Radiology & Imaging, Imaging & Diagnostics."
-        )
-        df_lab = Q.load_lab_turnaround_by_discipline(filters, run_query)
-
-        # Fallback: discipline query empty → use simpler by-type query
-        _disc_mode = True
-        if df_lab.empty:
-            df_lab = Q.load_lab_turnaround_by_test(filters, run_query)
-            _disc_mode = False
-            if not df_lab.empty:
-                df_lab = df_lab.rename(columns={"test_type": "discipline"})
-                _note("Discipline grouping returned no data — showing results by investigation type.")
-
-        if not df_lab.empty:
-            # Coerce Snowflake Decimal columns to float
-            for _c in ("test_count", "avg_turnaround_hrs", "median_turnaround_hrs", "result_rate_pct"):
-                if _c in df_lab.columns:
-                    df_lab[_c] = pd.to_numeric(df_lab[_c], errors="coerce")
-
-            # ── per-discipline summary (weighted collapse to discipline level) ──
-            rows = []
-            for disc, g in df_lab.groupby("discipline"):
-                total = float(g["test_count"].sum())
-                avg_tat = g["avg_turnaround_hrs"].dropna()
-                rows.append({
-                    "discipline":            disc,
-                    "test_count":            int(total),
-                    "avg_turnaround_hrs":    round(
-                        float((g["avg_turnaround_hrs"].fillna(0) * g["test_count"]).sum()) / total, 2
-                    ) if total and not avg_tat.empty else None,
-                    "median_turnaround_hrs": round(float(g["median_turnaround_hrs"].median()), 2)
-                                             if g["median_turnaround_hrs"].notna().any() else None,
-                    "result_rate_pct":       round(
-                        float((g["result_rate_pct"].fillna(0) * g["test_count"]).sum()) / total, 1
-                    ) if total else None,
-                })
-            disc_summary = pd.DataFrame(rows).reset_index(drop=True)
-            has_tat = disc_summary["avg_turnaround_hrs"].notna().any()
-            sort_col = "avg_turnaround_hrs" if has_tat else "test_count"
-            disc_summary = disc_summary.sort_values(sort_col, ascending=False).reset_index(drop=True)
-
-            # Colour map for disciplines (procedure_discipline values)
-            _disc_colors = {
-                "Haematology":                    AFYA_BLUE,
-                "Clinical Chemistry":             TEAL,
-                "Microbiology & Infectious Disease": ORANGE,
-                "Immunology & Serology":          PURPLE,
-                "Endocrinology & Hormones":       GREEN,
-                "Pathology & Cytology":           CORAL,
-                "Radiology & Imaging":            GRAY,
-                "Imaging & Diagnostics":          COOL_BLUE,
-                "Other / Unclassified":           "#AAAAAA",
-            }
-            bar_colors = [_disc_colors.get(d, AFYA_BLUE) for d in disc_summary["discipline"]]
-
-            c1, c2 = st.columns(2)
-            with c1:
-                if has_tat:
-                    x_vals = disc_summary["avg_turnaround_hrs"]
-                    x_title = "Avg Turnaround (hrs)"
-                    txt = disc_summary["avg_turnaround_hrs"].apply(
-                        lambda v: f"{v:.1f}h" if pd.notna(v) else ""
-                    )
-                else:
-                    x_vals = disc_summary["test_count"]
-                    x_title = "Tests ordered"
-                    txt = disc_summary["test_count"].apply(lambda v: f"{int(v):,}")
-                    _note("Result timestamps not recorded — showing test volume by discipline.")
-
-                fig_disc = go.Figure(go.Bar(
-                    y=disc_summary["discipline"],
-                    x=x_vals,
-                    orientation="h",
-                    marker_color=bar_colors,
-                    text=txt,
-                    textposition="outside",
-                ))
-                fig_disc.update_layout(
-                    height=320,
-                    xaxis_title=x_title,
-                    yaxis=dict(autorange="reversed"),
-                    margin=dict(l=0, r=40, t=20, b=20),
-                    plot_bgcolor="white",
-                    paper_bgcolor="white",
-                )
-                _pc(fig_disc)
-            with c2:
-                tbl_cols = {
-                    "discipline":            "Discipline",
-                    "test_count":            "Tests",
-                    "avg_turnaround_hrs":    "Avg Hrs",
-                    "median_turnaround_hrs": "Median Hrs",
-                    "result_rate_pct":       "Result %",
-                }
-                _pc(table_fig(
-                    disc_summary,
-                    col_labels=tbl_cols,
-                    fmt={"result_rate_pct": "pct"},
-                    height=320,
-                ))
-
-            if _disc_mode:
-                # ── drill-down: per-discipline x investigation_type breakdown ─
-                _gap(8)
-                selected_disc = st.selectbox(
-                    "Drill into discipline",
-                    disc_summary["discipline"].tolist(),
-                    key="lab_disc_select",
-                )
-                df_drill = (
-                    df_lab[df_lab["discipline"] == selected_disc]
-                    .sort_values("avg_turnaround_hrs" if has_tat else "test_count",
-                                 ascending=False)
-                    .reset_index(drop=True)
-                )
-                if not df_drill.empty:
-                    _x_col = "avg_turnaround_hrs" if has_tat else "test_count"
-                    df_chart = df_drill.dropna(subset=[_x_col]).reset_index(drop=True).copy()
-                    df_chart["test_name"] = df_chart["test_name"].apply(
-                        lambda v: (v[:42] + "…") if isinstance(v, str) and len(v) > 43 else v
-                    )
-                    _tbl_cols = {
-                        "test_name":             "Test",
-                        "test_count":            "Count",
-                        "avg_turnaround_hrs":    "Avg Hrs",
-                        "median_turnaround_hrs": "Median Hrs",
-                        "result_rate_pct":       "Result %",
-                    }
-                    df_tbl = df_drill[[c for c in _tbl_cols if c in df_drill.columns]].copy()
-                    d1, d2 = st.columns(2)
-                    with d1:
-                        _pc(hbar_chart(
-                            df_chart,
-                            x=_x_col,
-                            y="test_name",
-                            x_label="Avg Turnaround (hrs)" if has_tat else "Tests ordered",
-                            color=_disc_colors.get(selected_disc, AFYA_BLUE),
-                            height=max(220, len(df_chart) * 30 + 60),
-                            show_text=True,
-                        ))
-                    with d2:
-                        _pc(table_fig(
-                            df_tbl,
-                            col_labels=_tbl_cols,
-                            fmt={"result_rate_pct": "pct"},
-                            height=max(220, len(df_tbl) * 30 + 60),
-                        ))
-        else:
-            _note("No investigation data found for the selected period.")
-    except Exception as e:
-        st.warning(f"Lab turnaround: {e}")
-
-    _gap(12)
-
-    # ── SECTION D: PEAK DEMAND ────────────────────────────────────────────
-    _sh("D — Peak Demand: When, Who & Why", mt=8)
-
-    # D1: Hour × Day heatmap with actual values
-    try:
-        df_hm = Q.load_peak_demand_heatmap(filters, run_query)
-        if not df_hm.empty:
-            day_order = ["Monday","Tuesday","Wednesday","Thursday",
-                         "Friday","Saturday","Sunday"]
-            hmap_sel = st.radio(
-                "Visit type", ["Total", "Outpatient", "Inpatient"],
-                horizontal=True, key="heatmap_type",
-            )
-            z_col = {"Total": "visit_count",
-                     "Outpatient": "outpatient_count",
-                     "Inpatient": "inpatient_count"}[hmap_sel]
-
-            # Build heatmap with annotated values
-            pivot = df_hm.pivot_table(
-                index="day_name", columns="hour_of_day",
-                values=z_col, aggfunc="sum", fill_value=0,
-            )
-            pivot = pivot.reindex([d for d in day_order if d in pivot.index])
-
-            fig_hm = go.Figure(go.Heatmap(
-                z=pivot.values,
-                x=[f"{h:02d}:00" for h in pivot.columns],
-                y=list(pivot.index),
-                colorscale="Blues",
-                text=pivot.values,
-                texttemplate="%{text:,}",
-                textfont=dict(size=8),
-                hovertemplate="<b>%{y} %{x}</b><br>Visits: %{z:,}<extra></extra>",
-                colorbar=dict(thickness=12),
-            ))
-            fig_hm.update_layout(
-                height=280, margin=dict(l=0, r=0, t=10, b=0),
-                plot_bgcolor="white", paper_bgcolor="white",
-                xaxis=dict(title="Hour of Day (EAT)"),
-                yaxis=dict(title="Day", autorange="reversed"),
-            )
-            _pc(fig_hm)
-
-            peak = df_hm.loc[df_hm["visit_count"].idxmax()]
-            _note(
-                f"Busiest slot: {peak['day_name']} at {int(peak['hour_of_day']):02d}:00 "
-                f"({int(peak['visit_count']):,} total · "
-                f"{int(peak['outpatient_count']):,} OP · "
-                f"{int(peak['inpatient_count']):,} IP)."
-            )
-    except Exception as e:
-        st.warning(f"Heatmap: {e}")
-
-    _gap(12)
-
-    # D2: Monthly peaks — which months and what contributed
-    try:
-        df_mo = Q.load_peak_demand_monthly(filters, run_query)
-        if not df_mo.empty:
-            st.markdown("**Monthly Volume: Peak Months & Composition**")
-            c1, c2 = st.columns(2)
-            with c1:
-                fig_mb = go.Figure()
-                colors_op = [ORANGE if p else AFYA_BLUE for p in df_mo["is_peak_month"]]
-                fig_mb.add_trace(go.Bar(
-                    x=df_mo["visit_month"], y=df_mo["outpatient_visits"],
-                    name="Outpatient", marker_color=colors_op, opacity=0.9,
-                ))
-                fig_mb.add_trace(go.Bar(
-                    x=df_mo["visit_month"], y=df_mo["inpatient_visits"],
-                    name="Inpatient", marker_color=TEAL,
-                ))
-                fig_mb.update_layout(
-                    barmode="stack", height=280,
-                    margin=dict(l=0, r=0, t=10, b=0),
-                    plot_bgcolor="white", paper_bgcolor="white",
-                    xaxis=dict(title="Month"),
-                    yaxis=dict(title="Visits", showgrid=True, gridcolor="#EBF3FB"),
-                    legend=dict(orientation="h", yanchor="bottom", y=1.02,
-                                xanchor="right", x=1),
-                )
-                _note("Orange bars = peak months (>1.0 SD above mean).")
-                _pc(fig_mb)
-            with c2:
-                st.markdown("**What Brought Patients in Anomalous Months?**")
-                peak_rows = df_mo[df_mo["is_peak_month"] == 1].copy()
-                fallback = peak_rows.empty
-                if fallback:
-                    peak_rows = df_mo.nlargest(2, "total_visits").copy()
-
-                # Enrich with top diagnosis group for each highlighted month
-                try:
-                    df_dx = Q.load_diagnosis_by_month(filters, run_query)
-                    if not df_dx.empty:
-                        top_dx = (
-                            df_dx.sort_values("visit_count", ascending=False)
-                            .drop_duplicates("visit_month")[["visit_month", "diagnosis_group"]]
-                            .rename(columns={"diagnosis_group": "Top Diagnosis"})
-                        )
-                        peak_rows = peak_rows.merge(top_dx, on="visit_month", how="left")
-                except Exception:
-                    pass
-
-                tbl_cols = ["visit_month", "total_visits", "z_score",
-                            "communicable_pct", "ncd_pct"]
-                tbl_rename = {
-                    "visit_month": "Month", "total_visits": "Visits",
-                    "z_score": "Z-Score",
-                    "communicable_pct": "Communicable %", "ncd_pct": "NCD %",
-                }
-                if "Top Diagnosis" in peak_rows.columns:
-                    tbl_cols.append("Top Diagnosis")
-
-                _pc(table_fig(
-                    peak_rows[tbl_cols].rename(columns=tbl_rename),
-                    col_labels={},
-                    fmt={"Communicable %": "pct", "NCD %": "pct"},
-                    height=260,
-                ))
-
-                if fallback:
-                    _note("No statistical spike in selected period — showing top 2 months by volume.")
-                else:
-                    top = peak_rows.sort_values("communicable_pct", ascending=False).iloc[0]
-                    if pd.to_numeric(top["communicable_pct"], errors="coerce") > 30:
-                        _note(
-                            f"Peak in {str(top['visit_month'])[:7]} was "
-                            f"{top['communicable_pct']:.0f}% communicable disease — "
-                            "likely outbreak driven.",
-                            w=True,
-                        )
-    except Exception as e:
-        st.warning(f"Monthly peaks: {e}")
-
-    _gap(12)
-
-    # ── SECTION E: PATIENT FLOW UNDER PRESSURE ───────────────────────────
-    _sh("E — Patient Flow Under Pressure", mt=8)
-    _note(
-        "How does operational performance change between peak and quiet days? "
-        "Do night-shift patients convert to admissions differently, and does volume stress "
-        "affect how quickly patients are seen, investigated, and discharged?"
-    )
-
-    # E1: Night-shift A&E → morning admission conversion
-    _gap(8)
-    st.markdown("**E1 — Night-Shift A&E: How Many Convert to Morning Admissions?**")
-    try:
-        df_night = Q.load_night_ae_conversion(filters, run_query)
-        if not df_night.empty:
-            for _c in ("total_visits", "admitted", "conversion_rate_pct",
-                       "morning_admit_pct", "avg_wait_to_admit_hrs",
-                       "insurance_pct", "surgery_pct"):
-                if _c in df_night.columns:
-                    df_night[_c] = pd.to_numeric(df_night[_c], errors="coerce")
-
-            cols = st.columns(len(df_night))
-            for col, (_, row) in zip(cols, df_night.iterrows()):
-                shift = row.get("shift", "")
-                conv  = row.get("conversion_rate_pct", 0)
-                morn  = row.get("morning_admit_pct", 0)
-                wait  = row.get("avg_wait_to_admit_hrs", 0)
-                total = row.get("total_visits", 0)
-                adm   = row.get("admitted", 0)
-                card_color = AFYA_BLUE if "Night" in str(shift) else TEAL
-
-                with col:
-                    st.markdown(
-                        f'<div style="border-radius:10px;overflow:hidden;margin-bottom:12px;'
-                        f'box-shadow:0 1px 4px rgba(0,0,0,0.08);">'
-                        f'<div style="background:{card_color};padding:8px 14px;">'
-                        f'<span style="color:white;font-size:12px;font-weight:700;letter-spacing:0.5px;">{shift}</span>'
-                        f'</div>'
-                        f'<div style="background:#FAFCFF;padding:12px 14px;">'
-                        f'<div style="display:flex;align-items:baseline;gap:6px;margin-bottom:6px;">'
-                        f'<span style="font-size:36px;font-weight:800;color:{card_color};line-height:1;">{_n(conv)}%</span>'
-                        f'<span style="font-size:11px;color:#888;">admission rate</span>'
-                        f'</div>'
-                        f'<div style="font-size:11px;color:#666;margin-bottom:8px;">'
-                        f'{int(total or 0):,} visits &rarr; {int(adm or 0):,} admitted'
-                        f'</div>'
-                        f'<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">'
-                        f'<div style="background:#EEF4FF;border-radius:6px;padding:6px 8px;text-align:center;">'
-                        f'<div style="font-size:15px;font-weight:700;color:#333;">{_n(wait)} hrs</div>'
-                        f'<div style="font-size:10px;color:#888;">avg wait</div>'
-                        f'</div>'
-                        f'<div style="background:#EEF4FF;border-radius:6px;padding:6px 8px;text-align:center;">'
-                        f'<div style="font-size:15px;font-weight:700;color:#333;">{_n(morn)}%</div>'
-                        f'<div style="font-size:10px;color:#888;">next morning</div>'
-                        f'</div>'
-                        f'</div>'
-                        f'</div></div>',
-                        unsafe_allow_html=True,
-                    )
-
-            night_row = df_night[df_night["shift"].str.contains("Night", na=False)]
-            if not night_row.empty:
-                nr = night_row.iloc[0]
-                day_conv = df_night[~df_night["shift"].str.contains("Night", na=False)]["conversion_rate_pct"].values
-                day_conv_val = _n(day_conv[0]) if len(day_conv) else "—"
-                _note(
-                    f"Night: {_n(nr.get('conversion_rate_pct'))}% admission rate vs {day_conv_val}% day. "
-                    f"{_n(nr.get('morning_admit_pct'))}% of night admissions recorded next morning. "
-                    f"Avg wait: {_n(nr.get('avg_wait_to_admit_hrs'))} hrs."
-                )
-        else:
-            _note("No admission data available for the selected period.", w=True)
-    except Exception as e:
-        st.warning(f"Night A&E conversion: {e}")
-
-    _gap(12)
-
-    # E2: Service delivery times — peak vs normal vs quiet days
-    st.markdown("**E2 — Are Services Slower on Peak Days?**")
-    _note(
-        "Each visit is assigned to the load tier of its day. "
-        "Peak = top 25% busiest days. Quiet = bottom 25%. Times are median minutes from arrival."
-    )
-    try:
-        df_svc = Q.load_peak_day_service_times(filters, run_query)
-        if not df_svc.empty:
-            for _c in ("median_mins_to_triage", "p90_mins_to_triage",
-                       "median_mins_to_consult", "p90_mins_to_consult",
-                       "median_mins_to_inv", "p90_mins_to_inv",
-                       "median_mins_to_rx", "p90_mins_to_rx",
-                       "vitals_rate_pct", "notes_rate_pct", "inv_rate_pct", "rx_rate_pct",
-                       "avg_clinicians_on_day", "avg_patients_per_clinician", "total_visits"):
-                if _c in df_svc.columns:
-                    df_svc[_c] = pd.to_numeric(df_svc[_c], errors="coerce")
-
-            tier_order  = ["Peak (top 25%)", "Normal", "Quiet (bottom 25%)"]
-            tier_colors = {"Peak (top 25%)": CORAL, "Normal": TEAL, "Quiet (bottom 25%)": COOL_BLUE}
-
-            c_left, c_right = st.columns([1.1, 0.9])
-            with c_left:
-                # Grouped bar: median wait times by tier
-                metrics = [
-                    ("median_mins_to_triage",  "Triage (vitals)"),
-                    ("median_mins_to_consult",  "Doctor consult"),
-                    ("median_mins_to_inv",      "First investigation"),
-                    ("median_mins_to_rx",       "Prescription dispensed"),
-                ]
-                fig_svc = go.Figure()
-                tiers_present = [t for t in tier_order if t in df_svc["load_tier"].values]
-                x_labels = [m[1] for m in metrics]
-
-                for tier in tiers_present:
-                    row = df_svc[df_svc["load_tier"] == tier].iloc[0]
-                    y_vals = [
-                        None if pd.isna(row.get(m[0])) or row.get(m[0]) is None
-                        else float(row.get(m[0]))
-                        for m in metrics
-                    ]
-                    fig_svc.add_trace(go.Bar(
-                        name=tier,
-                        x=x_labels,
-                        y=y_vals,
-                        marker_color=tier_colors.get(tier, GRAY),
-                        text=[f"{int(v)}m" if v is not None else "" for v in y_vals],
-                        textposition="outside",
-                        hovertemplate=(
-                            f"<b>{tier}</b><br>"
-                            "%{x}<br>"
-                            "Median: %{y:.0f} min<br>"
-                            "<extra></extra>"
-                        ),
-                    ))
-
-                fig_svc.update_layout(
-                    barmode="group",
-                    height=320,
-                    margin=dict(l=0, r=20, t=30, b=0),
-                    plot_bgcolor="white", paper_bgcolor="white",
-                    yaxis=dict(title="Median minutes", rangemode="tozero"),
-                    legend=dict(orientation="h", y=1.05, xanchor="right", x=1),
-                )
-                _pc(fig_svc)
-
-            with c_right:
-                # Summary table: all tiers with rate metrics + clinician ratio
-                disp_cols = ["load_tier", "total_visits", "avg_patients_per_clinician",
-                             "vitals_rate_pct", "notes_rate_pct", "inv_rate_pct", "rx_rate_pct",
-                             "median_mins_to_triage", "median_mins_to_consult",
-                             "median_mins_to_inv", "median_mins_to_rx"]
-                df_svc_disp = df_svc[[c for c in disp_cols if c in df_svc.columns]].copy()
-                _pc(table_fig(
-                    df_svc_disp,
-                    col_labels={
-                        "load_tier": "Load Tier", "total_visits": "Visits",
-                        "avg_patients_per_clinician": "Patients / Clinician",
-                        "vitals_rate_pct": "Vitals %",
-                        "notes_rate_pct": "Notes %",
-                        "inv_rate_pct": "Investigation %",
-                        "rx_rate_pct": "Prescription %",
-                        "median_mins_to_triage": "Triage (min)",
-                        "median_mins_to_consult": "Consult (min)",
-                        "median_mins_to_inv": "Investigation (min)",
-                        "median_mins_to_rx": "Prescription (min)",
-                    },
-                    fmt={"vitals_rate_pct": "pct", "notes_rate_pct": "pct",
-                         "inv_rate_pct": "pct", "rx_rate_pct": "pct"},
-                    height=220,
-                ))
-
-                # Clinician ratio on peak vs quiet — call it out
-                peak_row  = df_svc[df_svc["load_tier"].str.startswith("Peak")]
-                quiet_row = df_svc[df_svc["load_tier"].str.startswith("Quiet")]
-                if not peak_row.empty and not quiet_row.empty:
-                    pr = peak_row.iloc[0].get("avg_patients_per_clinician", None)
-                    qr = quiet_row.iloc[0].get("avg_patients_per_clinician", None)
-                    if pd.notna(pr) and pd.notna(qr) and qr > 0:
-                        ratio_diff = ((float(pr) - float(qr)) / float(qr)) * 100
-                        _note(
-                            f"Clinician load: {_n(pr)} patients per clinician on peak days "
-                            f"vs {_n(qr)} on quiet days — "
-                            f"{'a {:.0f}% higher load when volume spikes.'.format(ratio_diff) if ratio_diff > 0 else 'no meaningful difference.'}"
-                        )
-        else:
-            _note("Insufficient data to compute service time tiers.", w=True)
-    except Exception as e:
-        st.warning(f"Peak day service times: {e}")
-
-    _gap(12)
-
-    # E3: Off-peak investigation over-ordering by hour
-    st.markdown("**E3 — Are Off-peak Clinicians Over-ordering Investigations?**")
-    _note(
-        "Blue bars show what % of visits had an investigation ordered each hour. "
-        "The red line shows visit volume. Where the bar stays high but the line drops, "
-        "clinicians are ordering investigations on a disproportionately high share of a smaller patient load."
-    )
-    try:
-        df_inv_hr = Q.load_offpeak_investigation_pattern(filters, run_query)
-        if not df_inv_hr.empty:
-            for _c in ("hour_eat", "total_visits", "inv_rate_pct", "avg_inv_per_visit"):
-                if _c in df_inv_hr.columns:
-                    df_inv_hr[_c] = pd.to_numeric(df_inv_hr[_c], errors="coerce")
-
-            hour_labels = [f"{int(h):02d}:00" for h in df_inv_hr["hour_eat"]]
-
-            fig_inv_hr = go.Figure()
-            # Bars: investigation rate % by hour
-            fig_inv_hr.add_trace(go.Bar(
-                x=hour_labels,
-                y=df_inv_hr["inv_rate_pct"],
-                name="Investigation rate %",
-                marker_color=AFYA_BLUE,
-                hovertemplate="<b>%{x}</b><br>Investigation rate: %{y:.1f}%<extra></extra>",
-            ))
-            # Line: visit volume — the denominator that reveals whether high rate is driven by low volume
-            fig_inv_hr.add_trace(go.Scatter(
-                x=hour_labels,
-                y=df_inv_hr["total_visits"],
-                mode="lines+markers",
-                line=dict(color=CORAL, width=2),
-                marker=dict(size=5),
-                name="Visit volume",
-                yaxis="y2",
-                hovertemplate="<b>%{x}</b><br>Visits: %{y:,}<extra></extra>",
-            ))
-            # Night-shift shading — shade first 7 and last 4 bars
-            night_indices = list(range(0, 7)) + list(range(20, 24))
-            for hr_idx in night_indices:
-                if hr_idx < len(hour_labels):
-                    fig_inv_hr.add_vrect(
-                        x0=hour_labels[hr_idx], x1=hour_labels[hr_idx],
-                        fillcolor=AFYA_BLUE, opacity=0.06,
-                        layer="below", line_width=0,
-                    )
-            fig_inv_hr.update_layout(
-                height=300,
-                margin=dict(l=0, r=60, t=20, b=0),
-                plot_bgcolor="white", paper_bgcolor="white",
-                xaxis=dict(title="Hour of Day (EAT)", tickangle=-45),
-                yaxis=dict(title="Investigation rate %", rangemode="tozero"),
-                yaxis2=dict(title="Visit volume", overlaying="y", side="right",
-                            rangemode="tozero", showgrid=False),
-                legend=dict(orientation="h", y=1.07, xanchor="right", x=1),
-            )
-            _pc(fig_inv_hr)
-
-            # Flag any off-peak hours with above-average rate
-            overall_avg = float(df_inv_hr["inv_rate_pct"].mean())
-            night_df = df_inv_hr[
-                (df_inv_hr["hour_eat"] >= 20) | (df_inv_hr["hour_eat"] <= 6)
-            ]
-            if not night_df.empty:
-                night_avg = float(night_df["inv_rate_pct"].mean())
-                diff = night_avg - overall_avg
-                if diff > 5:
-                    _note(
-                        f"Night-shift investigation rate ({night_avg:.1f}%) is "
-                        f"{diff:.1f} percentage points above the all-hours average ({overall_avg:.1f}%). "
-                        f"This pattern is worth reviewing — it may reflect shift-end ordering to clear queues.",
-                        w=True,
-                    )
-                else:
-                    _note(
-                        f"Night-shift investigation rate ({night_avg:.1f}%) is close to "
-                        f"the all-hours average ({overall_avg:.1f}%) — no clear over-ordering signal."
-                    )
-        else:
-            _note("No investigation data for the selected period.", w=True)
-    except Exception as e:
-        st.warning(f"Off-peak investigation pattern: {e}")
-
-    # E3 drill-down: IP vs OP split + top investigation types
-    _gap(8)
-    c1, c2 = st.columns([1, 1.2])
-
-    with c1:
-        st.markdown("**Where is it happening — Inpatient or Outpatient?**")
-        try:
-            df_ipop = Q.load_offpeak_ipop_split(filters, run_query)
-            if not df_ipop.empty:
-                df_ipop["inv_count"]   = pd.to_numeric(df_ipop["inv_count"],   errors="coerce")
-                df_ipop["visit_count"] = pd.to_numeric(df_ipop["visit_count"], errors="coerce")
-                fig_ipop = go.Figure()
-                for vtype, color in [("Outpatient", TEAL), ("Inpatient", AFYA_BLUE)]:
-                    sub = df_ipop[df_ipop["visit_type"] == vtype]
-                    if not sub.empty:
-                        fig_ipop.add_trace(go.Bar(
-                            name=vtype,
-                            x=sub["shift_type"],
-                            y=sub["inv_count"],
-                            marker_color=color,
-                            text=[f"{int(float(v)):,}" if pd.notna(v) else "" for v in sub["inv_count"]],
-                            textposition="outside",
-                            hovertemplate=f"<b>{vtype}</b><br>%{{x}}<br>Investigations: %{{y:,}}<extra></extra>",
-                        ))
-                fig_ipop.update_layout(
-                    barmode="group", height=300,
-                    margin=dict(l=0, r=20, t=20, b=0),
-                    plot_bgcolor="white", paper_bgcolor="white",
-                    yaxis=dict(title="Investigations ordered", rangemode="tozero"),
-                    legend=dict(orientation="h", y=1.08, xanchor="right", x=1),
-                )
-                _pc(fig_ipop)
-            else:
-                _note("No IP/OP split data available.", w=True)
-        except Exception as e:
-            st.warning(f"IP/OP split: {e}")
-
-    with c2:
-        st.markdown("**Which procedure types are being ordered off-peak?**")
-        try:
-            df_types = Q.load_offpeak_top_investigations(filters, run_query)
-            if not df_types.empty:
-                df_types["inv_count"] = pd.to_numeric(df_types["inv_count"], errors="coerce")
-                top5_discs = (
-                    df_types.groupby("discipline")["inv_count"]
-                    .sum().nlargest(5).index.tolist()
-                )
-                df_types  = df_types[df_types["discipline"].isin(top5_discs)]
-                disc_order = (
-                    df_types.groupby("discipline")["inv_count"]
-                    .sum().sort_values().index.tolist()
-                )
-                fig_types = go.Figure()
-                for vtype, color in [("Outpatient", TEAL), ("Inpatient", AFYA_BLUE)]:
-                    sub = df_types[df_types["visit_type"] == vtype]
-                    if sub.empty:
-                        continue
-                    sub = sub.set_index("discipline").reindex(disc_order).reset_index()
-                    fig_types.add_trace(go.Bar(
-                        name=vtype,
-                        y=sub["discipline"],
-                        x=sub["inv_count"],
-                        orientation="h",
-                        marker_color=color,
-                        text=[f"{int(float(v)):,}" if pd.notna(v) else "" for v in sub["inv_count"]],
-                        textposition="outside",
-                        hovertemplate=f"<b>%{{y}}</b><br>{vtype}: %{{x:,}} off-peak<extra></extra>",
-                    ))
-                fig_types.update_layout(
-                    barmode="group",
-                    height=320,
-                    margin=dict(l=0, r=80, t=20, b=0),
-                    plot_bgcolor="white", paper_bgcolor="white",
-                    xaxis=dict(title="Investigations ordered (off-peak)", rangemode="tozero"),
-                    legend=dict(orientation="h", y=1.08, xanchor="right", x=1),
-                )
-                _pc(fig_types)
-            else:
-                _note("No off-peak investigation disciplines found.", w=True)
-        except Exception as e:
-            st.warning(f"Top investigations: {e}")
-
-    _gap(12)
-
-    # E4: Discharge timing vs peak admission hours
-    st.markdown("**E4 — When Do Discharges Happen? Does It Coincide with Admission Peaks?**")
-    _note(
-        "Based on actual discharge timestamps. "
-        "A discharge cluster during peak admission hours creates a bottleneck — beds "
-        "are unavailable precisely when new admissions are arriving."
-    )
-    try:
-        df_disc = Q.load_discharge_timing(filters, run_query)
-        df_hm_adm = Q.load_peak_demand_heatmap(filters, run_query)
-
-        if not df_disc.empty:
-            for _c in ("discharge_count", "day_num", "hour_eat"):
-                if _c in df_disc.columns:
-                    df_disc[_c] = pd.to_numeric(df_disc[_c], errors="coerce")
-
-            day_order = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
-
-            c_left, c_right = st.columns([1, 1])
-            with c_left:
-                st.markdown("<small>**Discharges by hour × day**</small>",
-                            unsafe_allow_html=True)
-                disc_pivot = df_disc.pivot_table(
-                    index="day_name", columns="hour_eat",
-                    values="discharge_count", aggfunc="sum", fill_value=0
-                ).reindex(day_order)
-
-                fig_disc_hm = go.Figure(go.Heatmap(
-                    z=disc_pivot.values,
-                    x=disc_pivot.columns.tolist(),
-                    y=disc_pivot.index.tolist(),
-                    colorscale=[[0, "#F0F4FF"], [1, AFYA_BLUE]],
-                    hovertemplate="<b>%{y} %{x}:00</b><br>Discharge events: %{z:,}<extra></extra>",
-                    colorbar=dict(thickness=12),
-                    text=disc_pivot.values,
-                    texttemplate="%{text}",
-                    textfont=dict(size=9),
-                ))
-                fig_disc_hm.update_layout(
-                    height=240, margin=dict(l=0, r=0, t=10, b=0),
-                    plot_bgcolor="white", paper_bgcolor="white",
-                    xaxis=dict(title="Hour of Day (EAT)"),
-                    yaxis=dict(title="Day", autorange="reversed"),
-                )
-                _pc(fig_disc_hm)
-
-            with c_right:
-                # Hourly discharge count across all days
-                disc_by_hour = (
-                    df_disc.groupby("hour_eat")["discharge_count"].sum().reset_index()
-                )
-                fig_disc_hr = go.Figure()
-                fig_disc_hr.add_trace(go.Bar(
-                    x=disc_by_hour["hour_eat"],
-                    y=disc_by_hour["discharge_count"],
-                    name="Discharge events",
-                    marker_color=TEAL,
-                    hovertemplate="<b>%{x}:00</b><br>Discharges: %{y:,}<extra></extra>",
-                ))
-
-                # Overlay admission peak hours from heatmap if available
-                if not df_hm_adm.empty and "hour_of_day" in df_hm_adm.columns:
-                    adm_by_hour = (
-                        df_hm_adm.groupby("hour_of_day")["inpatient_count"]
-                        .sum().reset_index()
-                    )
-                    peak_adm_hr = int(adm_by_hour.loc[adm_by_hour["inpatient_count"].idxmax(),
-                                                       "hour_of_day"])
-                    fig_disc_hr.add_vline(
-                        x=peak_adm_hr,
-                        line=dict(color=CORAL, width=2, dash="dash"),
-                        annotation_text=f"Peak admissions ({peak_adm_hr:02d}:00)",
-                        annotation_font=dict(size=9, color=CORAL),
-                        annotation_position="top right",
-                    )
-
-                fig_disc_hr.update_layout(
-                    height=240,
-                    margin=dict(l=0, r=20, t=20, b=0),
-                    plot_bgcolor="white", paper_bgcolor="white",
-                    xaxis=dict(title="Hour (EAT)", dtick=2),
-                    yaxis=dict(title="Discharge events", rangemode="tozero"),
-                    showlegend=False,
-                )
-                _pc(fig_disc_hr)
-
-            # Insight: check if discharge peak overlaps with admission peak
-            disc_peak_hr = int(disc_by_hour.loc[disc_by_hour["discharge_count"].idxmax(), "hour_eat"])
-            _peak_adm_hr = locals().get("peak_adm_hr", None)
-            _note(
-                f"Discharge peak: {disc_peak_hr:02d}:00 EAT. "
-                + (f"This coincides with peak admission hours ({_peak_adm_hr:02d}:00) — "
-                   f"bed turnover is being compressed at the moment of highest demand."
-                   if _peak_adm_hr is not None and abs(disc_peak_hr - _peak_adm_hr) <= 3 else
-                   (f"Discharge activity ({disc_peak_hr:02d}:00) and admission peaks "
-                    f"({_peak_adm_hr:02d}:00) appear offset — bed turnover is not a direct bottleneck."
-                    if _peak_adm_hr is not None else
-                    f"Discharge peak is at {disc_peak_hr:02d}:00 EAT."))
-            )
-        else:
-            _note("No completed admission records available to estimate discharge timing.", w=True)
-    except Exception as e:
-        st.warning(f"Discharge timing: {e}")
-
-    _gap(12)
-
-    # ── SECTION F: FORECAST ───────────────────────────────────────────────
-    _sh("F — Where is patient volume headed in the next 6 months?", mt=8)
-    _note(
-        "Base scenario is the model midline. Conservative and stretch scenarios represent "
-        "the forecast range. Use the base scenario for planning and the range to "
-        "stress-test capacity assumptions."
-    )
-    try:
-        df = Q.load_encounter_forecast(filters, run_query)
-        if not df.empty:
-            df["visit_month"] = pd.to_datetime(df["visit_month"])
-            for _c in ("actual_visits", "actual_outpatient", "actual_inpatient"):
-                df[_c] = pd.to_numeric(df[_c], errors="coerce")
-
-            last_month = df["visit_month"].max()
-            mo_display = filters.get("months_back") or {
-                "Last 12 months": 12, "Last 6 months": 6, "Last 90 days": 3,
-            }.get(filters.get("date_range", "Last 12 months"), 12)
-            cutoff = last_month - pd.DateOffset(months=mo_display - 1)
-            df_act = df[df["visit_month"] >= cutoff].copy()
-
-            median_vol = df["actual_visits"].median()
-            df_valid = df[df["actual_visits"] > median_vol * 0.1]
-            last3 = df_valid.tail(3) if len(df_valid) >= 3 else df.tail(3)
-
-            op_trend = float(last3["actual_outpatient"].mean())
-            ip_trend = float(last3["actual_inpatient"].mean())
-            op_std   = float(df_valid["actual_outpatient"].std() or op_trend * 0.1)
-            ip_std   = float(df_valid["actual_inpatient"].std()  or ip_trend * 0.1)
-
-            n_fut = 6
-            future_months = [last_month + pd.DateOffset(months=i) for i in range(1, n_fut + 1)]
-
-            panel_defs = [
-                {
-                    "act_col":      "actual_outpatient",
-                    "trend":        op_trend,
-                    "std":          op_std,
-                    "capacity":     float(df["actual_outpatient"].mean()),
-                    "color":        AFYA_BLUE,
-                    "title":        "Outpatient Encounter Forecast",
-                    "xref":         "x",
-                    "yref":         "y",
-                    "ydomref":      "y domain",
-                },
-                {
-                    "act_col":      "actual_inpatient",
-                    "trend":        ip_trend,
-                    "std":          ip_std,
-                    "capacity":     float(df["actual_inpatient"].mean()),
-                    "color":        TEAL,
-                    "title":        "Inpatient Encounter Forecast",
-                    "xref":         "x2",
-                    "yref":         "y2",
-                    "ydomref":      "y2 domain",
-                },
-            ]
-
-            fig = make_subplots(
-                rows=1, cols=2,
-                subplot_titles=["Outpatient Encounter Forecast",
-                                 "Inpatient Encounter Forecast"],
-                horizontal_spacing=0.10,
-            )
-
-            for col_idx, pd_ in enumerate(panel_defs, start=1):
-                show_leg  = col_idx == 1
-                act_col   = pd_["act_col"]
-                color     = pd_["color"]
-                xref      = pd_["xref"]
-                yref      = pd_["yref"]
-                ydomref   = pd_["ydomref"]
-                trend     = pd_["trend"]
-                std_      = pd_["std"]
-                cap_val   = pd_["capacity"]
-                conservative = max(0.0, trend - std_)
-                stretch      = trend + std_
-
-                last_actual_y = float(df_act[act_col].iloc[-1]) if not df_act.empty else trend
-
-                # ── Actuals ──────────────────────────────────────────
-                fig.add_trace(go.Scatter(
-                    x=df_act["visit_month"], y=df_act[act_col],
-                    name="Actuals (12 mo.)", mode="lines",
-                    line=dict(color=TEAL, width=2.5),
-                    showlegend=show_leg,
-                ), row=1, col=col_idx)
-
-                # ── Forecast-start vertical line ──────────────────────
-                fig.add_shape(
-                    type="line",
-                    xref=xref, yref=ydomref,
-                    x0=last_month, x1=last_month, y0=0, y1=1,
-                    line=dict(color=PURPLE, width=1.5, dash="dash"),
-                )
-                fig.add_annotation(
-                    xref=xref, yref=ydomref,
-                    x=last_month, y=0.97,
-                    text="Forecast starts here",
-                    showarrow=False,
-                    font=dict(size=8, color=PURPLE),
-                    xanchor="right",
-                )
-
-                # ── Capacity reference line ───────────────────────────
-                x_start = df_act["visit_month"].min() if not df_act.empty else last_month
-                fig.add_shape(
-                    type="line",
-                    xref=xref, yref=yref,
-                    x0=x_start, x1=future_months[-1],
-                    y0=cap_val, y1=cap_val,
-                    line=dict(color=GRAY, width=1.5, dash="dot"),
-                )
-                fig.add_annotation(
-                    xref=xref, yref=yref,
-                    x=x_start, y=cap_val,
-                    text=f"  Capacity baseline — to be confirmed ({int(cap_val):,})",
-                    xanchor="left", yanchor="bottom",
-                    showarrow=False,
-                    font=dict(size=8, color=GRAY),
-                )
-
-                # ── Three scenario lines ──────────────────────────────
-                scenario_specs = [
-                    ("Conservative", conservative, "dash",  1.5, 0.55),
-                    ("Base",          trend,        "solid", 2.5, 1.0),
-                    ("Stretch",       stretch,      "dash",  1.5, 0.55),
-                ]
-                for sc_name, sc_val, sc_dash, sc_w, sc_op in scenario_specs:
-                    sc_color = color if sc_name == "Base" else MUTED
-                    # Bridge from last actual to first forecast point
-                    fig.add_trace(go.Scatter(
-                        x=[last_month, future_months[0]],
-                        y=[last_actual_y, sc_val],
-                        mode="lines",
-                        line=dict(color=sc_color, width=1, dash="dot"),
-                        showlegend=False, hoverinfo="skip",
-                    ), row=1, col=col_idx)
-                    fig.add_trace(go.Scatter(
-                        x=future_months,
-                        y=[sc_val] * n_fut,
-                        name=sc_name,
-                        mode="lines",
-                        line=dict(color=sc_color, width=sc_w, dash=sc_dash),
-                        opacity=sc_op,
-                        showlegend=show_leg,
-                        hovertemplate=f"{sc_name}: %{{y:,.0f}}<extra></extra>",
-                    ), row=1, col=col_idx)
-                    # End-of-line label
-                    fig.add_annotation(
-                        xref=xref, yref=yref,
-                        x=future_months[-1], y=sc_val,
-                        text=f"  {sc_name} ({int(sc_val):,})",
-                        xanchor="left", yanchor="middle",
-                        showarrow=False,
-                        font=dict(size=8,
-                                  color=color if sc_name == "Base" else MUTED),
-                    )
-
-                # ── Capacity pressure callout ─────────────────────────
-                if trend > cap_val * 1.05:
-                    crossing_month = future_months[0].strftime("%b %Y")
-                    fig.add_annotation(
-                        xref=xref, yref=yref,
-                        x=future_months[0], y=trend,
-                        text=f"⚠ Projected capacity pressure — {crossing_month}",
-                        showarrow=True, arrowhead=2, arrowcolor=CORAL,
-                        font=dict(size=8, color=CORAL),
-                        ax=0, ay=-35,
-                    )
-
-            fig.update_layout(
-                height=400,
-                margin=dict(l=0, r=130, t=55, b=0),
-                plot_bgcolor="white", paper_bgcolor="white",
-                legend=dict(
-                    orientation="h", yanchor="bottom", y=1.06,
-                    xanchor="right", x=1,
-                    font=dict(size=10),
-                    bgcolor="rgba(0,0,0,0)",
-                ),
-            )
-            for c in [1, 2]:
-                fig.update_yaxes(
-                    title_text="Visits", row=1, col=c,
-                    showgrid=True, gridcolor="#EBF3FB", zeroline=False,
-                    tickfont=dict(color=MUTED, size=10),
-                )
-            fig.update_xaxes(
-                showgrid=False, tickfont=dict(color=MUTED, size=10),
-                tickformat="%b %Y",
-            )
-            _pc(fig)
-            _note(
-                "Solid teal line = last 12 months actuals. "
-                "Dashed lines = 6-month forecast scenarios."
-            )
-
-            # ── Four KPI cards ────────────────────────────────────────
-            latest = df_act.iloc[-1] if not df_act.empty else df.iloc[-1]
-            op_cons = int(max(0, op_trend - op_std))
-            op_base = int(op_trend)
-            op_str  = int(op_trend + op_std)
-            ip_cons = int(max(0, ip_trend - ip_std))
-            ip_base = int(ip_trend)
-            ip_str  = int(ip_trend + ip_std)
-
-            c1, c2, c3, c4 = st.columns(4)
-            with c1:
-                _kpi("Last Month Outpatient", _n(latest.get("actual_outpatient")))
-            with c2:
-                _kpi("Last Month Inpatient",  _n(latest.get("actual_inpatient")),
-                     color=TEAL)
-            with c3:
-                _kpi("Next Month OP Forecast", _n(op_base),
-                     s=f"Range: {op_cons:,} – {op_str:,}",
-                     color=AFYA_BLUE)
-            with c4:
-                _kpi("Next Month IP Forecast", _n(ip_base),
-                     s=f"Range: {ip_cons:,} – {ip_str:,}",
-                     color=TEAL)
-    except Exception as e:
-        st.warning(f"Forecast: {e}")
-
-    _gap(12)
-
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# TAB 2 — PATIENT DEMOGRAPHICS
-# ══════════════════════════════════════════════════════════════════════════════
-
-def render_tab2_segmentation(filters: dict, run_query):
-    # ── KPI ROW ───────────────────────────────────────────────────────────
-    _sh("Patient Overview")
-    try:
-        df = Q.load_seg_kpis(filters, run_query)
-        if not df.empty:
-            row = df.iloc[0]
-            c1,c2,c3,c4,c5 = st.columns(5)
-            with c1: _kpi("Total Patients",  _n(row.get("total_patients")))
-            with c2: _kpi("Chronic",         _n(row.get("chronic_patients")),
-                          str(_p(row.get("chronic_rate_pct")) or "—") + " of patients",
-                          "#854F0B")
-            with c3: _kpi("Repeat Patients", _n(row.get("repeat_patients")),
-                          str(_p(row.get("repeat_rate_pct")) or "—") + " repeat rate",
-                          "#0F6E56")
-            with c4: _kpi("Single Visit",    _n(row.get("single_visit")),
-                          f'{_p(100 - float(row.get("repeat_rate_pct") or 0), 1)} of patients',
-                          GRAY)
-            with c5: _kpi("Avg Visits / Pt", str(row.get("avg_visits", "—")),
-                          "per patient", GRAY)
-    except Exception as e:
-        st.warning(f"Seg KPIs: {e}")
-
-    _gap(16)
-
-    # ── A: AGE GROUP & GENDER DISTRIBUTION ───────────────────────────────
-    _sh("A — Age group & gender distribution", mt=8)
-    try:
-        df = Q.load_demographics_age_sex(filters, run_query)
-        if not df.empty:
-            gender_filter = st.radio(
-                "Filter by gender", ["All", "Female", "Male"],
-                horizontal=True, key="demo_gender_filter",
-            )
-            df_f = df.copy()
-            if gender_filter == "Female":
-                df_f = df_f[df_f["sex"].isin(["F", "FEMALE"])]
-            elif gender_filter == "Male":
-                df_f = df_f[df_f["sex"].isin(["M", "MALE"])]
+        df_esc_kpi  = Q.load_same_day_escalation_kpis(filters, run_query)
+        df_esc_cond = Q.load_same_day_escalation_by_condition(filters, run_query)
+
+        if not df_esc_kpi.empty:
+            row = df_esc_kpi.iloc[0]
+            total_esc   = int(row.get("total_escalations") or 0)
+            total_op    = int(row.get("total_op_visits") or 0)
+            esc_rate    = float(row.get("escalation_rate_pct") or 0)
+            top_cond    = str(row.get("top_condition") or "—")
 
             c1, c2, c3 = st.columns(3)
-
-            # Sort order by volume — shared across panels 1 and 2
-            _age_ord = (df_f.groupby("age_group")["total"]
-                        .sum().sort_values(ascending=False).index.tolist())
-
             with c1:
-                st.markdown(
-                    '<div style="font-size:11px;font-weight:500;color:#1a1a18;margin-bottom:2px;">Patients by age group</div>'
-                    '<div style="font-size:10px;color:#888780;margin-bottom:8px;">Volume per cohort</div>',
-                    unsafe_allow_html=True)
-                _av = (df_f.groupby("age_group")["total"].sum()
-                       .reindex(_age_ord).reset_index())
-                fig_av = go.Figure(go.Bar(
-                    x=_av["total"], y=_av["age_group"], orientation="h",
-                    marker_color="#378ADD", marker_line_width=0,
-                    hovertemplate="<b>%{y}</b><br>%{x:,} patients<extra></extra>",
-                ))
-                fig_av.update_layout(
-                    height=220, margin=dict(l=0, r=10, t=4, b=0),
-                    plot_bgcolor="white", paper_bgcolor="white",
-                    xaxis=dict(showgrid=True, gridcolor="rgba(0,0,0,0.06)",
-                               nticks=4, tickfont=dict(size=9, color="#888780")),
-                    yaxis=dict(showgrid=False, tickfont=dict(size=9, color="#888780")),
-                )
-                _pc(fig_av)
-
+                _kpi("Same-Day Escalations", _n(total_esc), color=ORANGE)
             with c2:
-                st.markdown(
-                    '<div style="font-size:11px;font-weight:500;color:#1a1a18;margin-bottom:2px;">Chronic vs non-chronic by age</div>'
-                    '<div style="font-size:10px;color:#888780;margin-bottom:4px;">Which age groups carry the highest chronic burden?</div>',
-                    unsafe_allow_html=True)
-                st.markdown(
-                    '<div style="display:flex;gap:10px;margin-bottom:6px;">'
-                    '<span style="display:flex;align-items:center;gap:4px;font-size:10px;color:#5f5e5a;">'
-                    '<span style="width:10px;height:10px;border-radius:2px;background:#E24B4A;display:inline-block;"></span>Chronic</span>'
-                    '<span style="display:flex;align-items:center;gap:4px;font-size:10px;color:#5f5e5a;">'
-                    '<span style="width:10px;height:10px;border-radius:2px;background:#D3D1C7;display:inline-block;"></span>Non-chronic</span>'
-                    '</div>',
-                    unsafe_allow_html=True)
-                _ch = (df_f.groupby("age_group")
-                       .agg(chronic=("chronic", "sum"), non_chronic=("non_chronic", "sum"))
-                       .reindex(_age_ord).reset_index())
-                fig_chr = go.Figure()
-                fig_chr.add_trace(go.Bar(
-                    x=_ch["chronic"], y=_ch["age_group"], orientation="h",
-                    name="Chronic", marker_color="#E24B4A", marker_line_width=0,
-                    hovertemplate="<b>%{y}</b><br>Chronic: %{x:,}<extra></extra>",
-                ))
-                fig_chr.add_trace(go.Bar(
-                    x=_ch["non_chronic"], y=_ch["age_group"], orientation="h",
-                    name="Non-chronic", marker_color="#D3D1C7", marker_line_width=0,
-                    hovertemplate="<b>%{y}</b><br>Non-chronic: %{x:,}<extra></extra>",
-                ))
-                fig_chr.update_layout(
-                    barmode="stack", barnorm="percent",
-                    height=200, margin=dict(l=0, r=10, t=4, b=0),
-                    plot_bgcolor="white", paper_bgcolor="white",
-                    showlegend=False,
-                    xaxis=dict(showgrid=True, gridcolor="rgba(0,0,0,0.06)",
-                               ticksuffix="%", nticks=4,
-                               tickfont=dict(size=9, color="#888780")),
-                    yaxis=dict(showgrid=False, tickfont=dict(size=9, color="#888780")),
-                )
-                _pc(fig_chr)
-                _ch["chronic"]     = pd.to_numeric(_ch["chronic"],     errors="coerce")
-                _ch["non_chronic"] = pd.to_numeric(_ch["non_chronic"], errors="coerce")
-                _ch["pct"] = (_ch["chronic"]
-                              / (_ch["chronic"] + _ch["non_chronic"]).replace(0, float("nan"))
-                              * 100)
-                _top2 = _ch.dropna(subset=["pct"]).nlargest(2, "pct")
-                if len(_top2) >= 2:
-                    _t1, _t2 = _top2.iloc[0], _top2.iloc[1]
-                    st.markdown(
-                        f'<div style="background:#f5f5f3;border-radius:8px;padding:6px 9px;'
-                        f'font-size:10px;color:#5f5e5a;margin-top:6px;line-height:1.5;">'
-                        f'<strong style="color:#1a1a18;">{_t1["age_group"]}</strong> and '
-                        f'<strong style="color:#1a1a18;">{_t2["age_group"]}</strong> carry the '
-                        f'highest chronic burden at '
-                        f'<strong style="color:#1a1a18;">{_t1["pct"]:.0f}%</strong> and '
-                        f'<strong style="color:#1a1a18;">{_t2["pct"]:.0f}%</strong> respectively</div>',
-                        unsafe_allow_html=True)
-
+                _kpi("Share of All Visits",
+                      f"{esc_rate:.1f}%",
+                      f"out of {_n(total_op)} visits",
+                      color=CORAL if esc_rate >= 5 else AFYA_BLUE)
             with c3:
-                st.markdown(
-                    '<div style="font-size:11px;font-weight:500;color:#1a1a18;margin-bottom:2px;">Gender distribution</div>'
-                    '<div style="font-size:10px;color:#888780;margin-bottom:8px;">Overall split across all visits</div>',
-                    unsafe_allow_html=True)
-                _gt = df.groupby("sex")["total"].sum().reset_index()
-                _gt["sex_clean"] = _gt["sex"].map(
-                    {"F": "Female", "FEMALE": "Female", "M": "Male", "MALE": "Male"}
-                ).fillna("Other")
-                _ga = _gt.groupby("sex_clean")["total"].sum().reset_index()
-                _pc(donut(
-                    labels=_ga["sex_clean"].tolist(),
-                    values=_ga["total"].tolist(),
-                    color_map={"Female": "#7F77DD", "Male": "#1D9E75"},
-                    height=200,
-                ))
-                _g_tot = float(_ga["total"].sum() or 1)
-                _fem = float(_ga.loc[_ga["sex_clean"] == "Female", "total"].sum())
-                _fem_pct = round(_fem / _g_tot * 100, 1)
-                st.markdown(
-                    f'<div style="background:#f5f5f3;border-radius:8px;padding:6px 9px;'
-                    f'font-size:10px;color:#5f5e5a;margin-top:6px;line-height:1.5;">'
-                    f'Female patients make up <strong style="color:#1a1a18;">{_fem_pct}%</strong> '
-                    f'of visits. Female chronic patients are proportionally higher — '
-                    f'driven by maternal and NCD conditions.</div>',
-                    unsafe_allow_html=True)
-    except Exception as e:
-        st.warning(f"Demographics: {e}")
+                _kpi("Top Escalated Condition", top_cond, color=PURPLE)
 
-    _gap(12)
-
-    # ── B: AGE COHORT GROWTH & PATIENT MIX ──────────────────────────────────
-    _sh("B — Age cohort growth and patient mix", mt=8)
-    st.markdown(
-        '<div style="font-size:11px;color:#6b7280;margin-top:-4px;margin-bottom:10px;">'
-        'Left: growth index — each cohort normalised to 100 at its first recorded month '
-        '&nbsp;·&nbsp; Right: patient mix share each month</div>',
-        unsafe_allow_html=True,
-    )
-    try:
-        df = Q.load_cohort_forecast(filters, run_query)
-        if not df.empty:
-            pivot = df.pivot_table(index="visit_month", columns="age_cohort",
-                                   values="patient_count", aggfunc="sum", fill_value=0)
-            _cohort_colors = {
-                "Senior (65+)":        "#888780",
-                "Older Adult (55–64)": "#D85A30",
-                "Middle Age (45–54)":  "#EF9F27",
-                "Adult (35–44)":       "#1D9E75",
-                "Young Adult (25–34)": "#378ADD",
-                "Youth (18–24)":       "#7F77DD",
-                "Adolescent (13–17)":  "#2D2D2A",
-                "Child (5–12)":        "#9B59B6",
-                "Toddler (0–4)":       "#D4537E",
-            }
-            cohorts = [c for c in _cohort_colors if c in pivot.columns]
-            months  = pivot.index.tolist()
-
-            _col_l, _col_r = st.columns([1, 1])
-
-            # ── LEFT: Growth index ─────────────────────────────────────────
-            with _col_l:
-                idx_df = pivot[cohorts].copy().astype(float)
-                for _c in cohorts:
-                    _s = idx_df[_c]
-                    _first = _s[_s > 0].iloc[0] if (_s > 0).any() else None
-                    idx_df[_c] = (_s / _first * 100).where(_s > 0, other=None) if _first else None
-
-                _growth_pct = {}
-                for _c in cohorts:
-                    _sv = idx_df[_c].dropna()
-                    _growth_pct[_c] = round(float(_sv.iloc[-1]) - 100, 1) if len(_sv) >= 2 else 0.0
-
-                # Legend with growth %
-                _leg_l = '<div style="display:flex;flex-wrap:wrap;gap:5px 9px;margin-bottom:5px;">'
-                for _c in cohorts:
-                    _g = _growth_pct.get(_c, 0)
-                    _gc = "#1D9E75" if _g >= 0 else "#E24B4A"
-                    _gs = "+" if _g >= 0 else ""
-                    _leg_l += (
-                        f'<span style="display:flex;align-items:center;gap:3px;font-size:10px;color:#374151;">'
-                        f'<span style="width:8px;height:8px;border-radius:50%;'
-                        f'background:{_cohort_colors[_c]};flex-shrink:0;display:inline-block;"></span>'
-                        f'{_c.split(" (")[0]}&nbsp;<span style="color:{_gc};font-weight:600;">{_gs}{_g}%</span>'
-                        f'</span>'
-                    )
-                _leg_l += '</div>'
-                st.markdown(_leg_l, unsafe_allow_html=True)
-
-                fig_idx = go.Figure()
-                for _c in cohorts:
-                    fig_idx.add_trace(go.Scatter(
-                        x=months, y=idx_df[_c].tolist(),
-                        mode="lines", name=_c,
-                        line=dict(color=_cohort_colors[_c], width=2),
-                        connectgaps=False, showlegend=False,
-                        hovertemplate=f"<b>{_c}</b><br>%{{x|%b %Y}}: %{{y:.1f}}<extra></extra>",
-                    ))
-                fig_idx.add_hline(y=100, line_dash="dot", line_color="#cccccc", line_width=1)
-                fig_idx.update_layout(
-                    height=220,
-                    margin=dict(l=0, r=10, t=6, b=30),
-                    plot_bgcolor="white", paper_bgcolor="white",
-                    xaxis=dict(showgrid=False, tickformat="%b %y", tickangle=-30, title=None),
-                    yaxis=dict(title="Index", showgrid=True, gridcolor="#f0f0f0", zeroline=False),
-                )
-                _pc(fig_idx)
-
-                # Insight strip
-                if _growth_pct:
-                    _fast = max(_growth_pct, key=_growth_pct.get)
-                    _fg   = _growth_pct[_fast]
-                    _fgs  = "+" if _fg >= 0 else ""
-                    st.markdown(
-                        f'<div style="background:#f0f9f4;border-left:3px solid #1D9E75;'
-                        f'padding:7px 10px;border-radius:0 6px 6px 0;font-size:11px;'
-                        f'color:#374151;margin-top:6px;">'
-                        f'<b>{_fast.split(" (")[0]}</b> is the fastest-growing cohort '
-                        f'({_fgs}{_fg}% vs. baseline)</div>',
-                        unsafe_allow_html=True,
-                    )
-
-            # ── RIGHT: Patient mix (100% stacked bar) ─────────────────────
-            with _col_r:
-                _row_totals = pivot[cohorts].sum(axis=1).replace(0, float("nan"))
-                _share_df   = pivot[cohorts].div(_row_totals, axis=0) * 100
-
-                # Legend (no growth %)
-                _leg_r = '<div style="display:flex;flex-wrap:wrap;gap:5px 9px;margin-bottom:5px;">'
-                for _c in cohorts:
-                    _leg_r += (
-                        f'<span style="display:flex;align-items:center;gap:3px;font-size:10px;color:#374151;">'
-                        f'<span style="width:8px;height:8px;border-radius:50%;'
-                        f'background:{_cohort_colors[_c]};flex-shrink:0;display:inline-block;"></span>'
-                        f'{_c.split(" (")[0]}'
-                        f'</span>'
-                    )
-                _leg_r += '</div>'
-                st.markdown(_leg_r, unsafe_allow_html=True)
-
-                fig_mix = go.Figure()
-                for _c in reversed(cohorts):
-                    fig_mix.add_trace(go.Bar(
-                        x=months, y=_share_df[_c].tolist(),
-                        name=_c, marker_color=_cohort_colors[_c],
-                        showlegend=False,
-                        hovertemplate=f"<b>{_c}</b><br>%{{x|%b %Y}}: %{{y:.1f}}%<extra></extra>",
-                    ))
-                fig_mix.update_layout(
-                    barmode="stack",
-                    height=220,
-                    margin=dict(l=0, r=10, t=6, b=30),
-                    plot_bgcolor="white", paper_bgcolor="white",
-                    xaxis=dict(showgrid=False, tickformat="%b %y", tickangle=-30, title=None),
-                    yaxis=dict(title="Share", range=[0, 100], showgrid=True,
-                               gridcolor="#f0f0f0", ticksuffix="%"),
-                )
-                _pc(fig_mix)
-
-                # Insight strip: dominant cohort in latest month
-                if not _share_df.empty and months:
-                    _latest = _share_df.iloc[-1]
-                    _dom     = _latest.idxmax()
-                    _dom_pct = round(float(_latest.max()), 1)
-                    _lm      = pd.to_datetime(months[-1]).strftime("%b %Y")
-                    st.markdown(
-                        f'<div style="background:#eff6ff;border-left:3px solid #378ADD;'
-                        f'padding:7px 10px;border-radius:0 6px 6px 0;font-size:11px;'
-                        f'color:#374151;margin-top:6px;">'
-                        f'In {_lm}, <b>{_dom.split(" (")[0]}</b> is the largest cohort '
-                        f'at <b>{_dom_pct}%</b> of total patients</div>',
-                        unsafe_allow_html=True,
-                    )
-    except Exception as e:
-        st.warning(f"Cohort growth: {e}")
-
-    _gap(12)
-
-    # ── C: NEW VS RETURNING — VOLUMES, AGE & VISIT TYPE ──────────────────
-    _sh("C — New vs returning patient trends", mt=8)
-    try:
-        df_nvr = Q.load_new_vs_returning(filters, run_query)
-        if not df_nvr.empty:
-            for _c in ("total_patients", "new_patients", "returning_patients"):
-                df_nvr[_c] = pd.to_numeric(df_nvr[_c], errors="coerce")
-            df_nvr = df_nvr.sort_values("visit_month").reset_index(drop=True)
-            _rolling3 = df_nvr["new_patients"].rolling(3, min_periods=3).mean()
-
-            _c1, _c2 = st.columns(2)
-
-            # ── Row 1 Left: Acquisition bar + rolling avg line ────────────
-            with _c1:
-                st.markdown(
-                    '<div style="font-size:11px;font-weight:500;color:#1a1a18;margin-bottom:2px;">New patient acquisition trend</div>'
-                    '<div style="font-size:10px;color:#888780;margin-bottom:4px;">Monthly new patients with 3-month rolling average</div>',
-                    unsafe_allow_html=True)
-                st.markdown(
-                    '<div style="display:flex;gap:10px;margin-bottom:6px;">'
-                    '<span style="display:flex;align-items:center;gap:4px;font-size:10px;color:#5f5e5a;">'
-                    '<span style="width:10px;height:10px;border-radius:2px;background:rgba(239,159,39,0.55);display:inline-block;"></span>New patients</span>'
-                    '<span style="display:flex;align-items:center;gap:6px;font-size:10px;color:#5f5e5a;">'
-                    '<span style="display:inline-block;width:18px;border-top:2px dashed #378ADD;"></span>3-mo avg</span>'
-                    '</div>', unsafe_allow_html=True)
-                fig_acq = go.Figure()
-                fig_acq.add_trace(go.Bar(
-                    x=df_nvr["visit_month"], y=df_nvr["new_patients"],
-                    name="New", marker_color="rgba(239,159,39,0.55)", marker_line_width=0,
-                    hovertemplate="<b>%{x|%b %Y}</b><br>New: %{y:,}<extra></extra>",
-                ))
-                fig_acq.add_trace(go.Scatter(
-                    x=df_nvr["visit_month"], y=_rolling3,
-                    mode="lines", name="3-mo avg",
-                    line=dict(color="#378ADD", width=2, dash="dash"),
-                    connectgaps=True,
-                    hovertemplate="<b>%{x|%b %Y}</b><br>3-mo avg: %{y:.0f}<extra></extra>",
-                ))
-                fig_acq.update_layout(
-                    height=180, margin=dict(l=0, r=10, t=4, b=30),
-                    plot_bgcolor="white", paper_bgcolor="white", showlegend=False,
-                    xaxis=dict(showgrid=False, tickformat="%b %y", tickangle=-30,
-                               tickfont=dict(size=9, color="#888780")),
-                    yaxis=dict(showgrid=True, gridcolor="rgba(0,0,0,0.06)",
-                               tickfont=dict(size=9, color="#888780"), rangemode="tozero"),
-                )
-                _pc(fig_acq)
-                _nvr_v = df_nvr.dropna(subset=["new_patients"])
-                if len(_nvr_v) > 0:
-                    _mi = int(_nvr_v["new_patients"].idxmin())
-                    _mm = pd.to_datetime(_nvr_v.loc[_mi, "visit_month"]).strftime("%b %Y")
-                    _mn = int(_nvr_v.loc[_mi, "new_patients"])
-                    _ra = _rolling3.iloc[_mi] if _mi < len(_rolling3) else None
-                    if _ra and not pd.isna(_ra) and _ra > 0:
-                        _bp = round((1 - _mn / _ra) * 100)
-                        _ret_m = int(_nvr_v.loc[_mi, "returning_patients"] or 0)
-                        _ins_txt = ("Returning patients partially compensated."
-                                    if _ret_m > _mn else "Returning patients also declined that month.")
-                        _acq_ins = (f"{_mm} dip: <strong style='color:#1a1a18;'>{_mn:,} new patients</strong>"
-                                    f" — {_bp}% below rolling average. {_ins_txt}")
-                    else:
-                        _acq_ins = f"Lowest month: <strong style='color:#1a1a18;'>{_mm}</strong> with {_mn:,} new patients."
-                    st.markdown(
-                        f'<div style="background:#f5f5f3;border-radius:8px;padding:6px 9px;'
-                        f'font-size:10px;color:#5f5e5a;margin-top:6px;line-height:1.5;">{_acq_ins}</div>',
-                        unsafe_allow_html=True)
-
-            # ── Row 1 Right: Dual line new vs returning ───────────────────
-            with _c2:
-                st.markdown(
-                    '<div style="font-size:11px;font-weight:500;color:#1a1a18;margin-bottom:2px;">New vs returning volumes</div>'
-                    '<div style="font-size:10px;color:#888780;margin-bottom:4px;">Are they moving together or diverging?</div>',
-                    unsafe_allow_html=True)
-                st.markdown(
-                    '<div style="display:flex;gap:10px;margin-bottom:6px;">'
-                    '<span style="display:flex;align-items:center;gap:4px;font-size:10px;color:#5f5e5a;">'
-                    '<span style="width:8px;height:8px;border-radius:50%;background:#1D9E75;display:inline-block;"></span>New</span>'
-                    '<span style="display:flex;align-items:center;gap:4px;font-size:10px;color:#5f5e5a;">'
-                    '<span style="width:8px;height:8px;border-radius:50%;background:#7F77DD;display:inline-block;"></span>Returning</span>'
-                    '</div>', unsafe_allow_html=True)
-                fig_vol = go.Figure()
-                fig_vol.add_trace(go.Scatter(
-                    x=df_nvr["visit_month"], y=df_nvr["new_patients"],
-                    mode="lines", name="New",
-                    line=dict(color="#1D9E75", width=2), connectgaps=False,
-                    hovertemplate="<b>%{x|%b %Y}</b><br>New: %{y:,}<extra></extra>",
-                ))
-                fig_vol.add_trace(go.Scatter(
-                    x=df_nvr["visit_month"], y=df_nvr["returning_patients"],
-                    mode="lines", name="Returning",
-                    line=dict(color="#7F77DD", width=2), connectgaps=False,
-                    hovertemplate="<b>%{x|%b %Y}</b><br>Returning: %{y:,}<extra></extra>",
-                ))
-                fig_vol.update_layout(
-                    height=180, margin=dict(l=0, r=10, t=4, b=30),
-                    plot_bgcolor="white", paper_bgcolor="white", showlegend=False,
-                    xaxis=dict(showgrid=False, tickformat="%b %y", tickangle=-30,
-                               tickfont=dict(size=9, color="#888780")),
-                    yaxis=dict(showgrid=True, gridcolor="rgba(0,0,0,0.06)",
-                               tickfont=dict(size=9, color="#888780"), rangemode="tozero"),
-                )
-                _pc(fig_vol)
-                _nt = df_nvr["new_patients"].sum()
-                _rt = df_nvr["returning_patients"].sum()
-                if _nt > 0 and _rt > 0:
-                    _vol_ins = ("New patients consistently outnumber returning. "
-                                if _nt > _rt else "Returning patients outnumber new — strong loyalty signal. ")
-                    _cr = df_nvr[["new_patients", "returning_patients"]].corr().iloc[0, 1]
-                    _vol_ins += ("New and returning volumes move together — driven by the same seasonal or operational signals."
-                                 if _cr > 0.7 else
-                                 "New and returning volumes diverge — acquisition and retention have different drivers.")
-                    st.markdown(
-                        f'<div style="background:#f5f5f3;border-radius:8px;padding:6px 9px;'
-                        f'font-size:10px;color:#5f5e5a;margin-top:6px;line-height:1.5;">{_vol_ins}</div>',
-                        unsafe_allow_html=True)
-    except Exception as e:
-        st.warning(f"New vs returning: {e}")
-
-    _gap(10)
-
-    # ── C Row 2: Age profile + care intensity ─────────────────────────────
-    try:
-        df_dist = Q.load_visit_distribution(filters, run_query)
-        if not df_dist.empty:
-            for _c in ("patient_count", "visit_count"):
-                df_dist[_c] = pd.to_numeric(df_dist[_c], errors="coerce")
-
-            _BM = {
-                "Toddler (0–4)":       "Paediatric (<18)",
-                "Child (5–12)":        "Paediatric (<18)",
-                "Adolescent (13–17)":  "Paediatric (<18)",
-                "Youth (18–24)":       "Young Adult (18–34)",
-                "Young Adult (25–34)": "Young Adult (18–34)",
-                "Adult (35–44)":       "Adult (35–54)",
-                "Middle Age (45–54)":  "Adult (35–54)",
-                "Older Adult (55–64)": "Senior (55+)",
-                "Senior (65+)":        "Senior (55+)",
-            }
-            df_dist["age_bucket"] = df_dist["age_group"].map(_BM).fillna(df_dist["age_group"])
-            _BO = ["Senior (55+)", "Adult (35–54)", "Young Adult (18–34)", "Paediatric (<18)"]
-
-            _c3, _c4 = st.columns(2)
-
-            # ── Row 2 Left: Age profile grouped H-bar ────────────────────
-            with _c3:
-                st.markdown(
-                    '<div style="font-size:11px;font-weight:500;color:#1a1a18;margin-bottom:2px;">Age profile — new vs returning</div>'
-                    '<div style="font-size:10px;color:#888780;margin-bottom:4px;">Which age groups are acquiring vs returning?</div>',
-                    unsafe_allow_html=True)
-                st.markdown(
-                    '<div style="display:flex;gap:10px;margin-bottom:6px;">'
-                    '<span style="display:flex;align-items:center;gap:4px;font-size:10px;color:#5f5e5a;">'
-                    '<span style="width:10px;height:10px;border-radius:2px;background:rgba(29,158,117,0.75);display:inline-block;"></span>New</span>'
-                    '<span style="display:flex;align-items:center;gap:4px;font-size:10px;color:#5f5e5a;">'
-                    '<span style="width:10px;height:10px;border-radius:2px;background:rgba(127,119,221,0.75);display:inline-block;"></span>Returning</span>'
-                    '</div>', unsafe_allow_html=True)
-                _anr = (df_dist.groupby(["age_bucket", "patient_type"])["patient_count"]
-                        .sum().reset_index())
-                fig_anr = go.Figure()
-                for _pt, _cl in [("New", "rgba(29,158,117,0.75)"),
-                                  ("Returning", "rgba(127,119,221,0.75)")]:
-                    _sb = (_anr[_anr["patient_type"] == _pt]
-                           .set_index("age_bucket")["patient_count"]
-                           .reindex(_BO).reset_index())
-                    fig_anr.add_trace(go.Bar(
-                        name=_pt, y=_sb["age_bucket"], x=_sb["patient_count"],
-                        orientation="h", marker_color=_cl, marker_line_width=0,
-                        hovertemplate=f"<b>%{{y}}</b><br>{_pt}: %{{x:,}}<extra></extra>",
-                    ))
-                fig_anr.update_layout(
-                    barmode="group", height=180, margin=dict(l=0, r=10, t=4, b=30),
-                    plot_bgcolor="white", paper_bgcolor="white", showlegend=False,
-                    xaxis=dict(showgrid=True, gridcolor="rgba(0,0,0,0.06)",
-                               nticks=4, tickfont=dict(size=9, color="#888780")),
-                    yaxis=dict(showgrid=False, tickfont=dict(size=9, color="#888780")),
-                )
-                _pc(fig_anr)
-                _nrp = _anr.pivot_table(index="age_bucket", columns="patient_type",
-                                        values="patient_count", fill_value=0).reset_index()
-                if "New" in _nrp.columns and "Returning" in _nrp.columns:
-                    _nrp["ret_ratio"] = _nrp["Returning"] / (_nrp["New"] + 0.1)
-                    _tr = _nrp.nlargest(2, "ret_ratio")["age_bucket"].tolist()
-                    _trs = " and ".join([f'<strong style="color:#1a1a18;">{b}</strong>' for b in _tr])
-                    st.markdown(
-                        f'<div style="background:#f5f5f3;border-radius:8px;padding:6px 9px;'
-                        f'font-size:10px;color:#5f5e5a;margin-top:6px;line-height:1.5;">'
-                        f'{_trs} skew toward returning — consistent with chronic disease management.</div>',
-                        unsafe_allow_html=True)
-
-            # ── Row 2 Right: Care intensity cards + grouped bar + signal ──
-            with _c4:
-                st.markdown(
-                    '<div style="font-size:11px;font-weight:500;color:#1a1a18;margin-bottom:2px;">Care intensity — inpatient escalation rate</div>'
-                    '<div style="font-size:10px;color:#888780;margin-bottom:6px;">Returning patients escalate to inpatient at a higher rate</div>',
-                    unsafe_allow_html=True)
-                _ip_n = float(df_dist.loc[(df_dist["visit_type"] == "Inpatient") &
-                                          (df_dist["patient_type"] == "New"), "patient_count"].sum() or 0)
-                _op_n = float(df_dist.loc[(df_dist["visit_type"] == "Outpatient") &
-                                          (df_dist["patient_type"] == "New"), "patient_count"].sum() or 0)
-                _ip_r = float(df_dist.loc[(df_dist["visit_type"] == "Inpatient") &
-                                          (df_dist["patient_type"] == "Returning"), "patient_count"].sum() or 0)
-                _op_r = float(df_dist.loc[(df_dist["visit_type"] == "Outpatient") &
-                                          (df_dist["patient_type"] == "Returning"), "patient_count"].sum() or 0)
-                _rn = _ip_n / (_ip_n + _op_n) * 100 if (_ip_n + _op_n) > 0 else 0
-                _rr = _ip_r / (_ip_r + _op_r) * 100 if (_ip_r + _op_r) > 0 else 0
-                st.markdown(
-                    f'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">'
-                    f'<div style="background:#E1F5EE;border-radius:8px;padding:8px 10px;">'
-                    f'<div style="font-size:10px;font-weight:500;color:#0F6E56;">New patients</div>'
-                    f'<div style="font-size:20px;font-weight:500;color:#0F6E56;">{_rn:.1f}%</div>'
-                    f'<div style="font-size:10px;color:#0F6E56;">inpatient rate</div>'
-                    f'<div style="font-size:10px;color:#0F6E56;margin-top:3px;">{int(_ip_n):,} IP · {int(_op_n):,} OP</div>'
-                    f'</div>'
-                    f'<div style="background:#FCEBEB;border-radius:8px;padding:8px 10px;">'
-                    f'<div style="font-size:10px;font-weight:500;color:#A32D2D;">Returning patients</div>'
-                    f'<div style="font-size:20px;font-weight:500;color:#A32D2D;">{_rr:.1f}%</div>'
-                    f'<div style="font-size:10px;color:#A32D2D;">inpatient rate</div>'
-                    f'<div style="font-size:10px;color:#A32D2D;margin-top:3px;">{int(_ip_r):,} IP · {int(_op_r):,} OP</div>'
-                    f'</div></div>',
-                    unsafe_allow_html=True)
-                fig_care = go.Figure()
-                for _pt, _cl in [("New", "rgba(29,158,117,0.75)"),
-                                  ("Returning", "rgba(127,119,221,0.75)")]:
-                    _iv = _ip_n if _pt == "New" else _ip_r
-                    _ov = _op_n if _pt == "New" else _op_r
-                    fig_care.add_trace(go.Bar(
-                        name=_pt, x=["Outpatient", "Inpatient"], y=[_ov, _iv],
-                        marker_color=_cl, marker_line_width=0,
-                        hovertemplate=f"<b>%{{x}}</b><br>{_pt}: %{{y:,}}<extra></extra>",
-                    ))
-                fig_care.update_layout(
-                    barmode="group", height=90, margin=dict(l=0, r=10, t=4, b=0),
-                    plot_bgcolor="white", paper_bgcolor="white", showlegend=False,
-                    xaxis=dict(showgrid=False, tickfont=dict(size=9, color="#888780")),
-                    yaxis=dict(showgrid=True, gridcolor="rgba(0,0,0,0.06)",
-                               tickfont=dict(size=9, color="#888780")),
-                )
-                _pc(fig_care)
-                _delta_ip = abs(_rr - _rn)
-                st.markdown(
-                    f'<div style="background:#FAEEDA;border-left:3px solid #EF9F27;'
-                    f'border-radius:0 8px 8px 0;padding:6px 10px;font-size:10px;'
-                    f'color:#633806;line-height:1.5;margin-top:8px;">'
-                    f'<strong>Chronic disease signal:</strong> Returning patients are '
-                    f'<strong>{_delta_ip:.1f}pp</strong> more likely to be admitted. '
-                    f'As the returning base grows, inpatient demand will grow disproportionately.</div>',
-                    unsafe_allow_html=True)
-    except Exception as e:
-        st.warning(f"Care intensity: {e}")
-
-    _gap(12)
-
-    # ── D: PAYER HABIT SWITCH — NEW → RETURNING ──────────────────────────
-    _sh("D — Do payer habits change when new patients return?", mt=8)
-    st.markdown(
-        '<div style="font-size:10px;color:#5f5e5a;line-height:1.5;margin-bottom:10px;">'
-        'Many new patients enter as cash payers during an emergency. If they return on '
-        'corporate insurance or NHIF/SHA, your clinical experience converted an emergency '
-        'visitor into a long-term enrolled client. The chart maps payer type on first visit '
-        '→ payer type on return visit.'
-        '</div>',
-        unsafe_allow_html=True,
-    )
-    try:
-        df_sk = Q.load_payer_switch_sankey(filters, run_query)
-        if not df_sk.empty:
-            df_sk["patient_count"] = pd.to_numeric(df_sk["patient_count"], errors="coerce")
-
-            # Build Sankey nodes: source payers (left) → target payers (right)
-            payer_types = ["Cash", "NHIF / SHA", "Insurance"]
-            source_labels = [f"{p} (first visit)" for p in payer_types]
-            target_labels = [f"{p} (returning)" for p in payer_types]
-            all_labels = source_labels + target_labels
-
-            node_colors = {
-                "Cash":       ORANGE,
-                "NHIF / SHA": TEAL,
-                "Insurance":  AFYA_BLUE,
-            }
-            node_color_list = (
-                [node_colors.get(p, GRAY) for p in payer_types] +
-                [node_colors.get(p, GRAY) for p in payer_types]
-            )
-
-            link_sources, link_targets, link_values, link_colors = [], [], [], []
-            for _, row in df_sk.iterrows():
-                src = row["source_payer"]
-                tgt = row["target_payer"]
-                cnt = row["patient_count"]
-                if src not in payer_types or tgt not in payer_types:
-                    continue
-                si = payer_types.index(src)           # 0–2 (left side)
-                ti = payer_types.index(tgt) + 3       # 3–5 (right side)
-                link_sources.append(si)
-                link_targets.append(ti)
-                link_values.append(float(cnt or 0))
-                # Colour by source payer, semi-transparent (rgba required by Plotly Sankey)
-                base = node_colors.get(src, GRAY)
-                r, g, b = int(base[1:3], 16), int(base[3:5], 16), int(base[5:7], 16)
-                link_colors.append(f"rgba({r},{g},{b},0.45)")
-
-            fig_sk = go.Figure(go.Sankey(
-                arrangement="snap",
-                node=dict(
-                    pad=20, thickness=24,
-                    label=all_labels,
-                    color=node_color_list,
-                    hovertemplate="%{label}<br>%{value:,} patients<extra></extra>",
-                ),
-                link=dict(
-                    source=link_sources,
-                    target=link_targets,
-                    value=link_values,
-                    color=link_colors,
-                    hovertemplate=(
-                        "%{source.label} → %{target.label}<br>"
-                        "%{value:,} patients<extra></extra>"
-                    ),
-                ),
+        if not df_esc_cond.empty:
+            _gap(8)
+            df_esc_cond = df_esc_cond.head(10).reset_index(drop=True)
+            fig_esc = go.Figure()
+            fig_esc.add_trace(go.Bar(
+                x=df_esc_cond["condition"],
+                y=df_esc_cond["esc_count"],
+                name="Escalations",
+                marker_color=ORANGE,
+                text=df_esc_cond["esc_count"].apply(lambda v: f"{int(v):,}"),
+                textposition="outside",
             ))
-            fig_sk.update_layout(
-                height=380,
-                margin=dict(l=10, r=10, t=10, b=10),
-                paper_bgcolor="white",
-                font=dict(size=12),
+            fig_esc.add_trace(go.Scatter(
+                x=df_esc_cond["condition"],
+                y=df_esc_cond["escalation_rate_pct"],
+                name="Escalation Rate (%)",
+                mode="lines+markers",
+                line=dict(color=CORAL, width=2),
+                marker=dict(size=7),
+                yaxis="y2",
+            ))
+            fig_esc.update_layout(
+                height=340,
+                margin=dict(l=0, r=0, t=10, b=120),
+                plot_bgcolor="white", paper_bgcolor="white",
+                legend=dict(orientation="h", y=1.08, x=0),
+                xaxis=dict(tickangle=-40),
+                yaxis=dict(title="Escalation Count", color=ORANGE),
+                yaxis2=dict(title="Escalation Rate (%)", overlaying="y", side="right",
+                            color=CORAL),
+                bargap=0.35,
             )
-            _pc(fig_sk)
+            _pc(fig_esc)
 
-            # Highlight key conversion: Cash → Insurance
-            cash_upgrades = df_sk[
-                (df_sk["source_payer"] == "Cash") &
-                (df_sk["target_payer"].isin(["Insurance", "NHIF / SHA"]))
-            ]["patient_count"].sum()
-            cash_stays = df_sk[
-                (df_sk["source_payer"] == "Cash") &
-                (df_sk["target_payer"] == "Cash")
-            ]["patient_count"].sum()
-            if cash_upgrades > 0 or cash_stays > 0:
-                total_cash_first = float(cash_upgrades + cash_stays or 1)
-                upgrade_pct = cash_upgrades / total_cash_first * 100
-                _upg_ins = (
-                    f"<strong>{int(cash_upgrades):,} patients</strong> who first visited as cash payers "
-                    f"returned on insurance or NHIF/SHA — {upgrade_pct:.0f}% of all cash-first returning patients. "
-                    + ("Strong loyalty conversion from emergency to enrolled."
-                       if upgrade_pct > 20 else
-                       "Most cash-first patients continue paying out-of-pocket on return visits.")
-                )
-                st.markdown(
-                    f'<div style="background:#f5f5f3;border-radius:8px;padding:6px 9px;'
-                    f'font-size:10px;color:#5f5e5a;margin-top:8px;line-height:1.5;">{_upg_ins}</div>',
-                    unsafe_allow_html=True)
-        else:
-            st.markdown(
-                '<div style="background:#fff8ed;border-left:3px solid #EF9F27;border-radius:0 8px 8px 0;'
-                'padding:6px 10px;font-size:10px;color:#633806;margin-top:8px;">'
-                'No payer switch data available — patients may not have enough return visits '
-                'in the selected period, or payer information is incomplete.</div>',
-                unsafe_allow_html=True)
-    except Exception as e:
-        st.warning(f"Payer switch: {e}")
-
-    _gap(12)
-
-    # ── E: PAYER MIX BY AGE GROUP ─────────────────────────────────────────
-    _sh("E — Payer mix by age group", mt=8)
-    try:
-        df_pm = Q.load_payer_mix(filters, run_query)
-        if not df_pm.empty:
-            df_pm["payer_bucket"] = df_pm["payer_type"].map({
-                "Cash":       "Cash",
-                "NHIF / SHA": "Insurance / NHIF",
-                "Insurance":  "Insurance / NHIF",
-            }).fillna("Insurance / NHIF")
-            _pm_agg = (df_pm.groupby(["age_group", "payer_bucket"])["total_visits"]
-                       .sum().reset_index())
-            _pm_pivot = _pm_agg.pivot_table(
-                index="age_group", columns="payer_bucket",
-                values="total_visits", fill_value=0)
-            _age_alpha = sorted(_pm_pivot.index.tolist())
-            _pm_pivot = _pm_pivot.reindex(_age_alpha)
-
-            st.markdown(
-                '<div style="display:flex;gap:10px;margin-bottom:6px;">'
-                '<span style="display:flex;align-items:center;gap:4px;font-size:10px;color:#5f5e5a;">'
-                '<span style="width:10px;height:10px;border-radius:2px;background:#378ADD;display:inline-block;"></span>Insurance / NHIF</span>'
-                '<span style="display:flex;align-items:center;gap:4px;font-size:10px;color:#5f5e5a;">'
-                '<span style="width:10px;height:10px;border-radius:2px;background:rgba(239,159,39,0.8);display:inline-block;"></span>Cash</span>'
-                '</div>',
-                unsafe_allow_html=True)
-            fig_pm = go.Figure()
-            for _seg, _clr in [("Insurance / NHIF", "#378ADD"),
-                                ("Cash", "rgba(239,159,39,0.8)")]:
-                if _seg in _pm_pivot.columns:
-                    fig_pm.add_trace(go.Bar(
-                        name=_seg, x=_age_alpha,
-                        y=_pm_pivot[_seg].tolist(),
-                        marker_color=_clr, marker_line_width=0,
-                        hovertemplate=f"<b>%{{x}}</b><br>{_seg}: %{{y:,}}<extra></extra>",
-                    ))
-            fig_pm.update_layout(
-                barmode="stack", height=220, margin=dict(l=0, r=10, t=6, b=30),
-                plot_bgcolor="white", paper_bgcolor="white", showlegend=False,
-                xaxis=dict(showgrid=False, tickangle=-30,
-                           tickfont=dict(size=9, color="#888780")),
-                yaxis=dict(showgrid=True, gridcolor="rgba(0,0,0,0.06)",
-                           tickfont=dict(size=9, color="#888780")),
-            )
-            _pc(fig_pm)
-            if "Cash" in _pm_pivot.columns and "Insurance / NHIF" in _pm_pivot.columns:
-                _tot = _pm_pivot["Cash"] + _pm_pivot["Insurance / NHIF"]
-                _cash_r = (_pm_pivot["Cash"] / _tot.replace(0, float("nan")) * 100).dropna()
-                _ins_r  = (_pm_pivot["Insurance / NHIF"] / _tot.replace(0, float("nan")) * 100).dropna()
-                _mc = _cash_r.idxmax() if len(_cash_r) > 0 else None
-                _mi = _ins_r.idxmax()  if len(_ins_r) > 0 else None
-                if _mc and _mi:
-                    st.markdown(
-                        f'<div style="background:#f5f5f3;border-radius:8px;padding:6px 9px;'
-                        f'font-size:10px;color:#5f5e5a;margin-top:6px;line-height:1.5;">'
-                        f'<strong style="color:#1a1a18;">{_mc}</strong> cohort is most cash-heavy — '
-                        f'likely parents paying out of pocket. '
-                        f'<strong style="color:#1a1a18;">{_mi}</strong> cohort has the highest insurance uptake.</div>',
-                        unsafe_allow_html=True)
-    except Exception as e:
-        st.warning(f"Payer mix: {e}")
-
-    _gap(12)
-
-    # ── F: PATIENT REVENUE INTELLIGENCE ─────────────────────────────────
-    _sh("F — Patient revenue intelligence", mt=8)
-    try:
-        df_mx = Q.load_revenue_profile_matrix(filters, run_query)
-        if not df_mx.empty:
-            for _c in ("total_revenue", "revenue_share_pct", "ip_pct",
-                       "cash_pct", "nhif_pct", "corp_pct", "visit_count"):
-                df_mx[_c] = pd.to_numeric(df_mx[_c], errors="coerce")
-
-            _max_rev = float(df_mx["total_revenue"].max() or 1)
-
-            # Risk classification per mockup spec
-            def _risk_type(row):
-                ip   = float(row.get("ip_pct")   or 0)
-                cash = float(row.get("cash_pct") or 0)
-                nhif = float(row.get("nhif_pct") or 0)
-                corp = float(row.get("corp_pct") or 0)
-                ins  = nhif + corp
-                tier = str(row.get("pareto_tier", ""))
-                if cash > 60 and ip < 5:
-                    return "liquidity"
-                if ip > 0 and cash > 25 and tier in ("Top 10%", "Top 11–20%"):
-                    return "leak"
-                if ins > 60:
-                    return "insurance"
-                if 40 <= ins <= 70 and 10 <= ip <= 40:
-                    return "mixed"
-                return "insurance"
-
-            _RC = {
-                "mixed":     {"border": "#1D9E75", "bdg_bg": "#E1F5EE", "bdg_txt": "#0F6E56",
-                               "label": "Mixed profile",        "desc": "Balanced payer mix. Protect volume."},
-                "leak":      {"border": "#E24B4A", "bdg_bg": "#FCEBEB", "bdg_txt": "#A32D2D",
-                               "label": "Data leak",            "desc": "High-value claims going to cash. Audit billing."},
-                "liquidity": {"border": "#EF9F27", "bdg_bg": "#FAEEDA", "bdg_txt": "#854F0B",
-                               "label": "Liquidity engine",     "desc": "Rapid cash flow. Protect throughput."},
-                "insurance": {"border": "#7F77DD", "bdg_bg": "#EEEDFE", "bdg_txt": "#534AB7",
-                               "label": "Insurance cycle risk", "desc": "Revenue delayed by claims. Monitor receivables."},
-            }
-            _TIER_STYLE = {
-                "Top 10%":        {"bg": "#FCEBEB", "txt": "#A32D2D"},
-                "Top 11–20%":     {"bg": "#FAEEDA", "txt": "#854F0B"},
-                "Middle 21–50%":  {"bg": "#f1efe8", "txt": "#5f5e5a"},
-                "Mid 21–50%":     {"bg": "#f1efe8", "txt": "#5f5e5a"},
-                "Bottom 50%":     {"bg": "#f5f5f3", "txt": "#888780"},
-            }
-
-            # ── Legend ──────────────────────────────────────────────────
-            _leg_html = '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;">'
-            for _rk, _rv in _RC.items():
-                _leg_html += (
-                    f'<span style="display:flex;align-items:center;gap:5px;font-size:10px;color:#5f5e5a;">'
-                    f'<span style="width:3px;height:16px;border-radius:1px;background:{_rv["border"]};flex-shrink:0;display:inline-block;"></span>'
-                    f'<strong style="color:{_rv["bdg_txt"]};">{_rv["label"]}</strong>'
-                    f' — {_rv["desc"]}'
-                    f'</span>'
-                )
-            _leg_html += '</div>'
-
-            # ── Column headers ───────────────────────────────────────────
-            _hdr_html = (
-                '<div style="display:grid;grid-template-columns:140px 1fr 80px 48px 100px 120px;'
-                'gap:6px;padding:0 0 6px;border-bottom:0.5px solid rgba(0,0,0,0.10);margin-bottom:4px;">'
-                + ''.join([
-                    f'<div style="font-size:9px;font-weight:500;color:#888780;'
-                    f'text-transform:uppercase;letter-spacing:0.04em;{"text-align:center;" if i > 1 else ""}">{h}</div>'
-                    for i, h in enumerate(
-                        ["Condition", "Revenue (KES)", "Pareto tier", "IP %", "Payer mix", "Commercial risk"]
+            if not df_esc_kpi.empty:
+                row = df_esc_kpi.iloc[0]
+                esc_rate = float(row.get("escalation_rate_pct") or 0)
+                top_cond = str(row.get("top_condition") or "—")
+                if esc_rate >= 5:
+                    _note(
+                        f"{esc_rate:.1f}% of all visits resulted in same-day escalation to inpatient. "
+                        f"{top_cond} is the leading condition — review whether earlier triage or "
+                        f"community intervention could reduce emergency admissions.", w=True
                     )
-                ])
-                + '</div>'
-            )
-
-            # ── Rows ─────────────────────────────────────────────────────
-            _rows_html = ""
-            for _, row in df_mx.iterrows():
-                _rk  = _risk_type(row)
-                _rv  = _RC[_rk]
-                _rev = float(row.get("total_revenue") or 0)
-                _shr = float(row.get("revenue_share_pct") or 0)
-                _bw  = round(_rev / _max_rev * 100)
-                _ip  = int(float(row.get("ip_pct") or 0))
-                _cas = int(float(row.get("cash_pct") or 0))
-                _ins = min(100, int(float(row.get("nhif_pct") or 0) + float(row.get("corp_pct") or 0)))
-                _tier = str(row.get("pareto_tier", ""))
-                _ts  = _TIER_STYLE.get(_tier, {"bg": "#f5f5f3", "txt": "#888780"})
-                _rev_lbl = (f"KES {_rev/1e6:.1f}M · {_shr:.1f}%"
-                            if _rev >= 1e6 else f"KES {_rev:,.0f} · {_shr:.1f}%")
-                _ip_clr = "#A32D2D" if _ip > 20 else ("#854F0B" if _ip > 10 else "#1a1a18")
-                _ip_arr = " ▲" if _ip > 20 else ""
-                _rev_bar = (
-                    f'<div style="flex:1;position:relative;height:14px;background:#f5f5f3;border-radius:3px;overflow:hidden;">'
-                    f'<div style="position:absolute;left:0;top:0;bottom:0;width:{_bw}%;background:{_rv["border"]};opacity:0.75;border-radius:3px;"></div>'
-                    + (f'<span style="position:absolute;right:4px;top:50%;transform:translateY(-50%);font-size:9px;font-weight:500;color:#fff;white-space:nowrap;">{_rev_lbl}</span>'
-                       if _bw > 32 else '')
-                    + '</div>'
-                    + (f'<span style="font-size:9px;font-weight:500;color:{_rv["border"]};white-space:nowrap;margin-left:4px;">{_rev_lbl}</span>'
-                       if _bw <= 32 else '')
-                )
-                _rows_html += (
-                    f'<div style="display:grid;grid-template-columns:140px 1fr 80px 48px 100px 120px;'
-                    f'gap:6px;align-items:center;padding:5px 0;'
-                    f'border-bottom:0.5px solid rgba(0,0,0,0.06);">'
-                    f'<div style="font-size:10px;color:#1a1a18;line-height:1.3;'
-                    f'border-left:3px solid {_rv["border"]};padding-left:6px;">'
-                    f'{row.get("condition","")}</div>'
-                    f'<div style="display:flex;align-items:center;">{_rev_bar}</div>'
-                    f'<div style="text-align:center;">'
-                    f'<span style="font-size:9px;font-weight:500;padding:2px 5px;border-radius:20px;'
-                    f'background:{_ts["bg"]};color:{_ts["txt"]};white-space:nowrap;">{_tier}</span></div>'
-                    f'<div style="font-size:10px;font-weight:500;text-align:center;color:{_ip_clr};">{_ip}%{_ip_arr}</div>'
-                    f'<div style="display:flex;flex-direction:column;gap:2px;">'
-                    f'<div style="height:6px;background:#f5f5f3;border-radius:3px;position:relative;overflow:hidden;">'
-                    f'<div style="position:absolute;left:0;top:0;bottom:0;width:{_ins}%;background:#378ADD;border-radius:3px 0 0 3px;"></div>'
-                    f'<div style="position:absolute;top:0;bottom:0;left:{_ins}%;width:{_cas}%;background:rgba(239,159,39,0.75);"></div>'
-                    f'</div>'
-                    f'<div style="display:flex;justify-content:space-between;margin-top:1px;">'
-                    f'<span style="font-size:8px;color:#378ADD;">Ins {_ins}%</span>'
-                    f'<span style="font-size:8px;color:#854F0B;">Cash {_cas}%</span>'
-                    f'</div></div>'
-                    f'<div style="text-align:center;">'
-                    f'<span style="font-size:9px;font-weight:500;padding:3px 6px;border-radius:4px;'
-                    f'background:{_rv["bdg_bg"]};color:{_rv["bdg_txt"]};line-height:1.3;display:inline-block;">'
-                    f'{_rv["label"]}</span></div>'
-                    f'</div>'
-                )
-
-            _html_f = (
-                f'<div style="font-family:system-ui,sans-serif;padding:0;">'
-                f'{_leg_html}{_hdr_html}{_rows_html}'
-                f'</div>'
-            )
-            _tbl_h = len(df_mx) * 42 + 120
-            _stcomp.html(_html_f, height=_tbl_h, scrolling=False)
+                else:
+                    _note(
+                        f"Same-day escalation rate is {esc_rate:.1f}%, within expected range. "
+                        f"{top_cond} accounts for the most escalations."
+                    )
         else:
-            st.markdown(
-                '<div style="background:#fff8ed;border-left:3px solid #EF9F27;border-radius:0 8px 8px 0;'
-                'padding:6px 10px;font-size:10px;color:#633806;">No revenue data available for the selected period.</div>',
-                unsafe_allow_html=True)
+            _note("No same-day escalation records found for this period.")
     except Exception as e:
-        st.warning(f"Revenue intelligence: {e}")
+        st.warning(f"Same-day escalation: {e}")
+
+    _gap(12)
+
+
+
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2975,48 +3218,1885 @@ def _build_tier_table(df: pd.DataFrame) -> str:
     )
 
 
-def _build_ddrr_table(df: pd.DataFrame) -> str:
-    """HTML table for demographic-diagnosis revenue risk (Priority 3)."""
-    _payer_badge = {
-        "Cash":        ("rgba(239,159,39,0.15)", "#854F0B"),
-        "NHIF / SHA":  ("rgba(55,138,221,0.15)", "#1E5FA5"),
-        "Insurance":   ("rgba(55,138,221,0.15)", "#1E5FA5"),
-    }
-    rows = ""
-    for i, r in df.iterrows():
-        rar = float(r.get("revenue_at_risk") or 0)
-        arv = float(r.get("avg_rev_per_visit") or 0)
-        ltfu = int(r.get("ltfu_patients") or 0)
-        payer = str(r.get("payer", ""))
-        pbg, ptxt = _payer_badge.get(payer, ("rgba(100,100,100,0.1)", "#374151"))
-        rar_str = f"KES {rar/1e6:.1f}M" if rar >= 1e6 else f"KES {rar:,.0f}"
-        tier_col = "#E24B4A" if rar >= 1e6 else ("#EF9F27" if rar >= 5e5 else "#1D9E75")
-        rows += (
-            f'<tr>'
-            f'<td style="padding:8px 12px;font-size:11px;">{r.get("age_group","")}</td>'
-            f'<td style="padding:8px 12px;font-size:11px;">{r.get("gender","")}</td>'
-            f'<td style="padding:8px 12px;font-size:11px;">{r.get("condition","")}</td>'
-            f'<td style="padding:8px 12px;">'
-            f'<span style="background:{pbg};color:{ptxt};font-size:9px;font-weight:700;'
-            f'padding:2px 7px;border-radius:12px;">{payer}</span></td>'
-            f'<td style="padding:8px 12px;font-size:11px;text-align:right;">{ltfu:,}</td>'
-            f'<td style="padding:8px 12px;font-size:11px;text-align:right;'
-            f'font-weight:700;color:{tier_col};">{rar_str}</td>'
-            f'</tr>'
-        )
-    return (
-        '<style>*{box-sizing:border-box;margin:0;padding:0;font-family:Montserrat,-apple-system,sans-serif;}'
-        'table{width:100%;border-collapse:collapse;background:#fff;border-radius:8px;overflow:hidden;}'
-        'thead{background:#f8fafc;}th{padding:8px 12px;font-size:9px;font-weight:700;'
-        'letter-spacing:0.08em;text-transform:uppercase;color:#888780;text-align:left;}'
-        'tr:not(:last-child){border-bottom:1px solid #f3f4f6;}'
-        'tr:hover{background:#f0f7ff;}</style>'
-        '<table><thead><tr>'
-        '<th>Age Group</th><th>Gender</th><th>Condition</th><th>Payer</th>'
-        '<th style="text-align:right">LTFU Patients</th>'
-        '<th style="text-align:right">Revenue at Risk</th>'
-        f'</tr></thead><tbody>{rows}</tbody></table>'
+def _build_ltfu_p2_html(
+    tier_stats: list,
+    tiers: list,
+    total_ltfu: int,
+    total_chronic: int,
+    tier1_revenue: float,
+    age_labels: list,
+    age_values: list,
+    dx_labels: list,
+    dx_values: list,
+    signals: dict = None,
+) -> tuple:
+    """Build the Priority 2 self-contained dark-mode HTML block.
+
+    Returns (html_str, height_px).
+    All data is pre-computed in Python and embedded as JS literals — no CSV parsing.
+    """
+    import json as _json
+
+    s             = signals or {}
+    pct_lab       = s.get("pct_had_lab",       "—")
+    pct_rx        = s.get("pct_had_rx",        "—")
+    pct_no_fu     = s.get("pct_no_structured_date", "—")
+    pct_fu_ment   = s.get("pct_followup_mentioned", None)
+    pct_not_ret   = s.get("pct_not_returned_despite_followup_note", None)
+    pct_radiology = s.get("pct_had_radiology", "—")
+    lab_n         = s.get("patients_with_lab",       "")
+    rx_n          = s.get("patients_with_rx",        "")
+    rad_n         = s.get("patients_with_radiology", "")
+    total_sig     = s.get("total_ltfu_patients",     "")
+    _is_live      = bool(s)
+
+    def _fmt_pct(v):
+        try: return f"{float(v):.1f}%"
+        except: return "—"
+
+    lab_pct_fmt  = _fmt_pct(pct_lab)
+    rx_pct_fmt   = _fmt_pct(pct_rx)
+    nofu_pct_fmt = _fmt_pct(pct_no_fu)
+    rad_pct_fmt  = _fmt_pct(pct_radiology)
+
+    fu_ment_fmt  = _fmt_pct(pct_fu_ment)  if pct_fu_ment  is not None else "—"
+    not_ret_fmt  = _fmt_pct(pct_not_ret)  if pct_not_ret  is not None else "—"
+
+    sub_note = (
+        "What happened at the patient's last clinical visit before dropout."
+        if _is_live else
+        "What happened at the patient's last clinical visit before dropout. "
+        "<span class=\"sec-illustrative\">Illustrative — requires visit journey query to confirm.</span>"
     )
+
+    lab_desc  = (f"{lab_n} of {total_sig} patients · results received, no follow-up"
+                 if _is_live else "Results received, no documented follow-up")
+    rx_desc   = (f"{rx_n} of {total_sig} patients · medication given, no return scheduled"
+                 if _is_live else "Medication given, no return scheduled")
+    nofu_desc = (f"Only {fu_ment_fmt} mentioned follow-up in notes · {not_ret_fmt} did not return"
+                 if (_is_live and pct_fu_ment is not None) else "Most critical gap in the care pathway")
+    rad_desc  = (f"{rad_n} of {total_sig} patients · imaging done, no subsequent visit"
+                 if _is_live else "Imaging done, no subsequent visit")
+
+    insight2_text = (
+        f"{nofu_pct_fmt} of chronic LTFU patients had no documented follow-up date. "
+        f"Only {fu_ment_fmt} had follow-up mentioned in clinical notes — "
+        f"of those, {not_ret_fmt} still did not return. "
+        "This is a clinical workflow gap: when follow-up is not explicitly scheduled, "
+        "chronic patients do not return."
+        if _is_live else
+        "84% of chronic LTFU patients had no documented follow-up date. "
+        "This is a clinical workflow gap — when follow-up is not explicitly scheduled, "
+        "chronic patients do not return."
+    )
+
+    t1            = tier_stats[0]
+    tier1_chronic = t1["chronic"]
+    chronic_fmt   = f"{tier1_chronic:,}"
+    rev_fmt       = (f"KES {tier1_revenue / 1_000_000:.1f}M"
+                     if tier1_revenue >= 1_000_000
+                     else f"KES {tier1_revenue:,.0f}")
+    total_chr_fmt = f"{total_chronic:,}"
+    pct_chr       = (f"{total_chronic / total_ltfu * 100:.1f}%"
+                     if total_ltfu else "—")
+
+    anchor      = tier_stats[0]["pct"] or 1
+    funnel_html = "".join(
+        '<div class="funnel-row">'
+        f'<span class="funnel-lbl">{t["label"]}</span>'
+        '<div class="funnel-bar-wrap">'
+        f'<div class="funnel-bar" style="background:{t["color"]};width:{s["pct"] / anchor * 100:.1f}%;">'
+        f'<span class="funnel-bar-text">{s["total"]:,}&nbsp;&nbsp;{s["pct"]:.1f}%</span>'
+        '</div></div>'
+        f'<span class="funnel-annot" style="color:{t["annot_color"]};">{s["chronic"]:,} chronic</span>'
+        '</div>'
+        for t, s in zip(tiers, tier_stats)
+    )
+
+    age_labels_js = _json.dumps(age_labels)
+    age_values_js = _json.dumps(age_values)
+    dx_labels_js  = _json.dumps(dx_labels)
+    dx_values_js  = _json.dumps(dx_values)
+
+    n_age  = len(age_labels)
+    n_dx   = len(dx_labels)
+    h_age  = max(280, n_age * 40 + 80)
+    h_dx   = max(280, n_dx  * 40 + 80)
+
+    insight1 = (
+        f"{chronic_fmt} of the 1–2 visit LTFU patients had a chronic diagnosis — "
+        "conditions requiring ongoing management. These are not resolved cases. "
+        "They are patients who needed follow-up and did not return."
+    )
+
+    css = (
+        ':root{'
+        '--bg:#ffffff;--surface:#ffffff;--border:rgba(0,0,0,0.06);'
+        '--border-mid:#D6E4F0;--divider:#EBF3FB;'
+        '--text-primary:#003467;--text-secondary:#6B8CAE;--text-muted:#ADB5BD;'
+        '--insight-bg:#FFF5F5;}'
+        '*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}'
+        'body{background:var(--bg);color:var(--text-primary);'
+        'font-family:Montserrat,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;'
+        'font-size:14px;line-height:1.5;padding:1.5rem}'
+        '.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;'
+        'overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}'
+        '.ltfu-section{max-width:100%;margin:0 auto}'
+        '.sec-eyebrow{font-size:11px;font-weight:600;letter-spacing:0.06em;'
+        'text-transform:uppercase;color:var(--text-muted);margin-bottom:3px}'
+        '.sec-title{font-size:16px;font-weight:500;color:var(--text-primary);margin-bottom:4px}'
+        '.sec-subtitle{font-size:13px;color:var(--text-secondary);line-height:1.6;margin-bottom:18px}'
+        '.sec-illustrative{color:var(--text-muted);font-style:italic}'
+        '.section-part{margin-bottom:2.5rem}'
+        '.section-divider{border:none;border-top:0.5px solid var(--divider);margin:0 0 2.5rem}'
+        '.card{background:var(--surface);border:0.5px solid var(--border-mid);border-radius:6px}'
+        '.p1-layout{display:flex;gap:20px;align-items:flex-start}'
+        '.revenue-card{min-width:164px;flex-shrink:0;display:flex;flex-direction:column;'
+        'justify-content:center;padding:18px 16px}'
+        '.rev-label{font-size:10px;font-weight:600;letter-spacing:0.07em;'
+        'text-transform:uppercase;color:var(--text-muted);margin-bottom:5px}'
+        '.rev-value{font-size:26px;font-weight:700;color:#A32D2D;line-height:1;'
+        'margin-bottom:4px;font-variant-numeric:tabular-nums}'
+        '.rev-desc{font-size:11px;color:var(--text-secondary);margin-bottom:13px}'
+        '.rev-divider{border:none;border-top:0.5px solid var(--border-mid);margin:0 0 12px}'
+        '.rev-stat{margin-bottom:9px}.rev-stat:last-child{margin-bottom:0}'
+        '.rev-stat-val{font-size:17px;font-weight:600;color:var(--text-primary);'
+        'font-variant-numeric:tabular-nums;display:block}'
+        '.rev-stat-lbl{font-size:11px;color:var(--text-muted)}'
+        '.funnel-wrap{flex:1;min-width:0}'
+        '.funnel-row{display:flex;align-items:center;gap:10px;margin-bottom:10px}'
+        '.funnel-row:last-child{margin-bottom:0}'
+        '.funnel-lbl{width:80px;flex-shrink:0;text-align:right;font-size:12px;color:var(--text-secondary)}'
+        '.funnel-bar-wrap{flex:1;min-width:0}'
+        '.funnel-bar{height:34px;border-radius:3px;display:flex;align-items:center;padding:0 10px}'
+        '.funnel-bar-text{font-size:12px;font-weight:600;color:rgba(255,255,255,0.92);white-space:nowrap}'
+        '.funnel-annot{flex-shrink:0;font-size:12px;font-weight:500;white-space:nowrap}'
+        '.journey-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px}'
+        '.journey-card{display:flex;flex-direction:column;gap:6px;padding:16px 14px}'
+        '.journey-icon{font-size:20px;color:var(--text-muted)}'
+        '.journey-pct{font-size:28px;font-weight:700;line-height:1;font-variant-numeric:tabular-nums}'
+        '.journey-label{font-size:12px;font-weight:500;color:var(--text-primary)}'
+        '.journey-desc{font-size:11px;color:var(--text-secondary);line-height:1.5}'
+        '.charts-row{display:flex;gap:24px}'
+        '.chart-col{flex:1;min-width:0}'
+        '.chart-legend{display:flex;align-items:center;gap:6px;margin-bottom:8px}'
+        '.legend-swatch{width:10px;height:10px;border-radius:1px;flex-shrink:0}'
+        '.legend-lbl{font-size:11px;color:var(--text-secondary)}'
+        '.chart-wrap{position:relative}'
+        'canvas{display:block}'
+        '.insight-bar{background:var(--insight-bg);border-left:3px solid #C53030;'
+        'border-radius:0 4px 4px 0;padding:10px 14px;display:flex;align-items:flex-start;gap:8px;margin-top:16px}'
+        '.insight-icon{font-size:15px;color:#C53030;flex-shrink:0;margin-top:1px}'
+        '.insight-text{font-size:13px;color:#003467;line-height:1.7}'
+    )
+
+    js = (
+        '(function(){'
+        'function buildChart(id,labels,values,color){'
+        'var canvas=document.getElementById(id);'
+        'new Chart(canvas,{type:"bar",'
+        'data:{labels:labels,datasets:[{data:values,backgroundColor:color,'
+        'borderRadius:3,borderSkipped:false}]},'
+        'options:{indexAxis:"y",responsive:true,maintainAspectRatio:false,'
+        'plugins:{legend:{display:false},'
+        'tooltip:{callbacks:{label:function(ctx){'
+        'return " "+Math.round(ctx.parsed.x).toLocaleString()+" patients";'
+        '}}}},'
+        'scales:{'
+        'x:{grid:{color:"#EBF3FB"},ticks:{color:"#6B8CAE",font:{size:11,family:"Montserrat,sans-serif"}}},'
+        'y:{grid:{display:false},ticks:{color:"#003467",font:{size:11,family:"Montserrat,sans-serif"}}}'
+        '}}});}'
+        f'buildChart("chart-age",{age_labels_js},{age_values_js},"#E24B4A");'
+        f'buildChart("chart-dx",{dx_labels_js},{dx_values_js},"#185FA5");'
+        '})()'
+    )
+
+    html = (
+        '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">'
+        '<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.x/dist/tabler-icons.min.css">'
+        '<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js" crossorigin="anonymous"></script>'
+        f'<style>{css}</style></head><body>'
+        '<section class="ltfu-section" aria-labelledby="ltfu-p2-heading">'
+        '<h2 id="ltfu-p2-heading" class="sr-only">Priority 2 — 1–2 Visit LTFU Patients</h2>'
+        # ── PART 1 ──────────────────────────────────────────────────────────────
+        '<div class="section-part">'
+        '<p class="sec-eyebrow">Priority 2 — Lost to Follow-Up</p>'
+        '<h3 class="sec-title">1–2 Visit LTFU Chronic Patients</h3>'
+        '<p class="sec-subtitle">Chronic patients absent 180+ days, segmented by visit history. '
+        "Bar width is proportional to each tier's share of total LTFU patients.</p>"
+        '<div class="p1-layout">'
+        '<div class="card revenue-card">'
+        '<p class="rev-label">Annual revenue at risk</p>'
+        f'<p class="rev-value">{rev_fmt}</p>'
+        '<p class="rev-desc">all chronic LTFU patients</p>'
+        '<hr class="rev-divider">'
+        '<div class="rev-stat">'
+        f'<span class="rev-stat-val">{total_chr_fmt}</span>'
+        '<span class="rev-stat-lbl">Chronic LTFU patients</span>'
+        '</div></div>'
+        f'<div class="funnel-wrap">{funnel_html}</div>'
+        '</div>'
+        '<div class="insight-bar">'
+        '<i class="ti ti-alert-triangle insight-icon"></i>'
+        f'<span class="insight-text">{insight1}</span>'
+        '</div></div>'
+        '<hr class="section-divider">'
+        # ── PART 2 ──────────────────────────────────────────────────────────────
+        '<div class="section-part">'
+        '<p class="sec-eyebrow">Care Pathway Signals</p>'
+        '<h3 class="sec-title">Care Journey at Last Visit</h3>'
+        f'<p class="sec-subtitle">{sub_note}</p>'
+        '<div class="journey-grid">'
+        '<div class="card journey-card">'
+        '<i class="ti ti-flask journey-icon"></i>'
+        f'<span class="journey-pct" style="color:#185FA5;">{lab_pct_fmt}</span>'
+        '<span class="journey-label">Lab tests ordered</span>'
+        f'<span class="journey-desc">{lab_desc}</span>'
+        '</div>'
+        '<div class="card journey-card">'
+        '<i class="ti ti-pill journey-icon"></i>'
+        f'<span class="journey-pct" style="color:#0F6E56;">{rx_pct_fmt}</span>'
+        '<span class="journey-label">Prescription received</span>'
+        f'<span class="journey-desc">{rx_desc}</span>'
+        '</div>'
+        '<div class="card journey-card">'
+        '<i class="ti ti-calendar-x journey-icon"></i>'
+        f'<span class="journey-pct" style="color:#E24B4A;">{nofu_pct_fmt}</span>'
+        '<span class="journey-label">No follow-up date</span>'
+        f'<span class="journey-desc">{nofu_desc}</span>'
+        '</div>'
+        '<div class="card journey-card">'
+        '<i class="ti ti-scan journey-icon"></i>'
+        f'<span class="journey-pct" style="color:#BA7517;">{rad_pct_fmt}</span>'
+        '<span class="journey-label">Radiology ordered</span>'
+        f'<span class="journey-desc">{rad_desc}</span>'
+        '</div>'
+        '</div>'
+        '<div class="insight-bar">'
+        '<i class="ti ti-alert-triangle insight-icon"></i>'
+        f'<span class="insight-text">{insight2_text}</span>'
+        '</div></div>'
+        '<hr class="section-divider">'
+        # ── PART 3 ──────────────────────────────────────────────────────────────
+        '<div class="section-part">'
+        '<p class="sec-eyebrow">Chronic LTFU Profile</p>'
+        '<h3 class="sec-title">Who Are the 1–2 Visit Chronic Dropouts?</h3>'
+        '<p class="sec-subtitle">Chronic patients with 1–2 visits only, absent 180+ days '
+        '— by age group and primary diagnosis.</p>'
+        '<div class="charts-row">'
+        '<div class="chart-col">'
+        '<div class="chart-legend">'
+        '<span class="legend-swatch" style="background:#E24B4A;"></span>'
+        '<span class="legend-lbl">Chronic LTFU by age group</span>'
+        '</div>'
+        f'<div class="chart-wrap" style="height:{h_age}px;">'
+        '<canvas id="chart-age" role="img" '
+        'aria-label="Horizontal bar chart: chronic LTFU patients (1–2 visits) by age group">'
+        '<p>Chart not available — enable JavaScript to view chronic LTFU patients by age group.</p>'
+        '</canvas></div>'
+        '</div>'
+        '<div class="chart-col">'
+        '<div class="chart-legend">'
+        '<span class="legend-swatch" style="background:#185FA5;"></span>'
+        '<span class="legend-lbl">Chronic LTFU by diagnosis</span>'
+        '</div>'
+        f'<div class="chart-wrap" style="height:{h_dx}px;">'
+        '<canvas id="chart-dx" role="img" '
+        'aria-label="Horizontal bar chart: chronic LTFU patients (1–2 visits) by primary diagnosis, top 8">'
+        '<p>Chart not available — enable JavaScript to view chronic LTFU patients by diagnosis.</p>'
+        '</canvas></div>'
+        '</div>'
+        '</div>'
+        '<div class="insight-bar">'
+        '<i class="ti ti-alert-triangle insight-icon"></i>'
+        '<span class="insight-text">Oncology patients represent the single largest diagnosis dropout. '
+        'Adult (35–44) and Young Adult (25–34) are the largest age groups lost — '
+        'working-age patients most likely to disengage due to cost, time, or lack of perceived urgency.'
+        '</span>'
+        '</div></div>'
+        '</section>'
+        f'<script>{js}</script>'
+        '</body></html>'
+    )
+
+    height_px = 64 + 300 + 50 + 300 + 50 + max(h_age, h_dx) + 200
+    return html, height_px
+
+
+def render_tab_clinical_activity(filters: dict, run_query):
+    """Clinical Activity tab v2 — inpatient care quality and readmission analysis."""
+
+    # ── palette ────────────────────────────────────────────────────────────────
+    _BLUE   = "#185FA5"
+    _GREEN  = "#0F6E56"
+    _RED    = "#E24B4A"
+    _AMBER  = "#BA7517"
+    _PURPLE = "#534AB7"
+    _PINK   = "#D4537E"
+    _MUTED  = "#B4B2A9"
+    _GREY   = "#888780"
+
+    _MATERNITY = {"general maternity", "private maternity"}
+    _CFG       = {"displayModeBar": False}
+
+    # ── local helpers ──────────────────────────────────────────────────────────
+    def _insight(items, variant="info"):
+        cols = {"warn": _RED, "info": _BLUE, "amber": _AMBER}
+        bgs  = {"warn": "#FCEBEB", "info": "#EBF5FF", "amber": "#FAEEDA"}
+        col  = cols.get(variant, _BLUE)
+        bg   = bgs.get(variant, "#EBF5FF")
+        if isinstance(items, str):
+            items = [items]
+        bullets = "".join(
+            f"<li style='margin-bottom:3px'>· {i}</li>" for i in items
+        )
+        st.markdown(
+            f'<div style="border-left:3px solid {col};background:{bg};padding:10px 14px;'
+            f'border-radius:0 4px 4px 0;margin-bottom:8px">'
+            f'<ul style="list-style:none;margin:0;padding:0;font-size:13px;'
+            f'color:#003467;line-height:1.7">{bullets}</ul></div>',
+            unsafe_allow_html=True,
+        )
+
+    def _sec(label):
+        st.markdown(
+            f'<div style="font-size:10px;font-weight:700;text-transform:uppercase;'
+            f'letter-spacing:2px;color:#6B8CAE;border-bottom:1px solid #EBF3FB;'
+            f'padding-bottom:5px;margin:18px 0 10px">{label}</div>',
+            unsafe_allow_html=True,
+        )
+
+    def _lbl(text):
+        st.markdown(
+            f'<div style="font-size:11px;font-weight:600;color:#6B8CAE;margin-bottom:7px">'
+            f'{text}</div>',
+            unsafe_allow_html=True,
+        )
+
+    def _sub(text):
+        st.markdown(
+            f'<div style="font-size:11px;color:#6B8CAE;margin-bottom:6px">{text}</div>',
+            unsafe_allow_html=True,
+        )
+
+    def _card_title(text):
+        st.markdown(
+            f'<div style="font-size:13px;font-weight:600;color:#003467;margin-bottom:3px">'
+            f'{text}</div>',
+            unsafe_allow_html=True,
+        )
+
+    # ── load all dataframes ────────────────────────────────────────────────────
+    def _load(fn, label):
+        try:
+            df = fn(filters, run_query)
+            df.columns = [c.lower() for c in df.columns]
+            return df
+        except Exception as exc:
+            st.warning(f"{label}: {exc}")
+            return pd.DataFrame()
+
+    df_ward    = _load(Q.load_ca_ward_summary,              "Ward summary")
+    df_grow    = _load(Q.load_ca_admission_growth,          "Admission growth")
+    df_lbox    = _load(Q.load_ca_los_boxplot,               "LOS boxplot")
+    df_lout    = _load(Q.load_ca_los_outliers,              "LOS outliers")
+    df_losdiag = _load(Q.load_ca_los_diagnosis,             "LOS by diagnosis")
+    df_c2      = _load(Q.load_ca_readmission_layer2,        "Readmission L2")
+    df_c3      = _load(Q.load_ca_readmission_layer3,        "Readmission L3")
+    df_c4d     = _load(Q.load_ca_readmission_layer4_detail, "Readmission L4 detail")
+    df_c5      = _load(Q.load_ca_readmission_layer5,        "Readmission L5")
+    df_genmale = _load(Q.load_ca_general_male,              "General Male profile")
+    df_c_l4c   = _load(Q.load_ca_layer4_conditions,         "Layer 4 conditions")
+    df_d       = _load(Q.load_ca_section_d,                 "Section D")
+    df_e       = _load(Q.load_ca_section_e,                 "Section E")
+    df_typh    = _load(Q.load_ca_typhoid,                   "Typhoid")
+    df_f       = _load(Q.load_ca_section_f,                 "Section F")
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # HEADER KPIs
+    # ══════════════════════════════════════════════════════════════════════════
+    _sec("CLINICAL ACTIVITY — KISUMU SPECIALISTS · INPATIENT CARE")
+    if not df_ward.empty:
+        total_adm  = int(df_ward["total_admissions"].sum())
+        total_disc = int(df_ward["total_discharges"].sum())
+        still_adm  = total_adm - total_disc
+        med_los    = round(float(df_ward["median_los"].median()), 1)
+        read30     = int(df_ward["day_readmission_30"].sum())
+        read_pct   = round(read30 / total_disc * 100, 1) if total_disc else 0
+        prd_ct     = int(df_ward["patient_request_discharge"].sum())
+        prd_pct    = round(prd_ct / total_disc * 100, 1) if total_disc else 0
+
+        c1, c2, c3, c4, c5, c6 = st.columns(6)
+        with c1: _kpi("Total Admissions",       f"{total_adm:,}")
+        with c2: _kpi("Discharged",             f"{total_disc:,}")
+        with c3: _kpi("Still Admitted",         f"{still_adm:,}",  color=_AMBER)
+        with c4: _kpi("Median LOS",             f"{med_los}d",
+                       s="Mean pulled up by Sepsis outliers")
+        with c5: _kpi("30-Day Readmission",     f"{read_pct:.1f}%", color=_RED)
+        with c6: _kpi("Patient Req. Discharge", f"{prd_pct:.1f}%",
+                       s="Includes data recording inconsistency", color=_AMBER)
+
+    _gap(16)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # SECTION A — WARD OVERVIEW  [table left | trend chart right]
+    # ══════════════════════════════════════════════════════════════════════════
+    _sec("A — WARD OVERVIEW")
+    ac1, ac2 = st.columns([1, 1])
+
+    with ac1:
+        if not df_ward.empty:
+            dw = df_ward[["ward_name", "total_admissions", "median_los",
+                          "readmission_rate", "patient_request_discharge_pct"]].copy()
+            dw["patient_request_discharge_pct"] = dw.apply(
+                lambda r: f"{float(r['patient_request_discharge_pct']):.1f}%*"
+                if str(r["ward_name"]).lower() in _MATERNITY
+                else f"{float(r['patient_request_discharge_pct']):.1f}%",
+                axis=1,
+            )
+            dw["median_los"] = dw["median_los"].apply(lambda v: f"{float(v):.1f}d")
+            dw["total_admissions"] = dw["total_admissions"].astype(int)
+            dw.columns = ["Ward", "Admissions", "Median LOS",
+                          "Readmission %", "Patient Request %"]
+
+            render_sortable_table(
+                dw,
+                height=280,
+                badge_columns={
+                    "Readmission %": [
+                        {"min": 6,    "max": 999, "bg": "#FCEBEB", "text": "#791F1F"},
+                        {"min": 4,    "max": 6,   "bg": "#FAEEDA", "text": "#633806"},
+                        {"min": -999, "max": 4,   "bg": "#E1F5EE", "text": "#085041"},
+                    ],
+                },
+                key="ward_summary",
+            )
+            st.markdown(
+                '<div style="font-size:10px;color:#6B8CAE;margin-top:4px">'
+                '* Maternity ward patient request % is unreliable — see note below.</div>',
+                unsafe_allow_html=True,
+            )
+            _insight([
+                "Maternity patient request % is a data recording inconsistency — clinicians are "
+                "recording routine discharges under the wrong discharge type.",
+                "Requires a data quality audit before this field can be used for clinical conclusions.",
+            ], variant="amber")
+
+    with ac2:
+        if not df_grow.empty:
+            monthly = (
+                df_grow.groupby(["month", "ward_name"])
+                .size()
+                .reset_index(name="admissions")
+            )
+            monthly["month"] = pd.to_datetime(monthly["month"])
+            monthly["ward_label"] = monthly["ward_name"].apply(
+                lambda w: "Maternity (combined)"
+                if str(w).lower() in _MATERNITY else w
+            )
+            monthly = (
+                monthly.groupby(["month", "ward_label"])["admissions"]
+                .sum()
+                .reset_index()
+                .sort_values("month")
+            )
+            WARD_CFG = {
+                "General Female":       (_BLUE,   "solid"),
+                "Pediatric General":    (_GREEN,  "solid"),
+                "General Male":         (_PURPLE, "solid"),
+                "Maternity (combined)": (_PINK,   "dash"),
+            }
+            legend_html = "".join(
+                f'<span style="display:inline-flex;align-items:center;gap:5px;margin-right:14px">'
+                f'<span style="width:14px;height:2px;background:{col};display:inline-block"></span>'
+                f'<span style="font-size:11px;color:#003467">{ward}</span></span>'
+                for ward, (col, dash) in WARD_CFG.items()
+            )
+            st.markdown(f'<div style="margin-bottom:6px">{legend_html}</div>',
+                        unsafe_allow_html=True)
+            fig = go.Figure()
+            for ward, (col, dash) in WARD_CFG.items():
+                wd = monthly[monthly["ward_label"] == ward].sort_values("month")
+                if wd.empty:
+                    continue
+                fig.add_trace(go.Scatter(
+                    x=wd["month"].dt.strftime("%b %y"),
+                    y=wd["admissions"],
+                    name=ward,
+                    mode="lines+markers",
+                    line=dict(color=col, width=2, dash=dash),
+                    marker=dict(size=4),
+                    showlegend=False,
+                ))
+            fig.update_layout(
+                height=340,
+                margin=dict(l=0, r=0, t=10, b=10),
+                plot_bgcolor="white", paper_bgcolor="white",
+                xaxis=dict(showgrid=False,
+                           tickfont=dict(size=10, color="#6B8CAE")),
+                yaxis=dict(title="Admissions", showgrid=True,
+                           gridcolor="#EBF3FB", rangemode="tozero"),
+            )
+            st.plotly_chart(fig, use_container_width=True, config=_CFG)
+
+    _gap(16)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # SECTION B — LENGTH OF STAY
+    # ══════════════════════════════════════════════════════════════════════════
+    _sec("B — LENGTH OF STAY")
+    bc1, bc2 = st.columns(2)
+
+    with bc1:
+        _card_title("LOS Distribution by Ward")
+        _sub("Box = middle 50% of stays. Wider box = more variability. "
+             "Line = median. Tick marks = typical range boundaries. "
+             "Sorted narrowest IQR at top.")
+        if not df_lbox.empty:
+            box = (
+                df_lbox.groupby("ward_name").agg(
+                    q1=("q1_los",        "median"),
+                    median=("median_los", "median"),
+                    q3=("q3_los",        "median"),
+                    lw=("lower_whisker", "median"),
+                    uw=("upper_whisker", "median"),
+                    iqr=("iqr",          "median"),
+                )
+                .reset_index()
+                .sort_values("iqr", ascending=True)
+            )
+            fig = go.Figure()
+            for _, row in box.iterrows():
+                fig.add_trace(go.Box(
+                    name=row["ward_name"],
+                    y=[row["ward_name"]],
+                    q1=[row["q1"]],
+                    median=[row["median"]],
+                    q3=[row["q3"]],
+                    lowerfence=[row["lw"]],
+                    upperfence=[row["uw"]],
+                    orientation="h",
+                    fillcolor="rgba(24,95,165,0.15)",
+                    line=dict(color=_BLUE),
+                    marker=dict(color=_BLUE),
+                    showlegend=False,
+                ))
+                fig.add_annotation(
+                    x=float(row["uw"]) + 0.3,
+                    y=row["ward_name"],
+                    text=f"IQR {row['iqr']:.1f}d",
+                    showarrow=False,
+                    font=dict(size=10, color="#6B8CAE"),
+                    xanchor="left",
+                )
+            fig.update_layout(
+                height=320,
+                margin=dict(l=0, r=90, t=10, b=10),
+                plot_bgcolor="white", paper_bgcolor="white",
+                xaxis=dict(title="Days", showgrid=True, gridcolor="#EBF3FB"),
+                yaxis=dict(showgrid=False),
+            )
+            _pc(fig)
+            _insight([
+                "Private Maternity: IQR 0.75d — consistent pathway, predictable discharge timing.",
+                "General Female + General Male: IQR 3.0–3.1d — reflects diverse case mix "
+                "(Typhoid, Sepsis, Oncology), not care inconsistency.",
+            ], variant="info")
+
+    with bc2:
+        _card_title("LOS Outliers by Ward")
+        _sub("Each point is one admission exceeding the ward IQR upper fence.")
+        if not df_lout.empty:
+            SCATTER_COLORS = {
+                "general maternity":  _RED,
+                "general female":     _BLUE,
+                "general male":       _PURPLE,
+                "pediatric general":  _GREEN,
+            }
+            fig = go.Figure()
+            for ward in df_lout["ward_name"].unique():
+                wd  = df_lout[df_lout["ward_name"] == ward]
+                col = SCATTER_COLORS.get(str(ward).lower(), _MUTED)
+                icd = wd["icd10_name"] if "icd10_name" in wd.columns else ["—"] * len(wd)
+                pbg = wd["primary_burden_group"] if "primary_burden_group" in wd.columns else ["—"] * len(wd)
+                dt  = wd["discharge_type"] if "discharge_type" in wd.columns else ["—"] * len(wd)
+                fig.add_trace(go.Scatter(
+                    x=wd["los_days"],
+                    y=wd["ward_name"],
+                    mode="markers",
+                    marker=dict(color=col, size=8, opacity=0.75),
+                    name=ward,
+                    showlegend=False,
+                    customdata=list(zip(icd, pbg, dt)),
+                    hovertemplate=(
+                        "<b>%{y}</b><br>LOS: %{x}d<br>"
+                        "Diagnosis: %{customdata[0]}<br>"
+                        "Group: %{customdata[1]}<br>"
+                        "Discharge: %{customdata[2]}<extra></extra>"
+                    ),
+                ))
+            fig.update_layout(
+                height=320,
+                margin=dict(l=0, r=0, t=10, b=10),
+                plot_bgcolor="white", paper_bgcolor="white",
+                xaxis=dict(title="LOS (days)", showgrid=True,
+                           gridcolor="#EBF3FB", range=[0, 150]),
+                yaxis=dict(showgrid=False),
+            )
+            _pc(fig)
+            _insight([
+                "Other Sepsis drives most outlier stays (7–73 days across all wards).",
+                "Diabetes + Sepsis comorbidity confirmed in outlier data — uncontrolled chronic "
+                "disease precipitating Sepsis.",
+                "139-day General Maternity case has no ICD10 recorded — individual documentation "
+                "review needed.",
+            ], variant="warn")
+
+    # ── LOS by condition ward dropdown (full width) ────────────────────────────
+    _gap(12)
+    _sub("Select a ward to see median LOS per condition. Conditions with longest "
+         "stays show where extended care is concentrated.")
+    if not df_losdiag.empty:
+        ward_options = sorted(df_losdiag["ward_name"].dropna().unique())
+        selected_ward_b = st.selectbox(
+            "Select ward to investigate", ward_options, key="ca_los_ward_select"
+        )
+        ward_diag = (
+            df_losdiag[df_losdiag["ward_name"] == selected_ward_b]
+            .groupby("final_disease_burden_group")
+            .agg(median_los=("median_los_days", "median"))
+            .reset_index()
+            .sort_values("median_los", ascending=True)
+            .tail(12)
+        )
+        ward_diag["label"] = ward_diag["final_disease_burden_group"].apply(
+            lambda x: (x.split(" - ")[-1].split(": ")[-1]
+                       if " - " in str(x) or ": " in str(x) else str(x))
+        )
+        ward_diag["colour"] = ward_diag["median_los"].apply(
+            lambda v: _RED if v > 20 else (_AMBER if v > 10 else _BLUE)
+        )
+        fig = go.Figure(go.Bar(
+            y=ward_diag["label"],
+            x=ward_diag["median_los"],
+            orientation="h",
+            marker_color=ward_diag["colour"].tolist(),
+            text=ward_diag["median_los"].apply(lambda v: f"{v:.1f}d"),
+            textposition="outside",
+            textfont=dict(size=10, color="#003467"),
+        ))
+        fig.update_layout(
+            height=max(280, len(ward_diag) * 28 + 60),
+            margin=dict(l=0, r=50, t=10, b=10),
+            plot_bgcolor="white", paper_bgcolor="white",
+            xaxis=dict(title="Median LOS (days)", showgrid=True, gridcolor="#EBF3FB"),
+            yaxis=dict(showgrid=False),
+            showlegend=False,
+        )
+        st.plotly_chart(fig, use_container_width=True, config=_CFG)
+
+    _gap(16)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # SECTION C — 30-DAY READMISSION ANALYSIS
+    # ══════════════════════════════════════════════════════════════════════════
+    _sec("C — 30-DAY READMISSION ANALYSIS")
+
+    # ── Layer 1 + 2 ────────────────────────────────────────────────────────────
+    _lbl("Layer 1 + 2 — Where readmissions are happening and who is leaving before they should")
+
+    # Compute shared chart height from the larger of the two datasets
+    _n_wards   = len(df_ward) if not df_ward.empty else 0
+    _n_dtypes  = len(df_c2)   if not df_c2.empty   else 0
+    _c12_h     = max(320, max(_n_wards, _n_dtypes) * 42 + 60)
+
+    cc1, cc2 = st.columns(2)
+
+    with cc1:
+        if not df_ward.empty:
+            bar_df = df_ward[["ward_name", "readmission_rate"]].copy()
+            bar_df = bar_df.sort_values("readmission_rate", ascending=True)
+            bar_df["color"] = bar_df["readmission_rate"].apply(
+                lambda r: _RED if float(r) > 6 else (_AMBER if float(r) > 4 else _GREEN)
+            )
+            st.markdown(
+                f'<div style="font-size:11px;margin-bottom:6px">'
+                f'<span style="color:{_GREEN}">● &lt; 4% — within expected</span>&nbsp;·&nbsp;'
+                f'<span style="color:{_AMBER}">● 4–6% — monitor</span>&nbsp;·&nbsp;'
+                f'<span style="color:{_RED}">● &gt; 6% — investigate</span></div>',
+                unsafe_allow_html=True,
+            )
+            max_rate = float(bar_df["readmission_rate"].astype(float).max())
+            fig = go.Figure(go.Bar(
+                y=bar_df["ward_name"],
+                x=bar_df["readmission_rate"].astype(float),
+                orientation="h",
+                marker_color=bar_df["color"].tolist(),
+                text=bar_df["readmission_rate"].apply(lambda v: f"{float(v):.1f}%"),
+                textposition="outside",
+                textfont=dict(size=11, color="#003467"),
+            ))
+            fig.update_layout(
+                height=_c12_h,
+                margin=dict(l=0, r=50, t=10, b=10),
+                plot_bgcolor="white", paper_bgcolor="white",
+                xaxis=dict(title="Readmission rate (%)", showgrid=True,
+                           gridcolor="#EBF3FB", range=[0, max_rate * 1.35]),
+                yaxis=dict(showgrid=False),
+                showlegend=False,
+            )
+            _pc(fig)
+
+    with cc2:
+        if not df_c2.empty:
+            def _dc(dtype):
+                d = str(dtype).lower()
+                if "request" in d: return _RED
+                if "stable"  in d: return _BLUE
+                if "referral" in d: return _AMBER
+                return _MUTED
+
+            bar2 = df_c2.copy().sort_values(
+                "total_readmitted_unique_patients", ascending=True
+            )
+            bar2["color"] = bar2["discharge_type"].apply(_dc)
+            max_readmit = int(bar2["total_readmitted_unique_patients"].max())
+            fig = go.Figure(go.Bar(
+                y=bar2["discharge_type"],
+                x=bar2["total_readmitted_unique_patients"],
+                orientation="h",
+                marker_color=bar2["color"].tolist(),
+                text=bar2["total_readmitted_unique_patients"],
+                textposition="outside",
+                textfont=dict(size=11, color="#003467"),
+            ))
+            fig.update_layout(
+                height=_c12_h,
+                margin=dict(l=0, r=40, t=10, b=10),
+                plot_bgcolor="white", paper_bgcolor="white",
+                xaxis=dict(title="Readmitted patients", showgrid=True,
+                           gridcolor="#EBF3FB", range=[0, max_readmit * 1.3]),
+                yaxis=dict(showgrid=False),
+                showlegend=False,
+            )
+            _pc(fig)
+
+    # ── General Male readmission profile (full-width block) ────────────────────
+    _gap(12)
+    with st.container():
+        st.markdown("**General Male Readmission Profile**")
+        gm1, gm2, gm3 = st.columns(3)
+        for col_card, (lbl_txt, val_txt, sub_txt) in zip(
+            [gm1, gm2, gm3],
+            [
+                ("Top age group",    "Senior (65+)",   "21 of 31 readmissions · 67.7%"),
+                ("Top condition",    "NCD — Oncology", "8 readmissions incl. HIV+Oncology comorbidity"),
+                ("Repeat admitters", "7 patients",     "Admitted 3+ times · chronic disease revolving door"),
+            ],
+        ):
+            with col_card:
+                st.markdown(
+                    f'<div style="background:#F4F8FC;border-radius:8px;'
+                    f'padding:10px 12px;margin-bottom:8px">'
+                    f'<div style="font-size:10px;font-weight:600;color:#6B8CAE;'
+                    f'text-transform:uppercase;letter-spacing:1px">{lbl_txt}</div>'
+                    f'<div style="font-size:15px;font-weight:700;color:#003467;'
+                    f'margin:3px 0">{val_txt}</div>'
+                    f'<div style="font-size:10px;color:#6B8CAE">{sub_txt}</div></div>',
+                    unsafe_allow_html=True,
+                )
+
+        gcl, gcr = st.columns([1, 1])
+        with gcl:
+            if not df_genmale.empty and "age_band" in df_genmale.columns:
+                age_vc = df_genmale["age_band"].value_counts().reset_index()
+                age_vc.columns = ["age_band", "count"]
+            else:
+                age_vc = pd.DataFrame({
+                    "age_band": ["Senior (65+)", "Older Adult (55-64)",
+                                 "Middle Age (45-54)", "Adult (35-44)"],
+                    "count": [21, 5, 3, 2],
+                })
+            age_vc["colour"] = age_vc["count"].apply(
+                lambda c: _RED if c >= 10 else (_AMBER if c >= 5 else _BLUE)
+            )
+            age_vc = age_vc.sort_values("count", ascending=True)
+            fig = go.Figure(go.Bar(
+                y=age_vc["age_band"],
+                x=age_vc["count"],
+                orientation="h",
+                marker_color=age_vc["colour"].tolist(),
+                text=age_vc["count"],
+                textposition="outside",
+                textfont=dict(size=11, color="#003467"),
+            ))
+            fig.update_layout(
+                height=260,
+                margin=dict(l=0, r=30, t=10, b=10),
+                plot_bgcolor="white", paper_bgcolor="white",
+                xaxis=dict(title="Readmissions", showgrid=True, gridcolor="#EBF3FB"),
+                yaxis=dict(showgrid=False),
+                showlegend=False,
+            )
+            st.plotly_chart(fig, use_container_width=True, config=_CFG)
+
+        with gcr:
+            _TYPE_BADGE = {
+                "Chronic": '<span style="display:inline-block;font-size:11px;padding:2px 8px;border-radius:6px;font-weight:500;background:#FCEBEB;color:#791F1F">Chronic</span>',
+                "Acute":   '<span style="display:inline-block;font-size:11px;padding:2px 8px;border-radius:6px;font-weight:500;background:#E1F5EE;color:#085041">Acute</span>',
+            }
+            _gm_df = pd.DataFrame({
+                "Condition":    ["NCD — Oncology", "HIV/AIDS + Oncology",
+                                 "NCD — Neurologic", "BPH + Renal", "Typhoid"],
+                "Readmissions": [6, 2, 2, 2, 1],
+                "Type":         [_TYPE_BADGE.get(t, t) for t in
+                                 ["Chronic", "Chronic", "Chronic", "Chronic", "Acute"]],
+                "Pattern":      ["Repeat admitters", "Comorbid",
+                                 "Stable → returned", "Stable → returned",
+                                 "Single episode"],
+            })
+            render_sortable_table(_gm_df, height=220, key="gm_conditions")
+
+    _ic1, _ic2, _ic3 = st.columns(3)
+    _INSIGHT_CARDS = [
+        (_ic1, "warn", [
+            "21 of 31 General Male readmissions are Senior (65+) patients.",
+            "NCD-Oncology is the leading condition — 7 patients admitted 3+ times.",
+            "Action: review whether structured oncology outpatient management would reduce "
+            "revolving-door admissions.",
+        ]),
+        (_ic2, "info", [
+            "30 stable-discharge readmissions = wrong discharge decision — highest clinical priority.",
+            "42 patient-request readmissions = patient chose to leave — counselling and retention gap.",
+        ]),
+        (_ic3, "warn", [
+            "Elderly oncology patients with no curative pathway are driving the 8.29% rate.",
+            "Action: clinical review for palliative care or structured outpatient oncology "
+            "pathway for repeat admitters.",
+        ]),
+    ]
+    for _col, _variant, _items in _INSIGHT_CARDS:
+        with _col:
+            _insight(_items, variant=_variant)
+
+    _gap(12)
+
+    # ── Layer 3 ────────────────────────────────────────────────────────────────
+    _lbl("Layer 3 — Avg LOS before readmission vs LOS at readmission visit")
+    lc1, lc2 = st.columns(2)
+
+    with lc1:
+        if not df_c3.empty:
+            idx = (df_c3[df_c3["is_30day_readmission"] == False]
+                   [["ward_name", "avg_los"]]
+                   .rename(columns={"avg_los": "before"}))
+            rdm = (df_c3[df_c3["is_30day_readmission"] == True]
+                   [["ward_name", "avg_los"]]
+                   .rename(columns={"avg_los": "readmit"}))
+            l3 = (idx.merge(rdm, on="ward_name", how="inner")
+                  .pipe(lambda d: d[d["ward_name"].str.lower() != "private maternity"])
+                  .dropna(subset=["before", "readmit"]))
+            _sub("A longer stay at readmission than before — when both are above the ward "
+                 "median — is a premature discharge signal.")
+            fig = go.Figure()
+            fig.add_trace(go.Bar(
+                name="Avg LOS before readmission",
+                x=l3["ward_name"], y=l3["before"],
+                marker_color="rgba(24,95,165,0.75)",
+            ))
+            fig.add_trace(go.Bar(
+                name="Avg LOS at readmission",
+                x=l3["ward_name"], y=l3["readmit"],
+                marker_color="rgba(226,75,74,0.85)",
+            ))
+            fig.update_layout(
+                height=300,
+                margin=dict(l=0, r=0, t=10, b=10),
+                plot_bgcolor="white", paper_bgcolor="white",
+                barmode="group",
+                xaxis=dict(showgrid=False),
+                yaxis=dict(title="Avg LOS (days)", showgrid=True, gridcolor="#EBF3FB"),
+                legend=dict(orientation="h", y=1.08, x=0,
+                            font=dict(size=11)),
+            )
+            _pc(fig)
+
+    with lc2:
+        _sub("LOS comparison summary per ward")
+        for sig in [
+            {
+                "ward": "General Maternity",
+                "before": "3.1 days avg", "after": "15.4 days avg",
+                "signal": "5× longer — concern",
+                "color": _RED,
+                "sub": ("Under insurance, 5× longer readmission stays are the highest risk "
+                        "for claim dispute on grounds of preventable readmission."),
+            },
+            {
+                "ward": "General Female",
+                "before": "3.5 days avg", "after": "6.8 days avg",
+                "signal": "Nearly 2× longer — concern",
+                "color": _RED,
+                "sub": "",
+            },
+            {
+                "ward": "Pediatric General",
+                "before": "2.7 days avg", "after": "2.2 days avg",
+                "signal": "Shorter — no premature discharge signal",
+                "color": _GREEN,
+                "sub": "",
+            },
+        ]:
+            sub_html = (
+                f'<div style="font-size:11px;color:#6B8CAE;margin-top:4px">{sig["sub"]}</div>'
+                if sig["sub"] else ""
+            )
+            st.markdown(
+                f'<div style="border:0.5px solid #D6E4F0;border-radius:8px;'
+                f'padding:12px 14px;margin-bottom:8px">'
+                f'<div style="font-size:12px;font-weight:600;color:#003467">{sig["ward"]}</div>'
+                f'<div style="font-size:11px;color:#6B8CAE;margin-top:2px">'
+                f'Before: {sig["before"]} → At readmission: {sig["after"]}</div>'
+                f'<div style="font-size:13px;font-weight:700;color:{sig["color"]};margin-top:4px">'
+                f'{sig["signal"]}</div>{sub_html}</div>',
+                unsafe_allow_html=True,
+            )
+
+    _gap(12)
+
+    # ── Layer 4 ────────────────────────────────────────────────────────────────
+    _lbl("Layer 4 — When are patients returning and why?")
+
+    _BAND_ORDER = ["0-7 days (early)", "8-14 days", "15-30 days (late)"]
+    _BAND_COLORS = {
+        "0-7 days (early)":  _RED,
+        "8-14 days":         _AMBER,
+        "15-30 days (late)": _BLUE,
+    }
+    # en-dash band labels used by df_c_l4c (query pre-computes these)
+    _COND_BAND_KEYS   = ["0–7d (early)", "8–14d", "15–30d (late)"]
+    _COND_BAND_SPACER = ["0–7d (early)", "", "8–14d", "", "15–30d (late)"]
+
+    _COND_COLOURS = {
+        "Oncology":               "#0F6E56",   # dark green
+        "HIV/AIDS":               "#534AB7",   # purple
+        "Cardiovascular":         "#185FA5",   # blue
+        "Other Infectious":       "#E24B4A",   # red
+        "Neurologic":             "#7B9EB8",   # steel blue-grey
+        "Trauma":                 "#BA7517",   # amber
+        "Typhoid":                "#1AADA4",   # teal (distinct from Cardiovascular)
+        "Genitourinary":          "#8B6FC8",   # light purple (distinct from HIV/AIDS)
+        "Communicable":           "#D4537E",   # pink
+        "STI":                    "#FF7096",   # light pink
+        "Musculoskeletal":        "#B4B2A9",   # muted grey
+        "Inflammatory Bowel":     "#C8956E",   # warm peach
+        "Gastritis & Duodenitis": "#C8956E",   # warm peach
+        "Hypertension":           "#4472C4",   # medium blue
+        "BPH":                    "#C4A882",   # tan
+        "BPH / Renal":            "#C4A882",   # tan
+        "Anaemia":                "#8FA8A4",   # sage
+        "LRTI / Pneumonia":       "#6BAED6",   # sky blue
+        "Pulmonary Vascular":     "#CE7BB0",   # mauve
+        "Stroke":                 "#4A4E69",   # dark purple-grey
+        "Sickle Cell":            "#3DAA6A",   # bright green
+        "UTI":                    "#9DB8A0",   # sage green
+        "Other":                  "#6E6D6A",   # dark muted
+    }
+
+    def _primary_condition(s):
+        if pd.isna(s) or str(s).strip() in ("", "nan", "None"):
+            return "Other"
+        first = str(s).split("+")[0].strip()
+        for sep in [" - ", ": "]:
+            if sep in first:
+                first = first.split(sep, 1)[-1]
+        return first
+
+    if not df_c_l4c.empty:
+        df_c_l4c = df_c_l4c.copy()
+        df_c_l4c["primary_cond"] = df_c_l4c["final_disease_burden_group"].apply(
+            _primary_condition
+        )
+
+    selected_ward = "General Male"
+    la1, la2 = st.columns([1, 1])
+
+    with la1:
+        _card_title("Return window × discharge reason — all wards")
+        _sub("Each ward grouped by return window. Legend % = each window's share of "
+             "total 30-day returns.")
+        if not df_c4d.empty:
+            aw = (
+                df_c4d[df_c4d["return_band"].notna()]
+                .groupby(["ward_name", "return_band"])["readmissions"]
+                .sum().reset_index()
+            )
+            grand_total = aw["readmissions"].sum() or 1
+            band_pct = (
+                aw.groupby("return_band")["readmissions"].sum() / grand_total * 100
+            ).round(1)
+            _BAND_DISP = {
+                "0-7 days (early)":  f"0–7d early ({band_pct.get('0-7 days (early)', 0):.1f}%)",
+                "8-14 days":         f"8–14d ({band_pct.get('8-14 days', 0):.1f}%)",
+                "15-30 days (late)": f"15–30d late ({band_pct.get('15-30 days (late)', 0):.1f}%)",
+            }
+            # custom HTML legend above chart
+            legend_l4 = " · ".join([
+                f'<span style="display:inline-flex;align-items:center;gap:5px">'
+                f'<span style="width:10px;height:10px;background:{_BAND_COLORS[b]};'
+                f'border-radius:2px;display:inline-block"></span>'
+                f'<span style="font-size:11px;color:#003467">{_BAND_DISP[b]}</span></span>'
+                for b in _BAND_ORDER
+            ])
+            st.markdown(f'<div style="margin-bottom:8px">{legend_l4}</div>',
+                        unsafe_allow_html=True)
+            ward_order = (
+                aw.groupby("ward_name")["readmissions"].sum()
+                .sort_values(ascending=False).index.tolist()
+            )
+            fig = go.Figure()
+            for band in _BAND_ORDER:
+                sub = aw[aw["return_band"] == band].set_index("ward_name")
+                y_vals = [int(sub.loc[w, "readmissions"]) if w in sub.index else 0
+                          for w in ward_order]
+                fig.add_trace(go.Bar(
+                    name=_BAND_DISP[band],
+                    x=ward_order,
+                    y=y_vals,
+                    marker_color=_BAND_COLORS[band],
+                    showlegend=False,
+                    hovertemplate="%{x}: %{y} readmissions<extra></extra>",
+                ))
+            fig.update_layout(
+                height=340,
+                margin=dict(l=0, r=0, t=10, b=60),
+                plot_bgcolor="white", paper_bgcolor="white",
+                barmode="group",
+                xaxis=dict(showgrid=False, tickfont=dict(size=10), tickangle=-20),
+                yaxis=dict(title="Readmissions", showgrid=True, gridcolor="#EBF3FB"),
+            )
+            _pc(fig)
+
+    with la2:
+        _card_title("Conditions driving readmissions — by return window")
+        _sub("Each column is a return window. Stacked segments show which conditions "
+             "are driving returns within that window.")
+        selected_ward = st.selectbox(
+            "Select ward",
+            ["General Male", "General Female", "Pediatric General"],
+            key="layer4_ward",
+        )
+        if not df_c_l4c.empty:
+            ward_df = df_c_l4c[df_c_l4c["ward_name"] == selected_ward].copy()
+            cond_band = (
+                ward_df.groupby(["return_band", "primary_cond"])
+                .size().reset_index(name="patients")
+            )
+            # sort by total count descending so largest segment sits at bottom
+            cond_totals = (
+                cond_band.groupby("primary_cond")["patients"].sum()
+                .sort_values(ascending=False)
+            )
+            sorted_conds = cond_totals.index.tolist()
+
+            # pivot: index=return_band, columns=primary_cond
+            pivot = cond_band.pivot_table(
+                index="return_band", columns="primary_cond",
+                values="patients", aggfunc="sum", fill_value=0,
+            )
+
+            # numeric x-axis: 0=early, 1=spacer, 2=mid, 3=spacer, 4=late
+            _X_POS   = [0, 1, 2, 3, 4]
+            _X_TICKS = [0, 2, 4]
+            _X_LBLS  = ["0–7d · early", "8–14d", "15–30d · late"]
+            _BAND_TO_IDX = {
+                _COND_BAND_KEYS[0]: 0,
+                _COND_BAND_KEYS[1]: 2,
+                _COND_BAND_KEYS[2]: 4,
+            }
+
+            # band header HTML above chart
+            st.markdown(
+                '<div style="display:flex;justify-content:space-around;'
+                'font-family:Montserrat,sans-serif;font-size:10px;font-weight:500;'
+                'color:#888780;letter-spacing:0.06em;text-transform:uppercase;'
+                'padding:0 12%;margin-bottom:2px">'
+                '<span>0–7D · EARLY</span><span>8–14D</span><span>15–30D · LATE</span>'
+                '</div>',
+                unsafe_allow_html=True,
+            )
+
+            fig = go.Figure()
+            for cond in sorted_conds:
+                y5 = [0, 0, 0, 0, 0]
+                for band, idx in _BAND_TO_IDX.items():
+                    if band in pivot.index and cond in pivot.columns:
+                        y5[idx] = int(pivot.loc[band, cond])
+                if sum(y5) == 0:
+                    continue
+                fig.add_trace(go.Bar(
+                    name=cond,
+                    x=_X_POS,
+                    y=y5,
+                    marker_color=_COND_COLOURS.get(cond, _MUTED),
+                    marker_line_width=0,
+                    width=[0.65, 0, 0.65, 0, 0.65],
+                    showlegend=False,
+                    hovertemplate=f"{cond}: %{{y}}<extra></extra>",
+                ))
+
+            # dashed dividers between bands
+            for xp in [1.5, 3.5]:
+                fig.add_shape(
+                    type="line", x0=xp, x1=xp, y0=0, y1=1, yref="paper",
+                    line=dict(color="rgba(128,128,128,0.2)", width=1, dash="dot"),
+                )
+            # subtle shading on outer bands
+            for x0, x1 in [(-0.5, 0.5), (3.5, 4.5)]:
+                fig.add_shape(
+                    type="rect", x0=x0, x1=x1, y0=0, y1=1, yref="paper",
+                    fillcolor="rgba(0,0,0,0.025)", line_width=0, layer="below",
+                )
+
+            fig.update_layout(
+                barmode="stack",
+                showlegend=False,
+                height=320,
+                margin=dict(t=8, b=40, l=40, r=10),
+                plot_bgcolor="rgba(0,0,0,0)",
+                paper_bgcolor="rgba(0,0,0,0)",
+                xaxis=dict(
+                    tickmode="array",
+                    tickvals=_X_TICKS,
+                    ticktext=_X_LBLS,
+                    range=[-0.6, 4.6],
+                    showgrid=False,
+                    tickfont=dict(size=11, family="Inter, sans-serif", color="#888780"),
+                    fixedrange=True,
+                ),
+                yaxis=dict(
+                    gridcolor="rgba(128,128,128,0.08)",
+                    tickfont=dict(size=11, family="Inter, sans-serif", color="#888780"),
+                    title=dict(text="Patients",
+                               font=dict(size=11, family="Inter, sans-serif",
+                                         color="#888780")),
+                    fixedrange=True,
+                ),
+            )
+            _pc(fig)
+
+            # dot legend — only active conditions, wraps automatically
+            active_conds = [c for c in sorted_conds
+                            if cond_totals.get(c, 0) > 0]
+            dot_legend = " ".join([
+                f'<span style="display:inline-flex;align-items:center;gap:3px;'
+                f'font-size:11px;color:var(--text-color);margin-right:10px">'
+                f'<span style="width:8px;height:8px;border-radius:50%;flex-shrink:0;'
+                f'background:{_COND_COLOURS.get(c, _MUTED)}"></span>{c}</span>'
+                for c in active_conds
+            ])
+            st.markdown(
+                f'<div style="display:flex;flex-wrap:wrap;margin-top:8px">'
+                f'{dot_legend}</div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            st.info("Condition data not available.")
+
+    # dynamic insight bar keyed to selected ward
+    def _l4_insight(ward: str, df: pd.DataFrame) -> list:
+        wd      = df[df["ward_name"] == ward]
+        early   = wd[wd["return_band"] == _COND_BAND_KEYS[0]]
+        late    = wd[wd["return_band"] == _COND_BAND_KEYS[2]]
+        total   = len(wd)
+        early_n = len(early)
+        late_n  = len(late)
+        early_pct = round(early_n / total * 100) if total else 0
+        def _top(grp):
+            vc = grp["primary_cond"].value_counts()
+            return vc.index[0] if len(vc) else "Unknown"
+        early_top = _top(early)
+        late_top  = _top(late)
+        if ward == "General Male":
+            return [
+                f"General Male has two distinct spikes. Early returns (0–7d, "
+                f"{early_n} patients) led by {early_top} — patients deteriorating "
+                f"immediately after discharge.",
+                f"Late returns (15–30d, {late_n} patients) dominated by {late_top} "
+                f"— disease progression within the month, not a discharge failure.",
+                "Action: 0–7d needs a same-day or next-day review protocol; "
+                "15–30d needs structured follow-up recall within 14 days.",
+            ]
+        else:
+            return [
+                f"{ward}: early returns dominate ({early_n} of {total} = {early_pct}%). "
+                f"{early_top} is the leading condition.",
+                f"Action: review discharge criteria for {early_top} presentations — "
+                f"confirm resolution before discharge, not only clinical improvement.",
+            ]
+
+    if not df_c_l4c.empty and "primary_cond" in df_c_l4c.columns:
+        _insight(_l4_insight(selected_ward, df_c_l4c), variant="warn")
+    else:
+        _insight([
+            "General Male 0–7d returns: patient-request (left before ready) and "
+            "clinician-stable (deteriorated immediately) — two separate problems.",
+            "General Male 15–30d returns: elderly oncology disease progression "
+            "within the month.",
+            "Action: 0–7d needs patient retention protocol; 15–30d needs "
+            "structured follow-up recall.",
+        ], variant="warn")
+
+    # ── Layer 5 — TCA documentation (full-width 3-column row) ─────────────────
+    _gap(12)
+    _lbl("Layer 5 — TCA documentation and follow-up OPD visit")
+
+    if not df_c5.empty:
+        rdm_rows  = df_c5[df_c5["is_30day_readmission"] == True]
+        total_rdm = int(rdm_rows["total_admissions"].sum()) if not rdm_rows.empty else 127
+        tca_ct    = int(rdm_rows["tca_documented_count"].sum()) if not rdm_rows.empty else 46
+        tca_pct   = round(tca_ct / total_rdm * 100) if total_rdm else 36
+        opd_ct    = int(rdm_rows["had_followup_opd_count"].sum()) if not rdm_rows.empty else total_rdm
+        opd_pct   = round(opd_ct / total_rdm * 100) if total_rdm else 100
+    else:
+        tca_pct, opd_pct, tca_ct, total_rdm = 36, 100, 46, 127
+
+    l5c1, l5c2, l5c3 = st.columns(3)
+
+    for l5col, lbl_txt, val_txt, sub_txt, val_col in [
+        (l5c1, "TCA documented at discharge",
+         f"{tca_pct}%",
+         f"{tca_ct} of {total_rdm} readmissions had a follow-up date",
+         _RED),
+        (l5c2, "Had OPD visit before readmission",
+         f"{opd_pct}%",
+         "All readmitted patients visited OPD before returning",
+         _BLUE),
+    ]:
+        with l5col:
+            st.markdown(
+                f'<div style="border:0.5px solid #D6E4F0;border-radius:8px;'
+                f'padding:14px 16px;height:100%">'
+                f'<div style="font-size:10px;font-weight:600;color:#6B8CAE;'
+                f'text-transform:uppercase;letter-spacing:1px">{lbl_txt}</div>'
+                f'<div style="font-size:32px;font-weight:700;color:{val_col};margin:6px 0">'
+                f'{val_txt}</div>'
+                f'<div style="font-size:11px;color:#6B8CAE">{sub_txt}</div></div>',
+                unsafe_allow_html=True,
+            )
+
+    with l5c3:
+        _insight([
+            "64% of readmitted patients left without a scheduled follow-up date.",
+            "Action: make TCA documentation mandatory before ward discharge, "
+            "especially General Male.",
+        ], variant="warn")
+        _insight([
+            "All readmitted patients returned via OPD — the care pathway is working.",
+            "Returns were unplanned in 64% of cases — reactive, not proactive.",
+        ], variant="info")
+
+    _gap(16)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # SECTION D — DIAGNOSIS-DRIVEN READMISSION
+    # ══════════════════════════════════════════════════════════════════════════
+    _sec("D — DIAGNOSIS-DRIVEN READMISSION")
+
+    if not df_d.empty:
+        dagg = (
+            df_d.groupby("final_disease_burden_group")
+            .agg(
+                total=("total_admissions", "sum"),
+                readmit=("readmissions_30d", "sum"),
+                discharges=("total_discharges", "sum"),
+            )
+            .reset_index()
+        )
+        dagg["rate"] = (
+            dagg["readmit"]
+            / dagg["discharges"].replace(0, float("nan"))
+            * 100
+        ).round(2)
+        diag_filtered = (
+            dagg[(dagg["readmit"] >= 1) & (dagg["total"] >= 3)]
+            .dropna(subset=["rate"])
+            .sort_values("rate", ascending=True)
+        )
+        diag_filtered["colour"] = diag_filtered["rate"].apply(
+            lambda r: _RED if r >= 10 else (_AMBER if r >= 5 else _BLUE)
+        )
+        diag_filtered["label"] = diag_filtered["final_disease_burden_group"].apply(
+            lambda x: (x.split(" - ")[-1].split(": ")[-1]
+                       if " - " in str(x) or ": " in str(x) else str(x))
+        )
+    else:
+        diag_filtered = pd.DataFrame()
+
+    dc1, dc2 = st.columns([1, 1])
+
+    with dc1:
+        _card_title("Readmission Rate by Diagnosis")
+        if not diag_filtered.empty:
+            st.markdown(
+                f'<div style="font-size:11px;margin-bottom:6px">'
+                f'<span style="color:{_RED}">● ≥10% rate</span>&nbsp;·&nbsp;'
+                f'<span style="color:{_AMBER}">● 5–10%</span>&nbsp;·&nbsp;'
+                f'<span style="color:{_BLUE}">● &lt;5%</span></div>',
+                unsafe_allow_html=True,
+            )
+            fig = go.Figure(go.Bar(
+                y=diag_filtered["label"],
+                x=diag_filtered["rate"],
+                orientation="h",
+                marker_color=diag_filtered["colour"].tolist(),
+                marker_line=dict(width=0),
+                text=diag_filtered["rate"].apply(lambda v: f"{v:.1f}%"),
+                textposition="auto",
+                textfont=dict(size=11, color="white"),
+                insidetextanchor="middle",
+            ))
+            fig.update_layout(
+                height=max(700, len(diag_filtered) * 44 + 60),
+                margin=dict(l=0, r=20, t=10, b=10),
+                plot_bgcolor="white", paper_bgcolor="white",
+                bargap=0.3,
+                xaxis=dict(title="Readmission rate (%)", showgrid=True,
+                           gridcolor="#EBF3FB", range=[0, 50]),
+                yaxis=dict(showgrid=False, tickfont=dict(size=11)),
+                showlegend=False,
+            )
+            with st.container(height=460, border=False):
+                _pc(fig)
+            _insight([
+                "Priority 1: NCD-Cardiovascular (18.2%) and NCD-Oncology (15.1%) — "
+                "international priority reduction targets.",
+                "Priority 2: Genitourinary (12.5%), Sickle Cell (12.5%), HIV+Hernia (16.7%).",
+                "Action: structured discharge protocols and scheduled follow-up for these "
+                "five conditions.",
+            ], variant="warn")
+
+    with dc2:
+        _card_title("Priority conditions by admissions and readmission count")
+        if not diag_filtered.empty:
+            tbl = (
+                diag_filtered.sort_values("readmit", ascending=False)
+                .head(10).copy()
+            )
+
+            def _flag(r):
+                if r >= 10:
+                    return ("Priority", _RED)
+                elif r >= 5:
+                    return ("Monitor", _AMBER)
+                else:
+                    return ("Standard", _GREEN)
+
+            rows_html = ""
+            for _, row in tbl.iterrows():
+                flag_lbl, flag_col = _flag(row["rate"])
+                rate_col = (
+                    _RED   if row["rate"] >= 10
+                    else (_AMBER if row["rate"] >= 5 else "inherit")
+                )
+                rdm_col = (
+                    _RED   if row["readmit"] >= 10
+                    else (_AMBER if row["readmit"] >= 3 else "inherit")
+                )
+                rdm_fw  = "700" if rdm_col  != "inherit" else "400"
+                rate_fw = "700" if rate_col != "inherit" else "400"
+                rows_html += (
+                    f'<tr style="border-bottom:1px solid rgba(128,128,128,0.1)">'
+                    f'<td style="padding:10px 8px;font-weight:600;font-size:12px;'
+                    f'color:var(--text-color)">{row["label"]}</td>'
+                    f'<td style="padding:10px 8px;text-align:right;font-size:12px;'
+                    f'color:var(--text-color)">{int(row["total"])}</td>'
+                    f'<td style="padding:10px 8px;text-align:right;font-size:12px;'
+                    f'color:{rdm_col};font-weight:{rdm_fw}">{int(row["readmit"])}</td>'
+                    f'<td style="padding:10px 8px;text-align:right;font-size:12px;'
+                    f'color:{rate_col};font-weight:{rate_fw}">{row["rate"]:.1f}%</td>'
+                    f'<td style="padding:10px 8px;text-align:center">'
+                    f'<span style="background:{flag_col};color:white;font-size:10px;'
+                    f'font-weight:700;padding:3px 10px;border-radius:12px;'
+                    f'display:inline-block;white-space:nowrap">{flag_lbl}</span>'
+                    f'</td></tr>'
+                )
+
+            _th = (
+                "padding:9px 8px;text-align:{a};font-size:10px;color:#888780;"
+                "font-weight:700;text-transform:uppercase;letter-spacing:0.05em;"
+                "border-bottom:2px solid rgba(128,128,128,0.15)"
+            )
+            table_html = (
+                '<table style="width:100%;border-collapse:collapse">'
+                '<thead><tr>'
+                f'<th style="{_th.format(a="left")}">Diagnosis</th>'
+                f'<th style="{_th.format(a="right")}">Admissions</th>'
+                f'<th style="{_th.format(a="right")}">Readmissions</th>'
+                f'<th style="{_th.format(a="right")}">Rate</th>'
+                f'<th style="{_th.format(a="center")}">Flag</th>'
+                f'</tr></thead>'
+                f'<tbody>{rows_html}</tbody>'
+                f'</table>'
+            )
+            st.markdown(table_html, unsafe_allow_html=True)
+
+    _gap(16)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # SECTION E — COMMUNITY INFECTION BURDEN
+    # ══════════════════════════════════════════════════════════════════════════
+    _sec("E — COMMUNITY INFECTION BURDEN BY WARD")
+    ec1, ec2 = st.columns([1, 1])
+
+    with ec1:
+        _card_title("Communicable Disease Share per Ward")
+        _sub("Proportion of each ward's admissions that are communicable disease. "
+             "Wards above 60% are infection-dominant.")
+        if not df_e.empty:
+            wi = df_e.groupby("ward_name").agg(
+                total=("total_admissions", "sum"),
+                comm=("communicable_admissions", "sum"),
+            ).reset_index()
+            wi["comm_pct"]  = (
+                wi["comm"] / wi["total"].replace(0, float("nan")) * 100
+            ).round(1).fillna(0)
+            wi["other_pct"] = (100 - wi["comm_pct"]).clip(lower=0)
+            wi = wi.sort_values("comm_pct", ascending=True)
+            fig = go.Figure()
+            fig.add_trace(go.Bar(
+                name="Communicable %",
+                y=wi["ward_name"], x=wi["comm_pct"],
+                orientation="h",
+                marker_color=_RED,
+                text=wi["comm_pct"].apply(lambda v: f"{v:.0f}%"),
+                textposition="inside",
+                textfont=dict(color="white", size=11),
+            ))
+            fig.add_trace(go.Bar(
+                name="Other %",
+                y=wi["ward_name"], x=wi["other_pct"],
+                orientation="h",
+                marker_color="rgba(180,178,169,0.25)",
+                showlegend=False,
+            ))
+            fig.update_layout(
+                height=max(500, len(wi) * 52 + 80),
+                margin=dict(l=0, r=0, t=10, b=10),
+                plot_bgcolor="white", paper_bgcolor="white",
+                barmode="stack",
+                xaxis=dict(title="% of admissions", range=[0, 100],
+                           showgrid=True, gridcolor="#EBF3FB"),
+                yaxis=dict(showgrid=False),
+                legend=dict(orientation="h", y=1.05, x=0, font=dict(size=11)),
+            )
+            with st.container(height=460, border=False):
+                _pc(fig)
+
+    with ec2:
+        _card_title("Top Communicable Conditions per Ward")
+        _sub("Breakdown of infection-type admissions by ward — Typhoid, Malaria, "
+             "Sepsis / Other Infectious, Respiratory.")
+        if not df_e.empty:
+            _wc = df_e.groupby("ward_name").agg(
+                typhoid=("typhoid_admissions", "sum"),
+                malaria=("malaria_admissions", "sum"),
+                sepsis_other=("sepsis_other_admissions", "sum"),
+                respiratory=("respiratory_infection_admissions", "sum"),
+                total_comm=("communicable_admissions", "sum"),
+            ).reset_index()
+            _wc["other_comm"] = (
+                _wc["total_comm"]
+                - _wc["typhoid"] - _wc["malaria"]
+                - _wc["sepsis_other"] - _wc["respiratory"]
+            ).clip(lower=0)
+            _wc = _wc[_wc["total_comm"] > 0].sort_values("total_comm", ascending=True)
+            _comm_segs = [
+                ("Typhoid",              "typhoid",       "#E24B4A"),
+                ("Malaria",              "malaria",       "#BA7517"),
+                ("Sepsis / Other Inf.",  "sepsis_other",  "#534AB7"),
+                ("Respiratory Inf.",     "respiratory",   "#185FA5"),
+                ("Other Communicable",   "other_comm",    "#D3D1C7"),
+            ]
+            fig_wc = go.Figure()
+            for _lbl, _col, _clr in _comm_segs:
+                fig_wc.add_trace(go.Bar(
+                    name=_lbl,
+                    y=_wc["ward_name"], x=_wc[_col],
+                    orientation="h",
+                    marker_color=_clr,
+                    showlegend=True,
+                    hovertemplate=f"{_lbl}: %{{x}} admissions<extra></extra>",
+                ))
+            fig_wc.update_layout(
+                height=max(500, len(_wc) * 52 + 80),
+                margin=dict(l=0, r=0, t=10, b=80),
+                plot_bgcolor="white", paper_bgcolor="white",
+                barmode="stack",
+                xaxis=dict(title="Communicable admissions",
+                           showgrid=True, gridcolor="#EBF3FB"),
+                yaxis=dict(showgrid=False),
+                legend=dict(
+                    orientation="h", x=0, y=-0.15,
+                    font=dict(size=11),
+                    traceorder="normal",
+                ),
+            )
+            with st.container(height=460, border=False):
+                _pc(fig_wc)
+
+    # ── Sepsis LOS Outlier Analysis ────────────────────────────────────────────
+    _gap(16)
+    _card_title("Sepsis LOS Outlier Analysis — Clinical Origin of Extended Stays")
+    _sub("Sepsis admissions exceeding each ward's IQR upper fence, classified by "
+         "prior contact history to identify preventable vs community-acquired stays.")
+
+    df_sepsis = _load(Q.load_ca_sepsis_enriched, "Sepsis enriched")
+
+    if not df_sepsis.empty:
+        total      = len(df_sepsis)
+        bonnke_n   = df_sepsis["notes_diagnosis"].str.contains("Bonnke", na=False).sum()
+        bonnke_pct = round(bonnke_n / total * 100) if total else 0
+
+        _df      = df_sepsis.copy()
+        _has_opd = "last_opd_days_before" in _df.columns
+
+        def _classify_sepsis(row):
+            _ip   = pd.notna(row["prior_condition_display"])
+            _days = row["prior_condition_days"]
+            _opd  = row["last_opd_days_before"] if _has_opd else float("nan")
+            if _ip and pd.notna(_days) and _days == 0:
+                return "comorbid"
+            if _ip and pd.notna(_days) and 1 <= _days <= 30:
+                return "prior_ip"
+            if not _ip and pd.notna(_opd) and 1 <= _opd <= 30:
+                return "prior_opd"
+            if not _ip and (pd.isna(_opd) or _opd > 30):
+                return "no_prior"
+            return "outside"
+
+        _df["_grp"]  = _df.apply(_classify_sepsis, axis=1)
+        _comorbid_n  = int((_df["_grp"] == "comorbid").sum())
+        _prior_ip_n  = int((_df["_grp"] == "prior_ip").sum())
+        _prior_opd_n = int((_df["_grp"] == "prior_opd").sum())
+        _no_prior_n  = int((_df["_grp"] == "no_prior").sum())
+        _outside_n   = int((_df["_grp"] == "outside").sum())
+        _opd_note    = "" if _has_opd else " *OPD contact column not present"
+
+        def _pct(n): return f"{int(n / total * 100)}%" if total else "—"
+
+        # ── KPI cards ─────────────────────────────────────────────────────────
+        _kc1, _kc2, _kc3, _kc4 = st.columns(4)
+
+        def _sep_card(col, label, value, pct_str, sub, color):
+            col.markdown(
+                f'<div style="background:var(--secondary-background-color);'
+                f'border-radius:10px;padding:16px 18px;border-top:3px solid {color};">'
+                f'<div style="font-size:11px;font-weight:600;color:{color};'
+                f'text-transform:uppercase;letter-spacing:0.6px;margin-bottom:8px;">'
+                f'{label}</div>'
+                f'<div style="display:flex;align-items:baseline;gap:8px;">'
+                f'<span style="font-size:28px;font-weight:700;color:{color};">{value}</span>'
+                f'<span style="font-size:14px;color:{color};opacity:0.75;">{pct_str}</span>'
+                f'</div>'
+                f'<div style="font-size:11px;color:var(--text-color);opacity:0.55;margin-top:6px;">'
+                f'{sub}</div></div>',
+                unsafe_allow_html=True,
+            )
+
+        _sep_card(_kc1, "Comorbid at visit",       _comorbid_n,  _pct(_comorbid_n),
+                  "Condition coded on same Sepsis admission",           "#185FA5")
+        _sep_card(_kc2, "Prior inpatient ≤30d",    _prior_ip_n,  _pct(_prior_ip_n),
+                  "Traceable inpatient admission in prior 30 days",     "#BA7517")
+        _sep_card(_kc3, "Prior OPD only ≤30d",     _prior_opd_n, _pct(_prior_opd_n),
+                  f"OPD contact only — no prior inpatient{_opd_note}", "#EF9F27")
+        _sep_card(_kc4, "No prior contact",         _no_prior_n,  _pct(_no_prior_n),
+                  "Community-acquired — no OPD or inpatient history",   "#E24B4A")
+        _gap(16)
+
+        # ── Two charts ────────────────────────────────────────────────────────
+        _ccol1, _ccol2 = st.columns(2)
+
+        with _ccol1:
+            st.markdown("**Clinical origin of Sepsis outlier stays**")
+            _seg_labels = [
+                "Comorbid dx coded at visit",
+                "Prior inpatient ≤30d",
+                "Prior OPD only ≤30d",
+                "No prior contact",
+                "Outside 30d window / other",
+            ]
+            _seg_counts = [_comorbid_n, _prior_ip_n, _prior_opd_n, _no_prior_n, _outside_n]
+            _seg_colors = ["#185FA5", "#BA7517", "#EF9F27", "#E24B4A", "#D3D1C7"]
+            _leg_html = '<div style="display:flex;flex-wrap:wrap;gap:8px;font-size:11px;margin-bottom:6px;">'
+            for _sl, _sc, _sk in zip(_seg_labels, _seg_counts, _seg_colors):
+                _leg_html += (
+                    f'<span style="display:flex;align-items:center;gap:4px;">'
+                    f'<span style="width:10px;height:10px;border-radius:2px;'
+                    f'background:{_sk};display:inline-block;flex-shrink:0;"></span>'
+                    f'<strong>{_sc}</strong>&nbsp;{_sl}</span>'
+                )
+            _leg_html += '</div>'
+            st.markdown(_leg_html, unsafe_allow_html=True)
+            _fig_orig = go.Figure()
+            for _sl, _sc, _sk in zip(_seg_labels, _seg_counts, _seg_colors):
+                _fig_orig.add_trace(go.Bar(
+                    name=_sl, x=[_sc], y=["All patients"],
+                    orientation="h", marker_color=_sk, showlegend=False,
+                    hovertemplate=f"{_sl}: %{{x}} patients<extra></extra>",
+                ))
+            _fig_orig.update_layout(
+                height=220, margin=dict(l=0, r=0, t=10, b=40),
+                xaxis=dict(range=[0, total], dtick=2, title="Patients"),
+                yaxis=dict(showgrid=False), barmode="stack",
+                plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+            )
+            _pc(_fig_orig)
+
+            # ── Diagnosis pills (inside same column) ──────────────────────────
+            st.markdown("**Diagnoses by clinical origin**")
+            _pill_groups = [
+                ("comorbid",  "Comorbid at visit",    "#185FA5", "#E6F1FB", "#0C447C"),
+                ("prior_ip",  "Prior inpatient ≤30d", "#BA7517", "#FAEEDA", "#633806"),
+                ("prior_opd", "Prior OPD only ≤30d",  "#EF9F27", "#FAEEDA", "#633806"),
+                ("no_prior",  "No prior contact",      "#E24B4A", "#FCEBEB", "#791F1F"),
+                ("outside",   "Outside 30d / other",  "#888780", "#F1EFE8", "#444441"),
+            ]
+            _rendered_groups = []
+            for _gk, _gn, _gdot, _gpb, _gpt in _pill_groups:
+                _gdf = _df[_df["_grp"] == _gk]
+                if _gdf.empty:
+                    continue
+                _dx_set = set()
+                if _gk in ("comorbid", "prior_ip", "outside"):
+                    _dx_set.update(_gdf["prior_condition_display"].dropna().unique())
+                elif _gk == "prior_opd":
+                    if "last_opd_diagnosis" in _gdf.columns:
+                        _dx_set.update(_gdf["last_opd_diagnosis"].dropna().unique())
+                    _dx_set.update(_gdf["sepsis_condition"].dropna().unique())
+                else:
+                    _dx_set.update(_gdf["sepsis_condition"].dropna().unique())
+                _dx_list = sorted(
+                    v for v in _dx_set
+                    if v and str(v) not in ("No prior admission", "nan")
+                )
+                _pills = "".join(
+                    f'<span style="font-size:12px;padding:2px 7px;border-radius:20px;'
+                    f'background:{_gpb};color:{_gpt};margin:2px;display:inline-block;">'
+                    f'{_v}</span>'
+                    for _v in _dx_list
+                ) or f'<span style="font-size:12px;opacity:0.5;">—</span>'
+                _rendered_groups.append((_gn, _gdot, _gpb, _gpt, len(_gdf), _pills))
+
+            if _rendered_groups:
+                _cards_html = '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px;">'
+                for _gn, _gdot, _gpb, _gpt, _gcnt, _pills in _rendered_groups:
+                    _cards_html += (
+                        f'<div style="background:var(--secondary-background-color);'
+                        f'border-radius:6px;padding:8px 10px;min-width:120px;max-width:200px;">'
+                        f'<div style="display:flex;align-items:center;gap:5px;margin-bottom:6px;">'
+                        f'<span style="width:7px;height:7px;border-radius:1px;'
+                        f'background:{_gdot};display:inline-block;flex-shrink:0;"></span>'
+                        f'<span style="font-size:11px;font-weight:600;color:{_gdot};">{_gn}</span>'
+                        f'</div>'
+                        f'<div style="line-height:1.7;">{_pills}</div></div>'
+                    )
+                _cards_html += '</div>'
+                st.markdown(_cards_html, unsafe_allow_html=True)
+
+        with _ccol2:
+            st.markdown("**Average LOS — traceable prior condition vs no prior contact**")
+            _pm  = _df["prior_condition_display"].notna()
+            _npm = _df["prior_condition_display"].isna()
+            _p_avg  = float(_df.loc[_pm,  "los_days"].mean()) if _pm.any()  else 0.0
+            _np_avg = float(_df.loc[_npm, "los_days"].mean()) if _npm.any() else 0.0
+            _p_cnt  = int(_pm.sum())
+            _np_cnt = int(_npm.sum())
+            _los_leg = (
+                f'<div style="display:flex;gap:14px;font-size:11px;margin-bottom:6px;">'
+                f'<span style="display:flex;align-items:center;gap:4px;">'
+                f'<span style="width:10px;height:10px;border-radius:2px;'
+                f'background:#185FA5;display:inline-block;"></span>'
+                f'<strong>{_p_cnt}</strong>&nbsp;Has prior condition</span>'
+                f'<span style="display:flex;align-items:center;gap:4px;">'
+                f'<span style="width:10px;height:10px;border-radius:2px;'
+                f'background:#E24B4A;display:inline-block;"></span>'
+                f'<strong>{_np_cnt}</strong>&nbsp;No prior contact</span></div>'
+            )
+            st.markdown(_los_leg, unsafe_allow_html=True)
+            _fig_los = go.Figure()
+            _fig_los.add_trace(go.Bar(
+                x=[f"Has prior\ncondition\n({_p_cnt} pts)"], y=[_p_avg],
+                marker_color="#185FA5", showlegend=False,
+                text=[f"{_p_avg:.1f}d"], textposition="outside",
+                hovertemplate=f"Has prior condition: {_p_avg:.1f}d avg LOS<extra></extra>",
+            ))
+            _fig_los.add_trace(go.Bar(
+                x=[f"No prior\ncontact\n({_np_cnt} pts)"], y=[_np_avg],
+                marker_color="#E24B4A", showlegend=False,
+                text=[f"{_np_avg:.1f}d"], textposition="outside",
+                hovertemplate=f"No prior contact: {_np_avg:.1f}d avg LOS<extra></extra>",
+            ))
+            _fig_los.update_layout(
+                height=220, margin=dict(l=0, r=0, t=10, b=40),
+                yaxis=dict(range=[0, 22], dtick=2, ticksuffix="d", title="Avg LOS (days)"),
+                xaxis=dict(showgrid=False), barmode="group", bargap=0.4,
+                plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+            )
+            _pc(_fig_los)
+
+        # ── Insight callout ───────────────────────────────────────────────────
+        _diff = _np_avg - _p_avg
+        _insight([
+            f"{_no_prior_n} of {total} outlier patients ({_pct(_no_prior_n)}) are "
+            f"community-acquired first presentations — no OPD or inpatient history. "
+            f"These cannot be intercepted at OPD level; focus is on inpatient management protocol.",
+            f"Patients with a traceable prior condition averaged {_p_avg:.1f}d LOS vs "
+            f"{_np_avg:.1f}d for those without — a {abs(_diff):.1f}-day difference. "
+            f"Earlier recognition of the underlying condition may shorten the Sepsis episode.",
+            f"{bonnke_n} of {total} stays ({bonnke_pct}%) are attributed to the same clinician "
+            f"— clinical audit recommended. For the {_prior_opd_n} patients with prior OPD "
+            f"contact only, investigate whether escalation criteria were missed.",
+        ], variant="warn")
+
+    else:
+        st.info("No Sepsis LOS outlier data for the selected period.")
+
+    # ── Typhoid trend — full width ─────────────────────────────────────────────
+    _gap(12)
+    _card_title("Typhoid Monthly Admissions — Kisumu Total")
+    _sub("Rising from 4–6 per month in 2024 to 31 per month by Jan 2026. 7.2× increase.")
+    if not df_typh.empty:
+        tm = (
+            df_typh.groupby("month")["typhoid_admissions"]
+            .sum()
+            .reset_index()
+            .sort_values("month")
+        )
+        tm["month_dt"] = pd.to_datetime(tm["month"])
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=tm["month_dt"],
+            y=tm["typhoid_admissions"],
+            mode="lines+markers",
+            line=dict(color=_BLUE, width=2),
+            fill="tozeroy",
+            fillcolor="rgba(24,95,165,0.08)",
+            marker=dict(size=4, color=_BLUE),
+            showlegend=False,
+        ))
+        try:
+            fig.add_vline(
+                x=pd.Timestamp("2025-09-01").timestamp() * 1000,
+                line_dash="dash",
+                line_color=_RED,
+                line_width=1,
+                annotation_text="Sep 2025",
+                annotation_font_size=10,
+                annotation_font_color=_RED,
+                annotation_position="top right",
+            )
+        except Exception:
+            pass
+        fig.update_layout(
+            height=260,
+            margin=dict(l=0, r=0, t=10, b=10),
+            plot_bgcolor="white", paper_bgcolor="white",
+            xaxis=dict(showgrid=False, tickfont=dict(size=11, color="#6B8CAE")),
+            yaxis=dict(title="Typhoid admissions", showgrid=True,
+                       gridcolor="#EBF3FB", rangemode="tozero"),
+        )
+        _pc(fig)
+        _insight([
+            "Admissions increased 7.2× — baseline 4–6/month to 31/month by Jan 2026.",
+            "Sustained rise from September 2025, not a single outbreak event.",
+            "Action: escalate to public health — pattern warrants investigation and "
+            "community-level response.",
+        ], variant="warn")
+
+    _gap(16)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # SECTION F — OPD TO ADMISSION TIME
+    # ══════════════════════════════════════════════════════════════════════════
+    _sec("F — OPD TO ADMISSION TIME BY WARD")
+    fc1, fc2 = st.columns(2)
+
+    if not df_f.empty:
+        f_agg = (
+            df_f.groupby("ward_name")
+            .agg(median_hours=("median_hours_opd_to_admission", "median"))
+            .reset_index()
+            .sort_values("median_hours", ascending=True)
+        )
+        within_col = (
+            "admitted_within_4h" if "admitted_within_4h" in df_f.columns
+            else "admitted_within_6h"
+        )
+        tot_col = (
+            "total_admissions_with_prior_opd"
+            if "total_admissions_with_prior_opd" in df_f.columns
+            else within_col
+        )
+        f_4h = (
+            df_f.groupby("ward_name")
+            .agg(within4=(within_col, "sum"), total=(tot_col, "sum"))
+            .reset_index()
+        )
+        f_4h["pct"] = (
+            f_4h["within4"] / f_4h["total"].replace(0, float("nan")) * 100
+        ).round(1).fillna(0)
+        f_4h["colour"] = f_4h["pct"].apply(lambda p: _GREEN if p >= 95 else _BLUE)
+        f_4h = f_4h.sort_values("pct", ascending=True)
+
+        with fc1:
+            _card_title("Median Hours OPD to Admission")
+            _sub("All wards admit 90%+ of patients within 4 hours.")
+            fig = go.Figure(go.Bar(
+                y=f_agg["ward_name"],
+                x=f_agg["median_hours"],
+                orientation="h",
+                marker_color=_BLUE,
+                text=f_agg["median_hours"].apply(lambda v: f"{v:.1f}h"),
+                textposition="outside",
+                textfont=dict(size=11, color="#003467"),
+            ))
+            fig.update_layout(
+                height=280,
+                margin=dict(l=0, r=40, t=10, b=10),
+                plot_bgcolor="white", paper_bgcolor="white",
+                xaxis=dict(title="Median hours", range=[0, 4],
+                           showgrid=True, gridcolor="#EBF3FB"),
+                yaxis=dict(showgrid=False),
+                showlegend=False,
+            )
+            _pc(fig)
+
+        with fc2:
+            _card_title("Within 4-Hour Admission Rate")
+            fig = go.Figure(go.Bar(
+                y=f_4h["ward_name"],
+                x=f_4h["pct"],
+                orientation="h",
+                marker_color=f_4h["colour"].tolist(),
+                text=f_4h["pct"].apply(lambda v: f"{v:.1f}%"),
+                textposition="outside",
+                textfont=dict(size=11, color="#003467"),
+            ))
+            fig.update_layout(
+                height=280,
+                margin=dict(l=0, r=40, t=10, b=10),
+                plot_bgcolor="white", paper_bgcolor="white",
+                xaxis=dict(title="% admitted within 4 hours",
+                           range=[80, 102], showgrid=True, gridcolor="#EBF3FB"),
+                yaxis=dict(showgrid=False),
+                showlegend=False,
+            )
+            _pc(fig)
+            _insight([
+                "All wards admit 90%+ of patients within 4 hours.",
+                "No clinical action required — OPD to admission pathway is functioning well.",
+            ], variant="info")
 
 
 def render_tab3_retention(filters: dict, run_query):
@@ -3033,7 +5113,8 @@ def render_tab3_retention(filters: dict, run_query):
                  "LTFU (>180d)":    "#E24B4A"}
 
     # ── load lifecycle once — used by both KPI strip and Section A ────────────
-    _df_lc_raw = pd.DataFrame()
+    _df_lc_raw  = pd.DataFrame()
+    _ltfu_count = 0
     try:
         _df_lc_raw = Q.load_lifecycle(filters, run_query)
         _df_lc_raw["_label"] = (_df_lc_raw["lifecycle_status"]
@@ -3060,23 +5141,21 @@ def render_tab3_retention(filters: dict, run_query):
             # Derive correct counts from lifecycle (based on last visit gap from today)
             _ltfu_count    = _lc_count("LTFU >180d")
             _chronic_total = int(_df_lc_raw["patient_count"].sum()) if not _df_lc_raw.empty else int(row.get("chronic_patients") or 0)
-            c1, c2, c3, c4, c5 = st.columns(5)
+            c1, c2, c3, c4 = st.columns(4)
             with c1:
-                _kpi("Chronic Patients", _n(_chronic_total),
+                _kpi("Chronic Patients", _nf(_chronic_total),
                      "under active management", AFYA_BLUE)
             with c2:
-                _kpi("Retained (90d)", _n(row.get("retained_patients")),
+                _kpi("Retained (90d)", _nf(row.get("retained_patients")),
                      str(_p(rr)) + " retention rate",
                      TEAL if rr >= 60 else CORAL)
             with c3:
-                _kpi("LTFU >180d", _n(_ltfu_count),
+                _kpi("LTFU >180d", _nf(_ltfu_count),
                      "no visit in 180+ days", CORAL)
             with c4:
                 _kpi("Recoverable Revenue",
                      _k(rr_row.get("lapsing_revenue_recoverable")),
-                     "lapsing patients (31–90d)", ORANGE)
-            with c5:
-                _pc(bullet(rr, 60, "Retention vs 60%", format="pct", height=100))
+                     "lapsing patients (91–180d)", ORANGE)
     except Exception as e:
         st.warning(f"Retention KPIs: {e}")
 
@@ -3089,31 +5168,28 @@ def render_tab3_retention(filters: dict, run_query):
         if not df_lc.empty:
             df_lc = df_lc.sort_values("_label", ascending=True)
 
-            c1, c2 = st.columns(2)
-            with c1:
-                fig_lca = go.Figure(go.Bar(
-                    x=df_lc["_label"],
-                    y=df_lc["patient_count"],
-                    marker_color=[_LC_COL.get(l, GRAY) for l in df_lc["_label"]],
-                    text=[f"{int(v):,}" for v in df_lc["patient_count"]],
+            fig_lca = go.Figure()
+            for lbl in df_lc["_label"]:
+                row_lc = df_lc[df_lc["_label"] == lbl].iloc[0]
+                fig_lca.add_trace(go.Bar(
+                    x=[lbl],
+                    y=[row_lc["patient_count"]],
+                    name=lbl,
+                    marker_color=_LC_COL.get(lbl, GRAY),
+                    text=[f"{int(row_lc['patient_count']):,}"],
                     textposition="outside",
-                    hovertemplate="<b>%{x}</b><br>%{y:,} patients<extra></extra>",
+                    hovertemplate=f"<b>{lbl}</b><br>%{{y:,}} patients<extra></extra>",
                 ))
-                fig_lca.update_layout(
-                    height=280, margin=dict(l=0, r=20, t=20, b=0),
-                    plot_bgcolor="white", paper_bgcolor="white",
-                    yaxis=dict(title="Patients", rangemode="tozero"),
-                    xaxis=dict(title=""),
-                    showlegend=False,
-                )
-                _pc(fig_lca)
-            with c2:
-                _pc(donut(
-                    labels=df_lc["_label"].tolist(),
-                    values=df_lc["patient_count"].tolist(),
-                    color_map=_LC_COL,
-                    height=280,
-                ))
+            fig_lca.update_layout(
+                height=300, margin=dict(l=0, r=20, t=10, b=0),
+                plot_bgcolor="white", paper_bgcolor="white",
+                yaxis=dict(title="Patients", rangemode="tozero"),
+                xaxis=dict(title="", showticklabels=False),
+                showlegend=True,
+                legend=dict(orientation="h", y=-0.15, x=0, font=dict(size=11)),
+                barmode="group",
+            )
+            _pc(fig_lca)
 
             # Signal: LTFU share
             total_lc = float(df_lc["patient_count"].sum() or 1)
@@ -3136,15 +5212,17 @@ def render_tab3_retention(filters: dict, run_query):
 
     _gap(16)
 
-    # ── SECTION B — WHO DROPS OUT? ────────────────────────────────────────────
-    _sh("B — Who Drops Out? LTFU Rate by Age, Payer & Sex", mt=8)
+    _gap(16)
+
+    # ── SECTION B — WHO DROPS OUT? ───────────────────────────────────────────
+    _sh("B — Who Drops Out? LTFU Rate by Age, Payer & Gender", mt=8)
     try:
         df_cor = Q.load_ltfu_correlation(filters, run_query)
         if not df_cor.empty:
             for _c in ("ltfu_rate_pct", "total", "ltfu", "retained"):
                 df_cor[_c] = pd.to_numeric(df_cor[_c], errors="coerce")
 
-            _factor_order = ["Age Group", "Payer", "Sex"]
+            _factor_order = ["Age Group", "Payer", "Gender"]
             factors = [f for f in _factor_order if f in df_cor["factor"].values]
             if not factors:
                 factors = df_cor["factor"].unique().tolist()
@@ -3183,11 +5261,10 @@ def render_tab3_retention(filters: dict, run_query):
                     )
                     _pc(fig_b)
 
-            worst = df_cor.loc[df_cor["ltfu_rate_pct"].idxmax()]
             _note(
-                f"Highest dropout: {worst['dimension']} ({worst['factor']}) — "
-                f"{worst['ltfu_rate_pct']:.0f}% LTFU rate across {int(worst['total'] or 0):,} patients.",
-                w=float(worst["ltfu_rate_pct"]) >= 60,
+                "Age group, gender and payer don't have an impact on patients who have left — "
+                "this points to patient satisfaction of service as the primary driver of dropout.",
+                w=False,
             )
     except Exception as e:
         st.warning(f"LTFU correlation: {e}")
@@ -3203,7 +5280,7 @@ def render_tab3_retention(filters: dict, run_query):
             c1, c2, c3 = st.columns(3)
             with c1:
                 _kpi("Chronic LTFU Patients",
-                     _n(row_r.get("chronic_ltfu")),
+                     _nf(_ltfu_count),
                      "permanently lost (>180d)", CORAL)
             with c2:
                 _kpi("Annual Revenue at Risk",
@@ -3212,193 +5289,155 @@ def render_tab3_retention(filters: dict, run_query):
             with c3:
                 _kpi("Recoverable Revenue",
                      _k(row_r.get("lapsing_revenue_recoverable")),
-                     "lapsing cohort (31–90d)", ORANGE)
+                     "lapsing cohort (91–180d)", ORANGE)
     except Exception as e:
         st.warning(f"Revenue at risk: {e}")
 
     _gap(16)
 
     # ── PRIORITY 1 — LAPSING PATIENTS ─────────────────────────────────────────
-    _sh("Priority 1 — Lapsing Patients (31–90 Days)", mt=8)
+    _sh("Priority 1 — Lapsing Patients (91–180 Days)", mt=8)
     try:
-        df_cc = Q.load_cost_dropout_correlation(filters, run_query)
-        if not df_cc.empty:
-            for _c in ("patient_count", "avg_invoice_size", "avg_inv_wait_hrs", "avg_rx_cost"):
-                df_cc[_c] = pd.to_numeric(df_cc[_c], errors="coerce")
+        df_rar3        = Q.load_revenue_at_risk(filters, run_query)
+        df_lap_payer   = Q.load_lapsing_by_payer(filters, run_query)
+        if not df_lap_payer.empty:
+            df_lap_payer["patient_count"] = pd.to_numeric(df_lap_payer["patient_count"], errors="coerce")
 
-            _lapsing_masks = df_cc["lifecycle"].str.contains("Lapsing", case=False, na=False)
-            lapsing_df = df_cc[_lapsing_masks]
-            total_lapsing = int(lapsing_df["patient_count"].sum() or 0)
+        total_lapsing = _lc_count("Lapsing") or int(df_lap_payer["patient_count"].sum() or 0)
 
-            c1, c2 = st.columns([1, 2])
-            with c1:
-                _kpi("Lapsing Patients", _n(total_lapsing),
-                     "91–180 days without return", ORANGE)
-                _gap(8)
-                df_rar3 = Q.load_revenue_at_risk(filters, run_query)
-                if not df_rar3.empty:
-                    _kpi("Recoverable Revenue",
-                         _k(df_rar3.iloc[0].get("lapsing_revenue_recoverable")),
-                         "if re-engaged this month", ORANGE)
+        c1, c2 = st.columns([1, 2])
+        with c1:
+            _kpi("Lapsing Patients", _nf(total_lapsing),
+                 "91–180 days without return", ORANGE)
+            _gap(8)
+            if not df_rar3.empty:
+                _kpi("Recoverable Revenue",
+                     _k(df_rar3.iloc[0].get("lapsing_revenue_recoverable")),
+                     "if re-engaged this month", ORANGE)
 
-            with c2:
-                if not lapsing_df.empty:
-                    lapsing_by_payer = (lapsing_df.groupby("payer")["patient_count"]
-                                        .sum().reset_index()
-                                        .sort_values("patient_count", ascending=True))
-                    _payer_col = {
-                        "Cash":               "rgba(239,159,39,0.85)",
-                        "Insurance / Corporate": "#378ADD",
-                        "NHIF / SHA":         "#378ADD",
-                    }
-                    fig_p1 = go.Figure(go.Bar(
-                        x=lapsing_by_payer["patient_count"],
-                        y=lapsing_by_payer["payer"],
-                        orientation="h",
-                        marker_color=[_payer_col.get(p, GRAY) for p in lapsing_by_payer["payer"]],
-                        text=[f"{int(v):,}" for v in lapsing_by_payer["patient_count"]],
-                        textposition="outside",
-                        hovertemplate="<b>%{y}</b><br>%{x:,} lapsing patients<extra></extra>",
-                    ))
-                    fig_p1.update_layout(
-                        height=200, margin=dict(l=0, r=60, t=20, b=0),
-                        plot_bgcolor="white", paper_bgcolor="white",
-                        xaxis=dict(title="Patients", rangemode="tozero"),
-                        yaxis=dict(title=""),
-                        showlegend=False,
-                    )
-                    _pc(fig_p1)
+        with c2:
+            if not df_lap_payer.empty:
+                lapsing_by_payer = df_lap_payer.sort_values("patient_count", ascending=True)
+                _payer_col = {
+                    "Cash":                  "rgba(239,159,39,0.85)",
+                    "Insurance / Corporate":  "#378ADD",
+                    "NHIF / SHA":            "#378ADD",
+                }
+                fig_p1 = go.Figure(go.Bar(
+                    x=lapsing_by_payer["patient_count"],
+                    y=lapsing_by_payer["payer"],
+                    orientation="h",
+                    marker_color=[_payer_col.get(p, GRAY) for p in lapsing_by_payer["payer"]],
+                    text=[f"{int(v):,}" for v in lapsing_by_payer["patient_count"]],
+                    textposition="outside",
+                    hovertemplate="<b>%{y}</b><br>%{x:,} lapsing patients<extra></extra>",
+                ))
+                fig_p1.update_layout(
+                    height=200, margin=dict(l=0, r=60, t=20, b=0),
+                    plot_bgcolor="white", paper_bgcolor="white",
+                    xaxis=dict(title="Patients", rangemode="tozero"),
+                    yaxis=dict(title=""),
+                    showlegend=False,
+                )
+                _pc(fig_p1)
 
-            # Signal strip: cash vs insured lapsing split
-            if not lapsing_df.empty:
-                cash_lap = int(lapsing_df[lapsing_df["payer"] == "Cash"]["patient_count"].sum() or 0)
-                if total_lapsing > 0:
-                    cash_pct = cash_lap / total_lapsing * 100
-                    _note(
-                        f"{cash_pct:.0f}% of lapsing patients are cash-paying. "
-                        + ("Cash patients face no appointment reminders via insurer — "
-                           "proactive outreach (SMS/call) is the primary re-engagement lever."
-                           if cash_pct > 50 else
-                           "Insured lapsing patients may be reachable via their insurer's care coordination channel."),
-                        w=cash_pct > 60,
-                    )
+        if not df_lap_payer.empty and total_lapsing > 0:
+            cash_lap = int(df_lap_payer.loc[df_lap_payer["payer"] == "Cash", "patient_count"].sum() or 0)
+            cash_pct = cash_lap / total_lapsing * 100
+            _note(
+                f"{cash_pct:.0f}% of lapsing patients are cash-paying. "
+                + ("Cash patients face no appointment reminders via insurer — "
+                   "proactive outreach (SMS/call) is the primary re-engagement lever."
+                   if cash_pct > 50 else
+                   "Insured lapsing patients may be reachable via their insurer's care coordination channel."),
+                w=cash_pct > 60,
+            )
     except Exception as e:
         st.warning(f"Priority 1 lapsing: {e}")
 
     _gap(16)
 
-    # ── PRIORITY 2 — LOW-ENGAGEMENT LTFU ─────────────────────────────────────
+    # ── PRIORITY 2 — 1–2 VISIT LTFU PATIENTS ────────────────────────────────
     _sh("Priority 2 — 1–2 Visit LTFU Patients", mt=8)
     try:
-        df_le = Q.load_low_engagement_revenue_risk(filters, run_query)
-        if not df_le.empty:
-            for _c in ("ltfu_patients", "avg_rev_per_visit", "revenue_at_risk"):
-                df_le[_c] = pd.to_numeric(df_le[_c], errors="coerce")
-            total_risk_le = float(df_le["revenue_at_risk"].sum() or 1)
-            df_le["risk_share_pct"] = (df_le["revenue_at_risk"] / total_risk_le * 100).round(1)
+        df_p2 = Q.load_ltfu_priority2_patients(filters, run_query)
+        if not df_p2.empty:
+            for _c in ("visit_count", "days_since_last_visit", "revenue_at_risk"):
+                df_p2[_c] = pd.to_numeric(df_p2[_c], errors="coerce").fillna(0)
 
-            low_eng = df_le[df_le["engagement_tier"] == "1–2 Visits"]
-            c1, c2 = st.columns([1, 2])
-            with c1:
-                if not low_eng.empty:
-                    _kpi("1–2 Visit LTFU",
-                         _n(low_eng["ltfu_patients"].iloc[0]),
-                         f"{low_eng['risk_share_pct'].iloc[0]:.0f}% of total revenue at risk",
-                         CORAL)
-                    _gap(8)
-                    _kpi("Revenue at Risk",
-                         _k(low_eng["revenue_at_risk"].iloc[0]),
-                         "low-engagement chronic LTFU", CORAL)
-            with c2:
-                _stcomp.html(
-                    _build_tier_table(df_le),
-                    height=len(df_le) * 34 + 52,
-                    scrolling=False,
-                )
+            total_ltfu    = len(df_p2)
+            total_chronic = total_ltfu  # all rows are chronic by query construction
 
-            if not low_eng.empty:
-                le_share = float(low_eng["risk_share_pct"].iloc[0] or 0)
-                _note(
-                    f"{le_share:.0f}% of 180-day LTFU revenue risk comes from patients with only 1–2 visits. "
-                    + ("A significant share — investigate whether intake quality, cost transparency, "
-                       "or wait times at first visits deterred return."
-                       if le_share > 30 else
-                       "Most revenue risk is from established patients who lapsed, not first-time visitors."),
-                    w=le_share > 30,
-                )
-    except Exception as e:
-        st.warning(f"Priority 2 low-engagement: {e}")
+            def _tier(n):
+                if n <= 2: return 0
+                if n <= 5: return 1
+                return 2
 
-    _gap(16)
+            df_p2["_tier"] = df_p2["visit_count"].apply(_tier)
 
-    # ── PRIORITY 3 — DEMOGRAPHIC-DIAGNOSIS REVENUE RISK TABLE ────────────────
-    _sh("Priority 3 — Demographic-Diagnosis Revenue at Risk", mt=8)
-    try:
-        df_ddrr = Q.load_demographic_diagnosis_revenue_risk(filters, run_query)
-        if not df_ddrr.empty:
-            for _c in ("ltfu_patients", "avg_rev_per_visit", "revenue_at_risk"):
-                df_ddrr[_c] = pd.to_numeric(df_ddrr[_c], errors="coerce")
+            tiers = [
+                {"label": "1–2 visits", "color": "#E24B4A", "annot_color": "#A32D2D"},
+                {"label": "3–5 visits", "color": "#BA7517", "annot_color": "#7A4C0E"},
+                {"label": "5+ visits",  "color": "#0F6E56", "annot_color": "#0A4A3A"},
+            ]
+            tier_stats = [
+                {
+                    "total":   int((df_p2["_tier"] == i).sum()),
+                    "chronic": int((df_p2["_tier"] == i).sum()),
+                    "pct":     (df_p2["_tier"] == i).sum() / total_ltfu * 100 if total_ltfu else 0,
+                }
+                for i in range(3)
+            ]
 
-            top = df_ddrr.iloc[0]
-            _note(
-                f"Highest concentration: {top.get('gender','')} aged {top.get('age_group','')} "
-                f"with {top.get('condition','')} ({top.get('payer','')}) — "
-                f"{int(top['ltfu_patients']):,} LTFU patients, "
-                f"est. KES {float(top['revenue_at_risk'])/1e6:.1f}M at risk annually.",
-                w=True,
+            # Total projected annual loss across all chronic LTFU patients —
+            # same figure and methodology as Section C (count × avg_rev_per_visit × 4).
+            df_rar_p2     = Q.load_revenue_at_risk(filters, run_query)
+            tier1_revenue = float(df_rar_p2.iloc[0].get("chronic_ltfu_revenue_at_risk") or 0) if not df_rar_p2.empty else 0
+
+            # Profile: 1–2 visit patients for Part 3 charts
+            profile  = df_p2[df_p2["visit_count"] <= 2]
+            age_ser  = profile["age_group"].value_counts().sort_values(ascending=False)
+            dx_ser   = profile["clean_diagnosis"].value_counts().head(8).sort_values(ascending=False)
+
+            # ── Care pathway signal queries ───────────────────────────────────
+            def _sig_row(fn, label):
+                try:
+                    df = fn(filters, run_query)
+                    df.columns = [c.lower() for c in df.columns]
+                    return df.iloc[0].to_dict() if not df.empty else {}
+                except Exception as exc:
+                    st.warning(f"{label}: {exc}")
+                    return {}
+
+            _lab = _sig_row(Q.load_care_pathway_lab,       "Care pathway lab")
+            _rx  = _sig_row(Q.load_care_pathway_rx,        "Care pathway rx")
+            _fu  = _sig_row(Q.load_care_pathway_followup,  "Care pathway followup")
+            _rad = _sig_row(Q.load_care_pathway_radiology, "Care pathway radiology")
+
+            signals = {
+                **_lab,
+                **{k: v for k, v in _rx.items()  if k not in _lab},
+                **{k: v for k, v in _fu.items()  if k not in _lab and k not in _rx},
+                **{k: v for k, v in _rad.items() if k not in _lab and k not in _rx and k not in _fu},
+            }
+
+            html_block, h_px = _build_ltfu_p2_html(
+                tier_stats    = tier_stats,
+                tiers         = tiers,
+                total_ltfu    = total_ltfu,
+                total_chronic = total_chronic,
+                tier1_revenue = tier1_revenue,
+                age_labels    = age_ser.index.tolist(),
+                age_values    = age_ser.values.tolist(),
+                dx_labels     = dx_ser.index.tolist(),
+                dx_values     = dx_ser.values.tolist(),
+                signals       = signals,
             )
-            _stcomp.html(
-                _build_ddrr_table(df_ddrr.head(20)),
-                height=len(df_ddrr.head(20)) * 34 + 52,
-                scrolling=False,
-            )
+            _stcomp.html(html_block, height=h_px, scrolling=False)
+        else:
+            _note("No chronic LTFU patients found for this period.")
     except Exception as e:
-        st.warning(f"Priority 3 demographic-diagnosis: {e}")
-
-    _gap(16)
-
-    # ── SECTION E — RETAINED PATIENT SERVICE USAGE ───────────────────────────
-    _sh("E — What Are Retained Patients Coming Back For?", mt=8)
-    try:
-        df_fp = Q.load_retained_patient_footprint(filters, run_query)
-        if not df_fp.empty:
-            _svc_cols   = ["consult_rate_pct", "investigation_rate_pct", "rx_rate_pct"]
-            _svc_labels = ["Consultations", "Lab / Investigations", "Prescriptions"]
-            _svc_colors = [AFYA_BLUE, "#7F77DD", TEAL]
-            for _c in ["retained_patients"] + _svc_cols:
-                df_fp[_c] = pd.to_numeric(df_fp[_c], errors="coerce")
-
-            fig_e = go.Figure()
-            for svc, label, color in zip(_svc_cols, _svc_labels, _svc_colors):
-                fig_e.add_trace(go.Bar(
-                    name=label,
-                    x=df_fp["payer"],
-                    y=df_fp[svc],
-                    marker_color=color,
-                    text=[f"{v:.0f}%" for v in df_fp[svc]],
-                    textposition="outside",
-                    hovertemplate=f"<b>%{{x}}</b><br>{label}: %{{y:.1f}}%<extra></extra>",
-                ))
-            fig_e.update_layout(
-                barmode="group", height=300,
-                margin=dict(l=0, r=20, t=20, b=0),
-                plot_bgcolor="white", paper_bgcolor="white",
-                yaxis=dict(title="% of Retained Visits", rangemode="tozero", ticksuffix="%"),
-                xaxis=dict(title=""),
-                legend=dict(orientation="h", y=1.12, xanchor="right", x=1),
-            )
-            _pc(fig_e)
-
-            for _, row in df_fp.iterrows():
-                pharm_pct = float(row.get("pharmacy_only_pct") or 0)
-                if pharm_pct > 30:
-                    _note(
-                        f"{row['payer']}: {pharm_pct:.0f}% of retained visits are pharmacy-only — "
-                        "patients collecting medication without clinical review.",
-                        w=pharm_pct > 40,
-                    )
-    except Exception as e:
-        st.warning(f"Retained patient footprint: {e}")
+        st.warning(f"Priority 2: {e}")
 
     _gap(16)
 
@@ -3495,57 +5534,6 @@ def render_tab3_retention(filters: dict, run_query):
 
     _gap(8)
 
-    # Surge follow-up sub-panel
-    try:
-        df_sf = Q.load_insured_surge_followup(filters, run_query)
-        if not df_sf.empty:
-            df_sf["avg_days_to_next_visit"] = pd.to_numeric(df_sf["avg_days_to_next_visit"], errors="coerce")
-            df_sf["is_surge_month"]         = pd.to_numeric(df_sf["is_surge_month"],         errors="coerce")
-
-            st.markdown(
-                '<p style="font-size:9px;font-weight:700;letter-spacing:0.08em;'
-                'color:#888780;text-transform:uppercase;margin:12px 0 6px;">'
-                'Insured patient return gaps — surge vs normal months</p>',
-                unsafe_allow_html=True,
-            )
-            fig_sf = go.Figure(go.Bar(
-                x=df_sf["visit_month"],
-                y=df_sf["avg_days_to_next_visit"],
-                marker_color=["#E24B4A" if s == 1 else TEAL for s in df_sf["is_surge_month"]],
-                hovertemplate="<b>%{x|%b %Y}</b><br>Avg days to next visit: %{y:.0f}<extra></extra>",
-            ))
-            for _, row_sf in df_sf[df_sf["is_surge_month"] == 1].iterrows():
-                fig_sf.add_annotation(
-                    x=row_sf["visit_month"],
-                    y=float(row_sf["avg_days_to_next_visit"] or 0) + 3,
-                    text="SURGE", showarrow=False,
-                    font=dict(size=8, color="#E24B4A"),
-                )
-            fig_sf.update_layout(
-                height=240, margin=dict(l=0, r=20, t=10, b=0),
-                plot_bgcolor="white", paper_bgcolor="white",
-                yaxis=dict(title="Avg Days to Next Visit", rangemode="tozero"),
-                xaxis=dict(title="Month"),
-                showlegend=False,
-            )
-            _pc(fig_sf)
-
-            _surge  = df_sf[df_sf["is_surge_month"] == 1]
-            _normal = df_sf[df_sf["is_surge_month"] == 0]
-            if not _surge.empty and not _normal.empty:
-                _sa = float(_surge["avg_days_to_next_visit"].mean() or 0)
-                _na = float(_normal["avg_days_to_next_visit"].mean() or 0)
-                _note(
-                    f"Avg return gap: {_sa:.0f} days during surge months vs {_na:.0f} days normally "
-                    f"({'longer' if _sa > _na else 'shorter'} by {abs(_sa - _na):.0f} days). "
-                    + ("Surge periods appear to delay insured follow-ups — investigate whether "
-                       "clinics are rebooking or patients are walking away."
-                       if _sa > _na * 1.15 else
-                       "No significant pattern between surge months and insured follow-up frequency."),
-                    w=_sa > _na * 1.15,
-                )
-    except Exception as e:
-        st.warning(f"Surge follow-up: {e}")
 
 
 
@@ -3742,6 +5730,595 @@ def _sec_e_html(df: pd.DataFrame) -> str:
     return _HTML_BASE.format(hdr + rows)
 
 
+# ── NCD TAB HTML HELPERS ──────────────────────────────────────────────────────
+
+_NCD_BASE = (
+    '<!DOCTYPE html><html><head><meta charset="utf-8">'
+    '<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">'
+    '<style>*{{box-sizing:border-box;margin:0;padding:0;}}'
+    'body{{background:#fff;font-family:system-ui,-apple-system,sans-serif;padding:0;}}'
+    'table{{width:100%;border-collapse:collapse;}}'
+    'th{{font-size:11px;font-weight:600;color:#888780;text-transform:uppercase;letter-spacing:0.03em;'
+    '    padding:7px 8px 7px 0;border-bottom:0.5px solid rgba(0,0,0,0.10);text-align:left;white-space:nowrap;}}'
+    'td{{font-size:12px;padding:7px 8px 7px 0;vertical-align:middle;border-bottom:0.5px solid rgba(0,0,0,0.05);}}'
+    'tr:last-child td{{border-bottom:none;}}'
+    '.ins{{background:#f5f5f3;border-radius:8px;padding:6px 9px;font-size:12px;color:#5f5e5a;margin-top:8px;}}'
+    '.warn{{background:#FAEEDA;border-left:3px solid #EF9F27;border-radius:0 8px 8px 0;'
+    '       padding:6px 10px;font-size:12px;color:#633806;margin-top:8px;}}'
+    '</style></head><body>{}</body></html>'
+)
+
+def _payer_badge_ncd(payer: str) -> str:
+    p = str(payer or "")
+    if "Cash" in p or "PRIVATE" in p.upper():
+        return f'<span style="background:#FAEEDA;color:#633806;font-size:9px;font-weight:500;padding:2px 7px;border-radius:20px;">{p}</span>'
+    return f'<span style="background:#E6F1FB;color:#185FA5;font-size:9px;font-weight:500;padding:2px 7px;border-radius:20px;">{p}</span>'
+
+def _ip_dot(ip_pct: float) -> str:
+    c = "#E24B4A" if ip_pct > 20 else "#EF9F27" if ip_pct >= 10 else "#1D9E75"
+    return f'<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:{c};margin-right:4px;vertical-align:middle;"></span>'
+
+def _ip_border(ip_pct: float) -> str:
+    c = "#E24B4A" if ip_pct > 20 else "#EF9F27" if ip_pct >= 10 else "#1D9E75"
+    return f"border-left:3px solid {c};padding-left:7px;"
+
+def _ncd_t1_html(df: pd.DataFrame) -> str:
+    """Table 1 — NCD complexity distribution."""
+    total = int(df["patient_count"].sum()) if not df.empty else 1
+    max_n = int(df["patient_count"].max()) if not df.empty else 1
+    _cx_col = {"1 NCD": "#1D9E75", "2 NCDs": "#EF9F27", "3 NCDs": "#E24B4A", "4+ NCDs (Complex)": "#A32D2D"}
+    hdr = ('<table><thead><tr>'
+           '<th>Complexity</th>'
+           '<th>Share of NCD Pts</th>'
+           '<th style="text-align:right;">Patients</th>'
+           '<th style="text-align:right;">% of NCD Pts</th>'
+           '</tr></thead><tbody>')
+    rows = ""
+    for _, r in df.iterrows():
+        label = str(r.get("ncd_complexity", ""))
+        n     = int(r.get("patient_count") or 0)
+        pct   = float(r.get("pct_of_ncd_patients") or 0)
+        col   = _cx_col.get(label, "#888780")
+        bw    = round(n / max_n * 120)
+        rows += (
+            f'<tr>'
+            f'<td style="font-weight:500;color:#1a1a18;">{label}</td>'
+            f'<td><div style="display:flex;align-items:center;gap:6px;">'
+            f'  <div style="width:{bw}px;height:8px;border-radius:3px;background:{col};opacity:0.8;flex-shrink:0;"></div>'
+            f'  <span style="font-size:9px;color:#5f5e5a;">{n:,}</span></div></td>'
+            f'<td style="text-align:right;font-weight:500;">{n:,}</td>'
+            f'<td style="text-align:right;color:#5f5e5a;">{pct:.1f}%</td>'
+            f'</tr>'
+        )
+    multi_pct = df.loc[df["ncd_complexity"] != "1 NCD", "pct_of_ncd_patients"].sum() if not df.empty else 0
+    insight_text = (f"{multi_pct:.0f}% of NCD patients carry 2+ conditions. "
+                    f"These patients need integrated management protocols.")
+    return _NCD_BASE.format(hdr + rows + "</tbody></table>"), insight_text
+
+
+def _ncd_t2_html(df: pd.DataFrame) -> str:
+    """Table 2 — Comorbidity pipeline."""
+    df = df.head(10).copy()
+    max_days = float(df["avg_days_between_diagnoses"].max()) if not df.empty else 1
+    hdr = ('<table><thead><tr>'
+           '<th>Condition pair</th>'
+           '<th style="text-align:center;">Patients</th>'
+           '<th>Avg days to 2nd</th>'
+           '<th>Speed</th>'
+           '</tr></thead><tbody>')
+    rows = ""
+    fastest_row = None
+    for _, r in df.iterrows():
+        pair = str(r.get("condition_pair", ""))
+        n    = int(r.get("patient_count") or 0)
+        days = r.get("avg_days_between_diagnoses")
+        try:    days = float(days)
+        except: days = None
+        if days is not None and (fastest_row is None or days < fastest_row[1]):
+            fastest_row = (pair, days)
+        if days is None:
+            spd_lbl, spd_bg, spd_col, bar_col = "—", "#f5f5f3", "#888780", "#888780"
+            bw = 0
+        elif days < 45:
+            spd_lbl, spd_bg, spd_col, bar_col = "Fast", "#FCEBEB", "#A32D2D", "#A32D2D"
+            bw = round(days / max_days * 150) if max_days else 0
+        elif days <= 60:
+            spd_lbl, spd_bg, spd_col, bar_col = "Moderate", "#FAEEDA", "#854F0B", "#854F0B"
+            bw = round(days / max_days * 150) if max_days else 0
+        else:
+            spd_lbl, spd_bg, spd_col, bar_col = "Slower", "#E1F5EE", "#0F6E56", "#0F6E56"
+            bw = round(days / max_days * 150) if max_days else 0
+        badge = (f'<span style="background:{spd_bg};color:{spd_col};font-size:9px;font-weight:500;'
+                 f'padding:2px 7px;border-radius:20px;">{spd_lbl}</span>')
+        days_cell = (
+            f'<div style="display:flex;align-items:center;gap:6px;">'
+            f'<div style="width:{bw}px;height:8px;border-radius:3px;background:{bar_col};opacity:0.75;flex-shrink:0;"></div>'
+            f'<span style="font-size:9px;color:{bar_col};font-weight:500;">{int(days)}d</span>'
+            f'</div>'
+        ) if days is not None else "—"
+        rows += (
+            f'<tr>'
+            f'<td style="line-height:1.4;">{pair}</td>'
+            f'<td style="text-align:center;font-weight:500;">{n:,}</td>'
+            f'<td>{days_cell}</td>'
+            f'<td>{badge}</td>'
+            f'</tr>'
+        )
+    insight_text = ""
+    if fastest_row:
+        insight_text = (f"Fastest progression: {fastest_row[0]} — "
+                        f"avg {int(fastest_row[1])} days to second diagnosis. "
+                        f"This pair needs a co-management protocol.")
+    return _NCD_BASE.format(hdr + rows + "</tbody></table>" + _SORT_SCRIPT), insight_text
+
+
+def _ncd_t3_html(df: pd.DataFrame) -> str:
+    """Table 3 — HTN by control status and comorbidity."""
+    import math as _m
+    _HTN_BG   = {"Controlled": "rgba(29,158,117,0.06)",  "Uncontrolled": "rgba(228,75,74,0.06)",  "No BP Recorded": "rgba(136,135,128,0.06)"}
+    _HTN_BDGE = {"Controlled": ("#E1F5EE","#0F6E56"),    "Uncontrolled": ("#FCEBEB","#A32D2D"),    "No BP Recorded": ("#f5f5f3","#888780")}
+    _HTN_BARC = {"Controlled": "#1D9E75",                "Uncontrolled": "#E24B4A",               "No BP Recorded": "#888780"}
+    max_inv = float(df["avg_inv"].max()) if not df.empty and "avg_inv" in df.columns else 1
+    if max_inv == 0 or _m.isnan(max_inv): max_inv = 1
+    hdr = ('<table><thead><tr>'
+           '<th>HTN status</th>'
+           '<th>Comorbidity</th>'
+           '<th style="text-align:center;">Patients</th>'
+           '<th>Avg investigations</th>'
+           '<th style="text-align:right;">On antihypertensive %</th>'
+           '</tr></thead><tbody>')
+    STATUS_ORDER = ["Controlled", "No BP Recorded", "Uncontrolled"]
+    rows_sorted = []
+    for st_key in STATUS_ORDER:
+        sub = df[df["htn_status"] == st_key]
+        for _, r in sub.iterrows():
+            rows_sorted.append((st_key, r))
+    rows = ""
+    for htn_status, r in rows_sorted:
+        comorb = str(r.get("comorbidity_group", ""))
+        n      = int(r.get("patients") or 0)
+        avg_inv= float(r.get("avg_inv") or 0)
+        rx_pct = float(r.get("on_rx_pct") or 0)
+        bdg_bg, bdg_col = _HTN_BDGE.get(htn_status, ("#f5f5f3","#888780"))
+        row_bg = _HTN_BG.get(htn_status, "transparent")
+        bar_col= _HTN_BARC.get(htn_status, "#888780")
+        bw     = round(avg_inv / max_inv * 130) if max_inv else 0
+        badge  = (f'<span style="background:{bdg_bg};color:{bdg_col};font-size:9px;font-weight:500;'
+                  f'padding:2px 7px;border-radius:20px;">{htn_status}</span>')
+        rx_col = "#A32D2D" if rx_pct > 60 and htn_status == "Uncontrolled" else "#1a1a18"
+        rows += (
+            f'<tr style="background:{row_bg};">'
+            f'<td>{badge}</td>'
+            f'<td style="color:#5f5e5a;">{comorb}</td>'
+            f'<td style="text-align:center;font-weight:500;">{n:,}</td>'
+            f'<td><div style="display:flex;align-items:center;gap:6px;">'
+            f'  <div style="width:{bw}px;height:8px;border-radius:3px;background:{bar_col};opacity:0.7;flex-shrink:0;"></div>'
+            f'  <span style="font-size:9px;color:#5f5e5a;">{avg_inv:.1f}</span></div></td>'
+            f'<td style="text-align:right;font-weight:500;color:{rx_col};">{rx_pct:.0f}%</td>'
+            f'</tr>'
+        )
+    unc = df[df["htn_status"] == "Uncontrolled"] if not df.empty else pd.DataFrame()
+    insight = ""
+    if not unc.empty:
+        htn_only = unc[unc["comorbidity_group"] == "HTN Only"]
+        if not htn_only.empty:
+            r0     = htn_only.iloc[0]
+            n0     = int(r0.get("patients") or 0)
+            inv0   = float(r0.get("avg_inv") or 0)
+            rx0    = float(r0.get("on_rx_pct") or 0)
+            insight = (f'<div class="ins"><strong>{n0:,}</strong> uncontrolled HTN-only patients average '
+                       f'<strong>{inv0:.1f}</strong> investigations and <strong>{rx0:.0f}%</strong> are on '
+                       f'antihypertensive medication — investigate medication adherence and dose adequacy.</div>')
+    return _NCD_BASE.format(hdr + rows + "</tbody></table>" + insight)
+
+
+_SORT_SCRIPT = (
+    '<script>'
+    '(function(){'
+    'var tbl=document.querySelector("table");'
+    'var ths=tbl.querySelectorAll("thead th");'
+    'var sCol=-1,sDir=1;'
+    'ths.forEach(function(th,ci){'
+    'th.style.cursor="pointer";th.style.userSelect="none";'
+    'th.title="Click to sort";'
+    'th.addEventListener("click",function(){'
+    'if(sCol===ci){sDir*=-1;}else{sCol=ci;sDir=1;}'
+    'ths.forEach(function(t,i){'
+    'var txt=t.dataset.label||(t.dataset.label=t.textContent.trim());'
+    't.textContent=txt+(i===ci?(sDir===1?" ▲":" ▼"):"");'
+    '});'
+    'var tb=tbl.querySelector("tbody");'
+    'var rows=Array.from(tb.querySelectorAll("tr"));'
+    'rows.sort(function(a,b){'
+    'var av=a.cells[ci]?a.cells[ci].textContent.trim():"";'
+    'var bv=b.cells[ci]?b.cells[ci].textContent.trim():"";'
+    'var an=parseFloat(av.replace(/[^0-9.\\-]/g,""));'
+    'var bn=parseFloat(bv.replace(/[^0-9.\\-]/g,""));'
+    'if(!isNaN(an)&&!isNaN(bn))return(an-bn)*sDir;'
+    'return av.localeCompare(bv)*sDir;'
+    '});'
+    'rows.forEach(function(r){tb.appendChild(r);});'
+    '});'
+    '});'
+    '})();'
+    '</script>'
+)
+
+
+def _ncd_t4_html(df: pd.DataFrame) -> str:
+    """Table 4 — Prescription without clinical assessment."""
+    hdr = ('<table><thead><tr>'
+           '<th>Payer</th>'
+           '<th>Condition</th>'
+           '<th style="text-align:center;">Patients affected</th>'
+           '<th style="text-align:right;">Avg annual rev</th>'
+           '<th>Risk level</th>'
+           '</tr></thead><tbody>')
+    rows = ""
+    for _, r in df.head(20).iterrows():
+        payer = str(r.get("payer", ""))
+        cond  = str(r.get("condition", ""))
+        n     = int(r.get("patient_count") or 0)
+        rev   = r.get("avg_annual_revenue")
+        try:    rev_f = float(rev)
+        except: rev_f = None
+        import math as _m
+        if rev_f is None or _m.isnan(rev_f):
+            rev_s = "—"
+        else:
+            rev_s = f"KES {int(rev_f):,}"
+        if n > 200:   risk_bg, risk_col, risk_lbl = "#FCEBEB", "#A32D2D", "High"
+        elif n >= 50: risk_bg, risk_col, risk_lbl = "#FAEEDA", "#854F0B", "Medium"
+        else:         risk_bg, risk_col, risk_lbl = "#f5f5f3",  "#888780", "Low"
+        risk_badge = (f'<span style="background:{risk_bg};color:{risk_col};font-size:9px;'
+                      f'font-weight:500;padding:2px 7px;border-radius:20px;">{risk_lbl}</span>')
+        rows += (
+            f'<tr>'
+            f'<td>{_payer_badge_ncd(payer)}</td>'
+            f'<td style="line-height:1.3;">{cond}</td>'
+            f'<td style="text-align:center;font-weight:500;">{n:,}</td>'
+            f'<td style="text-align:right;">{rev_s}</td>'
+            f'<td>{risk_badge}</td>'
+            f'</tr>'
+        )
+    return _NCD_BASE.format(hdr + rows + "</tbody></table>" + _SORT_SCRIPT)
+
+
+def _ncd_t5_html(df: pd.DataFrame) -> str:
+    """Table 5 — Chronic care quality & revenue matrix."""
+    import math as _m
+    max_pts = float(df["patient_count"].max()) if not df.empty else 1
+    if max_pts == 0: max_pts = 1
+    hdr = ('<table><thead><tr>'
+           '<th>Condition</th>'
+           '<th>Patients</th>'
+           '<th>6-mo trend</th>'
+           '<th>IP rate</th>'
+           '<th>Top payer</th>'
+           '<th style="text-align:center;">Visits/pt</th>'
+           '<th style="text-align:center;">Inv/visit</th>'
+           '<th style="text-align:right;">Avg rev/pt</th>'
+           '<th style="text-align:center;">Control %</th>'
+           '</tr></thead><tbody>')
+    rows = ""
+    for _, r in df.iterrows():
+        cond    = str(r.get("condition", ""))
+        pts     = int(r.get("patient_count") or 0)
+        trend   = r.get("trend_pct")
+        ip_rate = float(r.get("ip_rate_pct") or 0)
+        payer   = str(r.get("top_payer") or "—")
+        vpp     = float(r.get("avg_visits_per_patient") or 0)
+        inv_v   = float(r.get("investigations_per_visit") or 0)
+        rev_pt  = r.get("avg_revenue_per_patient")
+        ctrl    = r.get("controlled_pct")
+        try:    rev_f = float(rev_pt)
+        except: rev_f = None
+        rev_s   = f"KES {int(rev_f):,}" if rev_f is not None and not _m.isnan(rev_f) else "—"
+        # trend
+        try:    trend_f = float(trend)
+        except: trend_f = None
+        if trend_f is None or _m.isnan(trend_f):
+            trend_s, trend_col = "—", "#888780"
+        elif trend_f > 5:
+            trend_s, trend_col = f"↑ +{trend_f:.0f}%", "#0F6E56"
+        elif trend_f < -5:
+            trend_s, trend_col = f"↓ {trend_f:.0f}%", "#A32D2D"
+        else:
+            trend_s, trend_col = f"→ {trend_f:.0f}%", "#888780"
+        # ip
+        ip_bdr = _ip_border(ip_rate)
+        ip_dot = _ip_dot(ip_rate)
+        # bar
+        bw = round(pts / max_pts * 50)
+        pts_cell = (f'<div style="display:flex;align-items:center;gap:4px;">'
+                    f'<div style="width:{bw}px;height:8px;border-radius:3px;background:#378ADD;opacity:0.6;flex-shrink:0;"></div>'
+                    f'<span style="font-size:9px;color:#5f5e5a;">{pts:,}</span></div>')
+        # inv/visit colour
+        inv_col = "#A32D2D" if inv_v > 7 else "#854F0B" if inv_v >= 5 else "#5f5e5a"
+        # control
+        try:    ctrl_f = float(ctrl)
+        except: ctrl_f = None
+        if ctrl_f is None or _m.isnan(ctrl_f):
+            ctrl_s, ctrl_col = "—", "#888780"
+        elif ctrl_f >= 50:
+            ctrl_s, ctrl_col = f"{ctrl_f:.0f}%", "#0F6E56"
+        elif ctrl_f >= 30:
+            ctrl_s, ctrl_col = f"{ctrl_f:.0f}%", "#854F0B"
+        else:
+            ctrl_s, ctrl_col = f"{ctrl_f:.0f}%", "#A32D2D"
+        rows += (
+            f'<tr>'
+            f'<td style="{ip_bdr}line-height:1.3;">{cond}</td>'
+            f'<td>{pts_cell}</td>'
+            f'<td style="color:{trend_col};font-weight:500;">{trend_s}</td>'
+            f'<td>{ip_dot}{ip_rate:.1f}%</td>'
+            f'<td>{_payer_badge_ncd(payer)}</td>'
+            f'<td style="text-align:center;color:#5f5e5a;">{vpp:.1f}</td>'
+            f'<td style="text-align:center;font-weight:500;color:{inv_col};">{inv_v:.2f}</td>'
+            f'<td style="text-align:right;">{rev_s}</td>'
+            f'<td style="text-align:center;font-weight:500;color:{ctrl_col};">{ctrl_s}</td>'
+            f'</tr>'
+        )
+    return _NCD_BASE.format(hdr + rows + "</tbody></table>" + _SORT_SCRIPT)
+
+
+def _ncd_t6_html(df: pd.DataFrame) -> str:
+    """Table 6 — Undetected NCD risk patient action list."""
+    import math as _m
+    n_total = len(df)
+    hdr = ('<table><thead><tr>'
+           '<th>Patient</th>'
+           '<th style="text-align:center;">Flagged visits</th>'
+           '<th style="text-align:center;">Latest systolic</th>'
+           '<th style="text-align:center;">Days since last</th>'
+           '<th>Payer</th>'
+           '<th>Urgency</th>'
+           '</tr></thead><tbody>')
+    rows = ""
+    for _, r in df.head(40).iterrows():
+        pat_id  = r.get("patient", "")
+        fv      = int(r.get("visit_count") or 0)
+        sys_v   = r.get("latest_systolic")
+        days_v  = r.get("days_since_last_visit")
+        payer   = str(r.get("payer") or "")
+        try:    sys_f  = float(sys_v)
+        except: sys_f  = None
+        try:    days_f = float(days_v)
+        except: days_f = None
+        if sys_f is None or _m.isnan(sys_f):
+            sys_s, sys_col = "—", "#888780"
+        elif sys_f > 180: sys_s, sys_col = f"{int(sys_f)}", "#A32D2D"
+        elif sys_f >= 160: sys_s, sys_col = f"{int(sys_f)}", "#854F0B"
+        else: sys_s, sys_col = f"{int(sys_f)}", "#5f5e5a"
+        if days_f is None or _m.isnan(days_f):
+            days_s, days_col = "—", "#888780"
+        elif days_f > 300: days_s, days_col = f"{int(days_f)}d", "#A32D2D"
+        elif days_f >= 90: days_s, days_col = f"{int(days_f)}d", "#854F0B"
+        else: days_s, days_col = f"{int(days_f)}d", "#888780"
+        critical = (sys_f is not None and sys_f > 180) or (days_f is not None and days_f > 300)
+        high     = (not critical) and ((sys_f is not None and sys_f >= 161) or (days_f is not None and days_f >= 150))
+        if critical:   urg_bg, urg_col, urg_lbl = "#FCEBEB", "#A32D2D", "Critical"
+        elif high:     urg_bg, urg_col, urg_lbl = "#FAEEDA", "#854F0B", "High"
+        else:          urg_bg, urg_col, urg_lbl = "#f5f5f3",  "#5f5e5a", "Watch"
+        urg_badge = (f'<span style="background:{urg_bg};color:{urg_col};font-size:9px;'
+                     f'font-weight:500;padding:2px 7px;border-radius:20px;">{urg_lbl}</span>')
+        rows += (
+            f'<tr>'
+            f'<td style="color:#378ADD;font-weight:500;">Patient {pat_id}</td>'
+            f'<td style="text-align:center;">{fv}</td>'
+            f'<td style="text-align:center;font-weight:500;color:{sys_col};">{sys_s}</td>'
+            f'<td style="text-align:center;font-weight:500;color:{days_col};">{days_s}</td>'
+            f'<td>{_payer_badge_ncd(payer)}</td>'
+            f'<td>{urg_badge}</td>'
+            f'</tr>'
+        )
+    critical_count = sum(
+        1 for _, r in df.iterrows()
+        if (float(r.get("latest_systolic") or 0) > 180) or (float(r.get("days_since_last_visit") or 0) > 300)
+    )
+    return (_NCD_BASE.format(hdr + rows + "</tbody></table>" + _SORT_SCRIPT),
+            n_total, critical_count)
+
+
+# ── Communicable disease colour map ──────────────────────────────────────────
+_COMM_CLR_MAP = [
+    ("Malaria",      "#1D9E75"),
+    ("Typhoid",      "#EF9F27"),
+    ("URTI",         "#378ADD"),
+    ("TB",           "#E24B4A"),
+    ("Enteric",      "#7F77DD"),
+    ("GI",           "#7F77DD"),
+    ("HIV",          "#D85A30"),
+    ("Infectious",   "#9B59B6"),
+]
+
+def _comm_clr(disease: str) -> str:
+    d = str(disease).lower()
+    for key, clr in _COMM_CLR_MAP:
+        if key.lower() in d:
+            return clr
+    return "#888780"
+
+
+_COMM_BASE = (
+    '<!DOCTYPE html><html><head><meta charset="utf-8">'
+    '<style>'
+    '*{{box-sizing:border-box;margin:0;padding:0;}}'
+    'html,body{{height:100%;overflow-y:auto;}}'
+    'body{{background:#fff;font-family:system-ui,-apple-system,sans-serif;padding:0;}}'
+    'table{{width:100%;border-collapse:collapse;}}'
+    'th{{font-size:11px;font-weight:600;color:#888780;text-transform:uppercase;'
+    '    letter-spacing:0.03em;padding:7px 10px 7px 0;'
+    '    border-bottom:0.5px solid rgba(0,0,0,0.10);text-align:left;white-space:nowrap;}}'
+    'td{{font-size:12px;padding:7px 10px 7px 0;vertical-align:middle;'
+    '    border-bottom:0.5px solid rgba(0,0,0,0.05);}}'
+    'tr:last-child td{{border-bottom:none;}}'
+    '.ins{{background:#f5f5f3;border-radius:8px;padding:6px 9px;font-size:12px;color:#5f5e5a;margin-top:8px;}}'
+    '.warn{{background:#FAEEDA;border-left:3px solid #EF9F27;border-radius:0 8px 8px 0;'
+    '       padding:6px 10px;font-size:12px;color:#633806;margin-top:8px;}}'
+    '</style></head><body>{}</body></html>'
+)
+
+
+def _comm_t1_html(df: pd.DataFrame):
+    """Table 1 — Surge months. Returns (html, insight_text)."""
+    if df.empty:
+        no_surge = '<div class="ins">No surge months detected in the selected period. All diseases remained within 1.5× of their period average.</div>'
+        return _COMM_BASE.format(no_surge), ""
+
+    import math as _m
+    max_vs = float(df["vs_avg"].max()) if not df.empty else 2.0
+    min_vs = 1.0
+    span   = max(max_vs - min_vs, 0.1)
+
+    hdr = ('<table><thead><tr>'
+           '<th>Disease</th>'
+           '<th>Month</th>'
+           '<th style="text-align:center;">Visits</th>'
+           '<th>Surge severity</th>'
+           '<th style="text-align:center;">Vs average</th>'
+           '<th>Level</th>'
+           '</tr></thead><tbody>')
+    rows = ""
+    for _, r in df.iterrows():
+        dis     = str(r.get("disease_label", ""))
+        month_s = str(r.get("month_str", ""))
+        visits  = int(r.get("visits") or 0)
+        vs_avg  = float(r.get("vs_avg") or 0)
+        clr     = _comm_clr(dis)
+        bw      = round((vs_avg - min_vs) / span * 160)
+        bw      = max(0, min(160, bw))
+        vs_s    = f"{vs_avg:.1f}×"
+        if vs_avg >= 2.0:
+            lvl_bg, lvl_col, lvl_lbl = "#FCEBEB", "#A32D2D", "Critical"
+            vs_col = "#A32D2D"
+        elif vs_avg >= 1.7:
+            lvl_bg, lvl_col, lvl_lbl = "#FAEEDA", "#854F0B", "High"
+            vs_col = "#854F0B"
+        else:
+            lvl_bg, lvl_col, lvl_lbl = "#f5f5f3", "#5f5e5a", "Elevated"
+            vs_col = "#5f5e5a"
+        badge = (f'<span style="background:{lvl_bg};color:{lvl_col};font-size:9px;'
+                 f'font-weight:500;padding:2px 7px;border-radius:20px;">{lvl_lbl}</span>')
+        dot = (f'<span style="display:inline-block;width:8px;height:8px;border-radius:50%;'
+               f'background:{clr};margin-right:5px;vertical-align:middle;flex-shrink:0;"></span>')
+        rows += (
+            f'<tr>'
+            f'<td><div style="display:flex;align-items:center;">{dot}'
+            f'<span style="font-weight:500;">{dis}</span></div></td>'
+            f'<td style="color:#5f5e5a;">{month_s}</td>'
+            f'<td style="text-align:center;font-weight:500;">{visits:,}</td>'
+            f'<td><div style="width:160px;height:8px;border-radius:3px;background:#f5f5f3;overflow:hidden;">'
+            f'<div style="width:{bw}px;height:8px;border-radius:3px;background:{clr};opacity:0.75;"></div>'
+            f'</div></td>'
+            f'<td style="text-align:center;font-weight:500;color:{vs_col};">{vs_s}</td>'
+            f'<td>{badge}</td>'
+            f'</tr>'
+        )
+
+    # Build insight
+    top_row      = df.iloc[0]
+    top_dis      = str(top_row["disease_label"])
+    top_month    = str(top_row["month_str"])
+    top_vs       = float(top_row["vs_avg"])
+    surge_counts = df.groupby("disease_label").size()
+    most_dis     = surge_counts.idxmax()
+    most_n       = int(surge_counts.max())
+    pattern      = "sustained endemic spread" if most_n >= 2 else "repeated outbreaks"
+    insight_text = (
+        f"{top_dis} in {top_month} was the most severe surge at {top_vs:.1f}× average. "
+        f"{most_dis} surged {most_n} time{'s' if most_n != 1 else ''} in the period, "
+        f"suggesting {pattern}."
+    )
+    return _COMM_BASE.format(hdr + rows + "</tbody></table>" + _SORT_SCRIPT), insight_text
+
+
+def _ip_badge_comm(ip_pct: float) -> str:
+    if ip_pct >= 20:
+        bg, col = "#FCEBEB", "#A32D2D"
+    elif ip_pct >= 10:
+        bg, col = "#FAEEDA", "#854F0B"
+    elif ip_pct >= 1:
+        bg, col = "#E6F1FB", "#185FA5"
+    else:
+        bg, col = "#f5f5f3", "#888780"
+    return (f'<span style="background:{bg};color:{col};font-size:9px;font-weight:600;'
+            f'padding:3px 9px;border-radius:20px;">{ip_pct:.0f}%</span>')
+
+
+def _comm_t2_html(df: pd.DataFrame):
+    """Table 2 — Pipeline matrix. Returns (html, has_verify_data)."""
+    import math as _m
+    max_v = float(df["quarterly_visits"].max()) if not df.empty else 1
+    if max_v == 0: max_v = 1
+    has_verify = False
+
+    hdr = ('<table><thead><tr>'
+           '<th>Disease</th>'
+           '<th>90d visits</th>'
+           '<th>Primary demographic</th>'
+           '<th style="text-align:center;">Lab confirm %</th>'
+           '<th style="text-align:center;">IP admission %</th>'
+           '<th>Top comorbidity</th>'
+           '<th>Primary payer</th>'
+           '</tr></thead><tbody>')
+    rows = ""
+    for _, r in df.iterrows():
+        dis      = str(r.get("disease_group", ""))
+        visits   = float(r.get("quarterly_visits") or 0)
+        demo     = str(r.get("primary_age_sex") or "—")
+        lab_pct  = r.get("lab_confirmation_pct")
+        comp_pct = r.get("data_completeness_pct")
+        ip_pct   = float(r.get("inpatient_admission_pct") or 0)
+        comorb   = str(r.get("primary_comorbidity") or "—")
+        payer    = str(r.get("primary_payer") or "—")
+        clr      = _comm_clr(dis)
+        bw       = round(visits / max_v * 80)
+
+        try:    lab_f = float(lab_pct)
+        except: lab_f = None
+
+        if lab_f is None or _m.isnan(lab_f):
+            lab_cell = '<span style="color:#888780;">—</span>'
+        else:
+            lab_cell = f"{lab_f:.0f}%"
+
+        # payer badge
+        p_up = payer.upper()
+        if "CASH" in p_up or "PRIVATE" in p_up:
+            pay_bg, pay_col = "#FAEEDA", "#633806"
+        else:
+            pay_bg, pay_col = "#E6F1FB", "#185FA5"
+        pay_badge = (f'<span style="background:{pay_bg};color:{pay_col};font-size:9px;'
+                     f'font-weight:500;padding:2px 7px;border-radius:20px;">{payer}</span>')
+
+        visits_cell = (
+            f'<div style="display:flex;align-items:center;gap:6px;">'
+            f'<div style="width:{bw}px;height:8px;border-radius:3px;'
+            f'background:#378ADD;opacity:0.6;flex-shrink:0;"></div>'
+            f'<span style="font-size:9px;color:#5f5e5a;">{int(visits):,}</span></div>'
+        )
+        rows += (
+            f'<tr>'
+            f'<td style="border-left:3px solid {clr};padding-left:7px;'
+            f'font-weight:500;line-height:1.3;">{dis}</td>'
+            f'<td>{visits_cell}</td>'
+            f'<td style="color:#5f5e5a;font-size:10px;">{demo}</td>'
+            f'<td style="text-align:center;">{lab_cell}</td>'
+            f'<td style="text-align:center;">{_ip_badge_comm(ip_pct)}</td>'
+            f'<td style="color:#5f5e5a;font-size:10px;line-height:1.3;">{comorb}</td>'
+            f'<td>{pay_badge}</td>'
+            f'</tr>'
+        )
+
+    warning = ('<div class="warn">Lab Confirm % values are derived from live investigation records. '
+               'If values appear unexpectedly low, verify whether lab investigations are being recorded '
+               'against the correct visit ID in the EMR. Columns marked <em>verify data</em> indicate '
+               'less than 50% of visits have a linked investigation record and should not be used for '
+               'clinical decision-making until resolved.</div>')
+    return _COMM_BASE.format(hdr + rows + "</tbody></table>" + _SORT_SCRIPT)
+
+
 def render_tab4_disease_burden(filters: dict, run_query):
     st_a, st_b, st_c, st_d, st_e = st.tabs([
         "Overview", "NCD & Chronic", "RMNCH",
@@ -3874,8 +6451,8 @@ def render_tab4_disease_burden(filters: dict, run_query):
                     plot_bgcolor="white", paper_bgcolor="white",
                     yaxis=dict(title=y_title, rangemode="tozero",
                                gridcolor="rgba(0,0,0,0.06)",
-                               tickfont=dict(size=9, color="#888780")),
-                    xaxis=dict(title="", tickfont=dict(size=9, color="#888780")),
+                               tickfont=dict(size=11, color="#888780")),
+                    xaxis=dict(title="", tickfont=dict(size=11, color="#888780")),
                     showlegend=False,
                 )
                 _pc(fig_b)
@@ -4038,40 +6615,92 @@ def render_tab4_disease_burden(filters: dict, run_query):
                                .sum().sort_values(ascending=False))
                 top_conds = cond_totals.head(10).index.tolist()
                 df_rk_top = df_rk[df_rk["ncd_group"].isin(top_conds)].copy()
-                c1, c2 = st.columns([1.4, 0.6])
+                c1, c2 = st.columns([0.9, 1.1])
                 with c1:
                     st.markdown("**Patient count by NCD group and gender:**")
-                    pivot_g = (df_rk_top.pivot_table(
+                    # Normalise gender to Male/Female only; drop nulls/other
+                    df_rk_g = df_rk_top.copy()
+                    df_rk_g["gender"] = df_rk_g["gender"].str.upper().str.strip()
+                    df_rk_g["gender"] = df_rk_g["gender"].map(
+                        {"MALE": "Male", "M": "Male", "FEMALE": "Female", "F": "Female"}
+                    )
+                    df_rk_g = df_rk_g.dropna(subset=["gender"])
+                    pivot_g = (df_rk_g.pivot_table(
                         index="ncd_group", columns="gender",
                         values="patient_count", aggfunc="sum", fill_value=0
-                    ).reindex(top_conds))
-                    color_map_g = {"FEMALE": PURPLE, "MALE": AFYA_BLUE, "F": PURPLE,
-                                   "M": AFYA_BLUE, "Unknown": GRAY}
+                    ).reindex(top_conds).fillna(0))
+                    color_map_g = {"Female": PURPLE, "Male": AFYA_BLUE}
                     fig_rk = go.Figure()
-                    for g in pivot_g.columns.tolist():
+                    for g in ["Male", "Female"]:
+                        if g not in pivot_g.columns:
+                            continue
                         fig_rk.add_trace(go.Bar(
                             x=pivot_g[g].values, y=pivot_g.index.tolist(),
                             name=g, orientation="h",
-                            marker_color=color_map_g.get(g, TEAL),
+                            marker_color=color_map_g[g],
                             hovertemplate=f"<b>%{{y}}</b><br>{g}: %{{x:,}}<extra></extra>",
                         ))
                     fig_rk.update_layout(
-                        barmode="stack", height=340,
-                        margin=dict(l=0, r=20, t=10, b=0),
+                        barmode="stack", height=360,
+                        margin=dict(l=0, r=0, t=36, b=0),
                         plot_bgcolor="white", paper_bgcolor="white",
-                        xaxis=dict(title="Patients", rangemode="tozero"),
-                        yaxis=dict(title="", autorange="reversed"),
-                        legend=dict(orientation="h", y=1.08, xanchor="right", x=1),
+                        xaxis=dict(title="Patients", rangemode="tozero",
+                                   tickfont=dict(size=11)),
+                        yaxis=dict(title="", autorange="reversed",
+                                   tickfont=dict(size=12)),
+                        legend=dict(orientation="h", y=1.06, x=0,
+                                    xanchor="left", font=dict(size=12)),
                     )
                     _pc(fig_rk)
                 with c2:
-                    st.markdown("**Totals:**")
-                    _pc(table_fig(
-                        cond_totals.head(10).reset_index().rename(columns={
-                            "ncd_group": "Condition", "patient_count": "Patients"
-                        }),
-                        col_labels={}, height=340,
-                    ))
+                    st.markdown("**Monthly visits per condition:**")
+                    try:
+                        df_bt = Q.load_burden_trend(filters, run_query)
+                        df_bt["visit_count"] = pd.to_numeric(df_bt["visit_count"], errors="coerce")
+                        df_bt["visit_month"] = pd.to_datetime(df_bt["visit_month"])
+                        _ncd_kw = ("Cardiovascular", "Diabetes", "Neurolog", "Mental",
+                                   "Musculo", "Chronic", "Endocrin", "Metabolic")
+                        df_bt_ncd = df_bt[df_bt["burden_group"].str.contains(
+                            "|".join(_ncd_kw), case=False, na=False
+                        )]
+                        # Top 5 only
+                        top_bt = (df_bt_ncd.groupby("burden_group")["visit_count"]
+                                  .sum().nlargest(5).index.tolist())
+                        df_bt_ncd = df_bt_ncd[df_bt_ncd["burden_group"].isin(top_bt)]
+                        if not df_bt_ncd.empty:
+                            palette = [AFYA_BLUE, TEAL, ORANGE, CORAL, PURPLE]
+                            fig_tr = go.Figure()
+                            for i, cond in enumerate(top_bt):
+                                sub = df_bt_ncd[df_bt_ncd["burden_group"] == cond].sort_values("visit_month")
+                                if sub.empty:
+                                    continue
+                                short = (cond.replace("NCD — ", "").replace("NCD - ", "")
+                                             .replace("NCD – ", "").replace("NCD: ", ""))
+                                fig_tr.add_trace(go.Scatter(
+                                    x=sub["visit_month"], y=sub["visit_count"],
+                                    name=short, mode="lines",
+                                    line=dict(color=palette[i % len(palette)], width=2),
+                                    hovertemplate=f"<b>{short}</b><br>%{{x|%b %Y}}: %{{y:,}}<extra></extra>",
+                                ))
+                            fig_tr.update_layout(
+                                height=400,
+                                margin=dict(l=0, r=0, t=80, b=0),
+                                plot_bgcolor="white", paper_bgcolor="white",
+                                xaxis=dict(title="", tickfont=dict(size=11),
+                                           gridcolor="rgba(0,0,0,0.05)"),
+                                yaxis=dict(title="Visits", rangemode="tozero",
+                                           tickfont=dict(size=11),
+                                           gridcolor="rgba(0,0,0,0.05)"),
+                                legend=dict(
+                                    font=dict(size=11), orientation="h",
+                                    x=0, y=1.22, xanchor="left", yanchor="top",
+                                ),
+                            )
+                            _pc(fig_tr)
+                        else:
+                            st.caption("No NCD trend data available for this period.")
+                    except Exception as e:
+                        st.warning(f"Trend chart: {e}")
         except Exception as e:
             st.warning(f"B2: {e}")
 
@@ -4083,40 +6712,20 @@ def render_tab4_disease_burden(filters: dict, run_query):
         try:
             df_cx = Q.load_ncd_complexity_distribution(filters, run_query)
             if not df_cx.empty:
-                df_cx["patient_count"]      = pd.to_numeric(df_cx["patient_count"],      errors="coerce")
+                df_cx["patient_count"]       = pd.to_numeric(df_cx["patient_count"],       errors="coerce")
                 df_cx["pct_of_ncd_patients"] = pd.to_numeric(df_cx["pct_of_ncd_patients"], errors="coerce")
                 c1, c2 = st.columns(2)
                 with c1:
                     _pc(donut(
                         labels=df_cx["ncd_complexity"].tolist(),
                         values=df_cx["patient_count"].tolist(),
-                        color_map={
-                            "1 NCD": TEAL, "2 NCDs": ORANGE,
-                            "3 NCDs": CORAL, "4+ NCDs (Complex)": PURPLE,
-                        },
+                        color_map={"1 NCD": TEAL, "2 NCDs": ORANGE, "3 NCDs": CORAL, "4+ NCDs (Complex)": PURPLE},
                         height=280,
                     ))
                 with c2:
-                    st.dataframe(
-                        df_cx[["ncd_complexity", "patient_count", "pct_of_ncd_patients"]].rename(
-                            columns={"ncd_complexity": "Complexity",
-                                     "patient_count": "Patients",
-                                     "pct_of_ncd_patients": "% of NCD Patients"}
-                        ),
-                        use_container_width=True, hide_index=True, height=220,
-                        column_config={
-                            "% of NCD Patients": st.column_config.NumberColumn(format="%.1f%%")
-                        },
-                    )
-                    complex_pct = float(
-                        df_cx.loc[df_cx["ncd_complexity"] != "1 NCD",
-                                  "pct_of_ncd_patients"].sum()
-                    )
-                    _note(
-                        f"{complex_pct:.0f}% of NCD patients carry 2+ conditions. "
-                        "These patients need integrated management protocols.",
-                        w=(complex_pct > 30),
-                    )
+                    t1_html, t1_insight = _ncd_t1_html(df_cx)
+                    _stcomp.html(t1_html, height=280, scrolling=False)
+                    st.caption(t1_insight)
         except Exception as e:
             st.warning(f"B3: {e}")
 
@@ -4133,22 +6742,28 @@ def render_tab4_disease_burden(filters: dict, run_query):
                     index="age_group", columns="chronic_condition",
                     values="patient_count", aggfunc="sum", fill_value=0
                 )
-                age_order = ["Under 18", "18-34", "35-49", "50-64", "65+"]
+                age_order = ["Toddler (0–4)", "Child (5–12)", "Adolescent (13–17)", "Youth (18–24)",
+                             "Young Adult (25–34)", "Adult (35–44)", "Middle Age (45–54)",
+                             "Older Adult (55–64)", "Senior (65+)", "Unknown"]
                 pivot_hm = pivot_hm.reindex([a for a in age_order if a in pivot_hm.index])
+                n_rows = len(pivot_hm.index)
                 fig_hm = go.Figure(go.Heatmap(
                     z=pivot_hm.values,
                     x=pivot_hm.columns.tolist(),
                     y=pivot_hm.index.tolist(),
-                    colorscale=[[0, "#EBF3FB"], [0.5, "#0072CE"], [1, "#003F88"]],
+                    colorscale=[[0, "#BDD7EE"], [0.4, "#378ADD"], [0.75, "#0072CE"], [1, "#003467"]],
                     hovertemplate="<b>%{y} — %{x}</b><br>Patients: %{z:,}<extra></extra>",
                     text=pivot_hm.values, texttemplate="%{text}",
-                    textfont=dict(size=10, color="white"),
+                    textfont=dict(size=13, color="white"),
+                    xgap=2, ygap=2,
                 ))
                 fig_hm.update_layout(
-                    height=300, margin=dict(l=0, r=20, t=20, b=60),
+                    height=max(380, n_rows * 42 + 80),
+                    margin=dict(l=10, r=20, t=20, b=80),
                     plot_bgcolor="white", paper_bgcolor="white",
-                    xaxis=dict(tickangle=-30, title=""),
-                    yaxis=dict(title="Age Group"),
+                    xaxis=dict(tickangle=-35, title="", tickfont=dict(size=13)),
+                    yaxis=dict(title="", tickfont=dict(size=13)),
+                    coloraxis_showscale=True,
                 )
                 _pc(fig_hm)
         except Exception as e:
@@ -4162,32 +6777,12 @@ def render_tab4_disease_burden(filters: dict, run_query):
         try:
             df_cp = Q.load_chronic_comorbidity_pairs(filters, run_query)
             if not df_cp.empty:
-                df_cp["avg_days_between_diagnoses"] = pd.to_numeric(
-                    df_cp["avg_days_between_diagnoses"], errors="coerce")
-                df_cp["patient_count"] = pd.to_numeric(df_cp["patient_count"], errors="coerce")
-                c1, c2 = st.columns([1.3, 0.7])
-                with c1:
-                    _pc(hbar_chart(
-                        df_cp.head(10), x="patient_count", y="condition_pair",
-                        x_label="Patients", color=AFYA_BLUE, height=320, show_text=True,
-                    ))
-                with c2:
-                    _pc(table_fig(
-                        df_cp[["condition_pair", "patient_count",
-                               "avg_days_between_diagnoses"]].head(10),
-                        col_labels={"condition_pair": "Pair",
-                                    "patient_count": "Patients",
-                                    "avg_days_between_diagnoses": "Avg Days to 2nd Dx"},
-                        height=320,
-                    ))
-                fastest = df_cp.dropna(subset=["avg_days_between_diagnoses"])
-                if not fastest.empty:
-                    f_row = fastest.loc[fastest["avg_days_between_diagnoses"].idxmin()]
-                    _note(
-                        f"Fastest progression: {f_row['condition_pair']} — avg "
-                        f"{int(f_row['avg_days_between_diagnoses'])} days to second diagnosis. "
-                        "This pair needs a co-management protocol."
-                    )
+                df_cp["avg_days_between_diagnoses"] = pd.to_numeric(df_cp["avg_days_between_diagnoses"], errors="coerce")
+                df_cp["patient_count"]              = pd.to_numeric(df_cp["patient_count"], errors="coerce")
+                t2_html, t2_insight = _ncd_t2_html(df_cp)
+                _stcomp.html(t2_html, height=len(df_cp.head(10)) * 36 + 40, scrolling=False)
+                if t2_insight:
+                    st.caption(t2_insight)
         except Exception as e:
             st.warning(f"B5: {e}")
 
@@ -4338,9 +6933,9 @@ def render_tab4_disease_burden(filters: dict, run_query):
                 comorb_grp = (
                     df_hp.groupby(["htn_status", "comorbidity_group"])
                     .apply(lambda d: pd.Series({
-                        "patients": d["patient_count"].sum(),
-                        "avg_inv":  ((d["avg_investigations"] * d["patient_count"]).sum()
-                                    / max(d["patient_count"].sum(), 1)),
+                        "patients":  d["patient_count"].sum(),
+                        "avg_inv":   ((d["avg_investigations"] * d["patient_count"]).sum()
+                                      / max(d["patient_count"].sum(), 1)),
                         "on_rx_pct": (d.loc[
                             pd.to_numeric(d["on_antihypertensive"], errors="coerce") == 1,
                             "patient_count"
@@ -4348,19 +6943,7 @@ def render_tab4_disease_burden(filters: dict, run_query):
                     }), include_groups=False)
                     .reset_index()
                 )
-                st.dataframe(
-                    comorb_grp.rename(columns={
-                        "htn_status": "HTN Status", "comorbidity_group": "Comorbidity",
-                        "patients": "Patients", "avg_inv": "Avg Investigations",
-                        "on_rx_pct": "On Antihypertensive %",
-                    }),
-                    use_container_width=True, hide_index=True,
-                    height=min(400, len(comorb_grp) * 35 + 50),
-                    column_config={
-                        "Avg Investigations":    st.column_config.NumberColumn(format="%.1f"),
-                        "On Antihypertensive %": st.column_config.NumberColumn(format="%.0f%%"),
-                    },
-                )
+                _stcomp.html(_ncd_t3_html(comorb_grp), height=len(comorb_grp) * 30 + 72, scrolling=False)
         except Exception as e:
             st.warning(f"B7: {e}")
 
@@ -4370,38 +6953,18 @@ def render_tab4_disease_burden(filters: dict, run_query):
         _sh("Prescription Without Clinical Assessment — Documentation Gap", mt=8)
         _note(
             "Chronic visits where a prescription was issued but NO vitals were recorded AND "
-            "NO clinical note exists. May indicate a documentation gap or a true pharmacy-only "
-            "refill without clinical review. Either way it is a governance risk."
+            "NO clinical note exists. Governance risk signal."
         )
         try:
             df_ph = Q.load_chronic_pharmacy_only(filters, run_query)
             if not df_ph.empty:
-                for _c in ("patient_count", "pharmacy_only_pct", "avg_annual_revenue"):
-                    if _c in df_ph.columns:
-                        df_ph[_c] = pd.to_numeric(df_ph[_c], errors="coerce")
-                if "pharmacy_only_visits" in df_ph.columns:
-                    total_gap = int(pd.to_numeric(
-                        df_ph["pharmacy_only_visits"], errors="coerce"
-                    ).sum())
-                    if total_gap > 0:
-                        _note(
-                            f"{total_gap:,} visits have a prescription but no recorded vitals or "
-                            "clinical note. Investigate whether these are genuine assessments with "
-                            "missing documentation or true unreviewed refills.",
-                            w=True,
-                        )
-                _pc(table_fig(
-                    df_ph[["payer", "condition", "patient_count",
-                            "pharmacy_only_pct", "avg_annual_revenue"]].head(20),
-                    col_labels={
-                        "payer": "Payer", "condition": "Condition",
-                        "patient_count": "Patients",
-                        "pharmacy_only_pct": "Gap Visit %",
-                        "avg_annual_revenue": "Avg Annual Rev (KES)",
-                    },
-                    fmt={"pharmacy_only_pct": "pct", "avg_annual_revenue": "num"},
-                    height=380,
-                ))
+                df_ph["patient_count"]      = pd.to_numeric(df_ph["patient_count"],      errors="coerce")
+                df_ph["avg_annual_revenue"] = pd.to_numeric(df_ph["avg_annual_revenue"],  errors="coerce")
+                _stcomp.html(_ncd_t4_html(df_ph), height=400, scrolling=True)
+                st.caption(
+                    "⚠️ Gap Visit % removed pending data validation. "
+                    "Investigate whether the gap visit logic is capturing pharmacy-only visits correctly."
+                )
         except Exception as e:
             st.warning(f"B8: {e}")
 
@@ -4418,34 +6981,7 @@ def render_tab4_disease_burden(filters: dict, run_query):
                            "avg_revenue_per_patient", "controlled_pct"):
                     if _c in df_qmx.columns:
                         df_qmx[_c] = pd.to_numeric(df_qmx[_c], errors="coerce")
-
-                def _trend_icon(v):
-                    if pd.isna(v): return "—"
-                    return f"↑ {abs(v):.0f}%" if v > 5 else f"↓ {abs(v):.0f}%" if v < -5 else f"→ {v:.0f}%"
-
-                disp_qmx = pd.DataFrame({
-                    "Condition":       df_qmx["condition"],
-                    "Patients":        df_qmx["patient_count"].fillna(0).astype(int),
-                    "6-Mo Trend":      df_qmx["trend_pct"].apply(_trend_icon),
-                    "IP Rate %":       df_qmx["ip_rate_pct"].fillna(0).round(1),
-                    "Top Payer":       df_qmx.get("top_payer",
-                                           pd.Series(["-"] * len(df_qmx))).fillna("-"),
-                    "Visits/Patient":  df_qmx["avg_visits_per_patient"].fillna(0).round(1),
-                    "Inv/Visit":       df_qmx["investigations_per_visit"].fillna(0).round(2),
-                    "Avg Rev/Patient": df_qmx["avg_revenue_per_patient"].fillna(0).round(0),
-                    "Controlled %":    df_qmx["controlled_pct"].apply(
-                                           lambda v: f"{v:.0f}%" if pd.notna(v) else "-"),
-                })
-                st.dataframe(
-                    disp_qmx, use_container_width=True, hide_index=True,
-                    height=min(560, len(disp_qmx) * 38 + 50),
-                    column_config={
-                        "IP Rate %":      st.column_config.NumberColumn(format="%.1f%%"),
-                        "Visits/Patient": st.column_config.NumberColumn(format="%.1f"),
-                        "Inv/Visit":      st.column_config.NumberColumn(format="%.2f"),
-                        "Avg Rev/Patient": st.column_config.NumberColumn(format="KES %,.0f"),
-                    },
-                )
+                _stcomp.html(_ncd_t5_html(df_qmx), height=len(df_qmx) * 30 + 38, scrolling=False)
         except Exception as e:
             st.warning(f"B9: {e}")
 
@@ -4462,30 +6998,68 @@ def render_tab4_disease_burden(filters: dict, run_query):
             if df_ev.empty:
                 st.success("No undetected NCD risk patients found in this period.")
             else:
-                for _c in ("visit_count", "latest_systolic",
-                           "latest_blood_sugar", "days_since_last_visit"):
+                for _c in ("visit_count", "latest_systolic", "latest_blood_sugar", "days_since_last_visit"):
                     if _c in df_ev.columns:
                         df_ev[_c] = pd.to_numeric(df_ev[_c], errors="coerce")
-                _note(
-                    f"{len(df_ev):,} patients flagged. Assign to a chronic disease nurse for "
-                    "screening within 30 days.",
-                    w=True,
+                t6_html, t6_total, t6_critical = _ncd_t6_html(df_ev)
+                _stcomp.html(t6_html, height=480, scrolling=True)
+                st.caption(
+                    f"{t6_total:,} patients flagged. "
+                    f"{t6_critical} marked Critical (systolic >180 or not seen in 300+ days). "
+                    "Prioritise these for immediate outreach."
                 )
-                _pc(table_fig(
-                    df_ev[["patient", "visit_count", "latest_systolic",
-                           "latest_blood_sugar", "days_since_last_visit", "payer"]].head(40),
-                    col_labels={
-                        "patient": "Patient", "visit_count": "Flagged Visits",
-                        "latest_systolic": "Latest Systolic",
-                        "latest_blood_sugar": "Latest Blood Sugar",
-                        "days_since_last_visit": "Days Since Last Visit",
-                        "payer": "Payer",
-                    },
-                    height=min(520, len(df_ev.head(40)) * 30 + 60),
-                ))
         except Exception as e:
             st.warning(f"B10: {e}")
 
+        # ── Chronic illness growth over time ──────────────────────────────
+        _gap(16)
+        _sh("Chronic Illness Growth Over Time", mt=8)
+        try:
+            df_chr = Q.load_cv_chronic_growth(filters, run_query)
+            if not df_chr.empty:
+                df_chr["visit_month"] = pd.to_datetime(df_chr["visit_month"])
+                df_chr = df_chr.sort_values("visit_month")
+                _all_ages_chr = (df_chr.groupby("age_group")["chronic_patients"]
+                                 .sum().sort_values(ascending=False).index.tolist())
+                _chr_months = sorted(df_chr["visit_month"].unique())
+                _col_chr, _ = st.columns([1, 1])
+                with _col_chr:
+                    _chr_age_sel = st.selectbox(
+                        "Filter by age group",
+                        options=["All"] + _all_ages_chr,
+                        index=0, key="db_chr_age_filter",
+                    )
+                    df_chr_f = (df_chr if _chr_age_sel == "All"
+                                else df_chr[df_chr["age_group"] == _chr_age_sel])
+                    fig_ch = go.Figure()
+                    _CHR_GCOL = {"Female": PURPLE, "Male": TEAL}
+                    for _g in [g for g in ["Female", "Male"]
+                               if g in df_chr_f["gender"].dropna().unique()]:
+                        _raw = (df_chr_f[df_chr_f["gender"] == _g]
+                                .groupby("visit_month")["chronic_patients"].sum()
+                                .reindex(_chr_months, fill_value=0))
+                        _prev = _raw.shift(1)
+                        _idx  = (_raw / _prev.replace(0, float("nan")) * 100).tolist()
+                        _lv   = next((v for v in reversed(_idx) if v and not pd.isna(v)), None)
+                        _dstr = (f"+{round(_lv-100)}%" if _lv else "")
+                        fig_ch.add_trace(go.Scatter(
+                            x=_chr_months, y=_idx,
+                            name=f"{_g}  {_dstr}",
+                            mode="lines+markers",
+                            line=dict(color=_CHR_GCOL.get(_g, GREY), width=2),
+                            marker=dict(size=5),
+                        ))
+                    fig_ch.add_hline(y=100, line_dash="dot",
+                                     line_color="rgba(0,0,0,0.12)", line_width=1)
+                    fig_ch.update_layout(
+                        **CHART_BASE, height=280,
+                        xaxis={**AX, "showgrid": False, "tickformat": "%b %y"},
+                        yaxis={**AX, "title": ""},
+                        legend=dict(orientation="h", y=1.08, x=0, font=dict(size=9)),
+                    )
+                    _pc(fig_ch)
+        except Exception as e:
+            st.warning(f"Chronic growth: {e}")
 
     # ── RMNCH TAB ─────────────────────────────────────────────────────────────
     with st_c:
@@ -4912,6 +7486,18 @@ def render_tab4_disease_burden(filters: dict, run_query):
             df_dem = Q.load_disease_demographics(filters, run_query)
             if not df_dem.empty:
                 diseases = df_dem["disease_label"].unique().tolist()
+                _AGE_ORDER = [
+                    "Toddler (0–4)", "Child (5–12)", "Adolescent (13–17)",
+                    "Youth (18–24)", "Young Adult (25–34)", "Adult (35–44)",
+                    "Middle Age (45–54)", "Older Adult (55–64)", "Senior (65+)", "Unknown",
+                ]
+                _AGE_SHORT = {
+                    "Toddler (0–4)": "0–4", "Child (5–12)": "5–12",
+                    "Adolescent (13–17)": "13–17", "Youth (18–24)": "18–24",
+                    "Young Adult (25–34)": "25–34", "Adult (35–44)": "35–44",
+                    "Middle Age (45–54)": "45–54", "Older Adult (55–64)": "55–64",
+                    "Senior (65+)": "65+", "Unknown": "Unk",
+                }
                 n_cols = min(3, len(diseases))
                 rows_d = [diseases[i:i+n_cols] for i in range(0, len(diseases), n_cols)]
                 for row_diseases in rows_d:
@@ -4921,26 +7507,39 @@ def render_tab4_disease_burden(filters: dict, run_query):
                         with col_d:
                             st.markdown(f"**{dis}**")
                             age_sex = sub_d.groupby(["age_group", "sex"])["patient_count"].sum().reset_index()
+                            # sort age groups in correct order and shorten labels
+                            age_sex["age_order"] = age_sex["age_group"].map(
+                                {a: i for i, a in enumerate(_AGE_ORDER)}
+                            ).fillna(99)
+                            age_sex = age_sex.sort_values("age_order")
+                            age_sex["age_label"] = age_sex["age_group"].map(_AGE_SHORT).fillna(age_sex["age_group"])
                             fig_ds = go.Figure()
                             sex_colors = {"F": PURPLE, "FEMALE": PURPLE,
                                           "M": AFYA_BLUE, "MALE": AFYA_BLUE,
                                           "Unknown": GRAY}
-                            for sx in age_sex["sex"].unique():
-                                sub_sx = age_sex[age_sex["sex"] == sx]
+                            for sx in ["FEMALE", "F", "MALE", "M"]:
+                                sub_sx = age_sex[age_sex["sex"].str.upper() == sx.upper()]
+                                if sub_sx.empty:
+                                    continue
+                                label = "Female" if sx in ("FEMALE", "F") else "Male"
                                 fig_ds.add_trace(go.Bar(
-                                    name=sx,
-                                    x=sub_sx["age_group"],
+                                    name=label,
+                                    x=sub_sx["age_label"],
                                     y=sub_sx["patient_count"],
                                     marker_color=sex_colors.get(sx, GRAY),
                                     showlegend=(dis == diseases[0]),
+                                    legendgroup=label,
                                 ))
                             fig_ds.update_layout(
-                                barmode="group", height=200,
-                                margin=dict(l=0, r=0, t=10, b=30),
+                                barmode="group", height=240,
+                                margin=dict(l=0, r=0, t=10, b=50),
                                 plot_bgcolor="white", paper_bgcolor="white",
                                 yaxis_title="Patients",
-                                xaxis=dict(tickangle=-20),
-                                legend=dict(orientation="h", y=-0.35),
+                                xaxis=dict(
+                                    tickangle=-45,
+                                    tickfont=dict(size=12),
+                                ),
+                                legend=dict(orientation="h", y=-0.28, font=dict(size=12)),
                             )
                             _pc(fig_ds)
         except Exception as e:
@@ -5188,7 +7787,7 @@ def render_tab4_disease_burden(filters: dict, run_query):
                                         color="#DC2626", line=dict(color="white", width=1)),
                             text=[dis_s] * len(sub_s),
                             textposition="top center",
-                            textfont=dict(size=9, color="#DC2626"),
+                            textfont=dict(size=11, color="#DC2626"),
                             showlegend=first_surge,
                             legendgroup="surge",
                             hovertemplate=f"<b>SURGE: {dis_s}</b><br>%{{x|%b %Y}} — %{{y:,}} visits<br>(>1.5× average)<extra></extra>",
@@ -5204,18 +7803,19 @@ def render_tab4_disease_burden(filters: dict, run_query):
                     )
                     _pc(fig_sg)
 
-                    # surge summary table
-                    surge_rows = surge_df[surge_df["is_surge"]].copy()
-                    if not surge_rows.empty:
-                        surge_rows["Month"] = surge_rows["visit_month"].dt.strftime("%b %Y")
-                        surge_rows["vs Average"] = surge_rows.apply(
-                            lambda r: f"{r['visit_count'] / max(means.get(r['disease_label'], 1), 1):.1f}×", axis=1
-                        )
-                        surge_rows = surge_rows.rename(columns={
-                            "disease_label": "Disease", "visit_count": "Visits"
-                        })[["Disease", "Month", "Visits", "vs Average"]].sort_values("Month")
-                        st.markdown("**Surge months (>1.5× average):**")
-                        _pc(table_fig(surge_rows, height=min(240, len(surge_rows) * 32 + 50)))
+                    # surge summary table — same disease set and means as the chart above
+                    _gap(12)
+                    _sh("Surge Months — Malaria, URTI & Typhoid (>1.5× period average)", mt=4)
+                    surge_df["vs_avg"] = surge_df.apply(
+                        lambda r: round(r["visit_count"] / max(means.get(r["disease_label"], 1), 1), 1), axis=1
+                    )
+                    surge_all = surge_df[surge_df["vs_avg"] >= 1.5].copy()
+                    surge_all["month_str"] = surge_all["visit_month"].dt.strftime("%b %Y")
+                    surge_all = surge_all.rename(columns={"visit_count": "visits"}).sort_values("vs_avg", ascending=False)
+                    t1_html, t1_insight = _comm_t1_html(surge_all)
+                    _stcomp.html(t1_html, height=300, scrolling=True)
+                    if t1_insight:
+                        st.caption(t1_insight)
         except Exception as e:
             st.warning(f"Surge pattern: {e}")
 
@@ -5223,44 +7823,16 @@ def render_tab4_disease_burden(filters: dict, run_query):
 
         # ── D8: Unified Pipeline Matrix (from live data) ───────────────────────
         _sh("Unified Acute & Communicable Pipeline Matrix", mt=8)
-        _note("Built from actual Snowflake data: lab confirmation rate, inpatient admission rate, primary demographic, top comorbidity, and primary payer per disease.")
+        _note("Disease colour matches the trend chart. IP Admission % is the primary risk signal. Lab Confirm % shows 'verify data' where less than 50% of visits have a linked investigation record.")
         try:
             df_cpm = Q.load_communicable_pipeline_matrix(filters, run_query)
             if not df_cpm.empty:
-                for _c in ("quarterly_visits", "lab_confirmation_pct", "inpatient_admission_pct"):
+                for _c in ("quarterly_visits", "lab_confirmation_pct",
+                           "data_completeness_pct", "inpatient_admission_pct"):
                     if _c in df_cpm.columns:
                         df_cpm[_c] = pd.to_numeric(df_cpm[_c], errors="coerce")
-
-                rows_html = ""
-                for _, r in df_cpm.iterrows():
-                    ip_pct = float(r.get("inpatient_admission_pct") or 0)
-                    ip_color = "#DC2626" if ip_pct > 15 else "#16A34A" if ip_pct < 5 else "#D97706"
-                    rows_html += (
-                        f'<tr>'
-                        f'<td style="padding:7px 8px;font-weight:600;font-size:12px">{r.get("disease_group","")}</td>'
-                        f'<td style="padding:7px 8px;font-size:11px;text-align:right">{int(r.get("quarterly_visits", 0) or 0):,}</td>'
-                        f'<td style="padding:7px 8px;font-size:11px">{r.get("primary_age_sex","")}</td>'
-                        f'<td style="padding:7px 8px;font-size:11px;text-align:right">'
-                        f'{float(r.get("lab_confirmation_pct", 0) or 0):.0f}%</td>'
-                        f'<td style="padding:7px 8px;font-size:11px;text-align:right;color:{ip_color};font-weight:700">'
-                        f'{ip_pct:.0f}%</td>'
-                        f'<td style="padding:7px 8px;font-size:11px">{r.get("primary_comorbidity","—")}</td>'
-                        f'<td style="padding:7px 8px;font-size:11px">{r.get("primary_payer","")}</td>'
-                        f'</tr>'
-                    )
-                st.markdown(
-                    '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-family:sans-serif">'
-                    '<thead><tr style="background:#E05C2D;color:white">'
-                    '<th style="padding:8px;text-align:left">Disease</th>'
-                    '<th style="padding:8px;text-align:right">90d Visits</th>'
-                    '<th style="padding:8px;text-align:left">Primary Demographic</th>'
-                    '<th style="padding:8px;text-align:right">Lab Confirm %</th>'
-                    '<th style="padding:8px;text-align:right">IP Admission %</th>'
-                    '<th style="padding:8px;text-align:left">Top Comorbidity</th>'
-                    '<th style="padding:8px;text-align:left">Primary Payer</th>'
-                    '</tr></thead><tbody>' + rows_html + '</tbody></table></div>',
-                    unsafe_allow_html=True,
-                )
+                t2_html = _comm_t2_html(df_cpm)
+                _stcomp.html(t2_html, height=300, scrolling=True)
         except Exception as e:
             st.warning(f"Pipeline matrix: {e}")
 
@@ -5360,16 +7932,68 @@ def render_tab4_disease_burden(filters: dict, run_query):
                     )
                     _pc(fig_mhc)
                 with c2:
-                    _pc(table_fig(
-                        df_mhc[["mh_category", "standalone_patients", "comorbid_patients",
-                                "standalone_pct", "top_comorbidity"]],
-                        col_labels={"mh_category": "Condition", "standalone_patients": "Standalone",
-                                    "comorbid_patients": "Comorbid",
-                                    "standalone_pct": "Standalone %",
-                                    "top_comorbidity": "Top Co-Condition"},
-                        fmt={"standalone_pct": "pct"},
-                        height=280,
-                    ))
+                    _MH_CLR = {
+                        "Depression & Anxiety":     "#378ADD",
+                        "Substance & Alcohol":      "#E24B4A",
+                        "Psychotic Disorders":      "#7F77DD",
+                        "Dementia / Organic Brain": "#EF9F27",
+                        "Other Mental Health":      "#888780",
+                    }
+                    # trend direction from monthly data
+                    _trend_map = {}
+                    try:
+                        _df_mht_tmp = Q.load_mh_monthly_trend(filters, run_query)
+                        if not _df_mht_tmp.empty:
+                            _df_mht_tmp["visit_month"] = pd.to_datetime(_df_mht_tmp["visit_month"])
+                            for _cat, _grp in _df_mht_tmp.groupby("mh_category"):
+                                _grp = _grp.sort_values("visit_month")
+                                if len(_grp) >= 2:
+                                    _fh = _grp["visit_count"].iloc[:len(_grp)//2].mean()
+                                    _lh = _grp["visit_count"].iloc[len(_grp)//2:].mean()
+                                    _trend_map[_cat] = (
+                                        "Rising"    if _lh > _fh * 1.15 else
+                                        "Declining" if _lh < _fh * 0.85 else
+                                        "Stable"
+                                    )
+                    except Exception:
+                        pass
+                    hdr_mh = ('<table><thead><tr>'
+                              '<th>Condition</th>'
+                              '<th style="text-align:center;">Trend</th>'
+                              '<th style="text-align:center;">Standalone</th>'
+                              '<th style="text-align:center;">Comorbid</th>'
+                              '<th>Top co-condition</th>'
+                              '</tr></thead><tbody>')
+                    rows_mh = ""
+                    for _, _r in df_mhc.iterrows():
+                        _cat    = str(_r.get("mh_category", ""))
+                        _sa     = int(_r.get("standalone_patients") or 0)
+                        _co     = int(_r.get("comorbid_patients") or 0)
+                        _top    = str(_r.get("top_comorbidity") or "—")
+                        _clr    = _MH_CLR.get(_cat, "#888780")
+                        _tl     = _trend_map.get(_cat, "—")
+                        if _tl == "Rising":
+                            _tb, _tc, _ts = "#E1F5EE", "#0F6E56", "↑ Rising"
+                        elif _tl == "Declining":
+                            _tb, _tc, _ts = "#FCEBEB", "#A32D2D", "↓ Declining"
+                        elif _tl == "Stable":
+                            _tb, _tc, _ts = "#f5f5f3", "#5f5e5a", "→ Stable"
+                        else:
+                            _tb, _tc, _ts = "#f5f5f3", "#888780", "—"
+                        _badge = (f'<span style="background:{_tb};color:{_tc};font-size:9px;'
+                                  f'font-weight:500;padding:2px 7px;border-radius:20px;">{_ts}</span>')
+                        rows_mh += (
+                            f'<tr>'
+                            f'<td style="border-left:3px solid {_clr};padding-left:7px;'
+                            f'font-weight:500;line-height:1.3;">{_cat}</td>'
+                            f'<td style="text-align:center;">{_badge}</td>'
+                            f'<td style="text-align:center;font-weight:500;">{_sa:,}</td>'
+                            f'<td style="text-align:center;font-weight:500;color:#7F77DD;">{_co:,}</td>'
+                            f'<td style="color:#5f5e5a;font-size:10px;line-height:1.3;">{_top}</td>'
+                            f'</tr>'
+                        )
+                    _html_mh = _NCD_BASE.format(hdr_mh + rows_mh + "</tbody></table>")
+                    _stcomp.html(_html_mh, height=len(df_mhc) * 34 + 44, scrolling=False)
         except Exception as e:
             st.warning(f"E3: {e}")
 
@@ -5402,368 +8026,7 @@ def render_tab4_disease_burden(filters: dict, run_query):
         except Exception as e:
             st.warning(f"E4: {e}")
 
-        _gap(12)
 
-        # Mental Health Care & Synergy Matrix — built from live query data
-        _sh("Mental Health Care & Synergy Matrix", mt=8)
-        _note("Built from actual data: comorbidity split from load_mh_comorbidity_profile, trend direction from load_mh_monthly_trend.")
-        try:
-            df_mhc2 = Q.load_mh_comorbidity_profile(filters, run_query)
-            df_mht2 = Q.load_mh_monthly_trend(filters, run_query)
-            if not df_mhc2.empty:
-                # compute trend direction per category from monthly data
-                trend_map = {}
-                if not df_mht2.empty:
-                    df_mht2["visit_month"] = pd.to_datetime(df_mht2["visit_month"])
-                    for cat_t, grp_t in df_mht2.groupby("mh_category"):
-                        grp_t = grp_t.sort_values("visit_month")
-                        if len(grp_t) >= 2:
-                            first_h = grp_t["visit_count"].iloc[:len(grp_t)//2].mean()
-                            last_h = grp_t["visit_count"].iloc[len(grp_t)//2:].mean()
-                            trend_map[cat_t] = (
-                                "Rising" if last_h > first_h * 1.15
-                                else "Declining" if last_h < first_h * 0.85
-                                else "Stable"
-                            )
-
-                rows_html_mh = ""
-                for _, r_mh in df_mhc2.iterrows():
-                    cat_mh = str(r_mh.get("mh_category", ""))
-                    standalone = int(r_mh.get("standalone_patients") or 0)
-                    comorbid   = int(r_mh.get("comorbid_patients") or 0)
-                    total_mh   = standalone + comorbid or 1
-                    sa_pct = round(standalone / total_mh * 100)
-                    co_pct = 100 - sa_pct
-                    trend_label = trend_map.get(cat_mh, "—")
-                    trend_color = "#16A34A" if trend_label == "Rising" else "#DC2626" if trend_label == "Declining" else "#D97706"
-                    top_comorbid = str(r_mh.get("top_comorbidity") or "—")
-                    rows_html_mh += (
-                        f'<tr>'
-                        f'<td style="padding:7px 8px;font-weight:600;font-size:12px">{cat_mh}</td>'
-                        f'<td style="padding:7px 8px;font-size:11px;color:{trend_color};font-weight:700">{trend_label}</td>'
-                        f'<td style="padding:7px 8px;font-size:11px">{sa_pct}% Standalone · {co_pct}% Comorbid</td>'
-                        f'<td style="padding:7px 8px;font-size:11px">{standalone:,} / {comorbid:,}</td>'
-                        f'<td style="padding:7px 8px;font-size:11px">{top_comorbid}</td>'
-                        f'</tr>'
-                    )
-                st.markdown(
-                    '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-family:sans-serif">'
-                    '<thead><tr style="background:#7b5ea7;color:white">'
-                    '<th style="padding:8px;text-align:left">Condition</th>'
-                    '<th style="padding:8px;text-align:left">Trend</th>'
-                    '<th style="padding:8px;text-align:left">Standalone vs Comorbid %</th>'
-                    '<th style="padding:8px;text-align:right">Standalone / Comorbid Count</th>'
-                    '<th style="padding:8px;text-align:left">Top Co-Condition</th>'
-                    '</tr></thead><tbody>' + rows_html_mh + '</tbody></table></div>',
-                    unsafe_allow_html=True,
-                )
-        except Exception as e:
-            st.warning(f"MH Synergy Matrix: {e}")
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# TAB 5 — CLINICAL WORKLOAD & QUALITY
-# ══════════════════════════════════════════════════════════════════════════════
-
-def render_tab5_workload(filters: dict, run_query):
-    _sh("Clinical Workload & Quality")
-    _note("Scoped for Head of Clinical. "
-          "Shortcut rate, BP omission, unplanned 72h returns.")
-
-    # ── QUALITY SIGNALS SCORECARD ─────────────────────────────────────────────
-    _sh("Clinical Quality Signals — Bubble View", mt=12)
-    _note(
-        "Bubble size = patient volume. Position = rate. "
-        "Top-right bubbles are highest priority: high volume AND high risk rate."
-    )
-    try:
-        df_sc  = Q.load_shortcut_rate(filters, run_query)
-        df_bp  = Q.load_bp_omission_rate(filters, run_query)
-        df_72  = Q.load_return_72h(filters, run_query)
-
-        panels = [
-            (df_sc,  "shortcut_rate_pct",  "chronic_visits",  "Shortcut Rate", ORANGE,
-             "Single Dx on chronic patients", "Shortcut Rate %"),
-            (df_bp,  "omission_pct",       "htn_visits",      "BP Omission",   CORAL,
-             "HTN visits without BP recorded", "Omission %"),
-            (df_72,  "return_72h_pct",     "total_visits",    "72h Return",    PURPLE,
-             "Unplanned return within 72h", "Return Rate %"),
-        ]
-
-        cols3 = st.columns(3)
-        for col, (df_p, rate_col, vol_col, title, color, subtitle, y_label) in zip(cols3, panels):
-            with col:
-                if df_p.empty:
-                    st.info(f"No data: {title}")
-                    continue
-                df_p = df_p.copy()
-                df_p[rate_col] = pd.to_numeric(df_p[rate_col], errors="coerce")
-                df_p[vol_col]  = pd.to_numeric(df_p[vol_col],  errors="coerce")
-                df_p = df_p.reset_index(drop=True)
-                df_p["label"] = [f"C{i+1}" for i in range(len(df_p))]
-                median_rate = df_p[rate_col].median()
-
-                fig_q = go.Figure()
-                fig_q.add_trace(go.Scatter(
-                    x=df_p[vol_col],
-                    y=df_p[rate_col],
-                    mode="markers+text",
-                    text=df_p["label"],
-                    textposition="top center",
-                    textfont=dict(size=9),
-                    marker=dict(
-                        size=df_p[vol_col].apply(
-                            lambda v: max(10, min(40, v / df_p[vol_col].max() * 36 + 8))
-                            if df_p[vol_col].max() > 0 else 12
-                        ),
-                        color=[CORAL if v > median_rate * 1.5
-                               else ORANGE if v > median_rate
-                               else TEAL
-                               for v in df_p[rate_col]],
-                        opacity=0.85,
-                        line=dict(width=1, color="white"),
-                    ),
-                    customdata=df_p[["clinician", vol_col, rate_col]].values,
-                    hovertemplate=(
-                        "<b>%{customdata[0]}</b><br>"
-                        f"Volume: %{{customdata[1]:.0f}}<br>"
-                        f"{y_label}: %{{customdata[2]:.1f}}%<extra></extra>"
-                    ),
-                ))
-                fig_q.add_hline(y=median_rate,
-                                line=dict(color=GRAY, width=1, dash="dot"),
-                                annotation_text=f"median {median_rate:.0f}%",
-                                annotation_font=dict(size=8, color=GRAY))
-                fig_q.update_layout(
-                    height=280,
-                    margin=dict(l=0, r=10, t=30, b=0),
-                    plot_bgcolor="white", paper_bgcolor="white",
-                    title=dict(text=f"<b>{title}</b><br><sup>{subtitle}</sup>",
-                               font=dict(size=11), x=0),
-                    xaxis=dict(title="Patient Volume", rangemode="tozero"),
-                    yaxis=dict(title=y_label, rangemode="tozero"),
-                    showlegend=False,
-                )
-                _pc(fig_q)
-
-                # Top offender note
-                worst_row = df_p.loc[df_p[rate_col].idxmax()]
-                if float(worst_row[rate_col] or 0) > median_rate * 1.5:
-                    _note(
-                        f"{worst_row['clinician']}: {worst_row[rate_col]:.0f}% {y_label.lower()} "
-                        f"({int(worst_row[vol_col] or 0):,} patients)."
-                    )
-    except Exception as e:
-        st.warning(f"Quality signals: {e}")
-
-    _gap(12)
-
-    # ── SECTION F: CLINICIAN DOCUMENTATION RATES ─────────────────────────────
-    _sh("F — Documentation Rates by Clinician — Ordered by Patient Load", mt=8)
-    _note(
-        "Clinicians with the highest load do not always have the lowest documentation rates "
-        "— but the relationship is worth watching."
-    )
-    try:
-        df = Q.load_clinician_load(filters, run_query)
-        if not df.empty:
-            for _c in ("vitals_rate_pct", "notes_rate_pct", "vitals_rate_new_pct",
-                       "vitals_rate_returning_pct", "new_visit_pct",
-                       "new_visits", "returning_visits", "total_visits",
-                       "avg_daily_patients", "days_worked"):
-                if _c in df.columns:
-                    df[_c] = pd.to_numeric(df[_c], errors="coerce")
-
-            df = df.reset_index(drop=True)
-            df["label"] = ["Clinician " + str(i + 1) for i in range(len(df))]
-            df15 = df.head(15).copy()
-
-            zero_mask = (df15["vitals_rate_pct"].fillna(0) == 0) & (df15["notes_rate_pct"].fillna(0) == 0)
-            has_zero = bool(zero_mask.any())
-
-            non_zero = df15[~zero_mask]
-            med_vitals = non_zero["vitals_rate_pct"].median() if not non_zero.empty else None
-            med_notes  = non_zero["notes_rate_pct"].median()  if not non_zero.empty else None
-
-            hover_new = [
-                f"<b>{row.label}</b><br>"
-                f"Vitals (new patients): {row.vitals_rate_new_pct:.0f}%<br>"
-                f"New patients: {int(row.new_visits or 0):,}<extra></extra>"
-                for _, row in df15.iterrows()
-            ]
-            hover_ret = [
-                f"<b>{row.label}</b><br>"
-                f"Vitals (returning/follow-up): {row.vitals_rate_returning_pct:.0f}%<br>"
-                f"Returning patients: {int(row.returning_visits or 0):,}<extra></extra>"
-                for _, row in df15.iterrows()
-            ]
-            hover_notes = [
-                f"<b>{row.label}</b><br>"
-                f"Notes documented: {row.notes_rate_pct:.0f}%<br>"
-                f"Total visits: {int(row.total_visits or 0):,}<extra></extra>"
-                for _, row in df15.iterrows()
-            ]
-
-            fig_doc = go.Figure()
-            fig_doc.add_trace(go.Bar(
-                y=df15["label"], x=df15["vitals_rate_new_pct"],
-                name="Vitals — new patients", orientation="h",
-                marker_color=TEAL,
-                text=[f"{v:.0f}%" if pd.notna(v) else "—" for v in df15["vitals_rate_new_pct"]],
-                textposition="outside", cliponaxis=False,
-                hovertemplate="%{customdata}<extra></extra>",
-                customdata=hover_new,
-            ))
-            fig_doc.add_trace(go.Bar(
-                y=df15["label"], x=df15["vitals_rate_returning_pct"],
-                name="Vitals — returning/follow-up", orientation="h",
-                marker_color=COOL_BLUE,
-                text=[f"{v:.0f}%" if pd.notna(v) else "—" for v in df15["vitals_rate_returning_pct"]],
-                textposition="outside", cliponaxis=False,
-                hovertemplate="%{customdata}<extra></extra>",
-                customdata=hover_ret,
-            ))
-            fig_doc.add_trace(go.Bar(
-                y=df15["label"], x=df15["notes_rate_pct"],
-                name="Notes documented", orientation="h",
-                marker_color=AFYA_BLUE,
-                text=[f"{v:.0f}%" if pd.notna(v) else "—" for v in df15["notes_rate_pct"]],
-                textposition="outside", cliponaxis=False,
-                hovertemplate="%{customdata}<extra></extra>",
-                customdata=hover_notes,
-            ))
-
-            if med_vitals is not None:
-                fig_doc.add_vline(
-                    x=med_vitals,
-                    line=dict(color=TEAL, width=1.5, dash="dot"),
-                    annotation_text=f"Vitals median ({med_vitals:.0f}%)",
-                    annotation_position="top right",
-                    annotation_font=dict(size=9, color=TEAL),
-                )
-            if med_notes is not None:
-                fig_doc.add_vline(
-                    x=med_notes,
-                    line=dict(color=AFYA_BLUE, width=1.5, dash="dot"),
-                    annotation_text=f"Notes median ({med_notes:.0f}%)",
-                    annotation_position="top left",
-                    annotation_font=dict(size=9, color=AFYA_BLUE),
-                )
-
-            fig_doc.update_layout(
-                barmode="group",
-                height=max(420, len(df15) * 36),
-                margin=dict(l=0, r=90, t=30, b=0),
-                plot_bgcolor="white", paper_bgcolor="white",
-                xaxis=dict(title="Rate %", range=[0, 130],
-                           showgrid=True, gridcolor="#EBF3FB"),
-                yaxis=dict(autorange="reversed"),
-                legend=dict(orientation="h", yanchor="bottom", y=1.02,
-                            xanchor="right", x=1),
-            )
-            _pc(fig_doc)
-            _note(
-                "Vitals rates are split by visit type. A low rate on returning/follow-up patients "
-                "is often expected — clinicians managing chronic patients may not re-record vitals "
-                "every visit. The new-patient vitals rate is the more meaningful quality signal.",
-            )
-
-            if has_zero:
-                _note(
-                    "Some clinicians show 0% on all rates — this likely reflects a data capture gap "
-                    "rather than clinical behaviour.",
-                    w=True,
-                )
-
-            _gap(8)
-            st.markdown("**Full Load Summary**")
-            df15_disp = df15[["label", "days_worked", "total_visits",
-                               "avg_daily_patients", "new_visit_pct",
-                               "vitals_rate_new_pct", "vitals_rate_returning_pct",
-                               "notes_rate_pct"]].copy()
-            df15_disp["visit_mix"] = df15["new_visit_pct"].apply(
-                lambda x: f"{x:.0f}% new · {100 - x:.0f}% returning" if pd.notna(x) else "—"
-            )
-            _pc(table_fig(
-                df15_disp[["label", "days_worked", "total_visits",
-                            "avg_daily_patients", "visit_mix",
-                            "vitals_rate_new_pct", "vitals_rate_returning_pct",
-                            "notes_rate_pct"]],
-                col_labels={
-                    "label": "Clinician", "days_worked": "Days",
-                    "total_visits": "Visits", "avg_daily_patients": "Avg/Day",
-                    "visit_mix": "Visit Mix",
-                    "vitals_rate_new_pct": "Vitals % (New)",
-                    "vitals_rate_returning_pct": "Vitals % (Return)",
-                    "notes_rate_pct": "Notes %",
-                },
-                fmt={"vitals_rate_new_pct": "pct", "vitals_rate_returning_pct": "pct",
-                     "notes_rate_pct": "pct"},
-                height=360,
-            ))
-    except Exception as e:
-        st.warning(f"Clinician documentation rates: {e}")
-
-    _gap(12)
-
-    # ── CHRONIC LTFU RATES BY CLINICIAN ───────────────────────────────────────
-    _sh("Chronic Patient LTFU Rate by Clinician", mt=8)
-    _note(
-        "% of each clinician's chronic patients who crossed 180 days without returning. "
-        "High rates may reflect gaps in follow-up scheduling or patient satisfaction. Min 5 chronic patients."
-    )
-    try:
-        df_cl = Q.load_clinician_ltfu_rate(filters, run_query)
-        if not df_cl.empty:
-            df_cl["ltfu_rate_pct"] = pd.to_numeric(df_cl["ltfu_rate_pct"], errors="coerce")
-            df_cl["ltfu_count"] = pd.to_numeric(df_cl["ltfu_count"], errors="coerce")
-            df_cl = df_cl.reset_index(drop=True)
-            df_cl["clinician_label"] = [f"Clinician {i+1}" for i in range(len(df_cl))]
-
-            c1, c2 = st.columns([1.4, 0.6])
-            with c1:
-                fig_cl = go.Figure(go.Bar(
-                    x=df_cl["ltfu_rate_pct"],
-                    y=df_cl["clinician_label"],
-                    orientation="h",
-                    marker_color=[CORAL if v > 60 else ORANGE if v > 40 else TEAL
-                                  for v in df_cl["ltfu_rate_pct"]],
-                    text=[f"{v:.0f}%" for v in df_cl["ltfu_rate_pct"]],
-                    textposition="outside",
-                    hovertemplate="<b>%{y}</b><br>LTFU Rate: %{x:.1f}%<extra></extra>",
-                ))
-                fig_cl.add_vline(x=50, line=dict(color=GRAY, width=1.5, dash="dash"),
-                                 annotation_text="50% reference",
-                                 annotation_font=dict(size=9))
-                fig_cl.update_layout(
-                    height=max(300, len(df_cl) * 28),
-                    margin=dict(l=0, r=60, t=20, b=0),
-                    plot_bgcolor="white", paper_bgcolor="white",
-                    xaxis=dict(title="% of Chronic Patients → 180d LTFU", range=[0, 115]),
-                    yaxis=dict(title=""),
-                )
-                _pc(fig_cl)
-            with c2:
-                _pc(table_fig(
-                    df_cl[["clinician_label", "chronic_patients_seen",
-                            "ltfu_count", "ltfu_rate_pct"]].head(20),
-                    col_labels={
-                        "clinician_label": "Clinician",
-                        "chronic_patients_seen": "Chronic Seen",
-                        "ltfu_count": "LTFU",
-                        "ltfu_rate_pct": "LTFU %",
-                    },
-                    fmt={"ltfu_rate_pct": "pct"},
-                    height=420,
-                ))
-            worst = df_cl.iloc[0]
-            _note(
-                f"Highest LTFU rate: {worst['clinician_label']} — "
-                f"{worst['ltfu_rate_pct']:.0f}% of their {int(worst['chronic_patients_seen']):,} "
-                "chronic patients crossed 180 days. Review follow-up scheduling practices."
-            )
-    except Exception as e:
-        st.warning(f"Clinician LTFU rate: {e}")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -5790,6 +8053,7 @@ def render_clinician_view(filters: dict, run_query):
         return
 
     for _c in ("days_since_last_visit", "is_chronic", "has_undetected_ncd",
+               "has_worsening_vitals", "has_medication_change",
                "had_op_to_ip", "unique_clinicians"):
         if _c in df_pr.columns:
             df_pr[_c] = pd.to_numeric(df_pr[_c], errors="coerce").fillna(0)
@@ -5804,22 +8068,29 @@ def render_clinician_view(filters: dict, run_query):
                   .reset_index(drop=True))
 
     # ── BUILD PATIENT LIST FOR COMPONENT ─────────────────────────────────────
-    def _sig(row):
+    def _signals(row):
         parts = []
-        if row.get("had_op_to_ip"):                   parts.append("OP→IP")
         if row.get("has_undetected_ncd"):              parts.append("NCD undetected")
+        if row.get("has_worsening_vitals"):            parts.append("Vitals worsening")
+        if row.get("has_medication_change"):           parts.append("Med change")
         if row.get("days_since_last_visit", 0) >= 90: parts.append("Long gap")
-        if row.get("unique_clinicians", 1) >= 3:      parts.append("Irregular visits")
-        return parts[0] if parts else ""
+        return parts
+
+    def _priority(row):
+        sigs = _signals(row)
+        if any(s in ("NCD undetected", "Vitals worsening") for s in sigs):
+            return "high"
+        if any(s in ("Med change", "Long gap") for s in sigs):
+            return "medium"
+        return "monitor"
 
     patients_list = [
         {
             "id":        str(r["patient"]),
-            "priority":  ("high"   if str(r.get("priority_flag")) == "HIGH"   else
-                          "medium" if str(r.get("priority_flag")) == "MEDIUM" else "monitor"),
+            "priority":  _priority(r),
             "condition": str(r.get("primary_condition") or "Not recorded"),
             "days":      int(float(r.get("days_since_last_visit") or 0)),
-            "signal":    _sig(r),
+            "signals":   _signals(r),
         }
         for _, r in df_pr.iterrows()
     ]
@@ -6996,4 +9267,3 @@ setTimeout(()=>{{drawVisitScatter();drawIllnessScatter();}},80);
     n_ill = len(obj.get("illnesses", []))
     card_height = 1500 + n_ill * 30
     _components.html(html, height=card_height, scrolling=True)
-

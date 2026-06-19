@@ -1,4 +1,4 @@
-"""
+﻿"""
 queries.py — Afya Clinical Analytics
 ======================================
 All SQL query functions. One function per query.
@@ -26,18 +26,12 @@ Tab 1 — Operations:
   load_lab_turnaround_by_discipline Q3B: lab turnaround by clinical discipline (Haematology, Chemistry…)
   load_lab_turnaround_by_test  Q3B-fallback: lab turnaround by investigation_type only
   load_inpatient_funnel        Q3C: inpatient conversion funnel
+  load_lab_bottleneck_kpis     C2a: active admissions + avg LOS with vs without lab
+  load_lab_bottleneck_by_discipline C2b: per-discipline turnaround + LOS on IP visits
+  load_same_day_escalation_kpis    C3a: total same-day OP→IP escalations + rate + top condition
+  load_same_day_escalation_by_condition C3b: per-condition escalation count + rate
   load_encounter_forecast      Q4:  forecast with confidence intervals, split by type
-  load_clinician_load          Q5:  clinician load + documentation quality
   load_peak_demand_heatmap     Q6A: hour × day heatmap with visit type split
-
-Tab 2 — Segmentation:
-  load_seg_kpis                KPI row
-  load_demographics_age_sex    Q2:  age × sex × chronic grid
-  load_new_vs_returning        Q4:  new vs returning trend
-  load_payer_mix               Q5:  payer mix by age group
-  load_revenue_by_segment      Q6:  revenue by clinical segment
-  load_pareto                  Q7:  revenue Pareto by spend tier
-  load_cohort_forecast         Q9:  age cohort monthly counts
 
 Tab 3 — Retention:
   load_retention_kpis          KPI row
@@ -45,7 +39,9 @@ Tab 3 — Retention:
   load_retention_by_payer      Q3:  90-day retention by payer
   load_dropout_causes          Q6:  dropout cause attribution
   load_revenue_at_risk         Q7:  revenue at risk from LTFU
+  load_lapsing_by_payer             lapsing chronic patients by payer (same population as load_lifecycle)
   load_outreach_list           Q11: re-engagement outreach list
+  load_ltfu_priority2_patients R10: one row per chronic LTFU patient — profile dimensions for P2 section
 
 Tab 4 — Disease Burden:
   load_burden_kpis             A1:  burden KPI snapshot
@@ -63,10 +59,14 @@ Tab 4 — Disease Burden:
   load_mh_by_age_sex           E2:  MH by age and sex
   load_revenue_by_burden_group F1:  revenue by burden group
 
-Tab 5 — Workload & Quality:
-  load_shortcut_rate           shortcut rate per clinician
-  load_bp_omission_rate        BP omission on HTN visits
-  load_return_72h              unplanned 72h return rate
+OPD to IPD Conversion Tab:
+  load_opd_ipd_segments        header KPIs + 4 segment rows (Chronic/Maternal/Oncology/MH)
+  load_opd_ipd_monthly         monthly overall + retention-universe dual trend
+  load_opd_ipd_by_diagnosis    Section B: diagnosis-level benchmark
+  load_comorbidity_conversion  Section C: single / comorbid / chronic-comorbid monthly
+  load_opd_ipd_chronic_by_age  Section C right: chronic conversion by age group
+  load_escalation_by_age       Section D: 72h OP→IP escalations by age group
+  load_operational_triangle    Section E: monthly clinician strain + wait gap + signal
 
 Clinician View:
   load_todays_patients         CL1: today's patient list + priority score
@@ -111,6 +111,11 @@ except ImportError:
 
 # ─── FILTER HELPERS ───────────────────────────────────────────────────────────
 
+def _fmt_date(val) -> str:
+    """Normalise any date value to YYYY-MM-DD so Snowflake can parse it reliably."""
+    return str(val).replace("/", "-")
+
+
 def _w(filters: dict, alias: str = "v") -> str:
     """Build optional WHERE additions for visit-based tables (have source_schema + clinic)."""
     parts = []
@@ -127,9 +132,9 @@ def _w(filters: dict, alias: str = "v") -> str:
         quoted = ", ".join(f"'{f}'" for f in facilities)
         parts.append(f"AND {alias}.clinic IN ({quoted})")
     if filters.get("date_from"):
-        parts.append(f"AND {alias}.created_at >= '{filters['date_from']}'")
+        parts.append(f"AND {alias}.created_at >= '{_fmt_date(filters['date_from'])}'")
     if filters.get("date_to"):
-        parts.append(f"AND {alias}.created_at <= '{filters['date_to']}'")
+        parts.append(f"AND {alias}.created_at <= '{_fmt_date(filters['date_to'])}'")
     return "\n    ".join(parts)
 
 
@@ -146,9 +151,9 @@ def _w_adm(filters: dict, alias: str = "a") -> str:
             f"AND REPLACE(LOWER({alias}.source_schema), '_clean', '') IN ({quoted})"
         )
     if filters.get("date_from"):
-        parts.append(f"AND {alias}.admitted_at >= '{filters['date_from']}'")
+        parts.append(f"AND {alias}.admitted_at >= '{_fmt_date(filters['date_from'])}'")
     if filters.get("date_to"):
-        parts.append(f"AND {alias}.admitted_at <= '{filters['date_to']}'")
+        parts.append(f"AND {alias}.admitted_at <= '{_fmt_date(filters['date_to'])}'")
     return "\n    ".join(parts)
 
 
@@ -175,11 +180,12 @@ def _mo(filters: dict) -> int:
     if filters.get("date_range") == "Custom" or filters.get("date_from"):
         return 999
     mapping = {
+        "Last 24 months": 24,
         "Last 12 months": 12,
         "Last 6 months":  6,
         "Last 90 days":   3,
     }
-    return mapping.get(filters.get("date_range", "Last 12 months"), 12)
+    return mapping.get(filters.get("date_range", "Last 24 months"), 24)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -203,7 +209,7 @@ base AS (
     SELECT v.source_schema, v.id AS visit_id
     FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
     {wh}
 ),
 admissions AS (
@@ -214,7 +220,7 @@ admissions AS (
     FROM HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
     INNER JOIN schema_anchor sa
         ON REPLACE(LOWER(a.source_schema), '_clean', '') = sa.source_schema
-    WHERE a.admitted_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE a.admitted_at >= '2024-09-01'
     {wh_a}
 ),
 op_costs AS (
@@ -229,7 +235,7 @@ op_costs AS (
         ON v.id = il.visit_id AND v.source_schema = il.source_schema
        AND il.invoice_deleted_at IS NULL
        AND (il.auto_cancelled IS NULL OR il.auto_cancelled = 0)
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       AND a2.visit_id IS NULL
       {wh}
     GROUP BY 1, 2
@@ -299,7 +305,7 @@ visit_base AS (
         FROM HOSPITALS.STAGING.STG_PRESCRIPTION_PAYMENTS
         WHERE remove_from_report IS NULL OR remove_from_report = 0
     ) pp ON v.id = pp.visit_id AND v.source_schema = pp.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >= '2024-09-01'
     {wh}
 )
 SELECT
@@ -350,13 +356,27 @@ ward_invoices AS (
         ON v.id = il.visit_id AND v.source_schema = il.source_schema
        AND il.invoice_deleted_at IS NULL
        AND (il.auto_cancelled IS NULL OR il.auto_cancelled = 0)
-    WHERE a.admitted_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE a.admitted_at >= '2024-09-01'
     {wh}
     GROUP BY 1, 2, 3, 4
+),
+ward_beds AS (
+    -- Count of physical beds per ward across selected schemas
+    SELECT
+        COALESCE(a.ward_name, 'Unknown')   AS ward,
+        COUNT(DISTINCT b.composite_bed_id) AS num_beds
+    FROM HOSPITALS.STAGING.STG_BEDS b
+    INNER JOIN HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
+        ON b.source_schema = a.source_schema
+       AND b.ward_id       = a.ward_id
+    INNER JOIN schema_anchor sa
+        ON REPLACE(LOWER(b.source_schema), '_clean', '') = sa.source_schema
+    GROUP BY 1
 )
 SELECT
     COALESCE(a.ward_name, 'Unknown')                        AS ward,
     COALESCE(a.ward_category, 'Unknown')                    AS ward_category,
+    COALESCE(wb.num_beds, 0)                                AS num_beds,
     COUNT(DISTINCT a.visit_id)                              AS admissions,
     COUNT(DISTINCT CASE WHEN a.is_open_admission = 1
                         THEN a.visit_id END)                AS active_admissions,
@@ -384,9 +404,11 @@ LEFT JOIN ward_invoices wi
     ON a.visit_id = wi.visit_id
    AND REPLACE(LOWER(a.source_schema), '_clean', '') = wi.source_schema
    AND COALESCE(a.ward_name, 'Unknown') = wi.ward
-WHERE a.admitted_at >= DATEADD('month', -{mo}, sa.max_date)
+LEFT JOIN ward_beds wb
+    ON COALESCE(a.ward_name, 'Unknown') = wb.ward
+WHERE a.admitted_at >= '2024-09-01'
 {wh}
-GROUP BY 1, 2
+GROUP BY 1, 2, 3
 ORDER BY admissions DESC
 """
     return run_query(sql)
@@ -412,7 +434,7 @@ monthly AS (
     FROM HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
     INNER JOIN schema_anchor sa
         ON REPLACE(LOWER(a.source_schema), '_clean', '') = sa.source_schema
-    WHERE a.admitted_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE a.admitted_at >= '2024-09-01'
     {wh}
     GROUP BY 1, 2
 ),
@@ -462,7 +484,7 @@ SELECT
 FROM HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
 INNER JOIN schema_anchor sa
     ON REPLACE(LOWER(a.source_schema), '_clean', '') = sa.source_schema
-WHERE a.admitted_at >= DATEADD('month', -{mo}, sa.max_date)
+WHERE a.admitted_at >= '2024-09-01'
   AND a.is_open_admission = 0
   AND a.discharge_latency_hours IS NOT NULL
 {wh}
@@ -474,7 +496,12 @@ ORDER BY avg_discharge_latency_hrs DESC
 
 
 def load_ward_active_vs_hours(filters: dict, run_query) -> pd.DataFrame:
-    """Monthly active admissions vs avg admission hours per ward."""
+    """Monthly admissions vs avg hours from evaluation visit to admission.
+
+    avg_admission_hours = DATEDIFF(hour, MAX(v.created_at), a.admitted_at)
+    — time between when the evaluation visit was recorded and when the
+    patient was formally admitted as inpatient.
+    """
     wh = _w_adm(filters)
     wsa = _wsa(filters)
     mo = _mo(filters)
@@ -484,16 +511,33 @@ WITH schema_anchor AS (
     FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS
     {wsa}
     GROUP BY source_schema
+),
+eval_latest AS (
+    -- Latest evaluation visit timestamp per visit_id
+    SELECT
+        v.id            AS visit_id,
+        v.source_schema,
+        MAX(v.created_at) AS eval_created_at
+    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
+    INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
+    GROUP BY 1, 2
 )
 SELECT
-    DATE_TRUNC('month', a.admitted_at)                      AS visit_month,
+    DATE_TRUNC('month', a.admitted_at)                          AS visit_month,
     COUNT(DISTINCT CASE WHEN a.is_open_admission = 1
-                        THEN a.visit_id END)                AS active_admissions,
-    ROUND(AVG(NULLIF(a.los_days, 0)) * 24, 1)              AS avg_admission_hours,
-    COUNT(DISTINCT a.visit_id)                              AS total_admissions
+                        THEN a.visit_id END)                    AS active_admissions,
+    ROUND(AVG(
+        CASE WHEN a.admitted_at > el.eval_created_at
+             THEN DATEDIFF('hour', el.eval_created_at, a.admitted_at)
+        END
+    ), 1)                                                       AS avg_admission_hours,
+    COUNT(DISTINCT a.visit_id)                                  AS total_admissions
 FROM HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
 INNER JOIN schema_anchor sa
     ON REPLACE(LOWER(a.source_schema), '_clean', '') = sa.source_schema
+LEFT JOIN eval_latest el
+    ON  a.visit_id      = el.visit_id
+    AND REPLACE(LOWER(a.source_schema), '_clean', '') = el.source_schema
 WHERE a.admitted_at >= DATEADD('month', -{mo}, sa.max_date)
 {wh}
 GROUP BY 1
@@ -540,7 +584,7 @@ INNER JOIN schema_anchor sa
 LEFT JOIN visit_invoice vi
     ON a.visit_id = vi.visit_id
    AND REPLACE(LOWER(a.source_schema), '_clean', '') = vi.source_schema
-WHERE a.admitted_at >= DATEADD('month', -{mo}, sa.max_date)
+WHERE a.admitted_at >= '2024-09-01'
 {wh}
 GROUP BY 1
 HAVING admissions >= 5
@@ -575,7 +619,7 @@ admitted AS (
     FROM HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
     INNER JOIN schema_anchor sa
         ON REPLACE(LOWER(a.source_schema), '_clean', '') = sa.source_schema
-    WHERE a.admitted_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE a.admitted_at >= '2024-09-01'
     {wh_a}
 ),
 visits AS (
@@ -601,7 +645,7 @@ visits AS (
     LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_DOCTOR_NOTES n
         ON v.id = n.visit_id AND v.source_schema = n.source_schema
     LEFT JOIN atf ON v.patient = atf.patient AND v.source_schema = atf.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >= '2024-09-01' -- Use a fixed recent anchor to ensure atf logic is consistent and meaningful
     {wh}
 )
 SELECT
@@ -649,7 +693,7 @@ admissions_base AS (
     FROM HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
     INNER JOIN schema_anchor sa
         ON REPLACE(LOWER(a.source_schema), '_clean', '') = sa.source_schema
-    WHERE a.admitted_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE a.admitted_at >= '2024-09-01'
     {wh_a}
 ),
 top_wards AS (
@@ -716,6 +760,17 @@ top_condition AS (
            dt.total_dx,
            ROW_NUMBER() OVER (PARTITION BY dr.ward ORDER BY dr.cnt DESC) AS rk
     FROM dx_raw dr JOIN dx_totals dt ON dr.ward = dt.ward
+),
+top3_conditions AS (
+    SELECT
+        ward,
+        LISTAGG(
+            condition_group || ' (' || ROUND(DIV0(cnt, total_dx) * 100, 0)::INT || '%)',
+            ' · '
+        ) WITHIN GROUP (ORDER BY rk) AS top_conditions
+    FROM top_condition
+    WHERE rk <= 3
+    GROUP BY 1
 ),
 -- ── New vs returning ──────────────────────────────────────────────────
 pt_raw AS (
@@ -805,11 +860,8 @@ SELECT
         ELSE 'Stable'
     END                                                                  AS pressure_signal,
     ROUND(DIV0(pr.monthly_stddev, NULLIF(pr.monthly_mean, 0)), 2)       AS cv_seasonality,
-    -- Top condition
-    tc.condition_group                                                   AS top_condition,
-    ROUND(DIV0(tc.cnt, tc.total_dx) * 100, 0)                           AS top_condition_pct,
-    CASE WHEN DIV0(tc.cnt, tc.total_dx) < 0.35
-         THEN 'Varies' ELSE 'Concentrated' END                          AS condition_pattern,
+    -- Top 3 conditions
+    t3.top_conditions,
     -- New vs returning
     ROUND(DIV0(pt.new_adm,              pt.total_adm) * 100, 0)         AS new_pct,
     ROUND(DIV0(pt.total_adm - pt.new_adm, pt.total_adm) * 100, 0)      AS returning_pct,
@@ -826,14 +878,14 @@ SELECT
 FROM top_wards tw
 INNER JOIN ab          ON tw.ward = ab.ward
 LEFT  JOIN pressure pr ON tw.ward = pr.ward
-LEFT  JOIN top_condition tc ON tw.ward = tc.ward AND tc.rk = 1
+LEFT  JOIN top3_conditions t3 ON tw.ward = t3.ward
 LEFT  JOIN pt_raw pt   ON tw.ward = pt.ward
 LEFT  JOIN top_payer tp ON tw.ward = tp.ward AND tp.rk = 1
 LEFT  JOIN los l       ON tw.ward = l.ward
 LEFT  JOIN inv i       ON tw.ward = i.ward
 LEFT  JOIN clinicians cl ON tw.ward = cl.ward
 GROUP BY tw.ward, pr.recent_avg, pr.prior_avg, pr.monthly_stddev, pr.monthly_mean,
-         tc.condition_group, tc.cnt, tc.total_dx,
+         t3.top_conditions,
          pt.new_adm, pt.total_adm,
          tp.payer, tp.payer_cnt, tp.total,
          l.avg_los_days, i.with_inv, i.total_adm,
@@ -862,7 +914,7 @@ admitted_visits AS (
     FROM HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
     INNER JOIN schema_anchor sa
         ON REPLACE(LOWER(a.source_schema), '_clean', '') = sa.source_schema
-    WHERE a.admitted_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE a.admitted_at >= '2024-09-01'
     {wh_a}
 ),
 visit_costs AS (
@@ -876,7 +928,7 @@ visit_costs AS (
         ON v.id = il.visit_id AND v.source_schema = il.source_schema
        AND il.invoice_deleted_at IS NULL
        AND (il.auto_cancelled IS NULL OR il.auto_cancelled = 0)
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
     {wh}
     GROUP BY 1, 2
 )
@@ -886,330 +938,6 @@ SELECT
     COUNT(CASE WHEN is_inpatient = 1 THEN 1 END)                   AS ip_visits_with_cost,
     COUNT(CASE WHEN is_inpatient = 0 THEN 1 END)                   AS op_visits_with_cost
 FROM visit_costs
-"""
-    return run_query(sql)
-
-
-def load_volume_spike_context(filters: dict, run_query) -> pd.DataFrame:
-    """For spike/dip months: top diagnoses breakdown to explain what drove the anomaly."""
-    wh = _w(filters)
-    wsa = _wsa(filters)
-    mo = _mo(filters)
-    sql = f"""
-WITH schema_anchor AS (
-    SELECT source_schema, MAX(created_at) AS max_date
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS {wsa}
-    GROUP BY source_schema
-),
-monthly_vol AS (
-    SELECT DATE_TRUNC('month', v.created_at) AS visit_month,
-           COUNT(DISTINCT v.id)              AS total_visits
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
-    INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
-    {wh}
-    GROUP BY 1
-),
-stats AS (
-    SELECT visit_month, total_visits,
-           AVG(total_visits) OVER ()      AS avg_vol,
-           STDDEV(total_visits) OVER ()   AS sd_vol,
-           LAG(total_visits) OVER (ORDER BY visit_month) AS prev_visits
-    FROM monthly_vol
-),
-anomalous AS (
-    SELECT visit_month, total_visits, prev_visits,
-           ROUND(DIV0(total_visits - avg_vol, NULLIF(sd_vol, 0)), 2) AS z_score,
-           CASE WHEN total_visits > avg_vol + 1.0 * sd_vol THEN 'Spike'
-                WHEN total_visits < avg_vol - 1.0 * sd_vol THEN 'Dip'
-                ELSE 'Normal' END                                    AS month_type,
-           ROUND(DIV0(total_visits - prev_visits, NULLIF(prev_visits, 0)) * 100, 1) AS mom_pct
-    FROM stats
-    WHERE ABS(DIV0(total_visits - avg_vol, NULLIF(sd_vol, 0))) >= 1.0
-)
-SELECT
-    a.visit_month,
-    a.month_type,
-    a.total_visits,
-    a.z_score,
-    a.mom_pct,
-    COALESCE(NULLIF(TRIM(dx.disease_group_1), ''),
-        CASE
-            WHEN n.diagnosis ILIKE '%malaria%'      THEN 'Malaria'
-            WHEN n.diagnosis ILIKE '%urti%'         THEN 'URTI'
-            WHEN n.diagnosis ILIKE '%hypertension%' THEN 'Hypertension'
-            WHEN n.diagnosis ILIKE '%anc%'          THEN 'ANC / Maternal'
-            WHEN n.diagnosis ILIKE '%pneumonia%'    THEN 'Pneumonia'
-            ELSE 'Other / Unspecified'
-        END)                                                         AS diagnosis_group,
-    CASE WHEN adm.visit_id IS NOT NULL THEN 'Inpatient' ELSE 'Outpatient' END AS visit_type,
-    COUNT(DISTINCT v.id)                                             AS visit_count,
-    COUNT(DISTINCT CASE WHEN atf.first_ever = v.created_at THEN v.patient END) AS new_patients,
-    COUNT(DISTINCT v.patient)                                        AS unique_patients
-FROM anomalous a
-INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_VISITS v
-    ON DATE_TRUNC('month', v.created_at) = a.visit_month
-INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
-LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
-    ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
-LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_DOCTOR_NOTES n
-    ON v.id = n.visit_id AND v.source_schema = n.source_schema
-LEFT JOIN HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS adm
-    ON v.id = adm.visit_id
-   AND v.source_schema = REPLACE(LOWER(adm.source_schema), '_clean', '')
-LEFT JOIN (
-    SELECT source_schema, patient, MIN(DATE_TRUNC('month', created_at)) AS first_ever
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS GROUP BY 1, 2
-) atf ON v.patient = atf.patient AND v.source_schema = atf.source_schema
-WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
-{wh}
-GROUP BY 1, 2, 3, 4, 5, 6, 7
-ORDER BY 1, 8 DESC
-"""
-    return run_query(sql)
-
-
-def load_peak_demand_monthly(filters: dict, run_query) -> pd.DataFrame:
-    """Monthly visit volume by type with z-score to flag peak months."""
-    wh = _w(filters)
-    wsa = _wsa(filters)
-    mo = _mo(filters)
-    sql = f"""
-WITH schema_anchor AS (
-    SELECT source_schema, MAX(created_at) AS max_date
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS {wsa}
-    GROUP BY source_schema
-),
-monthly AS (
-    SELECT
-        DATE_TRUNC('month', v.created_at)                    AS visit_month,
-        COUNT(DISTINCT v.id)                                  AS total_visits,
-        COUNT(DISTINCT CASE WHEN adm.visit_id IS NOT NULL THEN v.id END) AS inpatient_visits,
-        COUNT(DISTINCT CASE WHEN adm.visit_id IS NULL     THEN v.id END) AS outpatient_visits,
-        COUNT(DISTINCT v.patient)                             AS unique_patients,
-        COUNT(DISTINCT CASE
-            WHEN LOWER(COALESCE(dx.disease_burden_group_1,'')) LIKE '%communicable%'
-            THEN v.id END)                                    AS communicable_visits,
-        COUNT(DISTINCT CASE WHEN dx.is_chronic_1 = 1 OR dx.is_chronic_2 = 1
-                            THEN v.id END)                    AS ncd_visits
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
-    INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
-    LEFT JOIN HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS adm
-        ON v.id = adm.visit_id
-       AND v.source_schema = REPLACE(LOWER(adm.source_schema), '_clean', '')
-    LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
-        ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
-    {wh}
-    GROUP BY 1
-)
-SELECT *,
-    AVG(total_visits) OVER ()    AS avg_vol,
-    STDDEV(total_visits) OVER () AS sd_vol,
-    ROUND(DIV0(total_visits - AVG(total_visits) OVER (),
-               NULLIF(STDDEV(total_visits) OVER (), 0)), 2) AS z_score,
-    CASE WHEN total_visits > AVG(total_visits) OVER () + 1.0 * STDDEV(total_visits) OVER ()
-         THEN 1 ELSE 0 END AS is_peak_month,
-    ROUND(DIV0(communicable_visits, NULLIF(total_visits, 0)) * 100, 1) AS communicable_pct,
-    ROUND(DIV0(ncd_visits, NULLIF(total_visits, 0)) * 100, 1) AS ncd_pct
-FROM monthly
-ORDER BY 1
-"""
-    return run_query(sql)
-
-
-def load_monthly_volume_anomalies(filters: dict, run_query) -> pd.DataFrame:
-    """All months with z-scores and spike/dip flags at 1.0 SD threshold.
-    Returns every month so the view can build a full time-series chart and apply
-    fallback logic (top-2 / bottom-2) when no months breach the threshold.
-    """
-    wh = _w(filters)
-    wsa = _wsa(filters)
-    mo = _mo(filters)
-    sql = f"""
-WITH schema_anchor AS (
-    SELECT source_schema, MAX(created_at) AS max_date
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS
-    {wsa}
-    GROUP BY source_schema
-),
-monthly_vol AS (
-    SELECT
-        DATE_TRUNC('month', v.created_at) AS visit_month,
-        COUNT(DISTINCT v.id)              AS total_visits
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
-    INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
-    {wh}
-    GROUP BY 1
-),
-ranked AS (
-    SELECT
-        visit_month,
-        total_visits,
-        LAG(total_visits) OVER (ORDER BY visit_month) AS prev_visits,
-        ROW_NUMBER() OVER (ORDER BY visit_month)       AS rn
-    FROM monthly_vol
-),
--- compute avg/sd only on full months (exclude rn=1 which may be a partial start month)
-baseline AS (
-    SELECT
-        ROUND(AVG(total_visits), 0)    AS avg_vol,
-        ROUND(STDDEV(total_visits), 0) AS sd_vol
-    FROM ranked
-    WHERE rn > 1
-)
-SELECT
-    r.visit_month,
-    r.total_visits,
-    b.avg_vol,
-    b.sd_vol,
-    ROUND(DIV0(r.total_visits - b.avg_vol, NULLIF(b.sd_vol, 0)), 2) AS z_score,
-    CASE
-        WHEN r.rn = 1                                        THEN 'Partial'
-        WHEN r.total_visits > b.avg_vol + 1.0 * b.sd_vol   THEN 'Spike'
-        WHEN r.total_visits < b.avg_vol - 1.0 * b.sd_vol   THEN 'Dip'
-        ELSE 'Normal'
-    END AS month_type,
-    CASE
-        WHEN r.prev_visits IS NOT NULL
-        THEN ROUND(DIV0(r.total_visits - r.prev_visits, NULLIF(r.prev_visits, 0)) * 100, 1)
-        ELSE NULL
-    END AS mom_pct,
-    CASE WHEN r.rn = 1 THEN 1 ELSE 0 END AS first_in_range
-FROM ranked r
-CROSS JOIN baseline b
-ORDER BY 1
-"""
-    return run_query(sql)
-
-
-def load_diagnosis_by_month(filters: dict, run_query) -> pd.DataFrame:
-    """All months × diagnosis group × visit type — used to compute baselines
-    for the anomalous-month disease mix diagnostic panel."""
-    wh = _w(filters)
-    wsa = _wsa(filters)
-    mo = _mo(filters)
-    sql = f"""
-WITH schema_anchor AS (
-    SELECT source_schema, MAX(created_at) AS max_date
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS
-    {wsa}
-    GROUP BY source_schema
-),
-atf AS (
-    SELECT source_schema, patient,
-           MIN(DATE_TRUNC('month', created_at)) AS first_month
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS
-    GROUP BY 1, 2
-)
-SELECT
-    DATE_TRUNC('month', v.created_at)                        AS visit_month,
-    COALESCE(NULLIF(TRIM(dx.disease_group_1), ''),
-        CASE
-            WHEN n.diagnosis ILIKE '%malaria%'      THEN 'Malaria'
-            WHEN n.diagnosis ILIKE '%urti%'         THEN 'URTI'
-            WHEN n.diagnosis ILIKE '%hypertension%' THEN 'Hypertension'
-            WHEN n.diagnosis ILIKE '%anc%'          THEN 'ANC / Maternal'
-            WHEN n.diagnosis ILIKE '%pneumonia%'    THEN 'Pneumonia'
-            ELSE 'Other / Unspecified'
-        END)                                                 AS diagnosis_group,
-    CASE WHEN adm.visit_id IS NOT NULL
-         THEN 'Inpatient' ELSE 'Outpatient' END              AS visit_type,
-    COUNT(DISTINCT v.id)                                     AS visit_count,
-    COUNT(DISTINCT CASE
-        WHEN atf.first_month = DATE_TRUNC('month', v.created_at)
-        THEN v.patient END)                                  AS new_patients,
-    COUNT(DISTINCT CASE
-        WHEN atf.first_month != DATE_TRUNC('month', v.created_at)
-        THEN v.patient END)                                  AS returning_patients
-FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
-INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
-LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
-    ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
-LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_DOCTOR_NOTES n
-    ON v.id = n.visit_id AND v.source_schema = n.source_schema
-LEFT JOIN HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS adm
-    ON v.id = adm.visit_id
-   AND v.source_schema = REPLACE(LOWER(adm.source_schema), '_clean', '')
-LEFT JOIN atf ON v.patient = atf.patient AND v.source_schema = atf.source_schema
-WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
-{wh}
-GROUP BY 1, 2, 3
-ORDER BY 1, visit_count DESC
-"""
-    return run_query(sql)
-
-
-def load_diagnosis_cost_outliers(filters: dict, run_query) -> pd.DataFrame:
-    """Diagnoses ranked by cost-to-volume ratio.
-    ratio > 1 means the diagnosis consumes more cost share than its visit share justifies.
-    Used as a surface-level flag for the operations view."""
-    wh = _w(filters)
-    wsa = _wsa(filters)
-    mo = _mo(filters)
-    sql = f"""
-WITH schema_anchor AS (
-    SELECT source_schema, MAX(created_at) AS max_date
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS
-    {wsa}
-    GROUP BY source_schema
-),
-visit_costs AS (
-    SELECT
-        v.id            AS visit_id,
-        v.source_schema,
-        COALESCE(
-            SUM(il.item_amount),
-            MAX(a.admission_cost)
-        )               AS total_cost
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
-    INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
-    LEFT JOIN HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
-        ON v.id = a.visit_id
-       AND v.source_schema = REPLACE(LOWER(a.source_schema), '_clean', '')
-    LEFT JOIN HOSPITALS.STAGING.STG_INVOICE_LINE_ITEMS il
-        ON v.id = il.visit_id AND v.source_schema = il.source_schema
-       AND il.invoice_deleted_at IS NULL
-       AND (il.auto_cancelled IS NULL OR il.auto_cancelled = 0)
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
-    {wh}
-    GROUP BY v.id, v.source_schema
-),
-dx_costs AS (
-    SELECT
-        COALESCE(NULLIF(TRIM(dx.disease_group_1), ''), 'Other / Unspecified') AS diagnosis_group,
-        COUNT(DISTINCT vc.visit_id)   AS visit_count,
-        SUM(vc.total_cost)            AS total_cost,
-        ROUND(AVG(vc.total_cost), 0)  AS avg_cost_per_case
-    FROM visit_costs vc
-    LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
-        ON vc.visit_id = dx.visit_id AND vc.source_schema = dx.source_schema
-    WHERE vc.total_cost > 0
-    GROUP BY 1
-),
-totals AS (
-    SELECT
-        SUM(visit_count) AS total_visits,
-        SUM(total_cost)  AS grand_total_cost
-    FROM dx_costs
-)
-SELECT
-    dc.diagnosis_group,
-    dc.visit_count,
-    dc.avg_cost_per_case,
-    dc.total_cost,
-    ROUND(DIV0(dc.visit_count,   t.total_visits)    * 100, 2) AS volume_share_pct,
-    ROUND(DIV0(dc.total_cost,    t.grand_total_cost) * 100, 2) AS cost_share_pct,
-    ROUND(DIV0(
-        DIV0(dc.total_cost,   t.grand_total_cost),
-        DIV0(dc.visit_count,  t.total_visits)
-    ), 2)                                                       AS cost_volume_ratio
-FROM dx_costs dc
-CROSS JOIN totals t
-WHERE dc.visit_count >= 5
-ORDER BY cost_volume_ratio DESC
-LIMIT 20
 """
     return run_query(sql)
 
@@ -1251,7 +979,7 @@ LEFT JOIN atf ON v.patient = atf.patient AND v.source_schema = atf.source_schema
 LEFT JOIN HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
     ON v.id = a.visit_id
    AND v.source_schema = REPLACE(LOWER(a.source_schema), '_clean', '')
-WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+WHERE v.created_at >=  '2024-09-01'
 {wh}
 GROUP BY 1
 ORDER BY 1
@@ -1296,246 +1024,10 @@ LEFT JOIN (
       AND (auto_cancelled IS NULL OR auto_cancelled = 0)
     GROUP BY 1, 2
 ) il_sum ON v.id = il_sum.visit_id AND v.source_schema = il_sum.source_schema
-WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+WHERE v.created_at >=  '2024-09-01'
 {wh}
 GROUP BY 1, 2
 ORDER BY 1, 3 DESC
-"""
-    return run_query(sql)
-
-
-def load_journey_times(filters: dict, run_query) -> pd.DataFrame:
-    """Q3: Patient journey times — averages + P50/P75/P90 percentiles per stage."""
-    wh = _w(filters)
-    wsa = _wsa(filters)
-    mo = _mo(filters)
-    sql = f"""
-WITH schema_anchor AS (
-    SELECT source_schema, MAX(created_at) AS max_date
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS
-    {wsa}
-    GROUP BY source_schema
-),
-visit_base AS (
-    SELECT
-        v.source_schema, v.clinic AS facility, v.id AS visit_id,
-        DATE_TRUNC('month', v.created_at) AS visit_month,
-        CASE WHEN a.visit_id IS NOT NULL THEN 'Inpatient' ELSE 'Outpatient' END AS visit_type,
-        COALESCE(a.admitted_at, v.created_at) AS journey_start
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
-    INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
-    LEFT JOIN HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
-        ON v.id = a.visit_id
-       AND v.source_schema = REPLACE(LOWER(a.source_schema), '_clean', '')
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
-    {wh}
-),
-vitals_first AS (
-    SELECT visit_id, source_schema, MIN(created_at) AS first_vitals
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VITALS GROUP BY 1, 2
-),
-notes_first AS (
-    SELECT visit_id, source_schema, MIN(created_at) AS first_note
-    FROM HOSPITALS.STAGING.STG_EVALUATION_DOCTOR_NOTES GROUP BY 1, 2
-),
-lab_inv AS (
-    SELECT visit_id, source_schema,
-           MIN(investigation_created_at) AS ordered_at,
-           MIN(result_created_at)        AS first_result_at
-    FROM HOSPITALS.STAGING.STG_EVALUATION_INVESTIGATIONS
-    WHERE (cancelled IS NULL OR cancelled = 0)
-      AND (procedure_clinical_division = 'Pathology / Laboratory Medicine'
-           OR LOWER(TRIM(investigation_type)) IN ('laboratory', 'lab'))
-    GROUP BY 1, 2
-),
-journey_durations AS (
-    SELECT
-        vb.visit_type,
-        vb.visit_id,
-        CASE
-            WHEN vt.first_vitals > vb.journey_start
-             AND DATEDIFF('hour', vb.journey_start, vt.first_vitals)
-                 < IFF(vb.visit_type='Inpatient', 48, 12)
-            THEN DATEDIFF('minute', vb.journey_start, vt.first_vitals) / 60.0
-        END AS hrs_to_triage,
-        CASE
-            WHEN n.first_note > vt.first_vitals
-             AND DATEDIFF('hour', vt.first_vitals, n.first_note)
-                 < IFF(vb.visit_type='Inpatient', 48, 12)
-            THEN DATEDIFF('minute', vt.first_vitals, n.first_note) / 60.0
-        END AS hrs_triage_to_consult,
-        CASE
-            WHEN li.first_result_at > n.first_note
-             AND DATEDIFF('hour', n.first_note, li.first_result_at)
-                 < IFF(vb.visit_type='Inpatient', 48, 12)
-            THEN DATEDIFF('minute', n.first_note, li.first_result_at) / 60.0
-        END AS hrs_consult_to_lab,
-        CASE
-            WHEN li.first_result_at > li.ordered_at
-             AND DATEDIFF('hour', li.ordered_at, li.first_result_at)
-                 < IFF(vb.visit_type='Inpatient', 48, 12)
-            THEN DATEDIFF('minute', li.ordered_at, li.first_result_at) / 60.0
-        END AS hrs_lab_turnaround
-    FROM visit_base vb
-    LEFT JOIN vitals_first vt ON vb.visit_id = vt.visit_id AND vb.source_schema = vt.source_schema
-    LEFT JOIN notes_first   n ON vb.visit_id = n.visit_id  AND vb.source_schema = n.source_schema
-    LEFT JOIN lab_inv       li ON vb.visit_id = li.visit_id AND vb.source_schema = li.source_schema
-)
-SELECT
-    visit_type,
-    -- Averages (kept for backward compatibility)
-    ROUND(AVG(hrs_to_triage), 2)          AS avg_hrs_to_triage,
-    ROUND(AVG(hrs_triage_to_consult), 2)  AS avg_hrs_triage_to_consult,
-    ROUND(AVG(hrs_consult_to_lab), 2)     AS avg_hrs_consult_to_lab,
-    ROUND(AVG(hrs_lab_turnaround), 2)     AS avg_hrs_lab_turnaround,
-    -- Arrival → Triage percentiles (target: 15 min = 0.25 h)
-    ROUND(PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY hrs_to_triage), 2)  AS p50_hrs_to_triage,
-    ROUND(PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY hrs_to_triage), 2)  AS p75_hrs_to_triage,
-    ROUND(PERCENTILE_CONT(0.90) WITHIN GROUP (ORDER BY hrs_to_triage), 2)  AS p90_hrs_to_triage,
-    ROUND(100.0 * COUNT(CASE WHEN hrs_to_triage > 0.25 THEN 1 END)
-          / NULLIF(COUNT(hrs_to_triage), 0), 1)                            AS pct_exceed_triage,
-    -- Triage → Consult percentiles (target: 1 h)
-    ROUND(PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY hrs_triage_to_consult), 2) AS p50_hrs_triage_to_consult,
-    ROUND(PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY hrs_triage_to_consult), 2) AS p75_hrs_triage_to_consult,
-    ROUND(PERCENTILE_CONT(0.90) WITHIN GROUP (ORDER BY hrs_triage_to_consult), 2) AS p90_hrs_triage_to_consult,
-    ROUND(100.0 * COUNT(CASE WHEN hrs_triage_to_consult > 1.0 THEN 1 END)
-          / NULLIF(COUNT(hrs_triage_to_consult), 0), 1)                    AS pct_exceed_consult,
-    -- Consult → Lab Result percentiles (often not captured — may be null)
-    ROUND(PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY hrs_consult_to_lab), 2)    AS p50_hrs_consult_to_lab,
-    ROUND(PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY hrs_consult_to_lab), 2)    AS p75_hrs_consult_to_lab,
-    ROUND(PERCENTILE_CONT(0.90) WITHIN GROUP (ORDER BY hrs_consult_to_lab), 2)    AS p90_hrs_consult_to_lab,
-    -- Lab Result → Discharge percentiles (target: 4 h)
-    ROUND(PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY hrs_lab_turnaround), 2)    AS p50_hrs_lab_turnaround,
-    ROUND(PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY hrs_lab_turnaround), 2)    AS p75_hrs_lab_turnaround,
-    ROUND(PERCENTILE_CONT(0.90) WITHIN GROUP (ORDER BY hrs_lab_turnaround), 2)    AS p90_hrs_lab_turnaround,
-    ROUND(100.0 * COUNT(CASE WHEN hrs_lab_turnaround > 4.0 THEN 1 END)
-          / NULLIF(COUNT(hrs_lab_turnaround), 0), 1)                       AS pct_exceed_lab,
-    -- Coverage rates
-    ROUND(100.0 * COUNT(hrs_to_triage)         / NULLIF(COUNT(*), 0), 1)  AS pct_triage_recorded,
-    ROUND(100.0 * COUNT(hrs_triage_to_consult) / NULLIF(COUNT(*), 0), 1)  AS pct_consult_recorded,
-    ROUND(100.0 * COUNT(hrs_consult_to_lab)    / NULLIF(COUNT(*), 0), 1)  AS pct_lab_recorded,
-    -- Exceeding targets (per-visit-type thresholds: IP triage=30 min, OP triage=15 min)
-    ROUND(100.0 * COUNT(CASE WHEN hrs_to_triage > IFF(visit_type='Inpatient', 0.5, 0.25) THEN 1 END)
-          / NULLIF(COUNT(hrs_to_triage), 0), 1)       AS pct_exceeding_triage_target,
-    ROUND(100.0 * COUNT(CASE WHEN hrs_triage_to_consult > 1.0 THEN 1 END)
-          / NULLIF(COUNT(hrs_triage_to_consult), 0), 1) AS pct_exceeding_consult_target,
-    COUNT(*) AS total_visits
-FROM journey_durations
-GROUP BY 1
-ORDER BY 1
-"""
-    return run_query(sql)
-
-
-def load_investigation_columns(run_query) -> list:
-    """Return lowercase column names available in STG_EVALUATION_INVESTIGATIONS."""
-    sql = """
-SELECT LOWER(COLUMN_NAME) AS col
-FROM HOSPITALS.INFORMATION_SCHEMA.COLUMNS
-WHERE TABLE_SCHEMA = 'STAGING'
-  AND TABLE_NAME   = 'STG_EVALUATION_INVESTIGATIONS'
-ORDER BY ORDINAL_POSITION
-"""
-    try:
-        df = run_query(sql)
-        return df["col"].tolist() if not df.empty else []
-    except Exception:
-        return []
-
-
-def load_lab_turnaround_by_discipline(filters: dict, run_query, name_col: str = "") -> pd.DataFrame:
-    """Lab/investigation turnaround by clinical discipline.
-
-    Uses procedure_clinical_division and procedure_discipline columns directly.
-    The name_col parameter is retained for backward compatibility but no longer used.
-    """
-    wh = _w(filters, alias="v")
-    wsa = _wsa(filters)
-    mo = _mo(filters)
-
-    sql = f"""
-WITH schema_anchor AS (
-    SELECT source_schema, MAX(created_at) AS max_date
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS
-    {wsa}
-    GROUP BY source_schema
-)
-SELECT
-    COALESCE(NULLIF(TRIM(i.procedure_discipline), 'Unclassified'), 'Other / Unclassified')      AS discipline,
-    COALESCE(NULLIF(TRIM(i.procedure_clinical_division), 'Unclassified'), 'Other')              AS clinical_division,
-    COALESCE(NULLIF(TRIM(i.procedure_name), ''), INITCAP(TRIM(i.investigation_type)))           AS test_name,
-    COUNT(*)                                                        AS test_count,
-    ROUND(AVG(CASE
-        WHEN i.result_created_at > i.investigation_created_at
-         AND DATEDIFF('hour', i.investigation_created_at, i.result_created_at) <= 72
-        THEN DATEDIFF('minute', i.investigation_created_at, i.result_created_at) / 60.0
-    END), 2)                                                        AS avg_turnaround_hrs,
-    ROUND(MEDIAN(CASE
-        WHEN i.result_created_at > i.investigation_created_at
-         AND DATEDIFF('hour', i.investigation_created_at, i.result_created_at) <= 72
-        THEN DATEDIFF('minute', i.investigation_created_at, i.result_created_at) / 60.0
-    END), 2)                                                        AS median_turnaround_hrs,
-    ROUND(DIV0(
-        COUNT(CASE WHEN i.result_created_at IS NOT NULL THEN 1 END),
-        COUNT(*)
-    ) * 100, 1)                                                     AS result_rate_pct
-FROM HOSPITALS.STAGING.STG_EVALUATION_INVESTIGATIONS i
-INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_VISITS v
-    ON i.visit_id = v.id
-INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
-WHERE (i.cancelled IS NULL OR i.cancelled = 0)
-  AND (i.remove_from_report IS NULL OR i.remove_from_report = 0)
-  AND v.created_at >= DATEADD('month', -{mo}, sa.max_date)
-  {wh}
-GROUP BY 1, 2, 3
-HAVING test_count >= 3
-ORDER BY discipline, avg_turnaround_hrs DESC NULLS LAST
-"""
-    return run_query(sql)
-
-
-def load_lab_turnaround_by_test(filters: dict, run_query) -> pd.DataFrame:
-    """Lab/investigation turnaround broken down by investigation_type (legacy fallback)."""
-    wh = _w(filters, alias="v")
-    wsa = _wsa(filters)
-    mo = _mo(filters)
-    sql = f"""
-WITH schema_anchor AS (
-    SELECT source_schema, MAX(created_at) AS max_date
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS
-    {wsa}
-    GROUP BY source_schema
-)
-SELECT
-    INITCAP(TRIM(i.investigation_type))                             AS test_type,
-    COUNT(*)                                                        AS test_count,
-    ROUND(AVG(CASE
-        WHEN i.result_created_at > i.investigation_created_at
-         AND DATEDIFF('hour', i.investigation_created_at, i.result_created_at) <= 72
-        THEN DATEDIFF('minute', i.investigation_created_at, i.result_created_at) / 60.0
-    END), 2)                                                        AS avg_turnaround_hrs,
-    ROUND(MEDIAN(CASE
-        WHEN i.result_created_at > i.investigation_created_at
-         AND DATEDIFF('hour', i.investigation_created_at, i.result_created_at) <= 72
-        THEN DATEDIFF('minute', i.investigation_created_at, i.result_created_at) / 60.0
-    END), 2)                                                        AS median_turnaround_hrs,
-    ROUND(DIV0(
-        COUNT(CASE WHEN i.result_created_at IS NOT NULL THEN 1 END),
-        COUNT(*)
-    ) * 100, 1)                                                     AS result_rate_pct
-FROM HOSPITALS.STAGING.STG_EVALUATION_INVESTIGATIONS i
-INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_VISITS v
-    ON i.visit_id = v.id
-INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
-WHERE (i.cancelled IS NULL OR i.cancelled = 0)
-  AND (i.remove_from_report IS NULL OR i.remove_from_report = 0)
-  AND TRIM(i.investigation_type) != ''
-  AND i.investigation_type IS NOT NULL
-  AND v.created_at >= DATEADD('month', -{mo}, sa.max_date)
-  {wh}
-GROUP BY 1
-HAVING test_count >= 5
-ORDER BY avg_turnaround_hrs DESC NULLS LAST
 """
     return run_query(sql)
 
@@ -1556,7 +1048,7 @@ visit_base AS (
     SELECT v.source_schema, v.clinic AS facility, v.id AS visit_id, v.patient
     FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
     {wh}
 ),
 note_recorded AS (
@@ -1645,1213 +1137,142 @@ LEFT JOIN inv_resulted_24h ir ON vb.visit_id = ir.visit_id AND vb.source_schema 
     return run_query(sql)
 
 
-def load_encounter_forecast(filters: dict, run_query) -> pd.DataFrame:
-    """Q4: Encounter forecast — actuals + future projection with confidence band, split by type."""
-    wh = _w(filters)
-    wsa = _wsa(filters)
-    mo = _mo(filters)
+def load_same_day_escalation_kpis(filters: dict, run_query) -> pd.DataFrame:
+    """Same-day OP→IP escalation KPIs: total escalations, rate vs all visits, top condition."""
+    wh   = _w(filters)
+    wh_a = _w_adm(filters)
+    wsa  = _wsa(filters)
+    mo   = _mo(filters)
     sql = f"""
 WITH schema_anchor AS (
     SELECT source_schema, MAX(created_at) AS max_date
     FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS
     {wsa}
     GROUP BY source_schema
-),
-monthly AS (
-    SELECT
-        DATE_TRUNC('month', v.created_at)                   AS visit_month,
-        COUNT(DISTINCT v.id)                                 AS total_visits,
-        COUNT(DISTINCT CASE WHEN a.visit_id IS NOT NULL
-                            THEN v.id END)                  AS inpatient_visits,
-        COUNT(DISTINCT CASE WHEN a.visit_id IS NULL
-                            THEN v.id END)                  AS outpatient_visits
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
-    INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
-    LEFT JOIN HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
-        ON v.id = a.visit_id
-       AND v.source_schema = REPLACE(LOWER(a.source_schema), '_clean', '')
-    WHERE v.created_at >= DATEADD('month', -{mo + 3}, sa.max_date)
-    {wh}
-    GROUP BY 1
-),
-with_lags AS (
-    SELECT *,
-        LAG(total_visits, 1)  OVER (ORDER BY visit_month) AS m1,
-        LAG(total_visits, 2)  OVER (ORDER BY visit_month) AS m2,
-        LAG(total_visits, 3)  OVER (ORDER BY visit_month) AS m3,
-        LAG(total_visits, 12) OVER (ORDER BY visit_month) AS yoy,
-        STDDEV(total_visits) OVER ()                       AS vol_stddev,
-        MAX(visit_month) OVER ()                           AS last_actual_month
-    FROM monthly
-),
-forecast AS (
-    SELECT *,
-        ROUND(DIV0(
-            3 * COALESCE(m1, 0) + 2 * COALESCE(m2, 0) + COALESCE(m3, 0),
-            3 * IFF(m1 IS NOT NULL, 1, 0)
-          + 2 * IFF(m2 IS NOT NULL, 1, 0)
-          +     IFF(m3 IS NOT NULL, 1, 0)
-        ), 0)                                              AS trend_component,
-        CASE WHEN yoy IS NOT NULL
-             THEN ROUND(DIV0(yoy, NULLIF(ROUND(DIV0(
-                 3 * COALESCE(m1, 0) + 2 * COALESCE(m2, 0) + COALESCE(m3, 0),
-                 3 * IFF(m1 IS NOT NULL, 1, 0)
-               + 2 * IFF(m2 IS NOT NULL, 1, 0)
-               +     IFF(m3 IS NOT NULL, 1, 0)
-             ), 0), 0)), 2)
-             ELSE 1.0
-        END                                               AS seasonal_index
-    FROM with_lags
-    WHERE m1 IS NOT NULL
-)
-SELECT
-    visit_month,
-    total_visits                                            AS actual_visits,
-    inpatient_visits                                        AS actual_inpatient,
-    outpatient_visits                                       AS actual_outpatient,
-    ROUND(trend_component * seasonal_index, 0)             AS forecast_total,
-    ROUND(trend_component * seasonal_index
-          - 1.64 * COALESCE(vol_stddev, 0), 0)            AS forecast_low,
-    ROUND(trend_component * seasonal_index
-          + 1.64 * COALESCE(vol_stddev, 0), 0)            AS forecast_high,
-    last_actual_month,
-    CASE WHEN visit_month = last_actual_month THEN 1 ELSE 0 END AS is_last_actual
-FROM forecast
-ORDER BY visit_month
-"""
-    return run_query(sql)
-
-
-def load_clinician_load(filters: dict, run_query) -> pd.DataFrame:
-    """Q5: Clinician load — visits, patients, vitals/notes rate split by new vs returning."""
-    wh = _w(filters)
-    wsa = _wsa(filters)
-    mo = _mo(filters)
-    sql = f"""
-WITH schema_anchor AS (
-    SELECT source_schema, MAX(created_at) AS max_date
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS
-    {wsa}
-    GROUP BY source_schema
-),
-atf AS (
-    SELECT source_schema, patient, MIN(created_at) AS first_ever
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS
-    GROUP BY 1, 2
-),
-base AS (
-    SELECT
-        v.user                                              AS clinician,
-        DATE_TRUNC('day', v.created_at)                    AS visit_date,
-        v.id                                                AS visit_id,
-        v.patient,
-        v.source_schema,
-        CASE WHEN atf.first_ever >= DATEADD('month', -{mo}, sa.max_date)
-             THEN 1 ELSE 0 END                              AS is_new_patient,
-        CASE WHEN ev.visit_id IS NOT NULL THEN 1 ELSE 0 END AS has_vitals,
-        CASE WHEN dn.visit_id IS NOT NULL THEN 1 ELSE 0 END AS has_notes
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
-    INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
-    LEFT JOIN atf ON v.patient = atf.patient AND v.source_schema = atf.source_schema
-    LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_VITALS ev
-        ON v.id = ev.visit_id AND v.source_schema = ev.source_schema
-    LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_DOCTOR_NOTES dn
-        ON v.id = dn.visit_id AND v.source_schema = dn.source_schema
-    WHERE v.user IS NOT NULL
-      AND v.created_at >= DATEADD('month', -{mo}, sa.max_date)
-    {wh}
-)
-SELECT
-    clinician,
-    COUNT(DISTINCT visit_date)                                          AS days_worked,
-    COUNT(DISTINCT visit_id)                                            AS total_visits,
-    ROUND(COUNT(DISTINCT visit_id)::FLOAT / NULLIF(COUNT(DISTINCT visit_date), 0), 1)
-                                                                        AS avg_daily_patients,
-    SUM(is_new_patient)                                                 AS new_visits,
-    COUNT(DISTINCT visit_id) - SUM(is_new_patient)                     AS returning_visits,
-    ROUND(DIV0(SUM(is_new_patient), COUNT(DISTINCT visit_id)) * 100, 1) AS new_visit_pct,
-    ROUND(DIV0(SUM(has_vitals), COUNT(DISTINCT visit_id)) * 100, 1)    AS vitals_rate_pct,
-    ROUND(DIV0(SUM(has_notes),  COUNT(DISTINCT visit_id)) * 100, 1)    AS notes_rate_pct,
-    ROUND(DIV0(
-        SUM(CASE WHEN is_new_patient = 1 THEN has_vitals ELSE 0 END),
-        NULLIF(SUM(is_new_patient), 0)
-    ) * 100, 1)                                                         AS vitals_rate_new_pct,
-    ROUND(DIV0(
-        SUM(CASE WHEN is_new_patient = 0 THEN has_vitals ELSE 0 END),
-        NULLIF(COUNT(DISTINCT visit_id) - SUM(is_new_patient), 0)
-    ) * 100, 1)                                                         AS vitals_rate_returning_pct
-FROM base
-GROUP BY 1
-HAVING days_worked >= 5
-ORDER BY avg_daily_patients DESC
-LIMIT 20
-"""
-    return run_query(sql)
-
-
-def load_night_ae_conversion(filters: dict, run_query) -> pd.DataFrame:
-    """G1: Night-shift A&E visits → morning admission conversion.
-    Night shift = 20:00–06:59 EAT. Morning admit = 06:00–11:59 EAT.
-    Returns one row per shift label with conversion rate, payer, surgery flag."""
-    wh = _w(filters)
-    wsa = _wsa(filters)
-    mo = _mo(filters)
-    sql = f"""
-WITH schema_anchor AS (
-    SELECT source_schema, MAX(created_at) AS max_date
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS {wsa}
-    GROUP BY source_schema
-),
-visits AS (
-    SELECT
-        v.id              AS visit_id,
-        v.source_schema,
-        v.patient,
-        v.created_at,
-        v.payment_mode,
-        HOUR(CONVERT_TIMEZONE('UTC', 'Africa/Nairobi', v.created_at)) AS visit_hour_eat,
-        CASE
-            WHEN HOUR(CONVERT_TIMEZONE('UTC', 'Africa/Nairobi', v.created_at)) >= 20
-              OR HOUR(CONVERT_TIMEZONE('UTC', 'Africa/Nairobi', v.created_at)) <= 6
-            THEN 'Night (8 pm – 7 am)'
-            ELSE 'Day (7 am – 8 pm)'
-        END AS shift
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
-    INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
-    {wh}
 ),
 admissions AS (
     SELECT
         a.visit_id,
-        REPLACE(LOWER(a.source_schema), '_clean', '') AS source_schema,
-        a.admitted_at,
-        HOUR(CONVERT_TIMEZONE('UTC', 'Africa/Nairobi', a.admitted_at)) AS admit_hour_eat,
-        CASE
-            WHEN HOUR(CONVERT_TIMEZONE('UTC', 'Africa/Nairobi', a.admitted_at)) BETWEEN 6 AND 11
-            THEN 1 ELSE 0
-        END AS is_morning_admit
+        REPLACE(LOWER(a.source_schema), '_clean', '') AS source_schema
     FROM HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
-    INNER JOIN schema_anchor sa
-        ON REPLACE(LOWER(a.source_schema), '_clean', '') = sa.source_schema
-    WHERE a.admitted_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE 1=1
+    {wh_a}
 ),
-dx AS (
-    SELECT DISTINCT visit_id, source_schema,
-        CASE WHEN LOWER(disease_group_1) LIKE '%surg%'
-              OR LOWER(disease_group_1) LIKE '%operat%'
-              OR LOWER(disease_group_1) LIKE '%trauma%'
-             THEN 1 ELSE 0 END AS is_surgery
-    FROM HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED
-)
-SELECT
-    v.shift,
-    COUNT(DISTINCT v.visit_id)                                          AS total_visits,
-    COUNT(DISTINCT a.visit_id)                                          AS admitted,
-    ROUND(DIV0(COUNT(DISTINCT a.visit_id),
-               COUNT(DISTINCT v.visit_id)) * 100, 1)                    AS conversion_rate_pct,
-    ROUND(DIV0(SUM(a.is_morning_admit),
-               COUNT(DISTINCT a.visit_id)) * 100, 1)                    AS morning_admit_pct,
-    ROUND(AVG(CASE
-        WHEN a.admitted_at > v.created_at
-         AND DATEDIFF('hour', v.created_at, a.admitted_at) <= 72
-        THEN DATEDIFF('minute', v.created_at, a.admitted_at) / 60.0
-    END), 1)                                                             AS avg_wait_to_admit_hrs,
-    ROUND(DIV0(
-        COUNT(DISTINCT CASE
-            WHEN a.visit_id IS NOT NULL
-             AND LOWER(COALESCE(v.payment_mode, '')) NOT IN ('cash','self-pay','out-of-pocket','copay')
-             AND TRIM(COALESCE(v.payment_mode, '')) != ''
-            THEN v.visit_id END),
-        COUNT(DISTINCT a.visit_id)
-    ) * 100, 1)                                                          AS insurance_pct,
-    ROUND(DIV0(
-        COUNT(DISTINCT CASE
-            WHEN a.visit_id IS NOT NULL AND dx.is_surgery = 1
-            THEN v.visit_id END),
-        COUNT(DISTINCT a.visit_id)
-    ) * 100, 1)                                                          AS surgery_pct
-FROM visits v
-LEFT JOIN admissions a
-    ON v.visit_id = a.visit_id AND v.source_schema = a.source_schema
-LEFT JOIN dx
-    ON v.visit_id = dx.visit_id AND v.source_schema = dx.source_schema
-GROUP BY 1
-ORDER BY 1
-"""
-    return run_query(sql)
-
-
-def load_peak_day_service_times(filters: dict, run_query) -> pd.DataFrame:
-    """G2: Triage / consult / investigation wait times bucketed by daily load tier.
-    Peak = top 25% of daily visit volume. Quiet = bottom 25%. Normal = middle 50%."""
-    wh = _w(filters)
-    wsa = _wsa(filters)
-    mo = _mo(filters)
-    sql = f"""
-WITH schema_anchor AS (
-    SELECT source_schema, MAX(created_at) AS max_date
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS {wsa}
-    GROUP BY source_schema
-),
-daily_vol AS (
-    SELECT
-        DATE_TRUNC('day', v.created_at)   AS visit_day,
-        v.source_schema,
-        COUNT(DISTINCT v.id)              AS day_visits,
-        COUNT(DISTINCT v.user)            AS day_clinicians
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
-    INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
-    {wh}
-    GROUP BY 1, 2
-),
-day_stats AS (
-    SELECT
-        source_schema,
-        PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY day_visits) AS p25,
-        PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY day_visits) AS p75
-    FROM daily_vol GROUP BY 1
-),
-day_tier AS (
-    SELECT
-        dv.visit_day, dv.source_schema, dv.day_visits, dv.day_clinicians,
-        CASE
-            WHEN dv.day_visits >= ds.p75 THEN 'Peak (top 25%)'
-            WHEN dv.day_visits <= ds.p25 THEN 'Quiet (bottom 25%)'
-            ELSE 'Normal'
-        END AS load_tier
-    FROM daily_vol dv
-    INNER JOIN day_stats ds ON dv.source_schema = ds.source_schema
-),
-vitals_first AS (
-    SELECT visit_id, source_schema, MIN(created_at) AS first_vitals
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VITALS GROUP BY 1, 2
-),
-notes_first AS (
-    SELECT visit_id, source_schema, MIN(created_at) AS first_note
-    FROM HOSPITALS.STAGING.STG_EVALUATION_DOCTOR_NOTES GROUP BY 1, 2
-),
-inv_first AS (
-    SELECT visit_id, source_schema, MIN(investigation_created_at) AS first_inv
-    FROM HOSPITALS.STAGING.STG_EVALUATION_INVESTIGATIONS
-    WHERE (cancelled IS NULL OR cancelled = 0)
-    GROUP BY 1, 2
-),
-rx_first AS (
-    SELECT visit_id, source_schema, MIN(prescription_created_at) AS first_rx
-    FROM HOSPITALS.STAGING.STG_PRESCRIPTION_PAYMENTS
-    WHERE (remove_from_report IS NULL OR remove_from_report = 0)
-    GROUP BY 1, 2
-),
-visit_waits AS (
-    SELECT
-        dt.load_tier,
-        dt.day_visits,
-        dt.day_clinicians,
-        CASE
-            WHEN vf.first_vitals IS NOT NULL
-             AND DATEDIFF('minute', v.created_at, vf.first_vitals) BETWEEN 0 AND 720
-            THEN DATEDIFF('minute', v.created_at, vf.first_vitals)
-        END AS mins_to_triage,
-        CASE
-            WHEN nf.first_note IS NOT NULL
-             AND DATEDIFF('minute', v.created_at, nf.first_note) BETWEEN 0 AND 720
-            THEN DATEDIFF('minute', v.created_at, nf.first_note)
-        END AS mins_to_consult,
-        CASE
-            WHEN inf.first_inv IS NOT NULL
-             AND DATEDIFF('minute', v.created_at, inf.first_inv) BETWEEN 0 AND 1440
-            THEN DATEDIFF('minute', v.created_at, inf.first_inv)
-        END AS mins_to_inv,
-        CASE
-            WHEN rf.first_rx IS NOT NULL
-             AND DATEDIFF('minute', v.created_at, rf.first_rx) BETWEEN 0 AND 1440
-            THEN DATEDIFF('minute', v.created_at, rf.first_rx)
-        END AS mins_to_rx,
-        CASE WHEN vf.first_vitals IS NOT NULL THEN 1 ELSE 0 END AS had_vitals,
-        CASE WHEN nf.first_note   IS NOT NULL THEN 1 ELSE 0 END AS had_note,
-        CASE WHEN inf.first_inv   IS NOT NULL THEN 1 ELSE 0 END AS had_inv,
-        CASE WHEN rf.first_rx     IS NOT NULL THEN 1 ELSE 0 END AS had_rx
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
-    INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
-    INNER JOIN day_tier dt
-        ON DATE_TRUNC('day', v.created_at) = dt.visit_day
-       AND v.source_schema = dt.source_schema
-    LEFT JOIN vitals_first vf ON v.id = vf.visit_id AND v.source_schema = vf.source_schema
-    LEFT JOIN notes_first  nf ON v.id = nf.visit_id AND v.source_schema = nf.source_schema
-    LEFT JOIN inv_first   inf ON v.id = inf.visit_id AND v.source_schema = inf.source_schema
-    LEFT JOIN rx_first     rf ON v.id = rf.visit_id  AND v.source_schema = rf.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
-    {wh}
-)
-SELECT
-    load_tier,
-    COUNT(*)                                                         AS total_visits,
-    COUNT(DISTINCT CASE WHEN mins_to_triage  IS NOT NULL THEN 1 END) AS visits_with_triage,
-    ROUND(MEDIAN(mins_to_triage), 0)                                 AS median_mins_to_triage,
-    ROUND(PERCENTILE_CONT(0.90) WITHIN GROUP
-          (ORDER BY mins_to_triage), 0)                              AS p90_mins_to_triage,
-    ROUND(MEDIAN(mins_to_consult), 0)                                AS median_mins_to_consult,
-    ROUND(PERCENTILE_CONT(0.90) WITHIN GROUP
-          (ORDER BY mins_to_consult), 0)                             AS p90_mins_to_consult,
-    ROUND(MEDIAN(mins_to_inv), 0)                                    AS median_mins_to_inv,
-    ROUND(PERCENTILE_CONT(0.90) WITHIN GROUP
-          (ORDER BY mins_to_inv), 0)                                 AS p90_mins_to_inv,
-    ROUND(MEDIAN(mins_to_rx), 0)                                     AS median_mins_to_rx,
-    ROUND(PERCENTILE_CONT(0.90) WITHIN GROUP
-          (ORDER BY mins_to_rx), 0)                                  AS p90_mins_to_rx,
-    ROUND(DIV0(SUM(had_vitals), COUNT(*)) * 100, 1)                  AS vitals_rate_pct,
-    ROUND(DIV0(SUM(had_note),   COUNT(*)) * 100, 1)                  AS notes_rate_pct,
-    ROUND(DIV0(SUM(had_inv),    COUNT(*)) * 100, 1)                  AS inv_rate_pct,
-    ROUND(DIV0(SUM(had_rx),     COUNT(*)) * 100, 1)                  AS rx_rate_pct,
-    ROUND(AVG(day_clinicians), 1)                                    AS avg_clinicians_on_day,
-    ROUND(AVG(day_visits::FLOAT / NULLIF(day_clinicians, 0)), 1)     AS avg_patients_per_clinician
-FROM visit_waits
-GROUP BY 1
-ORDER BY
-    CASE load_tier
-        WHEN 'Peak (top 25%)' THEN 1
-        WHEN 'Normal'         THEN 2
-        WHEN 'Quiet (bottom 25%)' THEN 3
-    END
-"""
-    return run_query(sql)
-
-
-def load_offpeak_investigation_pattern(filters: dict, run_query) -> pd.DataFrame:
-    """G3: Investigation ordering rate by hour of day (EAT) — detects off-peak over-ordering."""
-    wh = _w(filters)
-    wsa = _wsa(filters)
-    mo = _mo(filters)
-    sql = f"""
-WITH schema_anchor AS (
-    SELECT source_schema, MAX(created_at) AS max_date
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS {wsa}
-    GROUP BY source_schema
-),
-visit_inv AS (
-    SELECT
-        HOUR(CONVERT_TIMEZONE('UTC', 'Africa/Nairobi', v.created_at)) AS hour_eat,
-        v.id AS visit_id,
-        v.source_schema,
-        COUNT(i.investigation_created_at)                              AS inv_count,
-        MAX(CASE WHEN i.visit_id IS NOT NULL THEN 1 ELSE 0 END)        AS had_inv
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
-    INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
-    LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_INVESTIGATIONS i
-        ON v.id = i.visit_id
-       AND (i.cancelled IS NULL OR i.cancelled = 0)
-       AND (i.remove_from_report IS NULL OR i.remove_from_report = 0)
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
-    {wh}
-    GROUP BY 1, 2, 3
-)
-SELECT
-    hour_eat,
-    CASE
-        WHEN hour_eat >= 20 OR hour_eat <= 6 THEN 'Night shift'
-        WHEN hour_eat BETWEEN 7 AND 12        THEN 'Morning'
-        WHEN hour_eat BETWEEN 13 AND 17       THEN 'Afternoon'
-        ELSE 'Evening'
-    END AS shift_label,
-    COUNT(DISTINCT visit_id)                                           AS total_visits,
-    ROUND(DIV0(SUM(had_inv), COUNT(DISTINCT visit_id)) * 100, 1)       AS inv_rate_pct,
-    ROUND(DIV0(SUM(inv_count), COUNT(DISTINCT visit_id)), 2)           AS avg_inv_per_visit
-FROM visit_inv
-GROUP BY 1, 2
-ORDER BY 1
-"""
-    return run_query(sql)
-
-
-def load_offpeak_ipop_split(filters: dict, run_query) -> pd.DataFrame:
-    """E3 drill-down: Investigation count split by Inpatient vs Outpatient for off-peak vs peak."""
-    wh = _w(filters)
-    wsa = _wsa(filters)
-    mo = _mo(filters)
-    sql = f"""
-WITH schema_anchor AS (
-    SELECT source_schema, MAX(created_at) AS max_date
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS {wsa}
-    GROUP BY source_schema
-),
-classified AS (
+escalated_visits AS (
     SELECT
         v.id AS visit_id,
-        v.source_schema,
-        CASE
-            WHEN HOUR(CONVERT_TIMEZONE('UTC', 'Africa/Nairobi', v.created_at)) >= 20
-              OR HOUR(CONVERT_TIMEZONE('UTC', 'Africa/Nairobi', v.created_at)) <= 6
-            THEN 'Off-peak (Night)'
-            ELSE 'Peak Hours'
-        END AS shift_type,
-        CASE WHEN a.visit_id IS NOT NULL THEN 'Inpatient' ELSE 'Outpatient' END AS visit_type
+        v.source_schema
     FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
-    LEFT JOIN HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
-        ON v.id = a.visit_id
-       AND v.source_schema = REPLACE(LOWER(a.source_schema), '_clean', '')
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    INNER JOIN admissions a ON v.id = a.visit_id AND v.source_schema = a.source_schema
+    WHERE v.created_at >=  '2024-09-01'
     {wh}
-)
-SELECT
-    c.shift_type,
-    c.visit_type,
-    COUNT(*)                   AS inv_count,
-    COUNT(DISTINCT c.visit_id) AS visit_count
-FROM classified c
-INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_INVESTIGATIONS i
-    ON c.visit_id = i.visit_id
-   AND (i.cancelled IS NULL OR i.cancelled = 0)
-   AND (i.remove_from_report IS NULL OR i.remove_from_report = 0)
-GROUP BY 1, 2
-ORDER BY 1, 2
-"""
-    return run_query(sql)
-
-
-def load_offpeak_top_investigations(filters: dict, run_query) -> pd.DataFrame:
-    """E3 drill-down: Investigations ordered during off-peak night hours, grouped by procedure type (investigation_type)."""
-    wh = _w(filters)
-    wsa = _wsa(filters)
-    mo = _mo(filters)
-    sql = f"""
-WITH schema_anchor AS (
-    SELECT source_schema, MAX(created_at) AS max_date
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS {wsa}
-    GROUP BY source_schema
 ),
-offpeak_visits AS (
-    SELECT
-        v.id AS visit_id,
-        v.source_schema,
-        CASE WHEN a.visit_id IS NOT NULL THEN 'Inpatient' ELSE 'Outpatient' END AS visit_type
+all_visit_count AS (
+    SELECT COUNT(DISTINCT v.id) AS total_op_visits
     FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
-    LEFT JOIN HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
-        ON v.id = a.visit_id
-       AND v.source_schema = REPLACE(LOWER(a.source_schema), '_clean', '')
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
-      AND (
-          HOUR(CONVERT_TIMEZONE('UTC', 'Africa/Nairobi', v.created_at)) >= 20
-          OR HOUR(CONVERT_TIMEZONE('UTC', 'Africa/Nairobi', v.created_at)) <= 6
-      )
+    WHERE v.created_at >=  '2024-09-01'
     {wh}
+),
+top_cond AS (
+    SELECT
+        COALESCE(dx.disease_burden_group_1, 'Not recorded') AS condition,
+        COUNT(DISTINCT ev.visit_id) AS esc_count
+    FROM escalated_visits ev
+    LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
+        ON ev.visit_id = dx.visit_id AND ev.source_schema = dx.source_schema
+    GROUP BY 1
+    ORDER BY 2 DESC
+    LIMIT 1
 )
 SELECT
-    COALESCE(NULLIF(TRIM(i.procedure_discipline), 'Unclassified'),
-             INITCAP(TRIM(i.investigation_type))) AS discipline,
-    ov.visit_type,
-    COUNT(*)                            AS inv_count
-FROM offpeak_visits ov
-INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_INVESTIGATIONS i
-    ON ov.visit_id = i.visit_id
-   AND (i.cancelled IS NULL OR i.cancelled = 0)
-   AND (i.remove_from_report IS NULL OR i.remove_from_report = 0)
-GROUP BY 1, 2
-ORDER BY inv_count DESC
+    COUNT(DISTINCT ev.visit_id)                                                    AS total_escalations,
+    av.total_op_visits,
+    ROUND(100.0 * COUNT(DISTINCT ev.visit_id) / NULLIF(av.total_op_visits, 0), 2) AS escalation_rate_pct,
+    MAX(tc.condition)                                                              AS top_condition
+FROM escalated_visits ev
+CROSS JOIN all_visit_count av
+CROSS JOIN top_cond tc
+GROUP BY av.total_op_visits, tc.condition
 """
     return run_query(sql)
 
 
-def load_discharge_timing(filters: dict, run_query) -> pd.DataFrame:
-    """E4: Actual discharge hour distribution (EAT) using discharged_at.
-    Returns hour × day_of_week discharge count for overlap comparison with admissions."""
-    wh = _w(filters)
-    wsa = _wsa(filters)
-    mo = _mo(filters)
-    sql = f"""
-WITH schema_anchor AS (
-    SELECT source_schema, MAX(created_at) AS max_date
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS {wsa}
-    GROUP BY source_schema
-),
-discharge_hours AS (
-    SELECT
-        CASE DAYNAME(CONVERT_TIMEZONE('UTC', 'Africa/Nairobi', a.discharged_at))
-            WHEN 'Mon' THEN 'Monday'    WHEN 'Tue' THEN 'Tuesday'
-            WHEN 'Wed' THEN 'Wednesday' WHEN 'Thu' THEN 'Thursday'
-            WHEN 'Fri' THEN 'Friday'    WHEN 'Sat' THEN 'Saturday'
-            WHEN 'Sun' THEN 'Sunday'
-        END                                                                   AS day_name,
-        DAYOFWEEK(CONVERT_TIMEZONE('UTC', 'Africa/Nairobi', a.discharged_at)) AS day_num,
-        HOUR(CONVERT_TIMEZONE('UTC', 'Africa/Nairobi', a.discharged_at))      AS hour_eat,
-        COUNT(DISTINCT a.visit_id)                                            AS discharge_count
-    FROM HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
-    INNER JOIN schema_anchor sa
-        ON REPLACE(LOWER(a.source_schema), '_clean', '') = sa.source_schema
-    WHERE a.discharged_at >= DATEADD('month', -{mo}, sa.max_date)
-      AND a.discharged_at IS NOT NULL
-      AND a.is_open_admission = 0
-    GROUP BY 1, 2, 3
-)
-SELECT day_name, day_num, hour_eat, discharge_count
-FROM discharge_hours
-ORDER BY day_num, hour_eat
-"""
-    return run_query(sql)
-
-
-def load_peak_demand_heatmap(filters: dict, run_query) -> pd.DataFrame:
-    """Q6A: Hour × day visit volume heatmap in EAT timezone, split by outpatient/inpatient."""
-    wh = _w(filters)
-    wsa = _wsa(filters)
-    mo = _mo(filters)
+def load_same_day_escalation_by_condition(filters: dict, run_query) -> pd.DataFrame:
+    """Same-day OP→IP escalation per condition: count + escalation rate vs all visits for that condition.
+    Escalation = OPD visit followed by admission within 72 hours."""
+    wh   = _w(filters)
+    wh_a = _w_adm(filters)
+    wsa  = _wsa(filters)
     sql = f"""
 WITH schema_anchor AS (
     SELECT source_schema, MAX(created_at) AS max_date
     FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS
     {wsa}
     GROUP BY source_schema
-)
-SELECT
-    CASE DAYNAME(CONVERT_TIMEZONE('UTC', 'Africa/Nairobi', v.created_at))
-        WHEN 'Mon' THEN 'Monday'    WHEN 'Tue' THEN 'Tuesday'
-        WHEN 'Wed' THEN 'Wednesday' WHEN 'Thu' THEN 'Thursday'
-        WHEN 'Fri' THEN 'Friday'    WHEN 'Sat' THEN 'Saturday'
-        WHEN 'Sun' THEN 'Sunday'
-    END                                                                 AS day_name,
-    DAYOFWEEK(CONVERT_TIMEZONE('UTC', 'Africa/Nairobi', v.created_at)) AS day_num,
-    HOUR(CONVERT_TIMEZONE('UTC', 'Africa/Nairobi', v.created_at))       AS hour_of_day,
-    COUNT(DISTINCT v.id)                                                AS visit_count,
-    COUNT(DISTINCT CASE WHEN a.visit_id IS NOT NULL
-                        THEN v.id END)                                  AS inpatient_count,
-    COUNT(DISTINCT CASE WHEN a.visit_id IS NULL
-                        THEN v.id END)                                  AS outpatient_count
-FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
-INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
-LEFT JOIN HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
-    ON v.id = a.visit_id
-   AND v.source_schema = REPLACE(LOWER(a.source_schema), '_clean', '')
-WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
-{wh}
-GROUP BY 1, 2, 3
-ORDER BY 2, 3
-"""
-    return run_query(sql)
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# TAB 2 — PATIENT SEGMENTATION
-# ══════════════════════════════════════════════════════════════════════════════
-
-def load_seg_kpis(filters: dict, run_query) -> pd.DataFrame:
-    """Tab 2 KPI row: total patients, chronic rate, repeat rate, single-visit count."""
-    wh = _w(filters)
-    wsa = _wsa(filters)
-    mo = _mo(filters)
-    sql = f"""
-WITH schema_anchor AS (
-    SELECT source_schema, MAX(created_at) AS max_date
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS {wsa}
-    GROUP BY source_schema
 ),
-visit_counts AS (
-    SELECT v.source_schema, v.patient, COUNT(DISTINCT v.id) AS vc
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
-    INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
-    {wh}
-    GROUP BY 1, 2
+admissions AS (
+    SELECT
+        a.visit_id,
+        a.admitted_at,
+        REPLACE(LOWER(a.source_schema), '_clean', '') AS source_schema
+    FROM HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
+    WHERE 1=1
+    {wh_a}
 ),
-chronic AS (
-    SELECT DISTINCT v.source_schema, v.patient
+all_visits_by_cond AS (
+    SELECT
+        v.id          AS visit_id,
+        v.created_at  AS visit_time,
+        v.source_schema,
+        COALESCE(dx.disease_burden_group_1, 'Not recorded') AS condition
     FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
     LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
         ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
-    LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_DOCTOR_NOTES n
-        ON v.id = n.visit_id AND v.source_schema = n.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
-      {wh}
-      AND (dx.is_chronic_1 = 1 OR dx.is_chronic_2 = 1
-           OR n.diagnosis ILIKE '%hypertension%'
-           OR n.diagnosis ILIKE '%diabetes%'
-           OR n.diagnosis ILIKE '%hiv%'
-           OR n.diagnosis ILIKE '%renal%')
-)
-SELECT
-    COUNT(DISTINCT vc.patient)                              AS total_patients,
-    ROUND(AVG(vc.vc), 1)                                    AS avg_visits,
-    COUNT(DISTINCT cp.patient)                              AS chronic_patients,
-    COUNT(DISTINCT CASE WHEN vc.vc = 1 THEN vc.patient END) AS single_visit,
-    COUNT(DISTINCT CASE WHEN vc.vc >= 2 THEN vc.patient END) AS repeat_patients,
-    ROUND(DIV0(COUNT(DISTINCT cp.patient),
-               COUNT(DISTINCT vc.patient)) * 100, 1)        AS chronic_rate_pct,
-    ROUND(DIV0(COUNT(DISTINCT CASE WHEN vc.vc >= 2 THEN vc.patient END),
-               COUNT(DISTINCT vc.patient)) * 100, 1)        AS repeat_rate_pct
-FROM visit_counts vc
-LEFT JOIN chronic cp
-    ON vc.patient = cp.patient AND vc.source_schema = cp.source_schema
-"""
-    return run_query(sql)
-
-
-def load_demographics_age_sex(filters: dict, run_query) -> pd.DataFrame:
-    """Q2: Age × sex × chronic status grid."""
-    wh = _w(filters)
-    wsa = _wsa(filters)
-    mo = _mo(filters)
-    sql = f"""
-WITH schema_anchor AS (
-    SELECT source_schema, MAX(created_at) AS max_date
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS {wsa}
-    GROUP BY source_schema
-),
-pp AS (
-    SELECT v.source_schema, v.patient,
-        UPPER(COALESCE(p.sex, 'Unknown')) AS sex,
-           CASE
-            WHEN p.dob IS NULL THEN 'Unknown'
-            WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 5
-                THEN 'Toddler (0–4)'
-            WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 13
-                THEN 'Child (5–12)'
-            WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 18
-                THEN 'Adolescent (13–17)'
-            WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 25
-                THEN 'Youth (18–24)'
-            WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 35
-                THEN 'Young Adult (25–34)'
-            WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 45
-                THEN 'Adult (35–44)'
-            WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 55
-                THEN 'Middle Age (45–54)'
-            WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 65
-                THEN 'Older Adult (55–64)'
-            ELSE 'Senior (65+)'
-        END                                             AS age_group,
-        MAX(CASE
-            WHEN dx.is_chronic_1 = 1 OR dx.is_chronic_2 = 1
-              OR n.diagnosis ILIKE '%hypertension%'
-              OR n.diagnosis ILIKE '%diabetes%'
-              OR n.diagnosis ILIKE '%hiv%'
-              OR n.diagnosis ILIKE '%renal%'
-            THEN 1 ELSE 0
-        END) AS is_chronic
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
-    INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
-    LEFT JOIN HOSPITALS.STAGING.STG_RECEPTION_PATIENTS p
-        ON v.patient = p.patient_id AND v.source_schema = p.source_schema
-    LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
-        ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
-    LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_DOCTOR_NOTES n
-        ON v.id = n.visit_id AND v.source_schema = n.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >= '2024-09-01'
     {wh}
-    GROUP BY 1, 2, 3, 4
-)
-SELECT age_group, sex,
-    COUNT(DISTINCT patient)                     AS total,
-    SUM(is_chronic)                             AS chronic,
-    COUNT(DISTINCT patient) - SUM(is_chronic)   AS non_chronic
-FROM pp
-WHERE age_group != 'Unknown' AND sex NOT IN ('UNKNOWN', 'Unknown') AND sex != ''
-GROUP BY 1, 2
-ORDER BY 1, 2
-"""
-    return run_query(sql)
-
-
-def load_new_vs_returning(filters: dict, run_query) -> pd.DataFrame:
-    """Q4: New vs returning patient trend monthly."""
-    wh = _w(filters)
-    wsa = _wsa(filters)
-    mo = _mo(filters)
-    sql = f"""
-WITH schema_anchor AS (
-    SELECT source_schema, MAX(created_at) AS max_date
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS {wsa}
-    GROUP BY source_schema
 ),
-atf AS (
-    SELECT source_schema, patient, MIN(created_at) AS first_ever
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS GROUP BY 1, 2
-)
-SELECT
-    DATE_TRUNC('month', v.created_at)           AS visit_month,
-    COUNT(DISTINCT v.patient)                   AS total_patients,
-    COUNT(DISTINCT CASE
-        WHEN DATE_TRUNC('month', atf.first_ever)
-             = DATE_TRUNC('month', v.created_at)
-        THEN v.patient END)                     AS new_patients,
-    COUNT(DISTINCT CASE
-        WHEN DATE_TRUNC('month', atf.first_ever)
-             != DATE_TRUNC('month', v.created_at)
-        THEN v.patient END)                     AS returning_patients
-FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
-INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
-LEFT JOIN atf ON v.patient = atf.patient AND v.source_schema = atf.source_schema
-WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
-{wh}
-GROUP BY 1
-ORDER BY 1
-"""
-    return run_query(sql)
-
-
-def load_visit_distribution(filters: dict, run_query) -> pd.DataFrame:
-    """Distribution of patients by age group, visit type, and new/returning status."""
-    wh = _w(filters)
-    wsa = _wsa(filters)
-    mo = _mo(filters)
-    sql = f"""
-WITH schema_anchor AS (
-    SELECT source_schema, MAX(created_at) AS max_date
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS {wsa}
-    GROUP BY source_schema
-),
-atf AS (
-    SELECT source_schema, patient, MIN(created_at) AS first_ever
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS GROUP BY 1, 2
-)
-SELECT
-   CASE
-            WHEN p.dob IS NULL THEN 'Unknown'
-            WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 5
-                THEN 'Toddler (0–4)'
-            WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 13
-                THEN 'Child (5–12)'
-            WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 18
-                THEN 'Adolescent (13–17)'
-            WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 25
-                THEN 'Youth (18–24)'
-            WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 35
-                THEN 'Young Adult (25–34)'
-            WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 45
-                THEN 'Adult (35–44)'
-            WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 55
-                THEN 'Middle Age (45–54)'
-            WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 65
-                THEN 'Older Adult (55–64)'
-            ELSE 'Senior (65+)'
-        END                                             AS age_group,
-    CASE WHEN a.visit_id IS NOT NULL THEN 'Inpatient' ELSE 'Outpatient'
-    END                                                             AS visit_type,
-    CASE
-        WHEN DATE_TRUNC('month', atf.first_ever) = DATE_TRUNC('month', v.created_at)
-        THEN 'New' ELSE 'Returning'
-    END                                                             AS patient_type,
-    COUNT(DISTINCT v.patient)                                       AS patient_count,
-    COUNT(DISTINCT v.id)                                            AS visit_count
-FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
-INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
-LEFT JOIN atf ON v.patient = atf.patient AND v.source_schema = atf.source_schema
-LEFT JOIN HOSPITALS.STAGING.STG_RECEPTION_PATIENTS p
-    ON v.patient = p.patient_id AND v.source_schema = p.source_schema
-LEFT JOIN HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
-    ON v.id = a.visit_id
-   AND REPLACE(LOWER(a.source_schema), '_clean', '') = v.source_schema
-WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
-  AND age_group != 'Unknown'
-{wh}
-GROUP BY 1, 2, 3
-ORDER BY 1, 2, 3
-"""
-    return run_query(sql)
-
-
-def load_payer_switch_sankey(filters: dict, run_query) -> pd.DataFrame:
-    """Payer type on first visit (source) → payer type on subsequent visits (target).
-    Only patients with ≥2 visits are included. Returns flow pairs with patient counts."""
-    wh = _w(filters)
-    wsa = _wsa(filters)
-    mo = _mo(filters)
-    sql = f"""
-WITH schema_anchor AS (
-    SELECT source_schema, MAX(created_at) AS max_date
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS {wsa}
-    GROUP BY source_schema
-),
-payer_label AS (
+escalations AS (
     SELECT
-        v.patient, v.source_schema, v.created_at,
-        CASE
-            WHEN LOWER(v.payment_mode) IN ('nhif','shif','sha','national scheme')
-                THEN 'NHIF / SHA'
-            WHEN LOWER(v.payment_mode) IN ('cash','self-pay','out-of-pocket','copay')
-                THEN 'Cash'
-            WHEN v.payment_mode IS NULL OR TRIM(v.payment_mode) = ''
-                THEN 'Unknown'
-            ELSE 'Insurance'
-        END AS payer
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
-    INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
-    {wh}
-),
-first_visit AS (
-    SELECT patient, source_schema,
-           MIN(created_at) AS first_visit_at
-    FROM payer_label GROUP BY 1, 2
-),
-first_payer AS (
-    SELECT pl.patient, pl.source_schema, pl.payer AS source_payer
-    FROM payer_label pl
-    INNER JOIN first_visit fv
-        ON pl.patient = fv.patient
-       AND pl.source_schema = fv.source_schema
-       AND pl.created_at = fv.first_visit_at
-),
-return_payers AS (
-    SELECT pl.patient, pl.source_schema, pl.payer AS target_payer
-    FROM payer_label pl
-    INNER JOIN first_visit fv
-        ON pl.patient = fv.patient
-       AND pl.source_schema = fv.source_schema
-    WHERE pl.created_at > fv.first_visit_at
-      AND pl.payer != 'Unknown'
-)
-SELECT
-    fp.source_payer,
-    rp.target_payer,
-    COUNT(DISTINCT fp.patient)  AS patient_count
-FROM first_payer fp
-INNER JOIN return_payers rp
-    ON fp.patient = rp.patient AND fp.source_schema = rp.source_schema
-WHERE fp.source_payer != 'Unknown'
-GROUP BY 1, 2
-HAVING patient_count >= 3
-ORDER BY patient_count DESC
-"""
-    return run_query(sql)
-
-
-def load_payer_mix(filters: dict, run_query) -> pd.DataFrame:
-    """Q5: Payer mix by age group."""
-    wh = _w(filters)
-    wsa = _wsa(filters)
-    mo = _mo(filters)
-    sql = f"""
-WITH schema_anchor AS (
-    SELECT source_schema, MAX(created_at) AS max_date
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS {wsa}
-    GROUP BY source_schema
-)
-SELECT
-    CASE
-        WHEN p.dob IS NULL THEN 'Unknown'
-        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 5  THEN 'Toddler (0–4)'
-        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 13 THEN 'Child (5–12)'
-        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 18 THEN 'Adolescent (13–17)'
-        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 25 THEN 'Youth (18–24)'
-        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 35 THEN 'Young Adult (25–34)'
-        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 45 THEN 'Adult (35–44)'
-        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 55 THEN 'Middle Age (45–54)'
-        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 65 THEN 'Older Adult (55–64)'
-        ELSE 'Senior (65+)'
-    END                                                     AS age_group,
-    CASE
-        WHEN LOWER(v.payment_mode) IN ('nhif','shif','sha','national scheme')
-            THEN 'NHIF / SHA'
-        WHEN LOWER(v.payment_mode) IN ('cash','self-pay','out-of-pocket','copay')
-            THEN 'Cash'
-        WHEN v.payment_mode IS NULL OR TRIM(v.payment_mode) = ''
-            THEN 'Unknown'
-        ELSE 'Insurance'
-    END                                                     AS payer_type,
-    COUNT(DISTINCT v.patient)                               AS unique_patients,
-    COUNT(DISTINCT v.id)                                    AS total_visits
-FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
-INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
-LEFT JOIN HOSPITALS.STAGING.STG_RECEPTION_PATIENTS p
-    ON v.patient = p.patient_id AND v.source_schema = p.source_schema
-WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
-  AND payer_type != 'Unknown'
-  AND age_group  != 'Unknown'
-{wh}
-GROUP BY 1, 2
-ORDER BY 1, total_visits DESC
-"""
-    return run_query(sql)
-
-
-def load_revenue_by_segment(filters: dict, run_query) -> pd.DataFrame:
-    """Q6: Revenue by clinical segment (condition × payer)."""
-    wh = _w(filters)
-    wsa = _wsa(filters)
-    mo = _mo(filters)
-    sql = f"""
-WITH schema_anchor AS (
-    SELECT source_schema, MAX(created_at) AS max_date
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS {wsa}
-    GROUP BY source_schema
-),
-vr AS (
-    SELECT v.source_schema, v.patient, v.id AS visit_id,
-        CASE WHEN LOWER(v.payment_mode) IN ('nhif','shif','sha','national scheme')
-             THEN 'NHIF / SHA'
-             WHEN LOWER(v.payment_mode) IN ('cash','self-pay','out-of-pocket')
-             THEN 'Cash' ELSE 'Insurance'
-        END AS payer_type,
-        COALESCE(SUM(il.item_amount), 0) AS visit_revenue
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
-    INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
-    LEFT JOIN HOSPITALS.STAGING.STG_INVOICE_LINE_ITEMS il
-        ON v.id = il.visit_id AND v.source_schema = il.source_schema
-       AND il.invoice_deleted_at IS NULL
-       AND (il.auto_cancelled IS NULL OR il.auto_cancelled = 0)
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
-    {wh}
-    GROUP BY 1, 2, 3, 4
-),
-ps AS (
-    SELECT v.source_schema, v.patient,
-        COALESCE(
-            MAX(NULLIF(TRIM(dx.disease_group_1), '')),
-            MAX(CASE
-                WHEN n.diagnosis ILIKE '%hypertension%' THEN 'Hypertension'
-                WHEN n.diagnosis ILIKE '%diabetes%'     THEN 'Diabetes'
-                WHEN n.diagnosis ILIKE '%hiv%'          THEN 'HIV'
-                WHEN n.diagnosis ILIKE '%malaria%'      THEN 'Malaria'
-                WHEN n.diagnosis ILIKE '%urti%'         THEN 'URTI'
-                WHEN n.diagnosis ILIKE '%anc%'          THEN 'ANC / Maternal'
-                ELSE NULL
-            END),
-            'Non-chronic / Acute'
-        ) AS primary_condition
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
-    INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
-    LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
-        ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
-    LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_DOCTOR_NOTES n
-        ON v.id = n.visit_id AND v.source_schema = n.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
-    {wh}
-    GROUP BY 1, 2
-)
-SELECT
-    ps.primary_condition,
-    vr.payer_type,
-    COUNT(DISTINCT vr.patient)                  AS patient_count,
-    ROUND(SUM(vr.visit_revenue), 0)             AS total_revenue,
-    ROUND(AVG(vr.visit_revenue), 0)             AS avg_revenue_per_visit
-FROM vr
-LEFT JOIN ps ON vr.patient = ps.patient AND vr.source_schema = ps.source_schema
-GROUP BY 1, 2
-HAVING COUNT(DISTINCT vr.patient) >= 5
-ORDER BY total_revenue DESC
-LIMIT 30
-"""
-    return run_query(sql)
-
-
-def load_pareto(filters: dict, run_query) -> pd.DataFrame:
-    """Q7: Revenue Pareto — concentration by spend tier."""
-    wh = _w(filters)
-    wsa = _wsa(filters)
-    mo = _mo(filters)
-    sql = f"""
-WITH schema_anchor AS (
-    SELECT source_schema, MAX(created_at) AS max_date
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS {wsa}
-    GROUP BY source_schema
-),
-pr AS (
-    SELECT v.source_schema, v.patient,
-        SUM(il.item_amount) AS total_spend,
-        COUNT(DISTINCT v.id) AS visit_count
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
-    INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
-    LEFT JOIN HOSPITALS.STAGING.STG_INVOICE_LINE_ITEMS il
-        ON v.id = il.visit_id AND v.source_schema = il.source_schema
-       AND il.invoice_deleted_at IS NULL
-       AND (il.auto_cancelled IS NULL OR il.auto_cancelled = 0)
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
-    {wh}
-    GROUP BY 1, 2
-),
-ranked AS (
-    SELECT *,
-        CASE
-            WHEN PERCENT_RANK() OVER (
-                PARTITION BY source_schema ORDER BY total_spend DESC) <= 0.10
-                THEN 'Top 10%'
-            WHEN PERCENT_RANK() OVER (
-                PARTITION BY source_schema ORDER BY total_spend DESC) <= 0.20
-                THEN 'Top 11–20%'
-            WHEN PERCENT_RANK() OVER (
-                PARTITION BY source_schema ORDER BY total_spend DESC) <= 0.50
-                THEN 'Middle 21–50%'
-            ELSE 'Bottom 50%'
-        END AS revenue_tier
-    FROM pr WHERE total_spend > 0
-)
-SELECT
-    revenue_tier,
-    COUNT(DISTINCT patient)                             AS patient_count,
-    ROUND(SUM(total_spend), 0)                          AS tier_revenue,
-    ROUND(DIV0(SUM(total_spend),
-               SUM(SUM(total_spend)) OVER ()) * 100, 1) AS revenue_share_pct,
-    ROUND(AVG(total_spend), 0)                          AS avg_spend,
-    ROUND(AVG(visit_count), 1)                          AS avg_visits
-FROM ranked
-GROUP BY 1
-ORDER BY revenue_share_pct DESC
-"""
-    return run_query(sql)
-
-
-def load_revenue_profile_matrix(filters: dict, run_query) -> pd.DataFrame:
-    """Unified Revenue Profile Matrix: per condition — revenue share, pareto tier,
-    IP vs OP split, and Cash / Corporate / NHIF-SHA payer mix."""
-    wh = _w(filters)
-    wsa = _wsa(filters)
-    mo = _mo(filters)
-    sql = f"""
-WITH schema_anchor AS (
-    SELECT source_schema, MAX(created_at) AS max_date
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS {wsa}
-    GROUP BY source_schema
-),
-visit_base AS (
-    SELECT
-        v.id AS visit_id, v.source_schema, v.payment_mode,
-        COALESCE(
-            MAX(NULLIF(TRIM(dx.disease_group_1), '')),
-            MAX(CASE
-                WHEN n.diagnosis ILIKE '%hypertension%' THEN 'Hypertension'
-                WHEN n.diagnosis ILIKE '%diabetes%'     THEN 'Diabetes'
-                WHEN n.diagnosis ILIKE '%hiv%'          THEN 'HIV'
-                WHEN n.diagnosis ILIKE '%malaria%'      THEN 'Malaria'
-                WHEN n.diagnosis ILIKE '%typhoid%'      THEN 'Communicable: Typhoid'
-                WHEN n.diagnosis ILIKE '%trauma%'
-                  OR n.diagnosis ILIKE '%injury%'       THEN 'Trauma & Injury'
-                WHEN n.diagnosis ILIKE '%urti%'         THEN 'Respiratory'
-                ELSE NULL
-            END),
-            'Unclassified'
-        ) AS condition,
-        CASE
-            WHEN LOWER(v.payment_mode) IN ('nhif','shif','sha','national scheme')
-                THEN 'NHIF / SHA'
-            WHEN LOWER(v.payment_mode) IN ('cash','self-pay','out-of-pocket','copay')
-                THEN 'Cash'
-            WHEN v.payment_mode IS NULL OR TRIM(v.payment_mode) = ''
-                THEN 'Unknown'
-            ELSE 'Corporate'
-        END AS payer_bucket
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
-    INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
-    LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
-        ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
-    LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_DOCTOR_NOTES n
-        ON v.id = n.visit_id AND v.source_schema = n.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
-    {wh}
-    GROUP BY v.id, v.source_schema, v.payment_mode
-),
-with_revenue AS (
-    SELECT
-        vb.visit_id, vb.source_schema, vb.condition, vb.payer_bucket,
-        COALESCE(SUM(il.item_amount), 0)                              AS revenue,
-        MAX(CASE WHEN a.visit_id IS NOT NULL THEN 1 ELSE 0 END)       AS is_inpatient
-    FROM visit_base vb
-    LEFT JOIN HOSPITALS.STAGING.STG_INVOICE_LINE_ITEMS il
-        ON vb.visit_id = il.visit_id AND vb.source_schema = il.source_schema
-       AND il.invoice_deleted_at IS NULL
-       AND (il.auto_cancelled IS NULL OR il.auto_cancelled = 0)
-    LEFT JOIN HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
-        ON vb.visit_id = a.visit_id
-       AND REPLACE(LOWER(a.source_schema), '_clean', '') = vb.source_schema
-    GROUP BY 1, 2, 3, 4
-),
-cond_agg AS (
-    SELECT
-        condition,
-        ROUND(SUM(revenue), 0)                                        AS total_revenue,
-        COUNT(*)                                                      AS visit_count,
-        SUM(is_inpatient)                                             AS ip_visits,
-        COUNT(*) - SUM(is_inpatient)                                  AS op_visits,
-        SUM(CASE WHEN payer_bucket = 'Cash'      THEN 1 ELSE 0 END)   AS cash_visits,
-        SUM(CASE WHEN payer_bucket = 'NHIF / SHA' THEN 1 ELSE 0 END)  AS nhif_visits,
-        SUM(CASE WHEN payer_bucket = 'Corporate' THEN 1 ELSE 0 END)   AS corp_visits
-    FROM with_revenue
+        av.condition,
+        COUNT(DISTINCT av.visit_id) AS esc_count
+    FROM all_visits_by_cond av
+    INNER JOIN admissions a
+        ON av.visit_id = a.visit_id
+        AND av.source_schema = a.source_schema
+        AND DATEDIFF('hour', av.visit_time, a.admitted_at) BETWEEN 0 AND 72
     GROUP BY 1
-    HAVING SUM(revenue) > 0 AND COUNT(*) >= 5
 ),
-grand AS (SELECT SUM(total_revenue) AS grand_total FROM cond_agg),
-ranked AS (
-    SELECT ca.*,
-           ROUND(ca.total_revenue / grand.grand_total * 100, 1)       AS revenue_share_pct,
-           ROUND(SUM(ca.total_revenue) OVER (
-               ORDER BY ca.total_revenue DESC
-               ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-           ) / grand.grand_total * 100, 1)                            AS cumul_pct
-    FROM cond_agg ca, grand
+totals AS (
+    SELECT condition, COUNT(DISTINCT visit_id) AS total_count
+    FROM all_visits_by_cond
+    GROUP BY 1
 )
 SELECT
-    condition,
-    total_revenue,
-    revenue_share_pct,
-    CASE
-        WHEN cumul_pct <= 10  THEN 'Top 10%'
-        WHEN cumul_pct <= 20  THEN 'Top 11–20%'
-        WHEN cumul_pct <= 50  THEN 'Middle 21–50%'
-        ELSE 'Bottom 50%'
-    END                                                                AS pareto_tier,
-    visit_count,
-    ROUND(ip_visits * 100.0 / NULLIF(visit_count, 0), 0)              AS ip_pct,
-    ROUND(op_visits * 100.0 / NULLIF(visit_count, 0), 0)              AS op_pct,
-    ROUND(cash_visits * 100.0 / NULLIF(visit_count, 0), 0)            AS cash_pct,
-    ROUND(nhif_visits * 100.0 / NULLIF(visit_count, 0), 0)            AS nhif_pct,
-    ROUND(corp_visits * 100.0 / NULLIF(visit_count, 0), 0)            AS corp_pct
-FROM ranked
-ORDER BY total_revenue DESC
-LIMIT 25
+    e.condition,
+    e.esc_count,
+    t.total_count,
+    ROUND(100.0 * e.esc_count / NULLIF(t.total_count, 0), 1) AS escalation_rate_pct
+FROM escalations e
+INNER JOIN totals t ON e.condition = t.condition
+WHERE e.condition != 'Not recorded'
+ORDER BY e.esc_count DESC
+LIMIT 12
 """
     return run_query(sql)
-
-
-def load_cohort_forecast(filters: dict, run_query) -> pd.DataFrame:
-    """Q9: Age cohort monthly patient counts for stacked area forecast."""
-    wh = _w(filters)
-    wsa = _wsa(filters)
-    mo = _mo(filters)
-    sql = f"""
-WITH schema_anchor AS (
-    SELECT source_schema, MAX(created_at) AS max_date
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS {wsa}
-    GROUP BY source_schema
-)
-SELECT
-    DATE_TRUNC('month', v.created_at)   AS visit_month,
-    CASE
-        WHEN p.dob IS NULL THEN 'Unknown'
-        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 5  THEN 'Toddler (0–4)'
-        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 13 THEN 'Child (5–12)'
-        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 18 THEN 'Adolescent (13–17)'
-        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 25 THEN 'Youth (18–24)'
-        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 35 THEN 'Young Adult (25–34)'
-        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 45 THEN 'Adult (35–44)'
-        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 55 THEN 'Middle Age (45–54)'
-        WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 65 THEN 'Older Adult (55–64)'
-        ELSE 'Senior (65+)'
-    END                                 AS age_cohort,
-    COUNT(DISTINCT v.patient)           AS patient_count
-FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
-INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
-LEFT JOIN HOSPITALS.STAGING.STG_RECEPTION_PATIENTS p
-    ON v.patient = p.patient_id AND v.source_schema = p.source_schema
-WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
-  AND age_cohort != 'Unknown'
-{wh}
-GROUP BY 1, 2
-ORDER BY 1, 2
-"""
-    return run_query(sql)
-
-
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 3 — PATIENT FLOW & RETENTION
 # ══════════════════════════════════════════════════════════════════════════════
 
 def load_retention_kpis(filters: dict, run_query) -> pd.DataFrame:
-    """Tab 3 KPI row: chronic patients, 90-day retention rate, LTFU count."""
+    """Tab 3 KPI row: chronic patients bucketed by last-visit gap from max_date.
+    Active/Retained ≤90d, Lapsing 91-180d, LTFU >180d — same definition as load_lifecycle.
+    Date floor: 1 year back from max_date per source_schema (dynamic).
+    """
     wh = _w(filters)
     wsa = _wsa(filters)
-    mo = _mo(filters)
     sql = f"""
 WITH schema_anchor AS (
     SELECT source_schema, MAX(created_at) AS max_date
@@ -2866,44 +1287,229 @@ chronic_patients AS (
         ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
     LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_DOCTOR_NOTES n
         ON v.id = n.visit_id AND v.source_schema = n.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >= DATEADD('year', -1, sa.max_date)
       {wh}
       AND (dx.is_chronic_1 = 1 OR dx.is_chronic_2 = 1
            OR n.diagnosis ILIKE '%hypertension%'
            OR n.diagnosis ILIKE '%diabetes%'
            OR n.diagnosis ILIKE '%hiv%')
 ),
-visit_gaps AS (
-    SELECT v.source_schema, v.patient, v.created_at,
-        LEAD(v.created_at) OVER (
-            PARTITION BY v.source_schema, v.patient
-            ORDER BY v.created_at
-        ) AS next_visit
+last_visits AS (
+    SELECT v.source_schema, v.patient, MAX(v.created_at) AS last_visit_date
     FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
     INNER JOIN chronic_patients cp
         ON v.patient = cp.patient AND v.source_schema = cp.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >= DATEADD('year', -1, sa.max_date)
     {wh}
+    GROUP BY v.source_schema, v.patient
+),
+patient_status AS (
+    SELECT lv.source_schema, lv.patient,
+        DATEDIFF('day', lv.last_visit_date, sa.max_date) AS days_gap
+    FROM last_visits lv
+    INNER JOIN schema_anchor sa ON lv.source_schema = sa.source_schema
 )
 SELECT
-    COUNT(DISTINCT patient)                                 AS chronic_patients,
-    COUNT(DISTINCT CASE
-        WHEN next_visit IS NOT NULL
-         AND next_visit <= created_at + INTERVAL '90 days'
-        THEN patient END)                                   AS retained_patients,
+    COUNT(DISTINCT patient)                                                        AS chronic_patients,
+    COUNT(DISTINCT CASE WHEN days_gap <= 90               THEN patient END)        AS retained_patients,
+    COUNT(DISTINCT CASE WHEN days_gap BETWEEN 91 AND 180  THEN patient END)        AS lapsing_patients,
+    COUNT(DISTINCT CASE WHEN days_gap > 180               THEN patient END)        AS ltfu_patients,
     ROUND(DIV0(
-        COUNT(DISTINCT CASE
-            WHEN next_visit IS NOT NULL
-             AND next_visit <= created_at + INTERVAL '90 days'
-            THEN patient END),
+        COUNT(DISTINCT CASE WHEN days_gap <= 90 THEN patient END),
         COUNT(DISTINCT patient)
-    ) * 100, 1)                                             AS retention_rate_pct,
-    COUNT(DISTINCT CASE
-        WHEN (next_visit IS NULL
-              OR next_visit > created_at + INTERVAL '90 days')
-        THEN patient END)                                   AS ltfu_patients
-FROM visit_gaps
+    ) * 100, 1)                                                                    AS retention_rate_pct
+FROM patient_status
+"""
+    return run_query(sql)
+
+
+def load_acquisition_segments(filters: dict, run_query) -> pd.DataFrame:
+    """Acquisition segment retention: new vs returning split by segment and age group.
+    Segments: Chronic, Oncology, Maternal, Mental Health, Post-Op.
+    Uses direct note-keyword detection (more permissive than UDF-based classification)
+    following the same pattern as load_retention_kpis.
+    """
+    wh  = _w(filters)
+    wsa = _wsa(filters)
+    sql = f"""
+WITH schema_anchor AS (
+    SELECT source_schema, MAX(created_at) AS max_date
+    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS {wsa}
+    GROUP BY source_schema
+),
+first_visits AS (
+    SELECT v.patient, v.source_schema, MIN(v.created_at) AS first_visit_at
+    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
+    INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
+    GROUP BY v.patient, v.source_schema
+),
+note_flags AS (
+    SELECT
+        n.visit_id,
+        n.source_schema,
+        MAX(CASE WHEN n.diagnosis ILIKE '%hypertension%'
+                   OR n.diagnosis ILIKE '%diabetes%'
+                   OR n.diagnosis ILIKE '%hiv%'
+                   OR n.diagnosis ILIKE '% tb %'
+                   OR n.diagnosis ILIKE 'tb %'
+                   OR n.diagnosis ILIKE '%tuberculosis%'
+                   OR n.diagnosis ILIKE '%asthma%'
+                   OR n.diagnosis ILIKE '%copd%'
+                   OR n.diagnosis ILIKE '%epilep%'
+                   OR n.diagnosis ILIKE '%renal%'
+                   OR n.diagnosis ILIKE '%hypothyroid%'
+                   OR n.diagnosis ILIKE '%sickle%'
+                 THEN 1 ELSE 0 END)                       AS chronic_flag,
+        MAX(CASE WHEN n.diagnosis ILIKE '%cancer%'
+                   OR n.diagnosis ILIKE '%oncol%'
+                   OR n.diagnosis ILIKE '%neoplasm%'
+                   OR n.diagnosis ILIKE '%lymphoma%'
+                   OR n.diagnosis ILIKE '%leukaemi%'
+                   OR n.diagnosis ILIKE '%leukemi%'
+                 THEN 1 ELSE 0 END)                       AS oncology_flag,
+        MAX(CASE WHEN n.diagnosis ILIKE '%pregnant%'
+                   OR n.diagnosis ILIKE '%antenatal%'
+                   OR n.diagnosis ILIKE '%postnatal%'
+                   OR n.diagnosis ILIKE '%delivery%'
+                   OR n.diagnosis ILIKE '%obstet%'
+                   OR n.diagnosis ILIKE '%maternal%'
+                   OR n.diagnosis ILIKE '%neonatal%'
+                 THEN 1 ELSE 0 END)                       AS maternal_flag,
+        MAX(CASE WHEN n.diagnosis ILIKE '%mental%'
+                   OR n.diagnosis ILIKE '%psychiatr%'
+                   OR n.diagnosis ILIKE '%depression%'
+                   OR n.diagnosis ILIKE '%anxiety%'
+                   OR n.diagnosis ILIKE '%psychosis%'
+                   OR n.diagnosis ILIKE '%substance%'
+                 THEN 1 ELSE 0 END)                       AS mental_flag,
+        MAX(CASE WHEN n.diagnosis ILIKE '%post-op%'
+                   OR n.diagnosis ILIKE '%post op%'
+                   OR n.diagnosis ILIKE '%post-operative%'
+                   OR n.diagnosis ILIKE '%post operative%'
+                   OR n.diagnosis ILIKE '%postop%'
+                   OR n.diagnosis ILIKE '%post surgery%'
+                   OR n.diagnosis ILIKE '%post surgical%'
+                   OR n.diagnosis ILIKE '%wound review%'
+                   OR n.diagnosis ILIKE '%suture removal%'
+                   OR n.diagnosis ILIKE '%stitch removal%'
+                   OR n.diagnosis ILIKE '%follow up after%'
+                   OR n.diagnosis ILIKE '%review after surgery%'
+                 THEN 1 ELSE 0 END)                       AS postop_flag
+    FROM HOSPITALS.STAGING.STG_EVALUATION_DOCTOR_NOTES n
+    GROUP BY n.visit_id, n.source_schema
+),
+visit_segments AS (
+    SELECT
+        v.source_schema,
+        v.id                                              AS visit_id,
+        v.patient                                         AS patient_id,
+        CASE WHEN v.created_at = fv.first_visit_at
+             THEN 'New' ELSE 'Returning'
+        END                                               AS patient_type,
+        CASE
+            WHEN DATEDIFF('year', rp.dob, CURRENT_DATE) < 5  THEN 'Toddler (0-4)'
+            WHEN DATEDIFF('year', rp.dob, CURRENT_DATE) < 13 THEN 'Child (5-12)'
+            WHEN DATEDIFF('year', rp.dob, CURRENT_DATE) < 18 THEN 'Adolescent (13-17)'
+            WHEN DATEDIFF('year', rp.dob, CURRENT_DATE) < 25 THEN 'Youth (18-24)'
+            WHEN DATEDIFF('year', rp.dob, CURRENT_DATE) < 35 THEN 'Young Adult (25-34)'
+            WHEN DATEDIFF('year', rp.dob, CURRENT_DATE) < 45 THEN 'Adult (35-44)'
+            WHEN DATEDIFF('year', rp.dob, CURRENT_DATE) < 55 THEN 'Middle Age (45-54)'
+            WHEN DATEDIFF('year', rp.dob, CURRENT_DATE) < 65 THEN 'Older Adult (55-64)'
+            ELSE                                               'Senior (65+)'
+        END                                               AS age_group,
+        CASE
+            WHEN COALESCE(nf.oncology_flag, 0) = 1
+              OR COALESCE(dx.disease_burden_group_1, '') ILIKE '%oncol%'
+              OR COALESCE(dx.disease_burden_group_1, '') ILIKE '%cancer%'
+              OR COALESCE(dx.disease_burden_group_2, '') ILIKE '%oncol%'
+              OR COALESCE(dx.disease_burden_group_2, '') ILIKE '%cancer%'
+              OR COALESCE(dx.disease_burden_group_3, '') ILIKE '%oncol%'
+              OR COALESCE(dx.disease_burden_group_3, '') ILIKE '%cancer%'
+                THEN 'Oncology'
+            WHEN COALESCE(nf.maternal_flag, 0) = 1
+              OR COALESCE(dx.disease_burden_group_1, '') ILIKE '%maternal%'
+              OR COALESCE(dx.disease_burden_group_1, '') ILIKE '%obstet%'
+              OR COALESCE(dx.disease_burden_group_2, '') ILIKE '%maternal%'
+              OR COALESCE(dx.disease_burden_group_2, '') ILIKE '%obstet%'
+              OR COALESCE(dx.disease_burden_group_3, '') ILIKE '%maternal%'
+              OR COALESCE(dx.disease_burden_group_3, '') ILIKE '%obstet%'
+                THEN 'Maternal'
+            WHEN COALESCE(nf.mental_flag, 0) = 1
+              OR COALESCE(dx.disease_burden_group_1, '') ILIKE '%mental%'
+              OR COALESCE(dx.disease_burden_group_1, '') ILIKE '%psychiatr%'
+              OR COALESCE(dx.disease_burden_group_2, '') ILIKE '%mental%'
+              OR COALESCE(dx.disease_burden_group_2, '') ILIKE '%psychiatr%'
+              OR COALESCE(dx.disease_burden_group_3, '') ILIKE '%mental%'
+              OR COALESCE(dx.disease_burden_group_3, '') ILIKE '%psychiatr%'
+                THEN 'Mental Health'
+            WHEN COALESCE(nf.postop_flag, 0) = 1
+              OR COALESCE(dx.disease_burden_group_1, '') ILIKE '%post-op%'
+              OR COALESCE(dx.disease_burden_group_1, '') ILIKE '%post op%'
+              OR COALESCE(dx.disease_burden_group_1, '') ILIKE '%surgical%'
+              OR COALESCE(dx.disease_burden_group_2, '') ILIKE '%post-op%'
+              OR COALESCE(dx.disease_burden_group_2, '') ILIKE '%post op%'
+              OR COALESCE(dx.disease_burden_group_2, '') ILIKE '%surgical%'
+              OR COALESCE(dx.disease_burden_group_3, '') ILIKE '%post-op%'
+              OR COALESCE(dx.disease_burden_group_3, '') ILIKE '%post op%'
+              OR COALESCE(dx.disease_burden_group_3, '') ILIKE '%surgical%'
+                THEN 'Post-Op'
+            WHEN COALESCE(dx.is_chronic_1, 0) = 1
+              OR COALESCE(dx.is_chronic_2, 0) = 1
+              OR COALESCE(nf.chronic_flag, 0) = 1
+                THEN 'Chronic'
+            ELSE NULL
+        END                                               AS acquisition_segment
+    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
+    INNER JOIN schema_anchor sa  ON v.source_schema = sa.source_schema
+    LEFT JOIN first_visits fv    ON v.patient = fv.patient AND v.source_schema = fv.source_schema
+    LEFT JOIN HOSPITALS.STAGING.STG_RECEPTION_PATIENTS rp
+        ON v.patient = rp.patient_id AND v.source_schema = rp.source_schema
+    LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
+        ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
+    LEFT JOIN note_flags nf      ON v.id = nf.visit_id AND v.source_schema = nf.source_schema
+    WHERE v.created_at >= '2024-09-01'
+    {wh}
+),
+agg AS (
+    SELECT
+        source_schema,
+        acquisition_segment,
+        age_group,
+        COUNT(visit_id)                                                          AS total_visits,
+        COUNT(DISTINCT CASE WHEN patient_type = 'New'       THEN patient_id END) AS new_patients,
+        COUNT(DISTINCT CASE WHEN patient_type = 'Returning' THEN patient_id END) AS returning_patients
+    FROM visit_segments
+    WHERE acquisition_segment IS NOT NULL
+    GROUP BY source_schema, acquisition_segment, age_group
+)
+SELECT
+    source_schema,
+    acquisition_segment,
+    age_group,
+    1                                                                             AS is_retention_universe,
+    total_visits,
+    new_patients,
+    returning_patients,
+    ROUND(new_patients       * 100.0 / NULLIF(new_patients + returning_patients, 0), 1) AS new_pct,
+    ROUND(returning_patients * 100.0 / NULLIF(new_patients + returning_patients, 0), 1) AS returning_pct,
+    ROUND(DIV0(returning_patients, NULLIF(new_patients, 0)), 2)                  AS returning_per_new_ratio,
+    CASE
+        WHEN acquisition_segment IN ('Chronic', 'Oncology', 'Mental Health') THEN '>1.0'
+        WHEN acquisition_segment = 'Maternal'                               THEN '>=1.0'
+        WHEN acquisition_segment = 'Post-Op'                                THEN '<1.0'
+    END                                                                          AS expected_ratio_direction,
+    CASE
+        WHEN acquisition_segment = 'Post-Op'                                          THEN 'REVIEW_DATA'
+        WHEN acquisition_segment IN ('Chronic', 'Oncology', 'Mental Health')
+             AND DIV0(returning_patients, NULLIF(new_patients, 0)) >= 1.0             THEN 'AS_EXPECTED'
+        WHEN acquisition_segment = 'Maternal'
+             AND DIV0(returning_patients, NULLIF(new_patients, 0)) >= 1.0             THEN 'AS_EXPECTED'
+        ELSE                                                                               'CONCERN'
+    END                                                                          AS ratio_signal,
+    ROUND(DIV0(returning_patients, NULLIF(new_patients, 0)) - 1.0, 2)           AS divergence_from_threshold
+FROM agg
+ORDER BY acquisition_segment, age_group
 """
     return run_query(sql)
 
@@ -2936,7 +1542,7 @@ patient_status AS (
         ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
     LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_DOCTOR_NOTES n
         ON v.id = n.visit_id AND v.source_schema = n.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >= DATEADD('year', -1, sa.max_date)
     {wh}
     GROUP BY 1, 2, sa.max_date
 )
@@ -2973,7 +1579,7 @@ chronic_pts AS (
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
     LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
         ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       {wh}
       AND (dx.is_chronic_1 = 1 OR dx.is_chronic_2 = 1)
 ),
@@ -2991,7 +1597,7 @@ pv AS (
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
     INNER JOIN chronic_pts cp
         ON v.patient = cp.patient AND v.source_schema = cp.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
     {wh}
 )
 SELECT
@@ -3034,7 +1640,7 @@ ltfu AS (
         ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
     LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_DOCTOR_NOTES n
         ON v.id = n.visit_id AND v.source_schema = n.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       {wh}
       AND (dx.is_chronic_1 = 1 OR dx.is_chronic_2 = 1
            OR n.diagnosis ILIKE '%hypertension%'
@@ -3089,10 +1695,12 @@ LEFT JOIN bp           ON lf.patient = bp.patient AND lf.source_schema = bp.sour
 
 
 def load_ltfu_correlation(filters: dict, run_query) -> pd.DataFrame:
-    """B: Compare LTFU vs retained chronic patients by age group, sex, and payer."""
+    """B: Compare LTFU vs retained chronic patients by age group, sex, and payer.
+    LTFU = last visit >180d from max_date. Chronic: ICD10 + doctor notes keywords.
+    Floor: 1 year from max_date (dynamic).
+    """
     wh = _w(filters)
     wsa = _wsa(filters)
-    mo = _mo(filters)
     sql = f"""
 WITH schema_anchor AS (
     SELECT source_schema, MAX(created_at) AS max_date
@@ -3111,16 +1719,21 @@ chronic_patients AS (
         END) AS payer
     FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
-    INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
+    LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
         ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
-    WHERE (dx.is_chronic_1 = 1 OR dx.is_chronic_2 = 1)
-      AND v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_DOCTOR_NOTES n
+        ON v.id = n.visit_id AND v.source_schema = n.source_schema
+    WHERE v.created_at >= DATEADD('year', -1, sa.max_date)
       {wh}
+      AND (dx.is_chronic_1 = 1 OR dx.is_chronic_2 = 1
+           OR n.diagnosis ILIKE '%hypertension%'
+           OR n.diagnosis ILIKE '%diabetes%'
+           OR n.diagnosis ILIKE '%hiv%')
     GROUP BY 1, 2
 ),
 patient_status AS (
     SELECT cp.source_schema, cp.patient, cp.total_visits, cp.payer,
-        CASE WHEN DATEDIFF('day', cp.last_visit, sa.max_date) > 90
+        CASE WHEN DATEDIFF('day', cp.last_visit, sa.max_date) > 180
              THEN 'LTFU' ELSE 'Retained' END AS retention_status
     FROM chronic_patients cp
     INNER JOIN schema_anchor sa ON cp.source_schema = sa.source_schema
@@ -3129,14 +1742,21 @@ patient_profile AS (
     SELECT
         ps.patient, ps.retention_status, ps.payer,
         CASE
-            WHEN DATEDIFF('year', rp.dob, CURRENT_DATE) < 18  THEN 'Under 18'
-            WHEN DATEDIFF('year', rp.dob, CURRENT_DATE) < 35  THEN '18–34'
-            WHEN DATEDIFF('year', rp.dob, CURRENT_DATE) < 50  THEN '35–49'
-            WHEN DATEDIFF('year', rp.dob, CURRENT_DATE) < 65  THEN '50–64'
+            WHEN TIMESTAMPDIFF('year', rp.dob, sa.max_date) < 18 THEN 'Under 18'
+            WHEN TIMESTAMPDIFF('year', rp.dob, sa.max_date) < 25 THEN 'Youth (18–24)'
+            WHEN TIMESTAMPDIFF('year', rp.dob, sa.max_date) < 35 THEN 'Young Adult (25–34)'
+            WHEN TIMESTAMPDIFF('year', rp.dob, sa.max_date) < 45 THEN 'Adult (35–44)'
+            WHEN TIMESTAMPDIFF('year', rp.dob, sa.max_date) < 55 THEN 'Middle Age (45–54)'
+            WHEN TIMESTAMPDIFF('year', rp.dob, sa.max_date) < 65 THEN 'Older Adult (55–64)'
             ELSE '65+'
         END AS age_group,
-        COALESCE(rp.sex, 'Unknown') AS sex
+        CASE
+            WHEN UPPER(COALESCE(rp.sex, '')) IN ('F', 'FEMALE') THEN 'Female'
+            WHEN UPPER(COALESCE(rp.sex, '')) IN ('M', 'MALE')   THEN 'Male'
+            ELSE NULL
+        END AS sex
     FROM patient_status ps
+    INNER JOIN schema_anchor sa ON ps.source_schema = sa.source_schema
     INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_VISITS v
         ON ps.patient = v.patient AND ps.source_schema = v.source_schema
     LEFT JOIN HOSPITALS.STAGING.STG_RECEPTION_PATIENTS rp
@@ -3156,7 +1776,7 @@ by_age AS (
     GROUP BY age_group
 ),
 by_sex AS (
-    SELECT 'Sex' AS factor, sex AS dimension,
+    SELECT 'Gender' AS factor, sex AS dimension,
         COUNT(DISTINCT CASE WHEN retention_status = 'Retained' THEN patient END),
         COUNT(DISTINCT CASE WHEN retention_status = 'LTFU'     THEN patient END),
         COUNT(DISTINCT patient),
@@ -3165,6 +1785,7 @@ by_sex AS (
             COUNT(DISTINCT patient)
         ) * 100, 1)
     FROM patient_profile
+    WHERE sex IS NOT NULL
     GROUP BY sex
 ),
 by_payer AS (
@@ -3188,10 +1809,12 @@ ORDER BY factor, ltfu_rate_pct DESC
 
 
 def load_revenue_at_risk(filters: dict, run_query) -> pd.DataFrame:
-    """Q7: Revenue at risk from chronic LTFU patients."""
+    """Q7: Revenue at risk from chronic LTFU/lapsing patients.
+    LTFU >180d, Lapsing 91-180d — aligned with load_lifecycle thresholds.
+    Chronic detection: ICD10 + doctor notes keywords. Floor: 1 year from max_date.
+    """
     wh = _w(filters)
     wsa = _wsa(filters)
-    mo = _mo(filters)
     sql = f"""
 WITH schema_anchor AS (
     SELECT source_schema, MAX(created_at) AS max_date
@@ -3210,30 +1833,36 @@ avg_rev AS (
           AND (auto_cancelled IS NULL OR auto_cancelled = 0)
         GROUP BY 1, 2
     ) vt ON v.id = vt.visit_id AND v.source_schema = vt.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >= DATEADD('year', -1, sa.max_date)
     {wh}
     GROUP BY 1
 ),
-ltfu_counts AS (
-    SELECT v.source_schema,
-        COUNT(DISTINCT CASE
-            WHEN (dx.is_chronic_1 = 1 OR dx.is_chronic_2 = 1)
-             AND DATEDIFF('day', lv.last_v, sa.max_date) > 90
-            THEN v.patient END)                             AS chronic_ltfu,
-        COUNT(DISTINCT CASE
-            WHEN (dx.is_chronic_1 = 1 OR dx.is_chronic_2 = 1)
-             AND DATEDIFF('day', lv.last_v, sa.max_date) BETWEEN 31 AND 90
-            THEN v.patient END)                             AS chronic_lapsing
+chronic_last_visit AS (
+    SELECT v.source_schema, v.patient, MAX(v.created_at) AS last_v
     FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
     LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
         ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
-    LEFT JOIN (
-        SELECT source_schema, patient, MAX(created_at) AS last_v
-        FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS GROUP BY 1, 2
-    ) lv ON v.patient = lv.patient AND v.source_schema = lv.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
-    {wh}
+    LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_DOCTOR_NOTES n
+        ON v.id = n.visit_id AND v.source_schema = n.source_schema
+    WHERE v.created_at >= DATEADD('year', -1, sa.max_date)
+      {wh}
+      AND (dx.is_chronic_1 = 1 OR dx.is_chronic_2 = 1
+           OR n.diagnosis ILIKE '%hypertension%'
+           OR n.diagnosis ILIKE '%diabetes%'
+           OR n.diagnosis ILIKE '%hiv%')
+    GROUP BY v.source_schema, v.patient
+),
+ltfu_counts AS (
+    SELECT clv.source_schema,
+        COUNT(DISTINCT CASE
+            WHEN DATEDIFF('day', clv.last_v, sa.max_date) > 180
+            THEN clv.patient END)                           AS chronic_ltfu,
+        COUNT(DISTINCT CASE
+            WHEN DATEDIFF('day', clv.last_v, sa.max_date) BETWEEN 91 AND 180
+            THEN clv.patient END)                           AS chronic_lapsing
+    FROM chronic_last_visit clv
+    INNER JOIN schema_anchor sa ON clv.source_schema = sa.source_schema
     GROUP BY 1
 )
 SELECT
@@ -3245,6 +1874,59 @@ SELECT
     ROUND(lc.chronic_lapsing * 4 * ar.avg_rev_per_visit, 0) AS lapsing_revenue_recoverable
 FROM ltfu_counts lc
 LEFT JOIN avg_rev ar ON lc.source_schema = ar.source_schema
+"""
+    return run_query(sql)
+
+
+def load_lapsing_by_payer(filters: dict, run_query) -> pd.DataFrame:
+    """Lapsing chronic patients (91–180 days) broken out by payer.
+    Uses identical population logic as load_lifecycle so the payer bars
+    always sum to the same total shown in the lifecycle KPI strip."""
+    wh  = _w(filters)
+    wsa = _wsa(filters)
+    sql = f"""
+WITH schema_anchor AS (
+    SELECT source_schema, MAX(created_at) AS max_date
+    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS {wsa}
+    GROUP BY source_schema
+),
+patient_status AS (
+    SELECT
+        v.source_schema,
+        v.patient,
+        MAX(v.created_at)  AS last_visit,
+        sa.max_date,
+        CASE
+            WHEN UPPER(v.payment_mode) IN ('CASH','PRIVATE')              THEN 'Cash'
+            WHEN UPPER(v.payment_mode) LIKE '%NHIF%'
+              OR UPPER(v.payment_mode) LIKE '%SHA%'                       THEN 'NHIF / SHA'
+            ELSE 'Insurance / Corporate'
+        END                AS payer,
+        MAX(CASE
+            WHEN dx.is_chronic_1 = 1 OR dx.is_chronic_2 = 1
+              OR n.diagnosis ILIKE '%hypertension%'
+              OR n.diagnosis ILIKE '%diabetes%'
+              OR n.diagnosis ILIKE '%hiv%'
+            THEN 1 ELSE 0
+        END)               AS is_chronic
+    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
+    INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
+    LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
+        ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
+    LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_DOCTOR_NOTES n
+        ON v.id = n.visit_id AND v.source_schema = n.source_schema
+    WHERE v.created_at >= DATEADD('year', -1, sa.max_date)
+    {wh}
+    GROUP BY v.source_schema, v.patient, v.payment_mode, sa.max_date
+)
+SELECT
+    payer,
+    COUNT(DISTINCT patient) AS patient_count
+FROM patient_status
+WHERE is_chronic = 1
+  AND DATEDIFF('day', last_visit, max_date) BETWEEN 91 AND 180
+GROUP BY payer
+ORDER BY patient_count DESC
 """
     return run_query(sql)
 
@@ -3336,175 +2018,6 @@ LIMIT 50
 # TAB 3 EXTENDED — RETENTION DEEP DIVES
 # ─────────────────────────────────────────────────────────────────────────────
 
-def load_demographic_diagnosis_revenue_risk(filters: dict, run_query) -> pd.DataFrame:
-    """R1: Demographic × diagnosis intersection for LTFU revenue at risk."""
-    wh = _w(filters)
-    wsa = _wsa(filters)
-    mo = _mo(filters)
-    sql = f"""
-WITH schema_anchor AS (
-    SELECT source_schema, MAX(created_at) AS max_date
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS {wsa}
-    GROUP BY source_schema
-),
-chronic_flag AS (
-    SELECT v.source_schema, v.patient
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
-    INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
-    INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
-        ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
-    WHERE dx.disease_burden_group_1 ILIKE ANY ('%Cardiovascular%','%Diabetes%',
-          '%Chronic%','%HIV%','%Mental%','%Neurolog%')
-      AND v.created_at >= DATEADD('month', -{mo}, sa.max_date)
-      {wh}
-    GROUP BY 1, 2
-),
-patient_last AS (
-    SELECT v.source_schema, v.patient,
-           MAX(v.created_at) AS last_visit,
-           COUNT(DISTINCT v.id) AS total_visits
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
-    INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
-      {wh}
-    GROUP BY 1, 2
-),
-ltfu_patients AS (
-    SELECT pl.source_schema, pl.patient
-    FROM patient_last pl
-    INNER JOIN schema_anchor sa ON pl.source_schema = sa.source_schema
-    INNER JOIN chronic_flag cf ON pl.patient = cf.patient AND pl.source_schema = cf.source_schema
-    WHERE DATEDIFF('day', pl.last_visit, sa.max_date) > 180
-),
-patient_profile AS (
-    SELECT
-        v.source_schema, v.patient,
-        CASE
-            WHEN DATEDIFF('year', rp.dob, CURRENT_DATE) < 18  THEN 'Under 18'
-            WHEN DATEDIFF('year', rp.dob, CURRENT_DATE) < 35  THEN '18–34'
-            WHEN DATEDIFF('year', rp.dob, CURRENT_DATE) < 50  THEN '35–49'
-            WHEN DATEDIFF('year', rp.dob, CURRENT_DATE) < 65  THEN '50–64'
-            ELSE '65+'
-        END AS age_group,
-        COALESCE(rp.sex, 'Unknown') AS gender,
-        CASE
-            WHEN UPPER(v.payment_mode) IN ('CASH','PRIVATE') THEN 'Cash'
-            WHEN UPPER(v.payment_mode) LIKE '%NHIF%' OR UPPER(v.payment_mode) LIKE '%SHA%' THEN 'NHIF / SHA'
-            ELSE 'Insurance / Corporate'
-        END AS payer,
-        COALESCE(dx.disease_burden_group_1, 'Unclassified') AS condition,
-        SUM(COALESCE(ili.item_amount, 0)) AS patient_revenue,
-        COUNT(DISTINCT v.id) AS visit_count
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
-    INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
-    INNER JOIN ltfu_patients lp ON v.patient = lp.patient AND v.source_schema = lp.source_schema
-    LEFT JOIN HOSPITALS.STAGING.STG_RECEPTION_PATIENTS rp
-        ON v.patient = rp.patient_id AND v.source_schema = rp.source_schema
-    LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
-        ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
-    LEFT JOIN HOSPITALS.STAGING.STG_INVOICE_LINE_ITEMS ili
-        ON v.id = ili.visit_id AND v.source_schema = ili.source_schema
-        AND ili.invoice_deleted_at IS NULL
-        AND (ili.auto_cancelled IS NULL OR ili.auto_cancelled = 0)
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
-      {wh}
-    GROUP BY 1, 2, 3, 4, 5, 6
-)
-SELECT
-    age_group,
-    gender,
-    condition,
-    payer,
-    COUNT(DISTINCT patient)                                AS ltfu_patients,
-    ROUND(AVG(DIV0(patient_revenue, visit_count)), 0)      AS avg_rev_per_visit,
-    ROUND(COUNT(DISTINCT patient) * 4
-          * AVG(DIV0(patient_revenue, visit_count)), 0)    AS revenue_at_risk
-FROM patient_profile
-GROUP BY 1, 2, 3, 4
-HAVING ltfu_patients >= 2
-ORDER BY revenue_at_risk DESC
-LIMIT 40
-"""
-    return run_query(sql)
-
-
-def load_retained_patient_footprint(filters: dict, run_query) -> pd.DataFrame:
-    """R2: For retained chronic patients — are they pharmacy-only or full-service?"""
-    wh = _w(filters)
-    wsa = _wsa(filters)
-    mo = _mo(filters)
-    sql = f"""
-WITH schema_anchor AS (
-    SELECT source_schema, MAX(created_at) AS max_date
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS {wsa}
-    GROUP BY source_schema
-),
-chronic_flag AS (
-    SELECT v.source_schema, v.patient
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
-    INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
-    INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
-        ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
-    WHERE dx.disease_burden_group_1 ILIKE ANY ('%Cardiovascular%','%Diabetes%',
-          '%Chronic%','%HIV%','%Mental%','%Neurolog%')
-      AND v.created_at >= DATEADD('month', -{mo}, sa.max_date)
-      {wh}
-    GROUP BY 1, 2
-),
-retained AS (
-    SELECT v.source_schema, v.patient
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
-    INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
-    INNER JOIN chronic_flag cf ON v.patient = cf.patient AND v.source_schema = cf.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
-      {wh}
-    GROUP BY 1, 2, sa.max_date
-    HAVING DATEDIFF('day', MAX(v.created_at), MAX(sa.max_date)) <= 90
-),
-visit_services AS (
-    SELECT
-        v.source_schema, v.patient, v.id AS visit_id,
-        CASE
-            WHEN UPPER(v.payment_mode) IN ('CASH','PRIVATE') THEN 'Cash'
-            WHEN UPPER(v.payment_mode) LIKE '%NHIF%' OR UPPER(v.payment_mode) LIKE '%SHA%' THEN 'NHIF / SHA'
-            ELSE 'Insurance / Corporate'
-        END AS payer,
-        CASE WHEN dn.visit_id IS NOT NULL THEN 1 ELSE 0 END AS has_consult,
-        CASE WHEN ei.visit_id IS NOT NULL THEN 1 ELSE 0 END AS has_investigation,
-        CASE WHEN rx.visit_id IS NOT NULL THEN 1 ELSE 0 END AS has_rx,
-        CASE WHEN ia.visit_id IS NOT NULL THEN 1 ELSE 0 END AS has_admission
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
-    INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
-    INNER JOIN retained r ON v.patient = r.patient AND v.source_schema = r.source_schema
-    LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_DOCTOR_NOTES dn
-        ON v.id = dn.visit_id AND v.source_schema = dn.source_schema
-    LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_INVESTIGATIONS ei
-        ON v.id = ei.visit_id AND v.source_schema = ei.source_schema
-    LEFT JOIN HOSPITALS.STAGING.STG_PRESCRIPTION_PAYMENTS rx
-        ON v.id = rx.visit_id AND v.source_schema = rx.source_schema
-    LEFT JOIN HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS ia
-        ON v.id = ia.visit_id AND v.source_schema = ia.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
-      {wh}
-)
-SELECT
-    payer,
-    COUNT(DISTINCT patient)                                              AS retained_patients,
-    COUNT(DISTINCT visit_id)                                             AS total_visits,
-    ROUND(DIV0(SUM(has_consult),   COUNT(DISTINCT visit_id)) * 100, 1)  AS consult_rate_pct,
-    ROUND(DIV0(SUM(has_investigation), COUNT(DISTINCT visit_id))*100,1) AS investigation_rate_pct,
-    ROUND(DIV0(SUM(has_rx),        COUNT(DISTINCT visit_id)) * 100, 1)  AS rx_rate_pct,
-    ROUND(DIV0(SUM(has_admission), COUNT(DISTINCT visit_id)) * 100, 1)  AS admission_rate_pct,
-    ROUND(DIV0(
-        SUM(CASE WHEN has_rx = 1 AND has_consult = 0 AND has_investigation = 0
-                 AND has_admission = 0 THEN 1 ELSE 0 END),
-        COUNT(DISTINCT visit_id)
-    ) * 100, 1)                                                          AS pharmacy_only_pct
-FROM visit_services
-GROUP BY 1
-ORDER BY retained_patients DESC
-"""
-    return run_query(sql)
 
 
 def load_cost_dropout_correlation(filters: dict, run_query) -> pd.DataFrame:
@@ -3527,7 +2040,7 @@ chronic_flag AS (
         ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
     WHERE dx.disease_burden_group_1 ILIKE ANY ('%Cardiovascular%','%Diabetes%',
           '%Chronic%','%HIV%','%Mental%','%Neurolog%')
-      AND v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+      AND v.created_at >=  '2024-09-01'
       {wh}
     GROUP BY 1, 2
 ),
@@ -3538,7 +2051,7 @@ patient_last AS (
     FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
     INNER JOIN chronic_flag cf ON v.patient = cf.patient AND v.source_schema = cf.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       {wh}
     GROUP BY 1, 2
 ),
@@ -3575,7 +2088,7 @@ visit_level AS (
     ) ili ON v.id = ili.visit_id AND v.source_schema = ili.source_schema
     LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_INVESTIGATIONS ei
         ON v.id = ei.visit_id AND v.source_schema = ei.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       {wh}
       AND ia.visit_id IS NULL
 )
@@ -3624,7 +2137,7 @@ visit_inv AS (
         ON v.id = ei.visit_id AND v.source_schema = ei.source_schema
     LEFT JOIN HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS ia
         ON v.id = ia.visit_id AND v.source_schema = ia.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       {wh}
     GROUP BY 1, 2, 3, 4, 5
 )
@@ -3663,7 +2176,7 @@ chronic_flag AS (
         ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
     WHERE dx.disease_burden_group_1 ILIKE ANY ('%Cardiovascular%','%Diabetes%',
           '%Chronic%','%HIV%','%Mental%','%Neurolog%')
-      AND v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+      AND v.created_at >=  '2024-09-01'
       {wh}
     GROUP BY 1, 2
 ),
@@ -3674,7 +2187,7 @@ daily_volume AS (
         COUNT(DISTINCT v.id)            AS day_vol
     FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       {wh}
     GROUP BY 1, 2
 ),
@@ -3689,7 +2202,7 @@ ltfu_insured AS (
     FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
     INNER JOIN chronic_flag cf ON v.patient = cf.patient AND v.source_schema = cf.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       AND UPPER(v.payment_mode) NOT IN ('CASH','PRIVATE')
       {wh}
     GROUP BY 1, 2, sa.max_date
@@ -3705,7 +2218,7 @@ last_visits AS (
     FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
     INNER JOIN ltfu_insured li ON v.patient = li.patient AND v.source_schema = li.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       {wh}
     GROUP BY 1, 2
 )
@@ -3724,73 +2237,6 @@ SELECT
 FROM last_visits lv
 LEFT JOIN peak_days pd
     ON lv.source_schema = pd.source_schema AND lv.last_visit_day = pd.visit_day
-"""
-    return run_query(sql)
-
-
-def load_insured_surge_followup(filters: dict, run_query) -> pd.DataFrame:
-    """R7: Do insured patients return less frequently during high-volume months?"""
-    wh = _w(filters)
-    wsa = _wsa(filters)
-    mo = _mo(filters)
-    sql = f"""
-WITH schema_anchor AS (
-    SELECT source_schema, MAX(created_at) AS max_date
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS {wsa}
-    GROUP BY source_schema
-),
-monthly_vol AS (
-    SELECT
-        v.source_schema,
-        DATE_TRUNC('month', v.created_at) AS visit_month,
-        COUNT(DISTINCT v.id)               AS month_vol
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
-    INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
-      {wh}
-    GROUP BY 1, 2
-),
-monthly_z AS (
-    SELECT
-        source_schema, visit_month, month_vol,
-        AVG(month_vol) OVER (PARTITION BY source_schema) AS avg_vol,
-        STDDEV(month_vol) OVER (PARTITION BY source_schema) AS std_vol
-    FROM monthly_vol
-),
-surge_months AS (
-    SELECT source_schema, visit_month,
-           CASE WHEN (month_vol - avg_vol) / NULLIF(std_vol, 0) > 1 THEN 1 ELSE 0 END AS is_surge
-    FROM monthly_z
-),
-insured_gaps AS (
-    SELECT
-        v.source_schema,
-        v.patient,
-        DATE_TRUNC('month', v.created_at) AS visit_month,
-        DATEDIFF('day', v.created_at,
-            LEAD(v.created_at) OVER (PARTITION BY v.source_schema, v.patient
-                                     ORDER BY v.created_at)) AS days_to_next
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
-    INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
-    WHERE UPPER(v.payment_mode) NOT IN ('CASH','PRIVATE')
-      AND v.created_at >= DATEADD('month', -{mo}, sa.max_date)
-      {wh}
-)
-SELECT
-    sm.visit_month,
-    MAX(sm.is_surge)                           AS is_surge_month,
-    MAX(mv.month_vol)                          AS total_visits,
-    COUNT(DISTINCT ig.patient)                 AS insured_patients_with_gap,
-    ROUND(AVG(ig.days_to_next), 1)             AS avg_days_to_next_visit
-FROM surge_months sm
-LEFT JOIN monthly_vol mv
-    ON sm.source_schema = mv.source_schema AND sm.visit_month = mv.visit_month
-LEFT JOIN insured_gaps ig
-    ON sm.source_schema = ig.source_schema AND sm.visit_month = ig.visit_month
-    AND ig.days_to_next IS NOT NULL
-WHERE sm.visit_month >= DATEADD('month', -{mo}, CURRENT_DATE)
-GROUP BY sm.visit_month
-ORDER BY sm.visit_month
 """
     return run_query(sql)
 
@@ -3814,7 +2260,7 @@ chronic_flag AS (
         ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
     WHERE dx.disease_burden_group_1 ILIKE ANY ('%Cardiovascular%','%Diabetes%',
           '%Chronic%','%HIV%','%Mental%','%Neurolog%')
-      AND v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+      AND v.created_at >=  '2024-09-01'
       {wh}
     GROUP BY 1, 2
 ),
@@ -3831,7 +2277,7 @@ patient_summary AS (
     LEFT JOIN HOSPITALS.STAGING.STG_INVOICE_LINE_ITEMS ili
         ON v.id = ili.visit_id AND v.source_schema = ili.source_schema
         AND ili.invoice_deleted_at IS NULL AND (ili.auto_cancelled IS NULL OR ili.auto_cancelled = 0)
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       {wh}
     GROUP BY 1, 2
 )
@@ -3849,65 +2295,143 @@ ORDER BY ltfu_patients DESC
     return run_query(sql)
 
 
-def load_clinician_ltfu_rate(filters: dict, run_query) -> pd.DataFrame:
-    """R9: Which clinicians have the highest rate of chronic patients crossing 180-day LTFU?"""
-    wh = _w(filters)
+def load_ltfu_priority2_patients(filters: dict, run_query) -> pd.DataFrame:
+    """R10: One row per chronic LTFU patient — all profile dimensions for the Priority 2 section.
+
+    Returns: PATIENT_ID, VISIT_COUNT, IS_CHRONIC, LAST_VISIT_DATE, DAYS_SINCE_LAST_VISIT,
+             ACQUISITION_SEGMENT, CLEAN_DIAGNOSIS, AGE_GROUP, GENDER, REVENUE_AT_RISK
+    Filters:  DAYS_SINCE_LAST_VISIT >= 180  AND at least one chronic ICD10/note keyword.
+    """
+    wh  = _w(filters)
     wsa = _wsa(filters)
-    mo = _mo(filters)
     sql = f"""
 WITH schema_anchor AS (
     SELECT source_schema, MAX(created_at) AS max_date
     FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS {wsa}
     GROUP BY source_schema
 ),
-chronic_flag AS (
-    SELECT v.source_schema, v.patient
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
-    INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
-    INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
-        ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
-    WHERE dx.disease_burden_group_1 ILIKE ANY ('%Cardiovascular%','%Diabetes%',
-          '%Chronic%','%HIV%','%Mental%','%Neurolog%')
-      AND v.created_at >= DATEADD('month', -{mo}, sa.max_date)
-      {wh}
-    GROUP BY 1, 2
-),
-patient_last AS (
-    SELECT v.source_schema, v.patient,
-           MAX(v.created_at) AS last_visit,
-           MAX(sa.max_date)  AS max_date
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
-    INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
-    INNER JOIN chronic_flag cf ON v.patient = cf.patient AND v.source_schema = cf.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
-      {wh}
-    GROUP BY 1, 2
-),
-clinician_chronic AS (
+patient_visits AS (
     SELECT
-        v.user AS clinician,
-        v.patient,
-        MAX(CASE WHEN DATEDIFF('day', pl.last_visit, pl.max_date) > 180
-                 THEN 1 ELSE 0 END) AS is_ltfu
+        v.source_schema,
+        v.patient                                          AS patient_id,
+        COUNT(DISTINCT v.id)                               AS visit_count,
+        MAX(v.created_at)                                  AS last_visit_date,
+        DATEDIFF('day', MAX(v.created_at), sa.max_date)   AS days_since_last_visit
     FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
-    INNER JOIN chronic_flag cf ON v.patient = cf.patient AND v.source_schema = cf.source_schema
-    INNER JOIN patient_last pl ON v.patient = pl.patient AND v.source_schema = pl.source_schema
-    WHERE v.user IS NOT NULL
-      AND v.created_at >= DATEADD('month', -{mo}, sa.max_date)
-      {wh}
-    GROUP BY 1, 2
+    WHERE v.created_at >= DATEADD('year', -1, sa.max_date)
+    {wh}
+    GROUP BY v.source_schema, v.patient, sa.max_date
+),
+chronic_patients AS (
+    SELECT DISTINCT v.source_schema, v.patient AS patient_id
+    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
+    INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
+    LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
+        ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
+    LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_DOCTOR_NOTES n
+        ON v.id = n.visit_id AND v.source_schema = n.source_schema
+    WHERE v.created_at >= DATEADD('year', -1, sa.max_date)
+      AND (COALESCE(dx.is_chronic_1, 0) = 1
+        OR COALESCE(dx.is_chronic_2, 0) = 1
+        OR n.diagnosis ILIKE '%hypertension%'
+        OR n.diagnosis ILIKE '%diabetes%'
+        OR n.diagnosis ILIKE '%hiv%')
+    {wh}
+),
+patient_revenue AS (
+    SELECT
+        v.source_schema,
+        v.patient                                          AS patient_id,
+        ROUND(SUM(ili.item_amount), 0)                    AS revenue_at_risk
+    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
+    INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
+    INNER JOIN HOSPITALS.STAGING.STG_INVOICE_LINE_ITEMS ili
+        ON v.id = ili.visit_id AND v.source_schema = ili.source_schema
+    WHERE v.created_at >= DATEADD('year', -1, sa.max_date)
+      AND ili.invoice_deleted_at IS NULL
+      AND (ili.auto_cancelled IS NULL OR ili.auto_cancelled = 0)
+    {wh}
+    GROUP BY v.source_schema, v.patient
+),
+latest_diagnosis AS (
+    SELECT
+        v.source_schema,
+        v.patient                                          AS patient_id,
+        COALESCE(
+            NULLIF(TRIM(dx.disease_burden_group_1), ''),
+            CASE
+                WHEN n.diagnosis ILIKE '%hypertension%'         THEN 'Hypertension'
+                WHEN n.diagnosis ILIKE '%diabetes%'             THEN 'Diabetes'
+                WHEN n.diagnosis ILIKE '%hiv%'                  THEN 'HIV/AIDS'
+                WHEN n.diagnosis ILIKE '%cancer%'
+                  OR n.diagnosis ILIKE '%oncol%'                THEN 'Oncology'
+                WHEN n.diagnosis ILIKE '%chronic kidney%'
+                  OR n.diagnosis ILIKE '%ckd%'                  THEN 'CKD'
+                ELSE 'Other'
+            END
+        )                                                  AS clean_diagnosis
+    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
+    INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
+    LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
+        ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
+    LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_DOCTOR_NOTES n
+        ON v.id = n.visit_id AND v.source_schema = n.source_schema
+    WHERE v.created_at >= DATEADD('year', -1, sa.max_date)
+    {wh}
+    QUALIFY ROW_NUMBER() OVER (
+        PARTITION BY v.source_schema, v.patient
+        ORDER BY v.created_at DESC
+    ) = 1
+),
+latest_demographics AS (
+    SELECT
+        v.source_schema,
+        v.patient                                          AS patient_id,
+        CASE
+            WHEN rp.dob IS NULL                                          THEN 'Unknown'
+            WHEN TIMESTAMPDIFF('year', rp.dob, v.created_at) < 18       THEN 'Under 18'
+            WHEN TIMESTAMPDIFF('year', rp.dob, v.created_at) < 25       THEN 'Youth (18–24)'
+            WHEN TIMESTAMPDIFF('year', rp.dob, v.created_at) < 35       THEN 'Young Adult (25–34)'
+            WHEN TIMESTAMPDIFF('year', rp.dob, v.created_at) < 45       THEN 'Adult (35–44)'
+            WHEN TIMESTAMPDIFF('year', rp.dob, v.created_at) < 55       THEN 'Middle Age (45–54)'
+            WHEN TIMESTAMPDIFF('year', rp.dob, v.created_at) < 65       THEN 'Older Adult (55–64)'
+            ELSE '65+'
+        END                                                AS age_group,
+        COALESCE(NULLIF(TRIM(rp.sex), ''), 'Unknown')     AS gender
+    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
+    INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
+    LEFT JOIN HOSPITALS.STAGING.STG_RECEPTION_PATIENTS rp
+        ON v.patient = rp.patient_id AND v.source_schema = rp.source_schema
+    WHERE v.created_at >= DATEADD('year', -1, sa.max_date)
+    {wh}
+    QUALIFY ROW_NUMBER() OVER (
+        PARTITION BY v.source_schema, v.patient
+        ORDER BY v.created_at DESC
+    ) = 1
 )
 SELECT
-    clinician,
-    COUNT(DISTINCT patient)                              AS chronic_patients_seen,
-    SUM(is_ltfu)                                        AS ltfu_count,
-    ROUND(DIV0(SUM(is_ltfu), COUNT(DISTINCT patient)) * 100, 1) AS ltfu_rate_pct
-FROM clinician_chronic
-GROUP BY 1
-HAVING chronic_patients_seen >= 5
-ORDER BY ltfu_rate_pct DESC
-LIMIT 20
+    pv.patient_id,
+    pv.visit_count,
+    TRUE                                                   AS is_chronic,
+    pv.last_visit_date,
+    pv.days_since_last_visit,
+    'CHRONIC'                                              AS acquisition_segment,
+    COALESCE(ld.clean_diagnosis, 'Other')                  AS clean_diagnosis,
+    COALESCE(dem.age_group,      'Unknown')                AS age_group,
+    COALESCE(dem.gender,         'Unknown')                AS gender,
+    COALESCE(pr.revenue_at_risk, 0)                        AS revenue_at_risk
+FROM patient_visits pv
+INNER JOIN chronic_patients cp
+    ON pv.patient_id = cp.patient_id AND pv.source_schema = cp.source_schema
+LEFT JOIN latest_diagnosis ld
+    ON pv.patient_id = ld.patient_id AND pv.source_schema = ld.source_schema
+LEFT JOIN latest_demographics dem
+    ON pv.patient_id = dem.patient_id AND pv.source_schema = dem.source_schema
+LEFT JOIN patient_revenue pr
+    ON pv.patient_id = pr.patient_id AND pv.source_schema = pr.source_schema
+WHERE pv.days_since_last_visit > 180
+ORDER BY pv.days_since_last_visit DESC
 """
     return run_query(sql)
 
@@ -3947,7 +2471,7 @@ period_visits AS (
     SELECT v.source_schema, v.id AS visit_id, v.patient
     FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
     {wh}
 ),
 dx_all AS (
@@ -4025,13 +2549,17 @@ WITH schema_anchor AS (
 )
 SELECT
     DATE_TRUNC('month', v.created_at)                   AS visit_month,
-    COALESCE(dx.disease_burden_group_1, 'Unclassified') AS burden_group,
+    CASE
+        WHEN dx.disease_burden_group_1 ILIKE '%Endocrin%'
+          OR dx.disease_burden_group_1 ILIKE '%Diabetes%' THEN 'NCD — Diabetes & Metabolic'
+        ELSE COALESCE(dx.disease_burden_group_1, 'Unclassified')
+    END                                                 AS burden_group,
     COUNT(DISTINCT v.id)                                AS visit_count
 FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
 INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
 LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
     ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
-WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+WHERE v.created_at >=  '2024-09-01'
   AND dx.icd10_code_1 IS NOT NULL
 {wh}
 GROUP BY 1, 2
@@ -4058,7 +2586,7 @@ FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
 INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
 INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
     ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
-WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+WHERE v.created_at >=  '2024-09-01'
   AND dx.icd10_code_1 IS NOT NULL
   AND dx.disease_group_1 IS NOT NULL
 {wh}
@@ -4100,7 +2628,7 @@ elevated AS (
         ON vt.visit_id = v.id AND vt.source_schema = v.source_schema
     LEFT JOIN HOSPITALS.STAGING.STG_RECEPTION_PATIENTS p
         ON v.patient = p.patient_id AND v.source_schema = p.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       {wh}
       AND (vt.bp_systolic >= 140 OR vt.bp_diastolic >= 90 OR vt.blood_sugar >= 200)
 ),
@@ -4144,7 +2672,7 @@ ncd_patients AS (
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
     INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
         ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       {wh}
       AND dx.disease_burden_group_1 ILIKE ANY (
           '%Cardiovascular%','%Diabetes%','%Endocrin%',
@@ -4163,7 +2691,7 @@ multi_ncd AS (
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
     INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
         ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       {wh}
       AND dx.disease_burden_group_1 ILIKE ANY (
           '%Cardiovascular%','%Diabetes%','%Endocrin%',
@@ -4180,7 +2708,7 @@ htn_bp AS (
         ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
     INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_VITALS vt
         ON vt.visit_id = v.id AND vt.source_schema = v.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       {wh}
       AND (dx.disease_group_1 ILIKE '%hypertension%' OR dx.disease_group_1 ILIKE '%HTN%')
       AND vt.bp_systolic IS NOT NULL
@@ -4192,7 +2720,7 @@ undetected AS (
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
     INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_VITALS vt
         ON vt.visit_id = v.id AND vt.source_schema = v.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       {wh}
       AND (vt.bp_systolic >= 140 OR vt.blood_sugar >= 10)
     QUALIFY COUNT(DISTINCT v.id) OVER (PARTITION BY v.source_schema, v.patient) >= 2
@@ -4248,7 +2776,7 @@ INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
     ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
 LEFT JOIN HOSPITALS.STAGING.STG_RECEPTION_PATIENTS p
     ON v.patient = p.patient_id AND v.source_schema = p.source_schema
-WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+WHERE v.created_at >=  '2024-09-01'
   AND dx.is_chronic_1 = 1
   AND age_group != 'Unknown'
 {wh}
@@ -4282,7 +2810,7 @@ patient_bp AS (
         ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
     LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_VITALS vt
         ON vt.visit_id = v.id AND vt.source_schema = v.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       {wh}
       AND LOWER(COALESCE(dx.disease_group_1, '')) LIKE '%hypertension%'
     GROUP BY v.source_schema, v.patient
@@ -4321,7 +2849,7 @@ anc AS (
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
     INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
         ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       {wh}
       AND (dx.icd10_code_1 LIKE 'Z34%' OR dx.icd10_code_2 LIKE 'Z34%')
 )
@@ -4365,7 +2893,7 @@ INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
     ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
 LEFT JOIN HOSPITALS.STAGING.STG_RECEPTION_PATIENTS p
     ON v.patient = p.patient_id AND v.source_schema = p.source_schema
-WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+WHERE v.created_at >=  '2024-09-01'
   {wh}
   AND (dx.icd10_code_1 LIKE 'O8%' OR dx.icd10_code_2 LIKE 'O8%')
 GROUP BY 1
@@ -4401,7 +2929,7 @@ anc_seq AS (
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
     INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
         ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       {wh}
       AND (dx.icd10_code_1 LIKE 'Z34%' OR dx.icd10_code_2 LIKE 'Z34%'
         OR dx.icd10_code_1 LIKE 'Z35%' OR dx.icd10_code_2 LIKE 'Z35%')
@@ -4468,7 +2996,7 @@ anc_seq AS (
         ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
     LEFT JOIN HOSPITALS.STAGING.STG_RECEPTION_PATIENTS p
         ON v.patient = p.patient_id AND v.source_schema = p.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       {wh}
       AND (dx.icd10_code_1 LIKE 'Z34%' OR dx.icd10_code_2 LIKE 'Z34%'
         OR dx.icd10_code_1 LIKE 'Z35%' OR dx.icd10_code_2 LIKE 'Z35%')
@@ -4541,7 +3069,7 @@ categorised AS (
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
     INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
         ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       {wh}
 )
 SELECT
@@ -4588,7 +3116,7 @@ INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
     ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
 LEFT JOIN HOSPITALS.STAGING.STG_RECEPTION_PATIENTS p
     ON v.patient = p.patient_id AND v.source_schema = p.source_schema
-WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+WHERE v.created_at >=  '2024-09-01'
   {wh}
   AND (dx.icd10_code_1 LIKE 'Z39%' OR dx.icd10_code_2 LIKE 'Z39%')
 GROUP BY 1, 2
@@ -4614,7 +3142,7 @@ anc_patients AS (
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
     INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
         ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       {wh}
       AND (dx.icd10_code_1 LIKE 'Z34%' OR dx.icd10_code_2 LIKE 'Z34%'
         OR dx.icd10_code_1 LIKE 'Z35%' OR dx.icd10_code_2 LIKE 'Z35%')
@@ -4642,7 +3170,7 @@ dx_risk AS (
             ON v.patient = ap.patient AND v.source_schema = ap.source_schema
         INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
             ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
-        WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+        WHERE v.created_at >=  '2024-09-01'
           {wh}
     ) sub
     WHERE risk_type IS NOT NULL
@@ -4669,7 +3197,7 @@ vitals_risk AS (
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
     INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_VITALS vt
         ON v.id = vt.visit_id AND v.source_schema = vt.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       {wh}
       AND vt.bp_systolic >= 140
     GROUP BY 1, 2, 3
@@ -4715,7 +3243,7 @@ anc_visits AS (
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
     INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
         ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       {wh}
       AND (dx.icd10_code_1 LIKE 'Z34%' OR dx.icd10_code_2 LIKE 'Z34%'
         OR dx.icd10_code_1 LIKE 'Z35%' OR dx.icd10_code_2 LIKE 'Z35%')
@@ -4828,7 +3356,7 @@ pregnant_patients AS (
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
     INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
         ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       {wh}
       AND (dx.icd10_code_1 LIKE 'Z34%' OR dx.icd10_code_2 LIKE 'Z34%'
         OR dx.icd10_code_1 LIKE 'Z35%' OR dx.icd10_code_2 LIKE 'Z35%')
@@ -4843,7 +3371,7 @@ other_conditions AS (
         ON v.patient = pp.patient AND v.source_schema = pp.source_schema
     INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
         ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       {wh}
       AND dx.icd10_code_1 NOT LIKE 'Z34%'
       AND dx.icd10_code_1 NOT LIKE 'Z35%'
@@ -4889,7 +3417,7 @@ under5 AS (
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
     INNER JOIN HOSPITALS.STAGING.STG_RECEPTION_PATIENTS p
         ON v.patient = p.patient_id AND v.source_schema = p.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       {wh}
       AND p.dob IS NOT NULL
       AND TIMESTAMPDIFF('year', p.dob, v.created_at) < 5
@@ -4972,7 +3500,7 @@ adolescents AS (
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
     INNER JOIN HOSPITALS.STAGING.STG_RECEPTION_PATIENTS p
         ON v.patient = p.patient_id AND v.source_schema = p.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       {wh}
       AND p.dob IS NOT NULL
       AND TIMESTAMPDIFF('year', p.dob, v.created_at) BETWEEN 10 AND 19
@@ -5056,7 +3584,7 @@ categorised AS (
         ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
     LEFT JOIN HOSPITALS.STAGING.STG_RECEPTION_PATIENTS p
         ON v.patient = p.patient_id AND v.source_schema = p.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       {wh}
     QUALIFY ROW_NUMBER() OVER (PARTITION BY v.id ORDER BY dx.icd10_code_1 NULLS LAST) = 1
 ),
@@ -5069,7 +3597,7 @@ revenue AS (
         ON v.id = il.visit_id AND v.source_schema = il.source_schema
        AND il.invoice_deleted_at IS NULL
        AND (il.auto_cancelled IS NULL OR il.auto_cancelled = 0)
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       {wh}
     GROUP BY 1, 2
 )
@@ -5105,7 +3633,7 @@ top6 AS (
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
     INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
         ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       {wh}
       AND dx.disease_burden_group_1 ILIKE '%communicable%'
       AND dx.disease_group_1 IS NOT NULL
@@ -5121,7 +3649,7 @@ INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
 INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
     ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
 INNER JOIN top6 t6 ON dx.disease_group_1 = t6.disease_group
-WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+WHERE v.created_at >=  '2024-09-01'
 {wh}
 GROUP BY 1, 2
 ORDER BY 1
@@ -5146,7 +3674,7 @@ hiv_pts AS (
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
     INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
         ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       {wh}
       AND (dx.icd10_code_1 LIKE 'B20%' OR dx.icd10_code_2 LIKE 'B20%')
 )
@@ -5194,7 +3722,7 @@ INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
 LEFT JOIN HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
     ON v.id = a.visit_id
    AND v.source_schema = REPLACE(LOWER(a.source_schema), '_clean', '')
-WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+WHERE v.created_at >=  '2024-09-01'
   {wh}
   AND (dx.icd10_code_1 LIKE 'F%' OR dx.icd10_code_2 LIKE 'F%')
 """
@@ -5227,7 +3755,7 @@ INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
     ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
 LEFT JOIN HOSPITALS.STAGING.STG_RECEPTION_PATIENTS p
     ON v.patient = p.patient_id AND v.source_schema = p.source_schema
-WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+WHERE v.created_at >=  '2024-09-01'
   {wh}
   AND (dx.icd10_code_1 LIKE 'F%' OR dx.icd10_code_2 LIKE 'F%')
   AND age_group != 'Unknown' AND sex NOT IN ('UNKNOWN', 'Unknown')
@@ -5282,7 +3810,7 @@ vr AS (
         ON v.id = il.visit_id AND v.source_schema = il.source_schema
        AND il.invoice_deleted_at IS NULL
        AND (il.auto_cancelled IS NULL OR il.auto_cancelled = 0)
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
     {wh}
     GROUP BY 1, 2, 3
 )
@@ -5300,147 +3828,745 @@ ORDER BY total_revenue DESC
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TAB 5 — CLINICAL WORKLOAD & QUALITY
+# ══════════════════════════════════════════════════════════════════════════════
+# PATIENT CONVERSION & VALUE TAB
 # ══════════════════════════════════════════════════════════════════════════════
 
-def load_shortcut_rate(filters: dict, run_query) -> pd.DataFrame:
-    """Single-diagnosis rate on chronic patients per clinician."""
-    wh = _w(filters)
+def _visit_base_cte(filters: dict, start_date: str = None) -> str:
+    """
+    Returns the visit_base CTE block (no leading WITH) for composing queries.
+
+    Includes doctor_note_groups CTE that parses the diagnosis JSON array and
+    calls MAP_DIAGNOSIS_TO_BURDEN_GROUP() UDF for fallback mapping when ICD-10
+    structured labels are absent or generic ('Other%').
+
+    start_date: optional ISO date string (e.g. '2024-09-01') used as a hard
+    floor on v.created_at, overriding the rolling mo window.
+    """
+    wh  = _w(filters)
     wsa = _wsa(filters)
-    mo = _mo(filters)
-    sql = f"""
-WITH schema_anchor AS (
+    mo  = _mo(filters)
+    date_floor = ("'" + start_date + "'") if start_date else ("DATEADD('month', -" + str(mo) + ", sa.max_date)")
+    return f"""schema_anchor AS (
     SELECT source_schema, MAX(created_at) AS max_date
     FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS {wsa}
     GROUP BY source_schema
 ),
-chronic_pts AS (
+doctor_note_groups AS (
+    SELECT
+        visit_id,
+        source_schema,
+        TRIM(REPLACE(
+            SPLIT_PART(REGEXP_REPLACE(diagnosis, '^\\\\["?|"?\\\\]$', ''), '", "', 1),
+        '"', ''))                                               AS note_condition_1,
+        NULLIF(TRIM(REPLACE(
+            SPLIT_PART(REGEXP_REPLACE(diagnosis, '^\\\\["?|"?\\\\]$', ''), '", "', 2),
+        '"', '')), '')                                          AS note_condition_2,
+        NULLIF(TRIM(REPLACE(
+            SPLIT_PART(REGEXP_REPLACE(diagnosis, '^\\\\["?|"?\\\\]$', ''), '", "', 3),
+        '"', '')), '')                                          AS note_condition_3
+    FROM (
+        SELECT visit_id, source_schema, diagnosis,
+               ROW_NUMBER() OVER (
+                   PARTITION BY visit_id, source_schema
+                   ORDER BY created_at ASC NULLS LAST)          AS rn
+        FROM HOSPITALS.STAGING.STG_EVALUATION_DOCTOR_NOTES
+    ) dn
+    WHERE rn = 1
+),
+chronic_note_visits AS (
+    SELECT DISTINCT visit_id, source_schema
+    FROM HOSPITALS.STAGING.STG_EVALUATION_DOCTOR_NOTES
+    WHERE diagnosis ILIKE '%hypertension%'
+       OR diagnosis ILIKE '%diabetes%'
+       OR diagnosis ILIKE '%hiv%'
+),
+visit_base AS (
+    SELECT
+        v.source_schema,
+        v.id                                                    AS visit_id,
+        v.patient                                               AS patient_id,
+        DATE(v.created_at)                                      AS visit_date,
+        DATE_TRUNC('month', v.created_at)                       AS visit_month,
+        CASE WHEN a.visit_id IS NOT NULL THEN 'Inpatient'
+             ELSE 'Outpatient' END                              AS visit_type,
+        CASE
+            WHEN LOWER(v.payment_mode) IN ('nhif','shif','sha','national scheme')
+                THEN 'NHIF / SHA'
+            WHEN LOWER(v.payment_mode) IN ('cash','self-pay','out-of-pocket','copay')
+                THEN 'Cash'
+            WHEN v.payment_mode IS NULL OR TRIM(v.payment_mode) = ''
+                THEN 'Unknown'
+            ELSE 'Insurance'
+        END                                                     AS payer_type,
+        CASE
+            WHEN DATEDIFF('year', rp.dob, CURRENT_DATE) < 5  THEN 'Toddler (0-4)'
+            WHEN DATEDIFF('year', rp.dob, CURRENT_DATE) < 13 THEN 'Child (5-12)'
+            WHEN DATEDIFF('year', rp.dob, CURRENT_DATE) < 18 THEN 'Adolescent (13-17)'
+            WHEN DATEDIFF('year', rp.dob, CURRENT_DATE) < 25 THEN 'Youth (18-24)'
+            WHEN DATEDIFF('year', rp.dob, CURRENT_DATE) < 35 THEN 'Young Adult (25-34)'
+            WHEN DATEDIFF('year', rp.dob, CURRENT_DATE) < 45 THEN 'Adult (35-44)'
+            WHEN DATEDIFF('year', rp.dob, CURRENT_DATE) < 55 THEN 'Middle Age (45-54)'
+            WHEN DATEDIFF('year', rp.dob, CURRENT_DATE) < 65 THEN 'Older Adult (55-64)'
+            ELSE 'Senior (65+)'
+        END                                                     AS age_group,
+        COALESCE(rp.sex, 'Unknown')                             AS gender,
+        CASE
+            WHEN d.disease_burden_group_1 IS NOT NULL
+             AND d.disease_burden_group_1 NOT ILIKE 'Other%'
+             AND d.disease_burden_group_1 NOT ILIKE 'Communicable - Other%'
+            THEN d.disease_burden_group_1
+            WHEN d.disease_burden_group_2 IS NOT NULL
+             AND d.disease_burden_group_2 NOT ILIKE 'Other%'
+             AND d.disease_burden_group_2 NOT ILIKE 'Communicable - Other%'
+            THEN d.disease_burden_group_2
+            WHEN d.disease_burden_group_3 IS NOT NULL
+             AND d.disease_burden_group_3 NOT ILIKE 'Other%'
+             AND d.disease_burden_group_3 NOT ILIKE 'Communicable - Other%'
+            THEN d.disease_burden_group_3
+            WHEN HOSPITALS.STAGING.MAP_DIAGNOSIS_TO_BURDEN_GROUP(dn.note_condition_1) IS NOT NULL
+            THEN HOSPITALS.STAGING.MAP_DIAGNOSIS_TO_BURDEN_GROUP(dn.note_condition_1)
+            WHEN HOSPITALS.STAGING.MAP_DIAGNOSIS_TO_BURDEN_GROUP(dn.note_condition_2) IS NOT NULL
+            THEN HOSPITALS.STAGING.MAP_DIAGNOSIS_TO_BURDEN_GROUP(dn.note_condition_2)
+            WHEN HOSPITALS.STAGING.MAP_DIAGNOSIS_TO_BURDEN_GROUP(dn.note_condition_3) IS NOT NULL
+            THEN HOSPITALS.STAGING.MAP_DIAGNOSIS_TO_BURDEN_GROUP(dn.note_condition_3)
+            ELSE 'Unclassified'
+        END                                                     AS disease_burden_group,
+        dn.note_condition_1                                     AS raw_note_condition_1,
+        dn.note_condition_2                                     AS raw_note_condition_2,
+        dn.note_condition_3                                     AS raw_note_condition_3,
+        CASE
+            WHEN d.disease_burden_group_1 IS NOT NULL
+             AND d.disease_burden_group_1 NOT ILIKE 'Other%'
+             AND d.disease_burden_group_1 NOT ILIKE 'Communicable - Other%'
+            THEN 'ICD-10'
+            WHEN d.disease_burden_group_2 IS NOT NULL
+             AND d.disease_burden_group_2 NOT ILIKE 'Other%'
+             AND d.disease_burden_group_2 NOT ILIKE 'Communicable - Other%'
+            THEN 'ICD-10'
+            WHEN d.disease_burden_group_3 IS NOT NULL
+             AND d.disease_burden_group_3 NOT ILIKE 'Other%'
+             AND d.disease_burden_group_3 NOT ILIKE 'Communicable - Other%'
+            THEN 'ICD-10'
+            WHEN HOSPITALS.STAGING.MAP_DIAGNOSIS_TO_BURDEN_GROUP(dn.note_condition_1) IS NOT NULL
+            THEN 'Doctor Note - Mapped'
+            WHEN HOSPITALS.STAGING.MAP_DIAGNOSIS_TO_BURDEN_GROUP(dn.note_condition_2) IS NOT NULL
+            THEN 'Doctor Note - Mapped'
+            WHEN HOSPITALS.STAGING.MAP_DIAGNOSIS_TO_BURDEN_GROUP(dn.note_condition_3) IS NOT NULL
+            THEN 'Doctor Note - Mapped'
+            WHEN dn.note_condition_1 IS NOT NULL
+            THEN 'Unclassified - Note Exists, No ICD-10'
+            WHEN d.visit_id IS NOT NULL
+             AND COALESCE(d.disease_burden_group_1,
+                          d.disease_burden_group_2,
+                          d.disease_burden_group_3) IS NULL
+            THEN 'Unclassified - ICD-10 Record Exists But No Group'
+            WHEN d.visit_id IS NULL AND dn.visit_id IS NULL
+            THEN 'Unclassified - No ICD-10 And No Doctor Note'
+            WHEN d.visit_id IS NULL AND dn.note_condition_1 IS NULL
+            THEN 'Unclassified - No ICD-10, Empty Doctor Note'
+            ELSE 'Unclassified - Other'
+        END                                                     AS classification_source,
+        CASE
+            WHEN COALESCE(d.is_chronic_1, 0) = 1
+              OR COALESCE(d.is_chronic_2, 0) = 1
+              OR cnv.visit_id IS NOT NULL
+            THEN 1 ELSE 0
+        END                                                     AS is_chronic,
+        COALESCE(inv.total_revenue, 0)                          AS visit_revenue,
+        CASE
+            WHEN v.created_at = MIN(v.created_at) OVER (
+                PARTITION BY v.patient, v.source_schema)
+            THEN 'New' ELSE 'Returning'
+        END                                                     AS patient_type,
+        COUNT(v.id) OVER (
+            PARTITION BY v.patient, v.source_schema)            AS total_visit_count
+    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
+    INNER JOIN schema_anchor sa
+        ON v.source_schema = sa.source_schema
+    LEFT JOIN HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
+        ON v.id = a.visit_id
+       AND v.source_schema = REPLACE(LOWER(a.source_schema), '_clean', '')
+    LEFT JOIN HOSPITALS.STAGING.STG_RECEPTION_PATIENTS rp
+        ON v.patient = rp.patient_id AND v.source_schema = rp.source_schema
+    LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED d
+        ON v.id = d.visit_id AND v.source_schema = d.source_schema
+    LEFT JOIN doctor_note_groups dn
+        ON v.id = dn.visit_id AND v.source_schema = dn.source_schema
+    LEFT JOIN chronic_note_visits cnv
+        ON v.id = cnv.visit_id AND v.source_schema = cnv.source_schema
+    LEFT JOIN (
+        SELECT visit_id, source_schema, SUM(item_amount) AS total_revenue
+        FROM HOSPITALS.STAGING.STG_INVOICE_LINE_ITEMS
+        WHERE invoice_deleted_at IS NULL
+          AND (auto_cancelled IS NULL OR auto_cancelled = 0)
+        GROUP BY visit_id, source_schema
+    ) inv ON v.id = inv.visit_id AND v.source_schema = inv.source_schema
+    WHERE v.created_at >= {date_floor}
+    {wh}
+)"""
+
+
+def load_cv_overview(filters: dict, run_query) -> pd.DataFrame:
+    """Section 1 — 6 KPI cards: total patients, chronic, repeat, single-visit,
+    avg visits/patient, new vs returning split."""
+    wsa = _wsa(filters)
+    wh  = _w(filters)
+    vb  = _visit_base_cte(filters)
+    sql = f"""
+WITH {vb},
+chronic_base AS (
     SELECT DISTINCT v.source_schema, v.patient
     FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
-    INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
-    INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
-        ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
-      {wh}
-      AND (dx.is_chronic_1 = 1 OR dx.is_chronic_2 = 1)
-),
-visit_dx_count AS (
-    SELECT v.source_schema, v.user AS clinician, v.id AS visit_id,
-        SUM(
-            CASE WHEN dx.icd10_code_1 IS NOT NULL THEN 1 ELSE 0 END
-          + CASE WHEN dx.icd10_code_2 IS NOT NULL THEN 1 ELSE 0 END
-          + CASE WHEN dx.icd10_code_3 IS NOT NULL THEN 1 ELSE 0 END
-        ) AS dx_count
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
-    INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
-    INNER JOIN chronic_pts cp
-        ON v.patient = cp.patient AND v.source_schema = cp.source_schema
+    INNER JOIN (
+        SELECT source_schema, MAX(created_at) AS max_date
+        FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS {wsa}
+        GROUP BY source_schema
+    ) sa ON v.source_schema = sa.source_schema
     LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
         ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
-      AND v.user IS NOT NULL
+    LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_DOCTOR_NOTES n
+        ON v.id = n.visit_id AND v.source_schema = n.source_schema
+    WHERE v.created_at >= '2024-09-01'
     {wh}
-    GROUP BY 1, 2, 3
+    AND (
+        COALESCE(dx.is_chronic_1, 0) = 1
+        OR COALESCE(dx.is_chronic_2, 0) = 1
+        OR n.diagnosis ILIKE '%hypertension%'
+        OR n.diagnosis ILIKE '%diabetes%'
+        OR n.diagnosis ILIKE '%hiv%'
+    )
 )
 SELECT
-    clinician,
-    COUNT(DISTINCT visit_id)                            AS chronic_visits,
-    COUNT(DISTINCT CASE WHEN dx_count = 1
-                        THEN visit_id END)              AS single_dx_visits,
-    ROUND(DIV0(
-        COUNT(DISTINCT CASE WHEN dx_count = 1 THEN visit_id END),
-        COUNT(DISTINCT visit_id)
-    ) * 100, 1)                                         AS shortcut_rate_pct
-FROM visit_dx_count
-GROUP BY 1
-HAVING chronic_visits >= 10
-ORDER BY shortcut_rate_pct DESC
-LIMIT 15
+    COUNT(DISTINCT vb.patient_id)                                        AS total_patients,
+    (SELECT COUNT(DISTINCT patient) FROM chronic_base)                   AS chronic_patients,
+    COUNT(DISTINCT CASE WHEN vb.total_visit_count >= 2 THEN vb.patient_id END) AS repeat_patients,
+    COUNT(DISTINCT CASE WHEN vb.total_visit_count = 1  THEN vb.patient_id END) AS single_visit_patients,
+    ROUND(COUNT(vb.visit_id) * 1.0 /
+          NULLIF(COUNT(DISTINCT vb.patient_id), 0), 1)                   AS avg_visits_per_patient,
+    COUNT(DISTINCT CASE WHEN vb.patient_type = 'New'       THEN vb.patient_id END) AS new_patients,
+    COUNT(DISTINCT CASE WHEN vb.patient_type = 'Returning' THEN vb.patient_id END) AS returning_patients
+FROM visit_base vb
 """
     return run_query(sql)
 
 
-def load_bp_omission_rate(filters: dict, run_query) -> pd.DataFrame:
-    """BP not recorded on hypertension visits, per clinician."""
-    wh = _w(filters)
-    wsa = _wsa(filters)
-    mo = _mo(filters)
+def load_cv_demographics(filters: dict, run_query) -> pd.DataFrame:
+    """Section 2 Row 1 — gender, age group, chronic flag, payer type counts."""
+    vb = _visit_base_cte(filters)
     sql = f"""
-WITH schema_anchor AS (
-    SELECT source_schema, MAX(created_at) AS max_date
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS {wsa}
-    GROUP BY source_schema
+WITH {vb}
+SELECT
+    age_group,
+    gender,
+    payer_type,
+    is_chronic,
+    COUNT(DISTINCT patient_id) AS patients,
+    SUM(visit_revenue)         AS revenue
+FROM visit_base
+WHERE age_group != 'Unknown'
+  AND UPPER(COALESCE(gender,'')) IN ('F','FEMALE','M','MALE')
+GROUP BY age_group, gender, payer_type, is_chronic
+ORDER BY age_group, gender, payer_type
+"""
+    return run_query(sql)
+
+
+def load_cv_cohort_growth(filters: dict, run_query) -> pd.DataFrame:
+    """Section 2 Row 2 — monthly patient count by age group for growth index and mix."""
+    vb = _visit_base_cte(filters, start_date='2024-09-01')
+    sql = f"""
+WITH {vb}
+SELECT
+    visit_month,
+    age_group,
+    COUNT(DISTINCT patient_id) AS patients
+FROM visit_base
+WHERE age_group != 'Unknown'
+GROUP BY visit_month, age_group
+ORDER BY visit_month, age_group
+"""
+    return run_query(sql)
+
+
+def load_cv_chronic_growth(filters: dict, run_query) -> pd.DataFrame:
+    """Monthly chronic patient count by age group and gender."""
+    vb = _visit_base_cte(filters, start_date='2024-09-01')
+    sql = f"""
+WITH {vb}
+SELECT
+    visit_month,
+    age_group,
+    CASE
+        WHEN UPPER(gender) IN ('F', 'FEMALE') THEN 'Female'
+        WHEN UPPER(gender) IN ('M', 'MALE')   THEN 'Male'
+        ELSE NULL
+    END AS gender,
+    COUNT(DISTINCT patient_id) AS chronic_patients
+FROM visit_base
+WHERE is_chronic = 1
+  AND age_group != 'Unknown'
+  AND UPPER(COALESCE(gender,'')) IN ('F','FEMALE','M','MALE')
+GROUP BY visit_month, age_group, 3
+ORDER BY visit_month, age_group
+"""
+    return run_query(sql)
+
+
+def load_patient_profile(filters: dict, run_query) -> pd.DataFrame:
+    """Patient profile dashboard — one row per deduplicated visit with segment,
+    gender, age, patient_type (new/returning) and visit_type (in/outpatient)."""
+    wh  = _w(filters)
+    schemas = filters.get("source_schemas") or ["kisumu"]
+    schema  = schemas[0] if schemas else "kisumu"
+    sql = f"""
+WITH diag_clean AS (
+    SELECT
+        i.source_schema,
+        i.visit_id,
+        HOSPITALS.STAGING.MAP_DIAGNOSIS_TO_BURDEN_GROUP(dn.diagnosis) AS notes_disease_burden_group,
+        CASE
+            WHEN (i.disease_burden_group_1 LIKE '%Other%' OR i.disease_burden_group_1 = 'Other')
+                AND notes_disease_burden_group IS NOT NULL
+                THEN IFF(notes_disease_burden_group = 'Communicable - Other Infectious','Communicable - Sepsis',notes_disease_burden_group)
+            ELSE IFF(i.disease_burden_group_1 = 'Communicable - Other Infectious','Communicable - Sepsis',i.disease_burden_group_1)
+        END AS clean_dbg_1,
+        CASE
+            WHEN (i.disease_burden_group_2 LIKE '%Other%' OR i.disease_burden_group_2 = 'Other')
+                AND notes_disease_burden_group IS NOT NULL
+                THEN IFF(notes_disease_burden_group = 'Communicable - Other Infectious','Communicable - Sepsis',notes_disease_burden_group)
+            ELSE IFF(i.disease_burden_group_2 = 'Communicable - Other Infectious','Communicable - Sepsis',i.disease_burden_group_2)
+        END AS clean_dbg_2,
+        CASE
+            WHEN (i.disease_burden_group_3 LIKE '%Other%' OR i.disease_burden_group_3 = 'Other')
+                AND notes_disease_burden_group IS NOT NULL
+                THEN IFF(notes_disease_burden_group = 'Communicable - Other Infectious','Communicable - Sepsis',notes_disease_burden_group)
+            ELSE IFF(i.disease_burden_group_3 = 'Communicable - Other Infectious','Communicable - Sepsis',i.disease_burden_group_3)
+        END AS clean_dbg_3,
+        ARRAY_TO_STRING(ARRAY_SORT(ARRAY_DISTINCT(ARRAY_CONSTRUCT_COMPACT(
+            clean_dbg_1, clean_dbg_2, clean_dbg_3))),' & ') AS clean_disease_burden_group,
+        IFF(i.icd10_code_1 IS NOT NULL AND (i.icd10_code_2 IS NOT NULL OR i.icd10_code_3 IS NOT NULL),TRUE,FALSE) AS is_comorbidity,
+        IFF(i.has_chronic_diagnosis >= 1,TRUE,FALSE) AS has_chronic_diagnosis,
+        ARRAY_TO_STRING(ARRAY_SORT(ARRAY_DISTINCT(ARRAY_CONSTRUCT_COMPACT(
+            CASE
+                WHEN clean_dbg_1 = 'Digestive: Other'           THEN 'Digestive: Other'
+                WHEN clean_dbg_1 = 'MNCH - Maternal: Other'     THEN 'Maternal: Other'
+                WHEN clean_dbg_1 = 'NCD - Haematology: Other'   THEN 'Haematology: Other'
+                WHEN clean_dbg_1 = 'NCD - Mental Health: Other' THEN 'Mental Health: Other'
+                WHEN clean_dbg_1 = 'NCD - Haematology: Anaemia' THEN 'Haematology: Anaemia'
+                WHEN clean_dbg_1 = 'Symptom - Anaemia'          THEN 'Symptom: Anaemia'
+                WHEN clean_dbg_1 = 'NCD - Musculoskeletal'      THEN 'NCD - Musculoskeletal'
+                WHEN clean_dbg_1 = 'Musculoskeletal'            THEN 'Musculoskeletal'
+                WHEN clean_dbg_1 LIKE '%:%'   THEN TRIM(SPLIT_PART(clean_dbg_1,':',2))
+                WHEN clean_dbg_1 LIKE '% - %' THEN TRIM(SPLIT_PART(clean_dbg_1,' - ',2))
+                ELSE TRIM(clean_dbg_1)
+            END,
+            CASE
+                WHEN clean_dbg_2 = 'Digestive: Other'           THEN 'Digestive: Other'
+                WHEN clean_dbg_2 = 'MNCH - Maternal: Other'     THEN 'Maternal: Other'
+                WHEN clean_dbg_2 = 'NCD - Haematology: Other'   THEN 'Haematology: Other'
+                WHEN clean_dbg_2 = 'NCD - Mental Health: Other' THEN 'Mental Health: Other'
+                WHEN clean_dbg_2 = 'NCD - Haematology: Anaemia' THEN 'Haematology: Anaemia'
+                WHEN clean_dbg_2 = 'Symptom - Anaemia'          THEN 'Symptom: Anaemia'
+                WHEN clean_dbg_2 = 'NCD - Musculoskeletal'      THEN 'NCD - Musculoskeletal'
+                WHEN clean_dbg_2 = 'Musculoskeletal'            THEN 'Musculoskeletal'
+                WHEN clean_dbg_2 LIKE '%:%'   THEN TRIM(SPLIT_PART(clean_dbg_2,':',2))
+                WHEN clean_dbg_2 LIKE '% - %' THEN TRIM(SPLIT_PART(clean_dbg_2,' - ',2))
+                ELSE TRIM(clean_dbg_2)
+            END,
+            CASE
+                WHEN clean_dbg_3 = 'Digestive: Other'           THEN 'Digestive: Other'
+                WHEN clean_dbg_3 = 'MNCH - Maternal: Other'     THEN 'Maternal: Other'
+                WHEN clean_dbg_3 = 'NCD - Haematology: Other'   THEN 'Haematology: Other'
+                WHEN clean_dbg_3 = 'NCD - Mental Health: Other' THEN 'Mental Health: Other'
+                WHEN clean_dbg_3 = 'NCD - Haematology: Anaemia' THEN 'Haematology: Anaemia'
+                WHEN clean_dbg_3 = 'Symptom - Anaemia'          THEN 'Symptom: Anaemia'
+                WHEN clean_dbg_3 = 'NCD - Musculoskeletal'      THEN 'NCD - Musculoskeletal'
+                WHEN clean_dbg_3 = 'Musculoskeletal'            THEN 'Musculoskeletal'
+                WHEN clean_dbg_3 LIKE '%:%'   THEN TRIM(SPLIT_PART(clean_dbg_3,':',2))
+                WHEN clean_dbg_3 LIKE '% - %' THEN TRIM(SPLIT_PART(clean_dbg_3,' - ',2))
+                ELSE TRIM(clean_dbg_3)
+            END
+        ))),' & ') AS clean_diagnosis,
+        CASE
+            WHEN clean_disease_burden_group ILIKE '%NCD - Oncology%' THEN 'ONCOLOGY'
+            WHEN clean_disease_burden_group ILIKE '%MNCH - Maternal%'
+              OR clean_disease_burden_group ILIKE '%MNCH - Perinatal%'
+              OR clean_disease_burden_group ILIKE '%MNCH - Congenital%'
+              OR clean_disease_burden_group ILIKE '%MNCH - Nutrition%' THEN 'MATERNAL'
+            WHEN clean_disease_burden_group ILIKE '%NCD - Mental Health%' THEN 'MENTAL_HEALTH'
+            WHEN clean_disease_burden_group ILIKE '%NCD - Cardiovascular%'
+              OR clean_disease_burden_group ILIKE '%NCD - Diabetes%'
+              OR clean_disease_burden_group ILIKE '%NCD - Renal%'
+              OR clean_disease_burden_group ILIKE '%NCD - Respiratory%'
+              OR clean_disease_burden_group ILIKE '%NCD - Neurologic%'
+              OR clean_disease_burden_group ILIKE '%NCD - Endocrine%'
+              OR clean_disease_burden_group ILIKE '%NCD - Haematology%'
+              OR clean_disease_burden_group ILIKE '%NCD - Musculoskeletal%'
+              OR clean_disease_burden_group ILIKE '%NCD - Genitourinary%'
+              OR clean_disease_burden_group ILIKE '%NCD - Digestive%'
+              OR clean_disease_burden_group ILIKE '%NCD - Ophthalmology%'
+              OR clean_disease_burden_group ILIKE '%NCD - Dermatology%'
+              OR clean_disease_burden_group ILIKE '%Communicable - HIV/AIDS%'
+              OR clean_disease_burden_group ILIKE '%Communicable - TB%'
+              OR clean_disease_burden_group ILIKE '%Communicable - Hepatitis%' THEN 'CHRONIC'
+            ELSE 'EXCLUDED'
+        END AS acquisition_segment,
+        IFF(acquisition_segment != 'EXCLUDED',TRUE,FALSE) AS is_retention_universe
+    FROM HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED i
+    LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_DOCTOR_NOTES dn
+        ON i.visit_id = dn.visit_id AND i.source_schema = dn.source_schema
+    WHERE i.source_schema = '{schema}'
+      AND dn.created_at  >= '2024-09-01'
+    GROUP BY ALL
 ),
-htn_visits AS (
-    SELECT v.source_schema, v.user AS clinician, v.id AS visit_id
+visits AS (
+    SELECT
+        v.source_schema,
+        v.id         AS visit_id,
+        v.patient    AS patient_id,
+        v.created_at AS visit_date,
+        p.sex        AS gender,
+        CASE
+            WHEN p.dob IS NULL THEN 'Unknown'
+            WHEN TIMESTAMPDIFF('year',p.dob,v.created_at) < 5  THEN 'Toddler (0-4)'
+            WHEN TIMESTAMPDIFF('year',p.dob,v.created_at) < 13 THEN 'Child (5-12)'
+            WHEN TIMESTAMPDIFF('year',p.dob,v.created_at) < 18 THEN 'Adolescent (13-17)'
+            WHEN TIMESTAMPDIFF('year',p.dob,v.created_at) < 25 THEN 'Youth (18-24)'
+            WHEN TIMESTAMPDIFF('year',p.dob,v.created_at) < 35 THEN 'Young Adult (25-34)'
+            WHEN TIMESTAMPDIFF('year',p.dob,v.created_at) < 45 THEN 'Adult (35-44)'
+            WHEN TIMESTAMPDIFF('year',p.dob,v.created_at) < 55 THEN 'Middle Age (45-54)'
+            WHEN TIMESTAMPDIFF('year',p.dob,v.created_at) < 65 THEN 'Older Adult (55-64)'
+            ELSE 'Senior (65+)'
+        END AS age_group
     FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
-    INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
-    INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
-        ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
-      AND v.user IS NOT NULL
-      {wh}
-      AND LOWER(COALESCE(dx.disease_group_1, '')) LIKE '%hypertension%'
+    LEFT JOIN HOSPITALS.STAGING.STG_RECEPTION_PATIENTS p
+        ON v.patient = p.patient_id AND v.source_schema = p.source_schema
+    WHERE v.source_schema = '{schema}'
+      AND p.dob IS NOT NULL
+      AND UPPER(COALESCE(p.sex,'')) IN ('F','FEMALE','M','MALE')
 ),
-with_bp AS (
-    SELECT DISTINCT visit_id, source_schema
-    FROM HOSPITALS.STAGING.STG_EVALUATION_VITALS
-    WHERE bp_systolic IS NOT NULL
+inpatient_visits AS (
+    SELECT DISTINCT visit_id,
+        LOWER(REPLACE(source_schema,'_CLEAN','')) AS source_schema
+    FROM HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS
+),
+patient_first_visit AS (
+    SELECT source_schema, patient_id,
+        MIN(visit_date) AS first_visit_date,
+        MIN(visit_id)   AS first_visit_id
+    FROM visits GROUP BY source_schema, patient_id
 )
 SELECT
-    clinician,
-    COUNT(DISTINCT hv.visit_id)                         AS htn_visits,
-    COUNT(DISTINCT CASE WHEN wb.visit_id IS NULL
-                        THEN hv.visit_id END)            AS missing_bp,
-    ROUND(DIV0(
-        COUNT(DISTINCT CASE WHEN wb.visit_id IS NULL THEN hv.visit_id END),
-        COUNT(DISTINCT hv.visit_id)
-    ) * 100, 1)                                         AS omission_pct
-FROM htn_visits hv
-LEFT JOIN with_bp wb
-    ON hv.visit_id = wb.visit_id AND hv.source_schema = wb.source_schema
-GROUP BY 1
-HAVING htn_visits >= 5
-ORDER BY omission_pct DESC
-LIMIT 15
+    v.source_schema, v.visit_id, v.patient_id, v.visit_date,
+    v.gender, v.age_group,
+    s.acquisition_segment, s.clean_disease_burden_group, s.clean_diagnosis,
+    s.is_comorbidity, s.has_chronic_diagnosis,
+    IFF(v.visit_id = pf.first_visit_id,'new','returning') AS patient_type,
+    IFF(ip.visit_id IS NOT NULL,'inpatient','outpatient')  AS visit_type
+FROM visits v
+INNER JOIN diag_clean s ON v.visit_id = s.visit_id AND v.source_schema = s.source_schema
+LEFT JOIN patient_first_visit pf ON v.patient_id = pf.patient_id AND v.source_schema = pf.source_schema
+LEFT JOIN inpatient_visits ip ON v.visit_id = ip.visit_id AND v.source_schema = ip.source_schema
+WHERE s.is_retention_universe = TRUE
+{wh}
 """
     return run_query(sql)
 
 
-def load_return_72h(filters: dict, run_query) -> pd.DataFrame:
-    """Unplanned 72h return rate per clinician."""
-    wh = _w(filters, alias="v1")
-    wsa = _wsa(filters)
-    mo = _mo(filters)
+def load_cv_new_returning_trend(filters: dict, run_query) -> pd.DataFrame:
+    """Section 2 Row 3 — monthly new vs returning patient counts and revenue."""
+    vb = _visit_base_cte(filters, start_date='2024-09-01')
     sql = f"""
+WITH {vb}
+SELECT
+    visit_month,
+    patient_type,
+    COUNT(DISTINCT patient_id) AS patients,
+    SUM(visit_revenue)         AS revenue
+FROM visit_base
+GROUP BY visit_month, patient_type
+ORDER BY visit_month, patient_type
+"""
+    return run_query(sql)
+
+
+def load_tenri_benchmark(run_query) -> dict:
+    """Return Tenri hospital new vs returning patient split as benchmark percentages.
+
+    Queries the tenri source_schema directly (no filters applied) so the
+    benchmark reflects Tenri's all-time patient mix, independent of the
+    current dashboard filter window.
+    Returns {"New": float, "Returning": float} in percentage points.
+    """
+    sql = """
+WITH first_visits AS (
+    SELECT
+        patient,
+        source_schema,
+        MIN(created_at) AS first_visit_at
+    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS
+    WHERE source_schema = 'tenri'
+    GROUP BY patient, source_schema
+),
+classified AS (
+    SELECT
+        v.id AS visit_id,
+        CASE WHEN v.created_at = fv.first_visit_at THEN 'New' ELSE 'Returning' END AS patient_type
+    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
+    JOIN first_visits fv
+        ON v.patient = fv.patient AND v.source_schema = fv.source_schema
+    WHERE v.source_schema = 'tenri'
+),
+totals AS (
+    SELECT
+        COUNT(DISTINCT CASE WHEN patient_type = 'New'       THEN visit_id END) AS new_count,
+        COUNT(DISTINCT CASE WHEN patient_type = 'Returning' THEN visit_id END) AS ret_count
+    FROM classified
+)
+SELECT
+    new_count,
+    ret_count,
+    ROUND(new_count * 100.0 / NULLIF(new_count + ret_count, 0), 1) AS new_pct,
+    ROUND(ret_count * 100.0 / NULLIF(new_count + ret_count, 0), 1) AS ret_pct
+FROM totals
+"""
+    df = run_query(sql)
+    if df.empty:
+        return {"New": 40.0, "Returning": 60.0}
+    row = df.iloc[0]
+    return {
+        "New":       float(row.get("new_pct") or 40.0),
+        "Returning": float(row.get("ret_pct") or 60.0),
+    }
+
+
+def load_cv_diagnosis_by_age(filters: dict, run_query, age_group: str) -> pd.DataFrame:
+    """Section 2 Row 4 — top 3 diagnoses by patient type for a selected age group."""
+    vb  = _visit_base_cte(filters)
+    ag  = age_group.replace("'", "''")
+    sql = f"""
+WITH {vb},
+ranked AS (
+    SELECT
+        patient_type,
+        disease_burden_group,
+        COUNT(DISTINCT patient_id) AS patients,
+        SUM(visit_revenue)         AS revenue,
+        ROW_NUMBER() OVER (
+            PARTITION BY patient_type
+            ORDER BY COUNT(DISTINCT patient_id) DESC
+        ) AS rk
+    FROM visit_base
+    WHERE age_group = '{ag}'
+      AND disease_burden_group != 'Unclassified'
+    GROUP BY patient_type, disease_burden_group
+)
+SELECT patient_type, disease_burden_group, patients, revenue
+FROM ranked
+WHERE rk <= 3
+ORDER BY patient_type, rk
+"""
+    return run_query(sql)
+
+
+
+def load_cv_age_groups(filters: dict, run_query) -> pd.DataFrame:
+    """Age groups available for the Section 2 Row 4 dropdown, sorted by patient count."""
+    vb = _visit_base_cte(filters)
+    sql = f"""
+WITH {vb}
+SELECT age_group, COUNT(DISTINCT patient_id) AS patients
+FROM visit_base
+GROUP BY age_group
+ORDER BY patients DESC
+"""
+    return run_query(sql)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# WARD DEEP-DIVE
+# ══════════════════════════════════════════════════════════════════════════════
+
+def load_deepdive_ward_list(filters: dict, run_query) -> pd.DataFrame:
+    """Wards sorted by total admissions descending — drives the deep-dive dropdown."""
+    wh_a = _w_adm(filters)
+    wsa  = _wsa(filters)
+    mo   = _mo(filters)
+    sql  = f"""
 WITH schema_anchor AS (
     SELECT source_schema, MAX(created_at) AS max_date
     FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS {wsa}
     GROUP BY source_schema
 )
 SELECT
-    v1.user                                             AS clinician,
-    COUNT(DISTINCT v1.id)                               AS total_visits,
-    COUNT(DISTINCT CASE WHEN v2.id IS NOT NULL
-                        THEN v1.id END)                 AS return_visits,
-    ROUND(DIV0(
-        COUNT(DISTINCT CASE WHEN v2.id IS NOT NULL THEN v1.id END),
-        COUNT(DISTINCT v1.id)
-    ) * 100, 1)                                         AS return_72h_pct
-FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v1
-INNER JOIN schema_anchor sa ON v1.source_schema = sa.source_schema
-LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_VISITS v2
-    ON v1.patient = v2.patient
-   AND v1.source_schema = v2.source_schema
-   AND v2.created_at > v1.created_at
-   AND DATEDIFF('hour', v1.created_at, v2.created_at) <= 72
-WHERE v1.created_at >= DATEADD('month', -{mo}, sa.max_date)
-  AND v1.user IS NOT NULL
-  {wh}
+    COALESCE(a.ward_name, 'Unknown') AS ward,
+    COUNT(DISTINCT a.visit_id)       AS total_admissions
+FROM HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
+INNER JOIN schema_anchor sa
+    ON REPLACE(LOWER(a.source_schema), '_clean', '') = sa.source_schema
+WHERE a.admitted_at >= DATEADD('month', -{mo}, sa.max_date)
+{wh_a}
 GROUP BY 1
-HAVING total_visits >= 20
-ORDER BY return_72h_pct DESC
-LIMIT 15
+ORDER BY 2 DESC
+"""
+    return run_query(sql)
+
+
+def load_deepdive_monthly(filters: dict, run_query, ward_name: str) -> pd.DataFrame:
+    """Monthly admission totals for one ward — used for dip detection."""
+    wh_a = _w_adm(filters)
+    wsa  = _wsa(filters)
+    mo   = _mo(filters)
+    w    = ward_name.replace("'", "''")
+    sql  = f"""
+WITH schema_anchor AS (
+    SELECT source_schema, MAX(created_at) AS max_date
+    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS {wsa}
+    GROUP BY source_schema
+)
+SELECT
+    DATE_TRUNC('month', a.admitted_at) AS admit_month,
+    COUNT(DISTINCT a.visit_id)         AS total_admissions
+FROM HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
+INNER JOIN schema_anchor sa
+    ON REPLACE(LOWER(a.source_schema), '_clean', '') = sa.source_schema
+WHERE COALESCE(a.ward_name, 'Unknown') = '{w}'
+  AND a.admitted_at >= DATEADD('month', -{mo}, sa.max_date)
+{wh_a}
+GROUP BY 1
+ORDER BY 1
+"""
+    return run_query(sql)
+
+
+def load_deepdive_ward_id(filters: dict, run_query, ward_name: str) -> "int | None":
+    """Return the ward_id for the selected ward — needed by the diagnosis query."""
+    wsa = _wsa(filters)
+    w   = ward_name.replace("'", "''")
+    sql = f"""
+WITH schema_anchor AS (
+    SELECT source_schema
+    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS {wsa}
+    GROUP BY source_schema
+)
+SELECT a.ward_id
+FROM HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
+INNER JOIN schema_anchor sa
+    ON REPLACE(LOWER(a.source_schema), '_clean', '') = sa.source_schema
+WHERE COALESCE(a.ward_name, 'Unknown') = '{w}'
+  AND a.ward_id IS NOT NULL
+LIMIT 1
+"""
+    df = run_query(sql)
+    if df.empty or df.iloc[0, 0] is None:
+        return None
+    return int(df.iloc[0, 0])
+
+
+def load_h3_diagnosis_trends(filters: dict, run_query, ward_id: int) -> pd.DataFrame:
+    """
+    Diagnosis trend lines for the H3 panel.
+
+    Handles three data quality issues:
+      1. disease_burden_group values of "Other" / "Communicable - Other"
+         are replaced with the doctor note diagnosis.
+      2. group_2 and group_3 nulls when a prior group exists are also
+         substituted with the doctor note.
+      3. All three burden groups are UNPIVOTED so each is counted separately.
+
+    Returns one row per (month, diagnosis_name) for the top-5 diagnoses
+    by total visit count across the full period for the ward.
+    """
+    wh_a = _w_adm(filters)
+    wsa  = _wsa(filters)
+    mo   = _mo(filters)
+    sql  = f"""
+WITH schema_anchor AS (
+    SELECT source_schema, MAX(created_at) AS max_date
+    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS {wsa}
+    GROUP BY source_schema
+),
+raw_unpivoted AS (
+    SELECT
+        DATE_TRUNC('day', a.admitted_at)  AS daily,
+        a.visit_id,
+        pvt.group_source,
+        pvt.raw_group_value,
+        pvt.orig_group_1,
+        pvt.orig_group_2,
+        dn.diagnosis                      AS doctor_note_diagnosis
+    FROM (
+        SELECT
+            visit_id,
+            source_schema,
+            disease_burden_group_1,
+            disease_burden_group_2,
+            disease_burden_group_3,
+            disease_burden_group_1 AS orig_group_1,
+            disease_burden_group_2 AS orig_group_2
+        FROM HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED
+    ) d
+    UNPIVOT (
+        raw_group_value FOR group_source IN (
+            disease_burden_group_1,
+            disease_burden_group_2,
+            disease_burden_group_3
+        )
+    ) pvt
+    JOIN HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
+        ON  pvt.source_schema = REPLACE(LOWER(a.source_schema), '_clean', '')
+        AND pvt.visit_id      = a.visit_id
+    INNER JOIN schema_anchor sa
+        ON REPLACE(LOWER(a.source_schema), '_clean', '') = sa.source_schema
+    LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_DOCTOR_NOTES dn
+        ON pvt.visit_id     = dn.visit_id
+       AND pvt.source_schema = dn.source_schema
+    WHERE a.ward_id = {ward_id}
+      AND a.admitted_at >= DATEADD('month', -{mo}, sa.max_date)
+    {wh_a}
+),
+unified_diagnoses AS (
+    SELECT
+        daily,
+        visit_id,
+        CASE
+            WHEN group_source = 'DISEASE_BURDEN_GROUP_1' THEN
+                CASE WHEN raw_group_value ILIKE 'Other%'
+                          OR raw_group_value ILIKE 'Communicable - Other%'
+                     THEN doctor_note_diagnosis ELSE raw_group_value END
+            WHEN group_source = 'DISEASE_BURDEN_GROUP_2' THEN
+                CASE WHEN raw_group_value ILIKE 'Other%'
+                          OR raw_group_value ILIKE 'Communicable - Other%'
+                          OR (raw_group_value IS NULL AND orig_group_1 IS NOT NULL)
+                     THEN doctor_note_diagnosis ELSE raw_group_value END
+            WHEN group_source = 'DISEASE_BURDEN_GROUP_3' THEN
+                CASE WHEN raw_group_value ILIKE 'Other%'
+                          OR raw_group_value ILIKE 'Communicable - Other%'
+                          OR (raw_group_value IS NULL
+                              AND orig_group_1 IS NOT NULL
+                              AND orig_group_2 IS NOT NULL)
+                     THEN doctor_note_diagnosis ELSE raw_group_value END
+        END AS diagnosis_name
+    FROM raw_unpivoted
+),
+top_5_list AS (
+    SELECT diagnosis_name
+    FROM unified_diagnoses
+    WHERE diagnosis_name IS NOT NULL
+    GROUP BY diagnosis_name
+    ORDER BY COUNT(DISTINCT visit_id) DESC
+    LIMIT 5
+)
+SELECT
+    DATE_TRUNC('month', u.daily) AS visit_month,
+    u.diagnosis_name,
+    COUNT(DISTINCT u.visit_id)   AS monthly_visit_count
+FROM unified_diagnoses u
+JOIN top_5_list t ON u.diagnosis_name = t.diagnosis_name
+WHERE u.diagnosis_name IS NOT NULL
+GROUP BY ALL
+ORDER BY visit_month ASC, monthly_visit_count DESC
 """
     return run_query(sql)
 
@@ -5859,7 +4985,7 @@ FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
 INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
 INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
     ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
-WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+WHERE v.created_at >=  '2024-09-01'
   AND dx.disease_burden_group_1 IS NOT NULL
 {wh}
 GROUP BY 1, 2
@@ -5885,7 +5011,7 @@ elevated_visits AS (
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
     INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_VITALS vt
         ON vt.visit_id = v.id AND vt.source_schema = v.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       AND (vt.bp_systolic >= 140 OR vt.blood_sugar >= 10)
     {wh}
 ),
@@ -5911,7 +5037,7 @@ avg_fee AS (
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
     INNER JOIN HOSPITALS.STAGING.STG_INVOICE_LINE_ITEMS ili
         ON v.id = ili.visit_id AND v.source_schema = ili.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       AND ili.invoice_deleted_at IS NULL
       AND (ili.auto_cancelled IS NULL OR ili.auto_cancelled = 0)
     {wh}
@@ -5960,7 +5086,7 @@ INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
 LEFT JOIN HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS ia
     ON v.id = ia.visit_id
    AND v.source_schema = REPLACE(LOWER(ia.source_schema), '_clean', '')
-WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+WHERE v.created_at >=  '2024-09-01'
   AND dx.disease_burden_group_1 IS NOT NULL
 {wh}
 GROUP BY 1
@@ -5987,7 +5113,7 @@ elevated_visits AS (
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
     INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_VITALS vt
         ON vt.visit_id = v.id AND vt.source_schema = v.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       AND v.user IS NOT NULL
       AND (vt.bp_systolic >= 140 OR vt.blood_sugar >= 10)
     {wh}
@@ -6002,7 +5128,7 @@ all_visits AS (
     SELECT v.source_schema, v.user AS clinician, COUNT(DISTINCT v.id) AS total_visits
     FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       AND v.user IS NOT NULL
     {wh}
     GROUP BY 1, 2
@@ -6307,14 +5433,31 @@ WITH schema_anchor AS (
     GROUP BY source_schema
 )
 SELECT
+            CASE
+            WHEN rp.dob IS NULL THEN 'Unknown'
+            WHEN TIMESTAMPDIFF('year', rp.dob, v.created_at) < 5
+                THEN 'Toddler (0–4)'
+            WHEN TIMESTAMPDIFF('year', rp.dob, v.created_at) < 13
+                THEN 'Child (5–12)'
+            WHEN TIMESTAMPDIFF('year', rp.dob, v.created_at) < 18
+                THEN 'Adolescent (13–17)'
+            WHEN TIMESTAMPDIFF('year', rp.dob, v.created_at) < 25
+                THEN 'Youth (18–24)'
+            WHEN TIMESTAMPDIFF('year', rp.dob, v.created_at) < 35
+                THEN 'Young Adult (25–34)'
+            WHEN TIMESTAMPDIFF('year', rp.dob, v.created_at) < 45
+                THEN 'Adult (35–44)'
+            WHEN TIMESTAMPDIFF('year', rp.dob, v.created_at) < 55
+                THEN 'Middle Age (45–54)'
+            WHEN TIMESTAMPDIFF('year', rp.dob, v.created_at) < 65
+                THEN 'Older Adult (55–64)'
+            ELSE 'Senior (65+)'
+        END                                             AS age_group,
     CASE
-        WHEN DATEDIFF('year', rp.dob, CURRENT_DATE) < 18 THEN 'Under 18'
-        WHEN DATEDIFF('year', rp.dob, CURRENT_DATE) < 35 THEN '18-34'
-        WHEN DATEDIFF('year', rp.dob, CURRENT_DATE) < 50 THEN '35-49'
-        WHEN DATEDIFF('year', rp.dob, CURRENT_DATE) < 65 THEN '50-64'
-        ELSE '65+'
-    END                                                   AS age_group,
-    dx.disease_burden_group_1                             AS chronic_condition,
+        WHEN dx.disease_burden_group_1 ILIKE '%Endocrin%'
+          OR dx.disease_burden_group_1 ILIKE '%Diabetes%' THEN 'NCD — Diabetes & Metabolic'
+        ELSE dx.disease_burden_group_1
+    END                                                   AS chronic_condition,
     COUNT(DISTINCT v.patient)                             AS patient_count
 FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
 INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
@@ -6322,7 +5465,7 @@ INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
     ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
 LEFT JOIN HOSPITALS.STAGING.STG_RECEPTION_PATIENTS rp
     ON v.patient = rp.patient_id AND v.source_schema = rp.source_schema
-WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+WHERE v.created_at >=  '2024-09-01'
   AND dx.disease_burden_group_1 ILIKE ANY (
       '%Cardiovascular%','%Diabetes%','%Chronic%','%Neurolog%',
       '%Mental%','%Endocrin%','%Musculo%')
@@ -6352,7 +5495,7 @@ htn_patients AS (
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
     INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
         ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       AND dx.disease_burden_group_1 ILIKE '%Cardiovascular%'
       AND (dx.disease_group_1 ILIKE '%Hypertension%' OR dx.disease_group_1 ILIKE '%HTN%')
     {wh}
@@ -6424,7 +5567,7 @@ patient_conditions AS (
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
     INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
         ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       AND dx.disease_burden_group_1 ILIKE ANY (
           '%Cardiovascular%','%Diabetes%','%Chronic%','%Neurolog%',
           '%Mental%','%Endocrin%','%Musculo%')
@@ -6492,7 +5635,7 @@ raw AS (
         ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
     LEFT JOIN HOSPITALS.STAGING.STG_RECEPTION_PATIENTS rp
         ON v.patient = rp.patient_id AND v.source_schema = rp.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       AND dx.disease_burden_group_1 ILIKE ANY (
           '%Cardiovascular%','%Diabetes%','%Endocrin%','%Neurolog%',
           '%Mental%','%Musculo%','%Chronic%')
@@ -6538,7 +5681,7 @@ patient_ncd_count AS (
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
     INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
         ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       AND dx.disease_burden_group_1 ILIKE ANY (
           '%Cardiovascular%','%Diabetes%','%Endocrin%','%Neurolog%',
           '%Mental%','%Musculo%','%Chronic%')
@@ -6583,7 +5726,7 @@ htn_patients AS (
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
     INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
         ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       AND (dx.disease_group_1 ILIKE '%hypertension%' OR dx.disease_group_1 ILIKE '%HTN%')
     {wh}
 ),
@@ -6625,7 +5768,7 @@ payer_mode AS (
     FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
     INNER JOIN htn_patients hp ON v.patient = hp.patient AND v.source_schema = hp.source_schema
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
     {wh}
     QUALIFY ROW_NUMBER() OVER (PARTITION BY v.source_schema, v.patient
                                ORDER BY v.created_at DESC) = 1
@@ -6644,7 +5787,7 @@ comorbidity_count AS (
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
     INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
         ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       AND dx.disease_burden_group_1 ILIKE ANY (
           '%Cardiovascular%','%Diabetes%','%Endocrin%','%Neurolog%','%Mental%','%Musculo%')
     {wh}
@@ -6672,7 +5815,7 @@ investigations AS (
         ON i.visit_id = v.id AND i.source_schema = v.source_schema
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
     INNER JOIN htn_patients hp ON v.patient = hp.patient AND v.source_schema = hp.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       AND (i.cancelled IS NULL OR i.cancelled = 0)
     {wh}
     GROUP BY 1, 2
@@ -6682,7 +5825,7 @@ visit_counts AS (
     FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
     INNER JOIN htn_patients hp ON v.patient = hp.patient AND v.source_schema = hp.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
     {wh}
     GROUP BY 1, 2
 )
@@ -6749,7 +5892,7 @@ ncd_visits AS (
     LEFT JOIN HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS ia
         ON v.id = ia.visit_id
        AND v.source_schema = REPLACE(LOWER(ia.source_schema), '_clean', '')
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       AND dx.disease_burden_group_1 ILIKE ANY (
           '%Cardiovascular%','%Diabetes%','%Endocrin%','%Neurolog%',
           '%Mental%','%Musculo%','%Chronic%')
@@ -6880,7 +6023,7 @@ chronic_visits AS (
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
     INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
         ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       AND dx.disease_burden_group_1 ILIKE ANY (
           '%Cardiovascular%','%Diabetes%','%Chronic%','%Neurolog%',
           '%Mental%','%Endocrin%','%Musculo%','%HIV%')
@@ -6983,7 +6126,7 @@ LEFT JOIN HOSPITALS.STAGING.STG_RECEPTION_PATIENTS rp
 LEFT JOIN HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS ia
     ON v.id = ia.visit_id
    AND v.source_schema = REPLACE(LOWER(ia.source_schema), '_clean', '')
-WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+WHERE v.created_at >=  '2024-09-01'
   AND dx.disease_group_1 ILIKE ANY (
       '%URTI%','%Malaria%','%Typhoid%','%TB%',
       '%HIV%','%Gastroenteritis%')
@@ -7007,10 +6150,27 @@ WITH schema_anchor AS (
 ),
 comm_visits AS (
     SELECT v.source_schema, v.id AS visit_id, v.patient,
-           dx.disease_group_1 AS disease_group,
            CASE
-               WHEN DATEDIFF('year', rp.dob, CURRENT_DATE) < 18 THEN 'Paediatric (<18)'
-               WHEN UPPER(COALESCE(rp.sex, '')) = 'F'           THEN 'Adult Female'
+               WHEN dx.icd10_code_1 LIKE 'A15%' OR dx.icd10_code_1 LIKE 'A16%'
+                 OR dx.icd10_code_1 LIKE 'A17%' OR dx.icd10_code_1 LIKE 'A18%'
+                 OR dx.icd10_code_1 LIKE 'A19%'
+                 OR dx.disease_group_1 ILIKE '%Tubercul%'                       THEN 'TB'
+               WHEN dx.icd10_code_1 LIKE 'B5%'
+                 OR dx.disease_group_1 ILIKE '%Malaria%'                        THEN 'Malaria'
+               WHEN dx.icd10_code_1 LIKE 'J0%'
+                 OR dx.disease_group_1 ILIKE '%URTI%'                           THEN 'URTI'
+               WHEN dx.icd10_code_1 LIKE 'A01%'
+                 OR dx.disease_group_1 ILIKE '%Typhoid%'                        THEN 'Typhoid'
+               WHEN dx.icd10_code_1 LIKE 'A0%'
+                 OR dx.disease_group_1 ILIKE '%Enteric%'
+                 OR dx.disease_group_1 ILIKE '%Gastroenterit%'                  THEN 'Enteric / GI'
+               WHEN dx.icd10_code_1 LIKE 'B2%'
+                 OR dx.disease_group_1 ILIKE '%HIV%'                            THEN 'HIV'
+               ELSE NULL
+           END AS disease_group,
+           CASE
+               WHEN TIMESTAMPDIFF('year', rp.dob, v.created_at) < 18 THEN 'Paediatric (<18)'
+               WHEN UPPER(COALESCE(rp.sex, '')) IN ('F', 'FEMALE')   THEN 'Adult Female'
                ELSE 'Adult Male'
            END AS age_sex_cat,
            CASE
@@ -7026,21 +6186,37 @@ comm_visits AS (
     LEFT JOIN HOSPITALS.STAGING.STG_RECEPTION_PATIENTS rp
         ON v.patient = rp.patient_id AND v.source_schema = rp.source_schema
     WHERE v.created_at >= DATEADD('day', -90, sa.max_date)
-      AND dx.disease_burden_group_1 ILIKE ANY (
-          '%Communicable%','%HIV%','%TB%','%Malaria%',
-          '%URTI%','%Typhoid%','%Respiratory: Infect%')
+      AND (
+          dx.icd10_code_1 LIKE 'A0%' OR dx.icd10_code_1 LIKE 'A01%'
+          OR dx.icd10_code_1 LIKE 'A15%' OR dx.icd10_code_1 LIKE 'A16%'
+          OR dx.icd10_code_1 LIKE 'A17%' OR dx.icd10_code_1 LIKE 'A18%'
+          OR dx.icd10_code_1 LIKE 'A19%'
+          OR dx.icd10_code_1 LIKE 'B2%' OR dx.icd10_code_1 LIKE 'B5%'
+          OR dx.icd10_code_1 LIKE 'J0%'
+          OR dx.disease_group_1 ILIKE ANY (
+              '%Tubercul%','%Malaria%','%URTI%','%Typhoid%',
+              '%Enteric%','%Gastroenterit%','%HIV%','%Communicable%')
+      )
     {wh}
+    QUALIFY ROW_NUMBER() OVER (PARTITION BY v.id ORDER BY dx.icd10_code_1 NULLS LAST) = 1
 ),
 top10 AS (
     SELECT disease_group
     FROM comm_visits
+    WHERE disease_group IS NOT NULL
     GROUP BY 1
     QUALIFY RANK() OVER (ORDER BY COUNT(DISTINCT visit_id) DESC) <= 10
 ),
-has_lab AS (
-    SELECT DISTINCT visit_id, source_schema
+any_inv AS (
+    SELECT DISTINCT visit_id
     FROM HOSPITALS.STAGING.STG_EVALUATION_INVESTIGATIONS
-    WHERE investigation_type IS NOT NULL
+    WHERE (cancelled IS NULL OR cancelled = 0)
+),
+confirmed_lab AS (
+    SELECT DISTINCT visit_id
+    FROM HOSPITALS.STAGING.STG_EVALUATION_INVESTIGATIONS
+    WHERE (cancelled IS NULL OR cancelled = 0)
+      AND investigation_type IS NOT NULL
 ),
 ip_flag AS (
     SELECT DISTINCT visit_id, source_schema
@@ -7086,9 +6262,13 @@ SELECT
     COUNT(DISTINCT cv.visit_id)                           AS quarterly_visits,
     am.primary_age_sex,
     ROUND(DIV0(
-        COUNT(DISTINCT CASE WHEN hl.visit_id IS NOT NULL THEN cv.visit_id END),
+        COUNT(DISTINCT CASE WHEN cl.visit_id IS NOT NULL THEN cv.visit_id END),
         COUNT(DISTINCT cv.visit_id)
     ) * 100, 1)                                           AS lab_confirmation_pct,
+    ROUND(DIV0(
+        COUNT(DISTINCT CASE WHEN ai.visit_id IS NOT NULL THEN cv.visit_id END),
+        COUNT(DISTINCT cv.visit_id)
+    ) * 100, 1)                                           AS data_completeness_pct,
     ROUND(DIV0(
         COUNT(DISTINCT CASE WHEN ipf.visit_id IS NOT NULL THEN cv.visit_id END),
         COUNT(DISTINCT cv.visit_id)
@@ -7097,8 +6277,8 @@ SELECT
     pm.primary_payer
 FROM comm_visits cv
 INNER JOIN top10 t  ON cv.disease_group = t.disease_group
-LEFT JOIN has_lab hl
-    ON cv.visit_id = hl.visit_id AND cv.source_schema = hl.source_schema
+LEFT JOIN confirmed_lab cl ON cv.visit_id = cl.visit_id
+LEFT JOIN any_inv ai       ON cv.visit_id = ai.visit_id
 LEFT JOIN ip_flag ipf
     ON cv.visit_id = ipf.visit_id
    AND cv.source_schema = REPLACE(LOWER(ipf.source_schema), '_clean', '')
@@ -7157,7 +6337,7 @@ base AS (
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
     INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
         ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       {wh}
     QUALIFY ROW_NUMBER() OVER (PARTITION BY v.id ORDER BY dx.icd10_code_1 NULLS LAST) = 1
 ),
@@ -7216,11 +6396,15 @@ base AS (
            END AS disease_label,
            CASE
                WHEN p.dob IS NULL THEN 'Unknown'
-               WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 5  THEN 'Under 5'
-               WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 18 THEN '5-17'
-               WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 35 THEN '18-34'
-               WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 55 THEN '35-54'
-               ELSE '55+'
+               WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 5  THEN 'Toddler (0–4)'
+               WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 13 THEN 'Child (5–12)'
+               WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 18 THEN 'Adolescent (13–17)'
+               WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 25 THEN 'Youth (18–24)'
+               WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 35 THEN 'Young Adult (25–34)'
+               WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 45 THEN 'Adult (35–44)'
+               WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 55 THEN 'Middle Age (45–54)'
+               WHEN TIMESTAMPDIFF('year', p.dob, v.created_at) < 65 THEN 'Older Adult (55–64)'
+               ELSE 'Senior (65+)'
            END AS age_group,
            CASE WHEN p.sex IS NULL THEN 'Unknown'
                 ELSE UPPER(CAST(p.sex AS VARCHAR))
@@ -7231,7 +6415,7 @@ base AS (
         ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
     LEFT JOIN HOSPITALS.STAGING.STG_RECEPTION_PATIENTS p
         ON v.patient = p.patient_id AND v.source_schema = p.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       {wh}
     QUALIFY ROW_NUMBER() OVER (PARTITION BY v.id ORDER BY dx.icd10_code_1 NULLS LAST) = 1
 )
@@ -7285,7 +6469,7 @@ deduped AS (
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
     INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
         ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       {wh}
     QUALIFY ROW_NUMBER() OVER (PARTITION BY v.id ORDER BY dx.icd10_code_1 NULLS LAST) = 1
 )
@@ -7319,7 +6503,7 @@ tb_patients AS (
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
     INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
         ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       {wh}
       AND (dx.icd10_code_1 LIKE 'A15%' OR dx.icd10_code_2 LIKE 'A15%'
         OR dx.icd10_code_1 LIKE 'A16%' OR dx.icd10_code_2 LIKE 'A16%'
@@ -7334,7 +6518,7 @@ hiv_patients AS (
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
     INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
         ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       {wh}
       AND (dx.icd10_code_1 LIKE 'B20%' OR dx.icd10_code_2 LIKE 'B20%'
         OR dx.icd10_code_1 LIKE 'B21%' OR dx.icd10_code_2 LIKE 'B21%'
@@ -7347,7 +6531,7 @@ hiv_test_done AS (
     INNER JOIN tb_patients tb ON v.patient = tb.patient AND v.source_schema = tb.source_schema
     INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_INVESTIGATIONS inv
         ON v.id = inv.visit_id AND v.source_schema = inv.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       {wh}
       AND (inv.investigation_type ILIKE '%HIV%'
         OR inv.investigation_type ILIKE '%retrovir%'
@@ -7361,7 +6545,7 @@ fever_signal AS (
     INNER JOIN tb_patients tb ON v.patient = tb.patient AND v.source_schema = tb.source_schema
     INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_VITALS vt
         ON v.id = vt.visit_id AND v.source_schema = vt.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       {wh}
       AND vt.temperature IS NOT NULL
       AND vt.temperature > 37.5
@@ -7406,7 +6590,7 @@ malaria_visits AS (
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
     INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
         ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       {wh}
       AND (dx.icd10_code_1 LIKE 'B5%' OR dx.icd10_code_2 LIKE 'B5%'
         OR dx.disease_group_1 ILIKE '%Malaria%')
@@ -7482,7 +6666,7 @@ comm_patients AS (
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
     INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
         ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       {wh}
     QUALIFY ROW_NUMBER() OVER (PARTITION BY v.id ORDER BY dx.icd10_code_1 NULLS LAST) = 1
 ),
@@ -7496,7 +6680,7 @@ other_conditions AS (
     INNER JOIN schema_anchor sa ON v2.source_schema = sa.source_schema
     INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx2
         ON v2.id = dx2.visit_id AND v2.source_schema = dx2.source_schema
-    WHERE v2.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v2.created_at >=  '2024-09-01'
       {wh}
       AND cp.disease_label IS NOT NULL
       AND dx2.disease_group_1 IS NOT NULL
@@ -7571,7 +6755,7 @@ LEFT JOIN HOSPITALS.STAGING.STG_RECEPTION_PATIENTS rp
 LEFT JOIN HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS ia
     ON v.id = ia.visit_id
    AND v.source_schema = REPLACE(LOWER(ia.source_schema), '_clean', '')
-WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+WHERE v.created_at >=  '2024-09-01'
   AND dx.disease_burden_group_1 ILIKE '%Mental%'
 {wh}
 GROUP BY 1, 2, 3, 6
@@ -7610,7 +6794,7 @@ mh_patients AS (
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
     INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
         ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       AND dx.disease_burden_group_1 ILIKE '%Mental%'
     {wh}
 ),
@@ -7623,7 +6807,7 @@ non_mh_dx AS (
         ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
     INNER JOIN mh_patients mp
         ON v.patient = mp.patient AND v.source_schema = mp.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       AND dx.disease_burden_group_1 IS NOT NULL
       AND dx.disease_burden_group_1 NOT ILIKE '%Mental%'
     {wh}
@@ -7691,7 +6875,7 @@ FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
 INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
 INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
     ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
-WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+WHERE v.created_at >=  '2024-09-01'
   AND dx.disease_burden_group_1 ILIKE '%Mental%'
 {wh}
 GROUP BY 1, 2
@@ -7729,7 +6913,7 @@ admissions AS (
        AND v.source_schema = REPLACE(LOWER(ia.source_schema), '_clean', '')
     INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
         ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       AND dx.disease_burden_group_1 ILIKE ANY (
           '%Cardiovascular%','%Diabetes%','%Chronic%','%Neurolog%',
           '%Mental%','%Endocrin%','%Musculo%')
@@ -7794,7 +6978,7 @@ elevated AS (
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
     INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_VITALS vt
         ON vt.visit_id = v.id AND vt.source_schema = v.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       AND (vt.bp_systolic >= 140 OR vt.blood_sugar >= 10)
     {wh}
     GROUP BY 1, 2, 7
@@ -7859,7 +7043,7 @@ chronic_patients AS (
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
     INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
         ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       AND (dx.is_chronic_1 = 1 OR dx.is_chronic_2 = 1)
     {wh}
 ),
@@ -7867,7 +7051,7 @@ last_visit AS (
     SELECT v.source_schema, v.patient, MAX(v.created_at) AS last_visit_date
     FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
     {wh}
     GROUP BY 1, 2
 ),
@@ -7921,7 +7105,7 @@ all_patients AS (
     SELECT DISTINCT v.source_schema, v.patient
     FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
     {wh}
 ),
 last_visit AS (
@@ -7929,7 +7113,7 @@ last_visit AS (
            MAX(v.created_at) AS last_visit_date
     FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
     {wh}
     GROUP BY 1, 2
 ),
@@ -7938,7 +7122,7 @@ latest_clinician AS (
            CAST(v.user AS VARCHAR) AS current_clinician
     FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       AND v.user IS NOT NULL
     {wh}
     QUALIFY ROW_NUMBER() OVER (
@@ -7950,7 +7134,7 @@ clinician_count AS (
            COUNT(DISTINCT v.user) AS unique_clinicians
     FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       AND v.user IS NOT NULL
     {wh}
     GROUP BY 1, 2
@@ -7963,7 +7147,7 @@ chronic AS (
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
     INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
         ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       AND (dx.is_chronic_1 = 1 OR dx.is_chronic_2 = 1)
     {wh}
     GROUP BY 1, 2
@@ -7974,7 +7158,7 @@ elevated_vitals AS (
     INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
     INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_VITALS vt
         ON vt.visit_id = v.id AND vt.source_schema = v.source_schema
-    WHERE v.created_at >= DATEADD('month', -{mo}, sa.max_date)
+    WHERE v.created_at >=  '2024-09-01'
       AND (vt.bp_systolic >= 140 OR vt.blood_sugar >= 10)
     {wh}
     GROUP BY 1, 2
@@ -7996,6 +7180,62 @@ undetected_ncd AS (
         ON ev.patient = nd.patient AND ev.source_schema = nd.source_schema
     WHERE nd.patient IS NULL
 ),
+vitals_ranked AS (
+    SELECT
+        v.source_schema,
+        v.patient,
+        vt.bp_systolic,
+        ROW_NUMBER() OVER (
+            PARTITION BY v.source_schema, v.patient
+            ORDER BY v.created_at DESC
+        ) AS rn
+    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
+    INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
+    INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_VITALS vt
+        ON vt.visit_id = v.id AND vt.source_schema = v.source_schema
+    WHERE v.created_at >=  '2024-09-01'
+      AND vt.bp_systolic IS NOT NULL
+    {wh}
+),
+worsening_vitals AS (
+    SELECT source_schema, patient, 1 AS has_worsening_vitals
+    FROM vitals_ranked
+    WHERE rn <= 3
+    GROUP BY source_schema, patient
+    HAVING COUNT(*) >= 3
+       AND MAX(CASE WHEN rn = 1 THEN bp_systolic END) >
+           AVG(CASE WHEN rn IN (2, 3) THEN bp_systolic END)
+),
+rx_ordered AS (
+    SELECT
+        v.source_schema,
+        v.patient,
+        pp.drug_name,
+        LAG(pp.drug_name) OVER (
+            PARTITION BY v.source_schema, v.patient
+            ORDER BY v.created_at, pp.prescription_created_at
+        ) AS prev_drug,
+        ROW_NUMBER() OVER (
+            PARTITION BY v.source_schema, v.patient
+            ORDER BY v.created_at DESC, pp.prescription_created_at DESC
+        ) AS rn
+    FROM HOSPITALS.STAGING.STG_PRESCRIPTION_PAYMENTS pp
+    INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_VISITS v
+        ON pp.visit_id = v.id AND pp.source_schema = v.source_schema
+    INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
+    WHERE v.created_at >=  '2024-09-01'
+      AND (pp.stopped IS NULL OR pp.stopped = 0)
+      AND (pp.canceled IS NULL OR pp.canceled = 0)
+      AND (pp.remove_from_report IS NULL OR pp.remove_from_report = 0)
+    {wh}
+),
+medication_change AS (
+    SELECT DISTINCT source_schema, patient, 1 AS has_medication_change
+    FROM rx_ordered
+    WHERE rn = 1
+      AND prev_drug IS NOT NULL
+      AND drug_name != prev_drug
+),
 op_to_ip AS (
     SELECT DISTINCT v_op.source_schema, v_op.patient, 1 AS had_op_to_ip
     FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v_op
@@ -8015,7 +7255,7 @@ op_to_ip AS (
         ON CAST(v_op.id AS VARCHAR) = CAST(ia_op.visit_id AS VARCHAR)
     WHERE ia_op.visit_id IS NULL
       AND dx_op.disease_burden_group_1 = dx_ip.disease_burden_group_1
-      AND v_op.created_at >= DATEADD('month', -{mo}, sa.max_date)
+      AND v_op.created_at >=  '2024-09-01'
     {wh_op}
 ),
 demographics AS (
@@ -8042,17 +7282,17 @@ SELECT
     COALESCE(ch.is_chronic, 0)                            AS is_chronic,
     DATEDIFF('day', lv.last_visit_date, sa.max_date)      AS days_since_last_visit,
     COALESCE(un.has_undetected_ncd, 0)                    AS has_undetected_ncd,
+    COALESCE(wv.has_worsening_vitals, 0)                  AS has_worsening_vitals,
+    COALESCE(mc.has_medication_change, 0)                 AS has_medication_change,
     COALESCE(oi.had_op_to_ip, 0)                          AS had_op_to_ip,
     COALESCE(cc.unique_clinicians, 1)                     AS unique_clinicians,
     COALESCE(lc.current_clinician, 'Unknown')             AS current_clinician,
     CASE
-        WHEN (COALESCE(ch.is_chronic, 0) = 1
-              AND DATEDIFF('day', lv.last_visit_date, sa.max_date) >= 90)
-          OR COALESCE(un.has_undetected_ncd, 0) = 1
-          OR COALESCE(oi.had_op_to_ip, 0) = 1             THEN 'HIGH'
-        WHEN (COALESCE(ch.is_chronic, 0) = 1
-              AND DATEDIFF('day', lv.last_visit_date, sa.max_date) >= 30)
-          OR COALESCE(cc.unique_clinicians, 1) >= 3        THEN 'MEDIUM'
+        WHEN COALESCE(un.has_undetected_ncd, 0) = 1
+          OR COALESCE(wv.has_worsening_vitals, 0) = 1     THEN 'HIGH'
+        WHEN COALESCE(mc.has_medication_change, 0) = 1
+          OR DATEDIFF('day', lv.last_visit_date, sa.max_date) >= 90
+                                                           THEN 'MEDIUM'
         ELSE 'MONITOR'
     END                                                   AS priority_flag
 FROM all_patients ap
@@ -8063,6 +7303,10 @@ LEFT JOIN chronic ch
     ON ap.patient = ch.patient AND ap.source_schema = ch.source_schema
 LEFT JOIN undetected_ncd un
     ON ap.patient = un.patient AND ap.source_schema = un.source_schema
+LEFT JOIN worsening_vitals wv
+    ON ap.patient = wv.patient AND ap.source_schema = wv.source_schema
+LEFT JOIN medication_change mc
+    ON ap.patient = mc.patient AND ap.source_schema = mc.source_schema
 LEFT JOIN op_to_ip oi
     ON ap.patient = oi.patient AND ap.source_schema = oi.source_schema
 LEFT JOIN clinician_count cc
@@ -8071,9 +7315,16 @@ LEFT JOIN latest_clinician lc
     ON ap.patient = lc.patient AND ap.source_schema = lc.source_schema
 LEFT JOIN demographics d
     ON ap.patient = d.patient_id AND ap.source_schema = d.source_schema
+WHERE DATEDIFF('day', lv.last_visit_date, sa.max_date) <= 365
 ORDER BY
-    CASE priority_flag WHEN 'HIGH' THEN 1 WHEN 'MEDIUM' THEN 2 ELSE 3 END,
-    days_since_last_visit DESC
+    CASE
+        WHEN COALESCE(un.has_undetected_ncd, 0) = 1      THEN 1
+        WHEN COALESCE(wv.has_worsening_vitals, 0) = 1    THEN 2
+        WHEN COALESCE(mc.has_medication_change, 0) = 1   THEN 3
+        WHEN DATEDIFF('day', lv.last_visit_date, sa.max_date) >= 90 THEN 4
+        ELSE 5
+    END,
+    DATEDIFF('day', lv.last_visit_date, sa.max_date) DESC
 LIMIT 300
 """
     return run_query(sql)
@@ -8196,5 +7447,2141 @@ WHERE v.patient       = '{patient_id}'
   AND i.procedure_name IS NOT NULL
 ORDER BY test_date DESC
 LIMIT 60
+"""
+    return run_query(sql)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# OPD TO IPD CONVERSION TAB
+# ══════════════════════════════════════════════════════════════════════════════
+
+_OPD_IPD_FLOOR = "'2024-09-01'"
+
+_SEGMENT_CASE = """
+        CASE
+            WHEN COALESCE(nf.oncology_flag,0)=1
+              OR COALESCE(dx.disease_burden_group_1,'') ILIKE '%oncol%'
+              OR COALESCE(dx.disease_burden_group_1,'') ILIKE '%cancer%'
+              OR COALESCE(dx.disease_burden_group_2,'') ILIKE '%oncol%'
+              OR COALESCE(dx.disease_burden_group_2,'') ILIKE '%cancer%'
+                THEN 'Oncology'
+            WHEN COALESCE(nf.maternal_flag,0)=1
+              OR COALESCE(dx.disease_burden_group_1,'') ILIKE '%maternal%'
+              OR COALESCE(dx.disease_burden_group_1,'') ILIKE '%obstet%'
+              OR COALESCE(dx.disease_burden_group_2,'') ILIKE '%maternal%'
+              OR COALESCE(dx.disease_burden_group_2,'') ILIKE '%obstet%'
+                THEN 'Maternal'
+            WHEN COALESCE(nf.mental_flag,0)=1
+              OR COALESCE(dx.disease_burden_group_1,'') ILIKE '%mental%'
+              OR COALESCE(dx.disease_burden_group_1,'') ILIKE '%psychiatr%'
+              OR COALESCE(dx.disease_burden_group_2,'') ILIKE '%mental%'
+                THEN 'Mental Health'
+            WHEN COALESCE(dx.is_chronic_1,0)=1
+              OR COALESCE(dx.is_chronic_2,0)=1
+              OR COALESCE(nf.chronic_flag,0)=1
+                THEN 'Chronic'
+            ELSE NULL
+        END"""
+
+_NOTE_FLAGS_CTE = """
+note_flags AS (
+    SELECT source_schema, visit_id,
+        MAX(CASE WHEN diagnosis ILIKE '%oncol%' OR diagnosis ILIKE '%cancer%'
+                   OR diagnosis ILIKE '%chemo%' THEN 1 ELSE 0 END)            AS oncology_flag,
+        MAX(CASE WHEN diagnosis ILIKE '%maternal%' OR diagnosis ILIKE '%obstet%'
+                   OR diagnosis ILIKE '%antenatal%' OR diagnosis ILIKE '%anc%'
+                   OR diagnosis ILIKE '%pregnant%' OR diagnosis ILIKE '%labour%'
+                   OR diagnosis ILIKE '%delivery%' THEN 1 ELSE 0 END)          AS maternal_flag,
+        MAX(CASE WHEN diagnosis ILIKE '%mental%' OR diagnosis ILIKE '%psychiatr%'
+                   OR diagnosis ILIKE '%depress%' OR diagnosis ILIKE '%anxiety%'
+                   THEN 1 ELSE 0 END)                                          AS mental_flag,
+        MAX(CASE WHEN diagnosis ILIKE '%hypertension%' OR diagnosis ILIKE '%diabetes%'
+                   OR diagnosis ILIKE '%hiv%' OR diagnosis ILIKE '%chronic%'
+                   OR diagnosis ILIKE '%ckd%' THEN 1 ELSE 0 END)               AS chronic_flag
+    FROM HOSPITALS.STAGING.STG_EVALUATION_DOCTOR_NOTES
+    GROUP BY 1, 2
+)"""
+
+
+def load_opd_ipd_segments(filters: dict, run_query) -> pd.DataFrame:
+    """OPD->IPD: overall totals + per acquisition segment. Columns: acquisition_segment,
+    total_opd_visits, ipd_admissions, conversion_rate_pct."""
+    wh   = _w(filters)
+    wh_a = _w_adm(filters)
+    wsa  = _wsa(filters)
+    sql = f"""
+WITH schema_anchor AS (
+    SELECT source_schema, MAX(created_at) AS max_date
+    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS {wsa}
+    GROUP BY source_schema
+),
+{_NOTE_FLAGS_CTE},
+admissions AS (
+    SELECT a.visit_id, REPLACE(LOWER(a.source_schema), '_clean', '') AS source_schema
+    FROM HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
+    WHERE 1=1 {wh_a}
+),
+visit_base AS (
+    SELECT
+        v.source_schema, v.id AS visit_id,
+        {_SEGMENT_CASE} AS acquisition_segment,
+        CASE WHEN a.visit_id IS NOT NULL THEN 1 ELSE 0 END AS is_ipd
+    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
+    INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
+    LEFT  JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
+        ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
+    LEFT  JOIN note_flags nf ON v.id = nf.visit_id AND v.source_schema = nf.source_schema
+    LEFT  JOIN admissions a  ON v.id = a.visit_id  AND v.source_schema = a.source_schema
+    WHERE v.created_at >= {_OPD_IPD_FLOOR}
+    {wh}
+)
+SELECT 'All' AS acquisition_segment,
+    COUNT(DISTINCT visit_id) AS total_opd_visits,
+    SUM(is_ipd) AS ipd_admissions,
+    ROUND(DIV0(SUM(is_ipd), COUNT(DISTINCT visit_id)) * 100, 2) AS conversion_rate_pct
+FROM visit_base
+UNION ALL
+SELECT acquisition_segment,
+    COUNT(DISTINCT visit_id) AS total_opd_visits,
+    SUM(is_ipd) AS ipd_admissions,
+    ROUND(DIV0(SUM(is_ipd), COUNT(DISTINCT visit_id)) * 100, 2) AS conversion_rate_pct
+FROM visit_base
+WHERE acquisition_segment IS NOT NULL
+GROUP BY acquisition_segment
+ORDER BY CASE WHEN acquisition_segment = 'All' THEN 0 ELSE 1 END, conversion_rate_pct DESC
+"""
+    return run_query(sql)
+
+
+def load_opd_ipd_monthly(filters: dict, run_query) -> pd.DataFrame:
+    """OPD->IPD: monthly rate for overall and retention-universe series.
+    Columns: series, visit_month, total_opd_visits, ipd_admissions, monthly_rate_pct."""
+    wh   = _w(filters)
+    wh_a = _w_adm(filters)
+    wsa  = _wsa(filters)
+    sql = f"""
+WITH schema_anchor AS (
+    SELECT source_schema, MAX(created_at) AS max_date
+    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS {wsa}
+    GROUP BY source_schema
+),
+{_NOTE_FLAGS_CTE},
+admissions AS (
+    SELECT a.visit_id, REPLACE(LOWER(a.source_schema), '_clean', '') AS source_schema
+    FROM HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
+    WHERE 1=1 {wh_a}
+),
+visit_base AS (
+    SELECT
+        v.source_schema, v.id AS visit_id,
+        DATE_TRUNC('month', v.created_at) AS visit_month,
+        {_SEGMENT_CASE} AS acquisition_segment,
+        CASE WHEN a.visit_id IS NOT NULL THEN 1 ELSE 0 END AS is_ipd
+    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
+    INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
+    LEFT  JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
+        ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
+    LEFT  JOIN note_flags nf ON v.id = nf.visit_id AND v.source_schema = nf.source_schema
+    LEFT  JOIN admissions a  ON v.id = a.visit_id  AND v.source_schema = a.source_schema
+    WHERE v.created_at >= {_OPD_IPD_FLOOR}
+    {wh}
+)
+SELECT 'overall' AS series, visit_month,
+    COUNT(DISTINCT visit_id) AS total_opd_visits,
+    SUM(is_ipd) AS ipd_admissions,
+    ROUND(DIV0(SUM(is_ipd), COUNT(DISTINCT visit_id)) * 100, 2) AS monthly_rate_pct
+FROM visit_base
+GROUP BY visit_month
+UNION ALL
+SELECT 'retention' AS series, visit_month,
+    COUNT(DISTINCT visit_id) AS total_opd_visits,
+    SUM(is_ipd) AS ipd_admissions,
+    ROUND(DIV0(SUM(is_ipd), COUNT(DISTINCT visit_id)) * 100, 2) AS monthly_rate_pct
+FROM visit_base
+WHERE acquisition_segment IS NOT NULL
+GROUP BY visit_month
+ORDER BY series, visit_month
+"""
+    return run_query(sql)
+
+
+def load_opd_ipd_by_diagnosis(filters: dict, run_query) -> pd.DataFrame:
+    """OPD->IPD Section B: conversion rate per cleaned diagnosis name.
+    Columns: cleaned_diagnosis_name, total_opd_cases_with_this_diagnosis,
+             successful_ipd_admissions, true_opd_to_ipd_conversion_rate."""
+    wh   = _w(filters)
+    wh_a = _w_adm(filters)
+    wsa  = _wsa(filters)
+    sql = f"""
+WITH schema_anchor AS (
+    SELECT source_schema, MAX(created_at) AS max_date
+    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS {wsa}
+    GROUP BY source_schema
+),
+admissions AS (
+    SELECT a.visit_id, REPLACE(LOWER(a.source_schema), '_clean', '') AS source_schema
+    FROM HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
+    WHERE 1=1 {wh_a}
+),
+visit_dx AS (
+    SELECT
+        v.source_schema, v.id AS visit_id,
+        COALESCE(
+            NULLIF(TRIM(dx.disease_burden_group_1), ''),
+            CASE
+                WHEN n.diagnosis ILIKE '%typhoid%'                       THEN 'Typhoid'
+                WHEN n.diagnosis ILIKE '%malaria%'                       THEN 'Malaria'
+                WHEN n.diagnosis ILIKE '%sepsis%'                        THEN 'Sepsis'
+                WHEN n.diagnosis ILIKE '%upper airway%'
+                  OR n.diagnosis ILIKE '%respiratory%'                   THEN 'Chr Upper Airway'
+                WHEN n.diagnosis ILIKE '%oncol%' OR n.diagnosis ILIKE '%cancer%' THEN 'Oncology'
+                WHEN n.diagnosis ILIKE '%hypertension%'                  THEN 'Hypertension'
+                WHEN n.diagnosis ILIKE '%antenatal%'
+                  OR n.diagnosis ILIKE '%anc%'                           THEN 'Antenatal Care'
+                ELSE NULL
+            END
+        ) AS cleaned_diagnosis_name,
+        CASE WHEN a.visit_id IS NOT NULL THEN 1 ELSE 0 END AS is_ipd
+    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
+    INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
+    LEFT  JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
+        ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
+    LEFT  JOIN HOSPITALS.STAGING.STG_EVALUATION_DOCTOR_NOTES n
+        ON v.id = n.visit_id AND v.source_schema = n.source_schema
+    LEFT  JOIN admissions a ON v.id = a.visit_id AND v.source_schema = a.source_schema
+    WHERE v.created_at >= {_OPD_IPD_FLOOR}
+    {wh}
+)
+SELECT
+    cleaned_diagnosis_name,
+    COUNT(DISTINCT visit_id)                                     AS total_opd_cases_with_this_diagnosis,
+    SUM(is_ipd)                                                  AS successful_ipd_admissions,
+    ROUND(DIV0(SUM(is_ipd), COUNT(DISTINCT visit_id)) * 100, 2) AS true_opd_to_ipd_conversion_rate
+FROM visit_dx
+WHERE cleaned_diagnosis_name IS NOT NULL
+GROUP BY 1
+HAVING COUNT(DISTINCT visit_id) >= 5
+ORDER BY true_opd_to_ipd_conversion_rate DESC
+"""
+    return run_query(sql)
+
+
+def load_comorbidity_conversion(filters: dict, run_query) -> pd.DataFrame:
+    """OPD->IPD Section C: conversion by comorbidity group + monthly trend.
+    Aggregate rows have visit_month=NULL. Columns: patient_group, visit_month,
+    total_opd_visits, ipd_admissions, conversion_rate_pct, delta_from_group_avg."""
+    wh   = _w(filters)
+    wh_a = _w_adm(filters)
+    wsa  = _wsa(filters)
+    sql = f"""
+WITH schema_anchor AS (
+    SELECT source_schema, MAX(created_at) AS max_date
+    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS {wsa}
+    GROUP BY source_schema
+),
+admissions AS (
+    SELECT a.visit_id, REPLACE(LOWER(a.source_schema), '_clean', '') AS source_schema
+    FROM HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
+    WHERE 1=1 {wh_a}
+),
+visit_base AS (
+    SELECT
+        v.source_schema, v.id AS visit_id,
+        DATE_TRUNC('month', v.created_at) AS visit_month,
+        CASE
+            WHEN COALESCE(dx.is_chronic_1,0)=1 AND COALESCE(dx.is_chronic_2,0)=1
+              AND COALESCE(NULLIF(TRIM(dx.disease_burden_group_2),''), NULL) IS NOT NULL
+                THEN 'Chronic Comorbid'
+            WHEN COALESCE(NULLIF(TRIM(dx.disease_burden_group_2),''), NULL) IS NOT NULL
+                THEN 'Comorbid'
+            ELSE 'Single Diagnosis'
+        END AS patient_group,
+        CASE WHEN a.visit_id IS NOT NULL THEN 1 ELSE 0 END AS is_ipd
+    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
+    INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
+    LEFT  JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
+        ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
+    LEFT  JOIN admissions a ON v.id = a.visit_id AND v.source_schema = a.source_schema
+    WHERE v.created_at >= {_OPD_IPD_FLOOR}
+    {wh}
+),
+overall_avg AS (
+    SELECT ROUND(DIV0(SUM(is_ipd), COUNT(DISTINCT visit_id)) * 100, 2) AS avg_rate
+    FROM visit_base
+),
+group_agg AS (
+    SELECT patient_group,
+        COUNT(DISTINCT visit_id) AS total_opd_visits,
+        SUM(is_ipd) AS ipd_admissions,
+        ROUND(DIV0(SUM(is_ipd), COUNT(DISTINCT visit_id)) * 100, 2) AS conversion_rate_pct
+    FROM visit_base
+    GROUP BY patient_group
+)
+SELECT
+    g.patient_group, NULL::DATE AS visit_month,
+    g.total_opd_visits, g.ipd_admissions, g.conversion_rate_pct,
+    ROUND(g.conversion_rate_pct - o.avg_rate, 2) AS delta_from_group_avg
+FROM group_agg g CROSS JOIN overall_avg o
+UNION ALL
+SELECT
+    patient_group, visit_month,
+    COUNT(DISTINCT visit_id) AS total_opd_visits,
+    SUM(is_ipd) AS ipd_admissions,
+    ROUND(DIV0(SUM(is_ipd), COUNT(DISTINCT visit_id)) * 100, 2) AS conversion_rate_pct,
+    NULL::FLOAT AS delta_from_group_avg
+FROM visit_base
+GROUP BY patient_group, visit_month
+ORDER BY visit_month NULLS FIRST, patient_group
+"""
+    return run_query(sql)
+
+
+def load_opd_ipd_chronic_by_age(filters: dict, run_query) -> pd.DataFrame:
+    """OPD->IPD Section C right: chronic segment conversion by age group.
+    Columns: age_group, total_opd_visits, ipd_admissions, conversion_rate_pct."""
+    wh   = _w(filters)
+    wh_a = _w_adm(filters)
+    wsa  = _wsa(filters)
+    sql = f"""
+WITH schema_anchor AS (
+    SELECT source_schema, MAX(created_at) AS max_date
+    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS {wsa}
+    GROUP BY source_schema
+),
+{_NOTE_FLAGS_CTE},
+admissions AS (
+    SELECT a.visit_id, REPLACE(LOWER(a.source_schema), '_clean', '') AS source_schema
+    FROM HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
+    WHERE 1=1 {wh_a}
+),
+visit_base AS (
+    SELECT
+        v.source_schema, v.id AS visit_id,
+        CASE
+            WHEN TIMESTAMPDIFF('year', rp.dob, sa.max_date) < 5   THEN 'Toddler (0-4)'
+            WHEN TIMESTAMPDIFF('year', rp.dob, sa.max_date) < 13  THEN 'Child (5-12)'
+            WHEN TIMESTAMPDIFF('year', rp.dob, sa.max_date) < 18  THEN 'Adolescent (13-17)'
+            WHEN TIMESTAMPDIFF('year', rp.dob, sa.max_date) < 25  THEN 'Youth (18-24)'
+            WHEN TIMESTAMPDIFF('year', rp.dob, sa.max_date) < 35  THEN 'Young Adult (25-34)'
+            WHEN TIMESTAMPDIFF('year', rp.dob, sa.max_date) < 45  THEN 'Adult (35-44)'
+            WHEN TIMESTAMPDIFF('year', rp.dob, sa.max_date) < 55  THEN 'Middle Age (45-54)'
+            WHEN TIMESTAMPDIFF('year', rp.dob, sa.max_date) < 65  THEN 'Older Adult (55-64)'
+            ELSE 'Senior (65+)'
+        END AS age_group,
+        CASE WHEN a.visit_id IS NOT NULL THEN 1 ELSE 0 END AS is_ipd
+    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
+    INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
+    LEFT  JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
+        ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
+    LEFT  JOIN note_flags nf ON v.id = nf.visit_id AND v.source_schema = nf.source_schema
+    LEFT  JOIN HOSPITALS.STAGING.STG_RECEPTION_PATIENTS rp
+        ON v.patient = rp.patient_id AND v.source_schema = rp.source_schema
+    LEFT  JOIN admissions a ON v.id = a.visit_id AND v.source_schema = a.source_schema
+    WHERE v.created_at >= {_OPD_IPD_FLOOR}
+      AND (COALESCE(dx.is_chronic_1,0)=1 OR COALESCE(dx.is_chronic_2,0)=1
+           OR COALESCE(nf.chronic_flag,0)=1)
+    {wh}
+)
+SELECT age_group,
+    COUNT(DISTINCT visit_id) AS total_opd_visits,
+    SUM(is_ipd) AS ipd_admissions,
+    ROUND(DIV0(SUM(is_ipd), COUNT(DISTINCT visit_id)) * 100, 2) AS conversion_rate_pct
+FROM visit_base
+GROUP BY age_group
+HAVING COUNT(DISTINCT visit_id) >= 5
+ORDER BY conversion_rate_pct DESC
+"""
+    return run_query(sql)
+
+
+def load_escalation_by_age(filters: dict, run_query) -> pd.DataFrame:
+    """Section D: 72h OP->IP escalations by age group.
+    Columns: age_group, total_escalations."""
+    wh   = _w(filters)
+    wh_a = _w_adm(filters)
+    wsa  = _wsa(filters)
+    sql = f"""
+WITH schema_anchor AS (
+    SELECT source_schema, MAX(created_at) AS max_date
+    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS {wsa}
+    GROUP BY source_schema
+),
+admissions AS (
+    SELECT a.visit_id, a.admitted_at,
+           REPLACE(LOWER(a.source_schema), '_clean', '') AS source_schema
+    FROM HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
+    WHERE 1=1 {wh_a}
+),
+escalations AS (
+    SELECT v.id AS visit_id, v.source_schema,
+        CASE
+            WHEN TIMESTAMPDIFF('year', rp.dob, sa.max_date) < 5   THEN 'Toddler (0-4)'
+            WHEN TIMESTAMPDIFF('year', rp.dob, sa.max_date) < 13  THEN 'Child (5-12)'
+            WHEN TIMESTAMPDIFF('year', rp.dob, sa.max_date) < 18  THEN 'Adolescent (13-17)'
+            WHEN TIMESTAMPDIFF('year', rp.dob, sa.max_date) < 25  THEN 'Youth (18-24)'
+            WHEN TIMESTAMPDIFF('year', rp.dob, sa.max_date) < 35  THEN 'Young Adult (25-34)'
+            WHEN TIMESTAMPDIFF('year', rp.dob, sa.max_date) < 45  THEN 'Adult (35-44)'
+            WHEN TIMESTAMPDIFF('year', rp.dob, sa.max_date) < 55  THEN 'Middle Age (45-54)'
+            WHEN TIMESTAMPDIFF('year', rp.dob, sa.max_date) < 65  THEN 'Older Adult (55-64)'
+            ELSE 'Senior (65+)'
+        END AS age_group
+    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
+    INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
+    INNER JOIN admissions a
+        ON v.id = a.visit_id AND v.source_schema = a.source_schema
+        AND DATEDIFF('hour', v.created_at, a.admitted_at) BETWEEN 0 AND 72
+    LEFT  JOIN HOSPITALS.STAGING.STG_RECEPTION_PATIENTS rp
+        ON v.patient = rp.patient_id AND v.source_schema = rp.source_schema
+    WHERE v.created_at >= {_OPD_IPD_FLOOR}
+    {wh}
+)
+SELECT age_group, COUNT(DISTINCT visit_id) AS total_escalations
+FROM escalations
+GROUP BY age_group
+ORDER BY total_escalations DESC
+"""
+    return run_query(sql)
+
+
+def load_operational_triangle(filters: dict, run_query) -> pd.DataFrame:
+    """Section E: monthly clinician load + conversion rate + wait gap + strain signal.
+    Covers last 13 months. Columns: visit_month, conversion_rate_pct,
+    avg_visits_per_clinician, wait_time_gap_mins, strain_signal."""
+    wh   = _w(filters)
+    wh_a = _w_adm(filters)
+    wsa  = _wsa(filters)
+    sql = f"""
+WITH schema_anchor AS (
+    SELECT source_schema, MAX(created_at) AS max_date
+    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS {wsa}
+    GROUP BY source_schema
+),
+admissions AS (
+    SELECT a.visit_id, REPLACE(LOWER(a.source_schema), '_clean', '') AS source_schema
+    FROM HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
+    WHERE 1=1 {wh_a}
+),
+first_note AS (
+    SELECT visit_id, source_schema, MIN(created_at) AS note_time
+    FROM HOSPITALS.STAGING.STG_EVALUATION_DOCTOR_NOTES
+    GROUP BY 1, 2
+),
+monthly AS (
+    SELECT
+        DATE_TRUNC('month', v.created_at)                            AS visit_month,
+        COUNT(DISTINCT v.id)                                         AS total_opd_visits,
+        COUNT(DISTINCT v.user)                                       AS total_clinicians,
+        SUM(CASE WHEN a.visit_id IS NOT NULL THEN 1 ELSE 0 END)     AS ipd_admissions,
+        AVG(DATEDIFF('minute', v.created_at, fn.note_time))         AS avg_wait_to_note_mins
+    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
+    INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
+    LEFT  JOIN admissions a  ON v.id = a.visit_id  AND v.source_schema = a.source_schema
+    LEFT  JOIN first_note fn ON v.id = fn.visit_id AND v.source_schema = fn.source_schema
+    WHERE v.created_at >= DATEADD('month', -13, sa.max_date)
+      AND v.user IS NOT NULL
+    {wh}
+    GROUP BY 1
+)
+SELECT
+    visit_month,
+    ROUND(DIV0(ipd_admissions, total_opd_visits) * 100, 2)           AS conversion_rate_pct,
+    ROUND(DIV0(total_opd_visits, NULLIF(total_clinicians,0)), 1)      AS avg_visits_per_clinician,
+    ROUND(COALESCE(avg_wait_to_note_mins, 30) - 30, 1)               AS wait_time_gap_mins,
+    CASE
+        WHEN DIV0(total_opd_visits, NULLIF(total_clinicians,0)) > 90
+             AND DIV0(ipd_admissions, total_opd_visits) * 100 < 5.0  THEN 'HIGH_STRAIN'
+        WHEN DIV0(total_opd_visits, NULLIF(total_clinicians,0)) > 75
+             AND (DIV0(ipd_admissions, total_opd_visits) * 100 < 5.0
+                  OR ABS(COALESCE(avg_wait_to_note_mins,30) - 30) > 8) THEN 'CAPACITY_GAP'
+        ELSE 'AS_EXPECTED'
+    END                                                               AS strain_signal
+FROM monthly
+ORDER BY visit_month
+"""
+    return run_query(sql)
+
+
+# ── OPD → IPD v2 functions (column contract matches render_tab_opd_ipd) ──────
+
+def load_opd_ipd_overall(filters: dict, run_query) -> pd.DataFrame:
+    """Single-row header KPIs.
+    Columns (lowercase after _normalise): true_average_opd_to_ipd_rate,
+    total_opd_to_ipd, total_opd_visits."""
+    wh   = _w(filters)
+    wh_a = _w_adm(filters)
+    wsa  = _wsa(filters)
+    sql = f"""
+WITH schema_anchor AS (
+    SELECT source_schema, MAX(created_at) AS max_date
+    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS {wsa}
+    GROUP BY source_schema
+),
+admissions AS (
+    SELECT a.visit_id, REPLACE(LOWER(a.source_schema), '_clean', '') AS source_schema
+    FROM HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
+    WHERE 1=1 {wh_a}
+),
+visit_base AS (
+    SELECT v.source_schema, v.id AS visit_id,
+        CASE WHEN a.visit_id IS NOT NULL THEN 1 ELSE 0 END AS is_ipd
+    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
+    INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
+    LEFT  JOIN admissions a ON v.id = a.visit_id AND v.source_schema = a.source_schema
+    WHERE v.created_at >= {_OPD_IPD_FLOOR}
+    {wh}
+)
+SELECT
+    ROUND(DIV0(SUM(is_ipd), COUNT(DISTINCT visit_id)) * 100, 2) AS TRUE_AVERAGE_OPD_TO_IPD_RATE,
+    SUM(is_ipd)                                                  AS TOTAL_OPD_TO_IPD,
+    COUNT(DISTINCT visit_id)                                     AS TOTAL_OPD_VISITS
+FROM visit_base
+"""
+    return run_query(sql)
+
+
+def load_opd_ipd_monthly_rate(filters: dict, run_query) -> pd.DataFrame:
+    """Monthly overall conversion rate.
+    Columns: conversion_month, monthly_opd_to_ipd_rate."""
+    wh   = _w(filters)
+    wh_a = _w_adm(filters)
+    wsa  = _wsa(filters)
+    sql = f"""
+WITH schema_anchor AS (
+    SELECT source_schema, MAX(created_at) AS max_date
+    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS {wsa}
+    GROUP BY source_schema
+),
+admissions AS (
+    SELECT a.visit_id, REPLACE(LOWER(a.source_schema), '_clean', '') AS source_schema
+    FROM HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
+    WHERE 1=1 {wh_a}
+),
+visit_base AS (
+    SELECT v.source_schema, v.id AS visit_id,
+        DATE_TRUNC('month', v.created_at) AS visit_month,
+        CASE WHEN a.visit_id IS NOT NULL THEN 1 ELSE 0 END AS is_ipd
+    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
+    INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
+    LEFT  JOIN admissions a ON v.id = a.visit_id AND v.source_schema = a.source_schema
+    WHERE v.created_at >= {_OPD_IPD_FLOOR}
+    {wh}
+)
+SELECT
+    visit_month                                                      AS CONVERSION_MONTH,
+    ROUND(DIV0(SUM(is_ipd), COUNT(DISTINCT visit_id)) * 100, 2)    AS MONTHLY_OPD_TO_IPD_RATE
+FROM visit_base
+GROUP BY visit_month
+ORDER BY visit_month
+"""
+    return run_query(sql)
+
+
+def load_opd_ipd_disease_mix(filters: dict, run_query) -> pd.DataFrame:
+    """Section B: per-diagnosis breakdown.
+    Columns: cleaned_diagnosis_name, total_opd_cases_with_this_diagnosis,
+             successful_ipd_admissions."""
+    wh   = _w(filters)
+    wh_a = _w_adm(filters)
+    wsa  = _wsa(filters)
+    sql = f"""
+WITH schema_anchor AS (
+    SELECT source_schema, MAX(created_at) AS max_date
+    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS {wsa}
+    GROUP BY source_schema
+),
+admissions AS (
+    SELECT a.visit_id, REPLACE(LOWER(a.source_schema), '_clean', '') AS source_schema
+    FROM HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
+    WHERE 1=1 {wh_a}
+),
+visit_dx AS (
+    SELECT v.source_schema, v.id AS visit_id,
+        COALESCE(
+            NULLIF(TRIM(dx.disease_burden_group_1), ''),
+            CASE
+                WHEN n.diagnosis ILIKE '%typhoid%'                              THEN 'Typhoid'
+                WHEN n.diagnosis ILIKE '%malaria%'                              THEN 'Malaria'
+                WHEN n.diagnosis ILIKE '%sepsis%'                               THEN 'Sepsis'
+                WHEN n.diagnosis ILIKE '%upper airway%'
+                  OR n.diagnosis ILIKE '%respiratory%'                          THEN 'Chr Upper Airway'
+                WHEN n.diagnosis ILIKE '%oncol%' OR n.diagnosis ILIKE '%cancer%' THEN 'Oncology'
+                WHEN n.diagnosis ILIKE '%hypertension%'                         THEN 'Hypertension'
+                WHEN n.diagnosis ILIKE '%antenatal%'
+                  OR n.diagnosis ILIKE '%anc%'                                  THEN 'Antenatal Care'
+                ELSE NULL
+            END
+        ) AS cleaned_diagnosis_name,
+        CASE WHEN a.visit_id IS NOT NULL THEN 1 ELSE 0 END AS is_ipd
+    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
+    INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
+    LEFT  JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
+        ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
+    LEFT  JOIN HOSPITALS.STAGING.STG_EVALUATION_DOCTOR_NOTES n
+        ON v.id = n.visit_id AND v.source_schema = n.source_schema
+    LEFT  JOIN admissions a ON v.id = a.visit_id AND v.source_schema = a.source_schema
+    WHERE v.created_at >= {_OPD_IPD_FLOOR}
+    {wh}
+)
+SELECT
+    cleaned_diagnosis_name,
+    COUNT(DISTINCT visit_id) AS TOTAL_OPD_CASES_WITH_THIS_DIAGNOSIS,
+    SUM(is_ipd)              AS SUCCESSFUL_IPD_ADMISSIONS
+FROM visit_dx
+WHERE cleaned_diagnosis_name IS NOT NULL
+GROUP BY 1
+HAVING COUNT(DISTINCT visit_id) >= 5
+ORDER BY SUM(is_ipd) DESC
+"""
+    return run_query(sql)
+
+
+def load_opd_ipd_comorbidity(filters: dict, run_query) -> pd.DataFrame:
+    """Section C: comorbidity conversion — aggregate + monthly encoded rows.
+    Aggregate rows: patient_group in ('Single Diagnosis','Comorbid','Chronic Comorbid').
+    Monthly rows: patient_group = 'Group — YYYY-MM-DD'.
+    Columns: patient_group, total_opd_visits, conversion_rate_pct, delta_from_group_avg."""
+    wh   = _w(filters)
+    wh_a = _w_adm(filters)
+    wsa  = _wsa(filters)
+    sql = f"""
+WITH schema_anchor AS (
+    SELECT source_schema, MAX(created_at) AS max_date
+    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS {wsa}
+    GROUP BY source_schema
+),
+admissions AS (
+    SELECT a.visit_id, REPLACE(LOWER(a.source_schema), '_clean', '') AS source_schema
+    FROM HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
+    WHERE 1=1 {wh_a}
+),
+visit_base AS (
+    SELECT v.source_schema, v.id AS visit_id,
+        DATE_TRUNC('month', v.created_at) AS visit_month,
+        CASE
+            WHEN COALESCE(dx.is_chronic_1,0)=1 AND COALESCE(dx.is_chronic_2,0)=1
+              AND COALESCE(NULLIF(TRIM(dx.disease_burden_group_2),''), NULL) IS NOT NULL
+                THEN 'Chronic Comorbid'
+            WHEN COALESCE(NULLIF(TRIM(dx.disease_burden_group_2),''), NULL) IS NOT NULL
+                THEN 'Comorbid'
+            ELSE 'Single Diagnosis'
+        END AS patient_group,
+        CASE WHEN a.visit_id IS NOT NULL THEN 1 ELSE 0 END AS is_ipd
+    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
+    INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
+    LEFT  JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
+        ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
+    LEFT  JOIN admissions a ON v.id = a.visit_id AND v.source_schema = a.source_schema
+    WHERE v.created_at >= {_OPD_IPD_FLOOR}
+    {wh}
+),
+overall_avg AS (
+    SELECT ROUND(DIV0(SUM(is_ipd), COUNT(DISTINCT visit_id)) * 100, 2) AS avg_rate
+    FROM visit_base
+),
+group_agg AS (
+    SELECT patient_group,
+        COUNT(DISTINCT visit_id) AS total_opd_visits,
+        SUM(is_ipd) AS ipd_admissions,
+        ROUND(DIV0(SUM(is_ipd), COUNT(DISTINCT visit_id)) * 100, 2) AS conversion_rate_pct
+    FROM visit_base
+    GROUP BY patient_group
+)
+SELECT
+    g.patient_group                               AS PATIENT_GROUP,
+    g.total_opd_visits                            AS TOTAL_OPD_VISITS,
+    g.conversion_rate_pct                         AS CONVERSION_RATE_PCT,
+    ROUND(g.conversion_rate_pct - o.avg_rate, 2) AS DELTA_FROM_GROUP_AVG
+FROM group_agg g CROSS JOIN overall_avg o
+UNION ALL
+SELECT
+    patient_group || ' — ' || TO_CHAR(visit_month, 'YYYY-MM-DD') AS PATIENT_GROUP,
+    COUNT(DISTINCT visit_id)                                       AS TOTAL_OPD_VISITS,
+    ROUND(DIV0(SUM(is_ipd), COUNT(DISTINCT visit_id)) * 100, 2)  AS CONVERSION_RATE_PCT,
+    NULL::FLOAT                                                    AS DELTA_FROM_GROUP_AVG
+FROM visit_base
+GROUP BY patient_group, visit_month
+ORDER BY 1
+"""
+    return run_query(sql)
+
+
+def load_opd_ipd_retention(filters: dict, run_query) -> pd.DataFrame:
+    """Section A & C: multi-dim retention universe table.
+    Rows cover: RETENTION_UNIVERSE_TOTAL agg, per-segment agg, monthly per-segment,
+    and CHRONIC by age group (visit_month=NULL, age_group set).
+    Columns: acquisition_segment, visit_month, age_group,
+             total_opd_visits, ipd_admissions, conversion_rate_pct."""
+    wh   = _w(filters)
+    wh_a = _w_adm(filters)
+    wsa  = _wsa(filters)
+    sql = f"""
+WITH schema_anchor AS (
+    SELECT source_schema, MAX(created_at) AS max_date
+    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS {wsa}
+    GROUP BY source_schema
+),
+{_NOTE_FLAGS_CTE},
+admissions AS (
+    SELECT a.visit_id, REPLACE(LOWER(a.source_schema), '_clean', '') AS source_schema
+    FROM HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
+    WHERE 1=1 {wh_a}
+),
+visit_base AS (
+    SELECT
+        v.source_schema, v.id AS visit_id,
+        DATE_TRUNC('month', v.created_at)  AS visit_month,
+        {_SEGMENT_CASE}                    AS acquisition_segment,
+        CASE
+            WHEN TIMESTAMPDIFF('year', rp.dob, sa.max_date) < 5   THEN 'Toddler (0-4)'
+            WHEN TIMESTAMPDIFF('year', rp.dob, sa.max_date) < 13  THEN 'Child (5-12)'
+            WHEN TIMESTAMPDIFF('year', rp.dob, sa.max_date) < 18  THEN 'Adolescent (13-17)'
+            WHEN TIMESTAMPDIFF('year', rp.dob, sa.max_date) < 25  THEN 'Youth (18-24)'
+            WHEN TIMESTAMPDIFF('year', rp.dob, sa.max_date) < 35  THEN 'Young Adult (25-34)'
+            WHEN TIMESTAMPDIFF('year', rp.dob, sa.max_date) < 45  THEN 'Adult (35-44)'
+            WHEN TIMESTAMPDIFF('year', rp.dob, sa.max_date) < 55  THEN 'Middle Age (45-54)'
+            WHEN TIMESTAMPDIFF('year', rp.dob, sa.max_date) < 65  THEN 'Older Adult (55-64)'
+            ELSE 'Senior (65+)'
+        END                                AS age_group,
+        CASE WHEN a.visit_id IS NOT NULL THEN 1 ELSE 0 END AS is_ipd
+    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
+    INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
+    LEFT  JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
+        ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
+    LEFT  JOIN note_flags nf ON v.id = nf.visit_id AND v.source_schema = nf.source_schema
+    LEFT  JOIN HOSPITALS.STAGING.STG_RECEPTION_PATIENTS rp
+        ON v.patient = rp.patient_id AND v.source_schema = rp.source_schema
+    LEFT  JOIN admissions a ON v.id = a.visit_id AND v.source_schema = a.source_schema
+    WHERE v.created_at >= {_OPD_IPD_FLOOR}
+    {wh}
+),
+retention_base AS (
+    SELECT * FROM visit_base WHERE acquisition_segment IS NOT NULL
+)
+-- 1. RETENTION_UNIVERSE_TOTAL aggregate
+SELECT
+    'RETENTION_UNIVERSE_TOTAL' AS ACQUISITION_SEGMENT,
+    NULL::DATE                 AS VISIT_MONTH,
+    NULL::VARCHAR              AS AGE_GROUP,
+    COUNT(DISTINCT visit_id)   AS TOTAL_OPD_VISITS,
+    SUM(is_ipd)                AS IPD_ADMISSIONS,
+    ROUND(DIV0(SUM(is_ipd), COUNT(DISTINCT visit_id)) * 100, 2) AS CONVERSION_RATE_PCT
+FROM retention_base
+UNION ALL
+-- 2. Per-segment aggregates
+SELECT
+    acquisition_segment        AS ACQUISITION_SEGMENT,
+    NULL::DATE                 AS VISIT_MONTH,
+    NULL::VARCHAR              AS AGE_GROUP,
+    COUNT(DISTINCT visit_id)   AS TOTAL_OPD_VISITS,
+    SUM(is_ipd)                AS IPD_ADMISSIONS,
+    ROUND(DIV0(SUM(is_ipd), COUNT(DISTINCT visit_id)) * 100, 2) AS CONVERSION_RATE_PCT
+FROM retention_base
+GROUP BY acquisition_segment
+UNION ALL
+-- 3. Monthly per-segment (age_group stays NULL)
+SELECT
+    acquisition_segment        AS ACQUISITION_SEGMENT,
+    visit_month                AS VISIT_MONTH,
+    NULL::VARCHAR              AS AGE_GROUP,
+    COUNT(DISTINCT visit_id)   AS TOTAL_OPD_VISITS,
+    SUM(is_ipd)                AS IPD_ADMISSIONS,
+    ROUND(DIV0(SUM(is_ipd), COUNT(DISTINCT visit_id)) * 100, 2) AS CONVERSION_RATE_PCT
+FROM retention_base
+GROUP BY acquisition_segment, visit_month
+UNION ALL
+-- 4. CHRONIC by age group (visit_month stays NULL)
+SELECT
+    'Chronic'                  AS ACQUISITION_SEGMENT,
+    NULL::DATE                 AS VISIT_MONTH,
+    age_group                  AS AGE_GROUP,
+    COUNT(DISTINCT visit_id)   AS TOTAL_OPD_VISITS,
+    SUM(is_ipd)                AS IPD_ADMISSIONS,
+    ROUND(DIV0(SUM(is_ipd), COUNT(DISTINCT visit_id)) * 100, 2) AS CONVERSION_RATE_PCT
+FROM retention_base
+WHERE acquisition_segment = 'Chronic' AND age_group IS NOT NULL
+GROUP BY age_group
+ORDER BY ACQUISITION_SEGMENT, VISIT_MONTH NULLS FIRST, AGE_GROUP NULLS FIRST
+"""
+    return run_query(sql)
+
+
+def load_opd_ipd_escalation_72h(filters: dict, run_query) -> pd.DataFrame:
+    """Section D: 72h OPD→IPD escalations by age group and diagnosis.
+    Columns: age_group, clean_diagnosis, total_escalations."""
+    wh   = _w(filters)
+    wh_a = _w_adm(filters)
+    wsa  = _wsa(filters)
+    sql = f"""
+WITH schema_anchor AS (
+    SELECT source_schema, MAX(created_at) AS max_date
+    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS {wsa}
+    GROUP BY source_schema
+),
+admissions AS (
+    SELECT a.visit_id, a.admitted_at,
+           REPLACE(LOWER(a.source_schema), '_clean', '') AS source_schema
+    FROM HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
+    WHERE 1=1 {wh_a}
+),
+escalations AS (
+    SELECT v.id AS visit_id, v.source_schema,
+        CASE
+            WHEN TIMESTAMPDIFF('year', rp.dob, sa.max_date) < 5   THEN 'Toddler (0-4)'
+            WHEN TIMESTAMPDIFF('year', rp.dob, sa.max_date) < 13  THEN 'Child (5-12)'
+            WHEN TIMESTAMPDIFF('year', rp.dob, sa.max_date) < 18  THEN 'Adolescent (13-17)'
+            WHEN TIMESTAMPDIFF('year', rp.dob, sa.max_date) < 25  THEN 'Youth (18-24)'
+            WHEN TIMESTAMPDIFF('year', rp.dob, sa.max_date) < 35  THEN 'Young Adult (25-34)'
+            WHEN TIMESTAMPDIFF('year', rp.dob, sa.max_date) < 45  THEN 'Adult (35-44)'
+            WHEN TIMESTAMPDIFF('year', rp.dob, sa.max_date) < 55  THEN 'Middle Age (45-54)'
+            WHEN TIMESTAMPDIFF('year', rp.dob, sa.max_date) < 65  THEN 'Older Adult (55-64)'
+            ELSE 'Senior (65+)'
+        END AS age_group,
+        IFF(
+            COALESCE(
+                NULLIF(TRIM(dx.disease_burden_group_1), ''),
+                CASE
+                    WHEN n.diagnosis ILIKE '%respiratory%'
+                      OR n.diagnosis ILIKE '%pneumonia%'    THEN 'Respiratory'
+                    WHEN n.diagnosis ILIKE '%malaria%'      THEN 'Malaria'
+                    WHEN n.diagnosis ILIKE '%sepsis%'       THEN 'Sepsis'
+                    WHEN n.diagnosis ILIKE '%trauma%'
+                      OR n.diagnosis ILIKE '%injury%'       THEN 'Trauma'
+                    ELSE 'Unknown'
+                END
+            ) = 'Communicable - Other Infectious',
+            'Communicable Sepsis',
+            COALESCE(
+                NULLIF(TRIM(dx.disease_burden_group_1), ''),
+                CASE
+                    WHEN n.diagnosis ILIKE '%respiratory%'
+                      OR n.diagnosis ILIKE '%pneumonia%'    THEN 'Respiratory'
+                    WHEN n.diagnosis ILIKE '%malaria%'      THEN 'Malaria'
+                    WHEN n.diagnosis ILIKE '%sepsis%'       THEN 'Sepsis'
+                    WHEN n.diagnosis ILIKE '%trauma%'
+                      OR n.diagnosis ILIKE '%injury%'       THEN 'Trauma'
+                    ELSE 'Unknown'
+                END
+            )
+        ) AS clean_diagnosis
+    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
+    INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
+    INNER JOIN admissions a
+        ON v.id = a.visit_id AND v.source_schema = a.source_schema
+        AND DATEDIFF('hour', v.created_at, a.admitted_at) BETWEEN 0 AND 72
+    LEFT  JOIN HOSPITALS.STAGING.STG_RECEPTION_PATIENTS rp
+        ON v.patient = rp.patient_id AND v.source_schema = rp.source_schema
+    LEFT  JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
+        ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
+    LEFT  JOIN HOSPITALS.STAGING.STG_EVALUATION_DOCTOR_NOTES n
+        ON v.id = n.visit_id AND v.source_schema = n.source_schema
+    WHERE v.created_at >= {_OPD_IPD_FLOOR}
+    {wh}
+)
+SELECT
+    age_group                AS AGE_GROUP,
+    clean_diagnosis          AS CLEAN_DIAGNOSIS,
+    COUNT(DISTINCT visit_id) AS TOTAL_ESCALATIONS
+FROM escalations
+GROUP BY age_group, clean_diagnosis
+ORDER BY TOTAL_ESCALATIONS DESC
+"""
+    return run_query(sql)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CLINICAL ACTIVITY TAB
+# ══════════════════════════════════════════════════════════════════════════════
+
+def load_ca_ward_summary(filters: dict, run_query) -> pd.DataFrame:
+    """A1: Ward summary — admissions, LOS, readmission rate, patient-request discharge %."""
+    wh_a = _w_adm(filters)
+    sql = f"""
+SELECT
+    LOWER(REPLACE(a.source_schema, '_CLEAN', ''))                              AS source_schema,
+    ward_name,
+    COUNT(original_id)                                                         AS total_admissions,
+    COUNT(CASE WHEN discharged_at IS NOT NULL THEN 1 END)                      AS total_discharges,
+    COUNT(CASE WHEN discharged_at IS NULL     THEN 1 END)                      AS still_admitted,
+    ROUND(MEDIAN(los_days), 1)                                                 AS median_los,
+    ROUND(AVG(los_days), 1)                                                    AS avg_los,
+    COUNT(CASE WHEN is_30day_readmission = TRUE THEN 1 END)                    AS day_readmission_30,
+    ROUND(DIV0(
+        COUNT(CASE WHEN is_30day_readmission = TRUE THEN 1 END),
+        COUNT(CASE WHEN discharged_at IS NOT NULL   THEN 1 END)
+    ) * 100.0, 2)                                                              AS readmission_rate,
+    COUNT(CASE WHEN discharge_type ILIKE '%Request' THEN 1 END)                AS patient_request_discharge,
+    ROUND(DIV0(
+        COUNT(CASE WHEN discharge_type ILIKE '%Request' THEN 1 END),
+        COUNT(CASE WHEN discharged_at IS NOT NULL       THEN 1 END)
+    ) * 100.0, 2)                                                              AS patient_request_discharge_pct
+FROM HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
+WHERE 1=1
+{wh_a}
+GROUP BY ALL
+ORDER BY total_admissions DESC
+"""
+    return run_query(sql)
+
+
+def load_ca_admission_growth(filters: dict, run_query) -> pd.DataFrame:
+    """A2: One row per admission — ward, month, disease burden group, LOS, readmission flag."""
+    wh_a = _w_adm(filters)
+    schemas = filters.get("source_schemas") or []
+    dn_schema = (
+        "AND source_schema IN (" + ", ".join(repr(s) for s in schemas) + ")"
+        if schemas else ""
+    )
+    sql = f"""
+WITH deduped_notes AS (
+    SELECT visit_id, source_schema, TRIM(diagnosis) AS diagnosis
+    FROM HOSPITALS.STAGING.STG_EVALUATION_DOCTOR_NOTES
+    WHERE 1=1 {dn_schema}
+    QUALIFY ROW_NUMBER() OVER (
+        PARTITION BY visit_id ORDER BY created_at ASC NULLS LAST
+    ) = 1
+)
+SELECT
+    LOWER(REPLACE(a.source_schema, '_CLEAN', ''))                              AS source_schema,
+    a.visit_id,
+    a.patient_id,
+    a.admitted_at,
+    DATE_TRUNC('month', a.admitted_at)                                         AS month,
+    a.ward_name,
+    a.ward_category,
+    a.los_days,
+    a.is_30day_readmission,
+    a.discharge_type,
+    ARRAY_TO_STRING(ARRAY_SORT(ARRAY_DISTINCT(
+        ARRAY_CONSTRUCT_COMPACT(dp.icd10_code_1, dp.icd10_code_2, dp.icd10_code_3)
+    )), '+')                                                                   AS icd10_code,
+    ARRAY_TO_STRING(ARRAY_SORT(ARRAY_DISTINCT(
+        ARRAY_CONSTRUCT_COMPACT(dp.icd10_name_1, dp.icd10_name_2, dp.icd10_name_3)
+    )), '+')                                                                   AS icd10_name,
+    ARRAY_TO_STRING(ARRAY_SORT(ARRAY_DISTINCT(
+        ARRAY_CONSTRUCT_COMPACT(
+            dp.disease_burden_group_1, dp.disease_burden_group_2, dp.disease_burden_group_3
+        )
+    )), '+')                                                                   AS disease_burden_group,
+    dp.has_chronic_diagnosis,
+    dp.has_comorbidity,
+    dn.diagnosis                                                               AS notes_diagnosis,
+    HOSPITALS.STAGING.MAP_DIAGNOSIS_TO_BURDEN_GROUP(dn.diagnosis)              AS notes_disease_burden_group
+FROM HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
+LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dp
+    ON  a.visit_id = dp.visit_id
+    AND LOWER(REPLACE(a.source_schema, '_CLEAN', '')) = dp.source_schema
+LEFT JOIN deduped_notes dn
+    ON  a.visit_id = dn.visit_id
+    AND LOWER(REPLACE(a.source_schema, '_CLEAN', '')) = dn.source_schema
+WHERE 1=1
+{wh_a}
+ORDER BY a.admitted_at DESC
+"""
+    return run_query(sql)
+
+
+def load_ca_los_boxplot(filters: dict, run_query) -> pd.DataFrame:
+    """B1: LOS distribution per ward per month — boxplot five-number summary."""
+    wh_a = _w_adm(filters)
+    sql = f"""
+WITH stats_raw AS (
+    SELECT
+        LOWER(REPLACE(a.source_schema, '_CLEAN', ''))                          AS source_schema,
+        DATE_TRUNC('month', admitted_at)                                       AS month,
+        ward_name,
+        a.los_days,
+        MIN(a.los_days) OVER (PARTITION BY DATE_TRUNC('month', admitted_at), ward_name) AS min_los,
+        PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY a.los_days)
+            OVER (PARTITION BY DATE_TRUNC('month', admitted_at), ward_name)    AS q1_los,
+        PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY a.los_days)
+            OVER (PARTITION BY DATE_TRUNC('month', admitted_at), ward_name)    AS median_los,
+        PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY a.los_days)
+            OVER (PARTITION BY DATE_TRUNC('month', admitted_at), ward_name)    AS q3_los,
+        MAX(a.los_days) OVER (PARTITION BY DATE_TRUNC('month', admitted_at), ward_name) AS max_los
+    FROM HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
+    WHERE los_days IS NOT NULL
+    {wh_a}
+),
+fences AS (
+    SELECT
+        source_schema, month, ward_name, los_days,
+        min_los, q1_los, median_los, q3_los, max_los,
+        (q3_los - q1_los)                   AS iqr,
+        (q1_los - 1.5 * (q3_los - q1_los)) AS lower_fence,
+        (q3_los + 1.5 * (q3_los - q1_los)) AS upper_fence
+    FROM stats_raw
+)
+SELECT
+    source_schema, month, ward_name,
+    min_los, q1_los, median_los, q3_los, max_los, iqr, lower_fence, upper_fence,
+    MIN(CASE WHEN los_days >= lower_fence THEN los_days END) AS lower_whisker,
+    MAX(CASE WHEN los_days <= upper_fence THEN los_days END) AS upper_whisker
+FROM fences
+GROUP BY ALL
+"""
+    return run_query(sql)
+
+
+def load_ca_los_outliers(filters: dict, run_query) -> pd.DataFrame:
+    """B3/Q4: Individual admissions beyond the IQR upper fence, with diagnosis detail."""
+    wh_a = _w_adm(filters)
+    schemas = filters.get("source_schemas") or []
+    dn_schema = (
+        "AND source_schema IN (" + ", ".join(repr(s) for s in schemas) + ")"
+        if schemas else ""
+    )
+    sql = f"""
+WITH ward_fences AS (
+    SELECT
+        LOWER(REPLACE(a.source_schema, '_CLEAN', ''))                          AS source_schema,
+        a.ward_name,
+        PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY a.los_days)              AS q1,
+        PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY a.los_days)              AS q3,
+        (q3 - q1)             AS iqr,
+        q3 + 1.5 * iqr        AS upper_fence
+    FROM HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
+    WHERE a.los_days IS NOT NULL
+    {wh_a}
+    GROUP BY ALL
+),
+deduped_notes AS (
+    SELECT visit_id, source_schema, TRIM(diagnosis) AS diagnosis
+    FROM HOSPITALS.STAGING.STG_EVALUATION_DOCTOR_NOTES
+    WHERE 1=1 {dn_schema}
+    QUALIFY ROW_NUMBER() OVER (
+        PARTITION BY visit_id ORDER BY created_at ASC NULLS LAST
+    ) = 1
+)
+SELECT
+    LOWER(REPLACE(a.source_schema, '_CLEAN', ''))                              AS source_schema,
+    DATE_TRUNC('month', a.admitted_at)                                         AS month,
+    a.ward_name,
+    a.patient_id,
+    a.admitted_at,
+    a.discharged_at,
+    a.los_days,
+    ROUND(wf.upper_fence, 1)                                                   AS ward_upper_fence,
+    ROUND(a.los_days - wf.upper_fence, 1)                                      AS days_above_fence,
+    a.discharge_type,
+    a.is_30day_readmission,
+    ARRAY_TO_STRING(ARRAY_SORT(ARRAY_DISTINCT(
+        ARRAY_CONSTRUCT_COMPACT(dp.icd10_name_1, dp.icd10_name_2, dp.icd10_name_3)
+    )), '+')                                                                   AS icd10_name,
+    COALESCE(dp.disease_burden_group_1, 'Unclassified')                        AS primary_burden_group,
+    dn.diagnosis                                                               AS notes_diagnosis
+FROM HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
+INNER JOIN ward_fences wf
+    ON  LOWER(REPLACE(a.source_schema, '_CLEAN', '')) = wf.source_schema
+    AND a.ward_name  = wf.ward_name
+    AND a.los_days   > wf.upper_fence
+LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dp
+    ON  a.visit_id = dp.visit_id
+    AND LOWER(REPLACE(a.source_schema, '_CLEAN', '')) = dp.source_schema
+LEFT JOIN deduped_notes dn
+    ON  a.visit_id = dn.visit_id
+    AND LOWER(REPLACE(a.source_schema, '_CLEAN', '')) = dn.source_schema
+WHERE a.los_days IS NOT NULL
+{wh_a}
+ORDER BY a.los_days DESC
+"""
+    return run_query(sql)
+
+
+def load_ca_maternity_outlier_notes(filters: dict, run_query) -> pd.DataFrame:
+    """Lookup: all doctor notes for the longest General Maternity LOS admission."""
+    wh_a = _w_adm(filters)
+    sql = f"""
+WITH outlier_case AS (
+    SELECT
+        a.visit_id,
+        a.patient_id,
+        LOWER(REPLACE(a.source_schema, '_CLEAN', ''))  AS source_schema,
+        a.ward_name,
+        a.admitted_at,
+        a.discharged_at,
+        a.los_days,
+        a.discharge_type
+    FROM HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
+    WHERE LOWER(a.ward_name) LIKE '%general maternity%'
+      AND a.los_days IS NOT NULL
+    {wh_a}
+    ORDER BY a.los_days DESC
+    LIMIT 1
+)
+SELECT
+    oc.visit_id,
+    oc.patient_id,
+    oc.ward_name,
+    oc.admitted_at,
+    oc.discharged_at,
+    oc.los_days,
+    oc.discharge_type,
+    dn.created_at                                      AS note_time,
+    TRIM(dn.diagnosis)                                 AS note_diagnosis
+FROM outlier_case oc
+LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_DOCTOR_NOTES dn
+    ON  oc.visit_id      = dn.visit_id
+    AND oc.source_schema = dn.source_schema
+ORDER BY dn.created_at ASC NULLS LAST
+"""
+    return run_query(sql)
+
+
+def load_ca_readmission_layer1(filters: dict, run_query) -> pd.DataFrame:
+    """C1: Readmission rate by ward and discharge type per month."""
+    wh_a = _w_adm(filters)
+    sql = f"""
+SELECT
+    LOWER(REPLACE(a.source_schema, '_CLEAN', ''))                              AS source_schema,
+    DATE_TRUNC('month', admitted_at)                                           AS month,
+    ward_name,
+    discharge_type,
+    COUNT(DISTINCT patient_id)                                                 AS total_unique_patients,
+    COUNT(DISTINCT CASE WHEN is_30day_readmission = TRUE THEN patient_id END)  AS total_readmitted_unique_patients,
+    COUNT(CASE WHEN is_30day_readmission = TRUE THEN 1 END)                    AS total_day_readmission_30,
+    ROUND(DIV0(
+        COUNT(CASE WHEN is_30day_readmission = TRUE THEN 1 END),
+        COUNT(CASE WHEN discharged_at IS NOT NULL   THEN 1 END)
+    ) * 100.0, 2)                                                              AS readmission_rate_pct
+FROM HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
+WHERE 1=1
+{wh_a}
+GROUP BY ALL
+"""
+    return run_query(sql)
+
+
+def load_ca_readmission_layer2(filters: dict, run_query) -> pd.DataFrame:
+    """C2: Discharge type split for readmitted patients."""
+    wh_a = _w_adm(filters)
+    sql = f"""
+SELECT
+    LOWER(REPLACE(a.source_schema, '_CLEAN', ''))                              AS source_schema,
+    discharge_type,
+    COUNT(DISTINCT CASE WHEN is_30day_readmission = TRUE THEN patient_id END)  AS total_readmitted_unique_patients
+FROM HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
+WHERE 1=1
+{wh_a}
+GROUP BY ALL
+"""
+    return run_query(sql)
+
+
+def load_ca_readmission_layer3(filters: dict, run_query) -> pd.DataFrame:
+    """C3: LOS at index admission vs at readmission visit, by ward."""
+    wh_a = _w_adm(filters)
+    sql = f"""
+SELECT
+    LOWER(REPLACE(a.source_schema, '_CLEAN', ''))                              AS source_schema,
+    a.ward_name,
+    a.is_30day_readmission,
+    COUNT(*)                                                                   AS total_admissions,
+    ROUND(MEDIAN(a.los_days), 1)                                               AS median_los,
+    ROUND(AVG(a.los_days), 1)                                                  AS avg_los,
+    COUNT(CASE WHEN a.los_days BETWEEN 0 AND 1 THEN 1 END)                     AS los_0_1_days,
+    COUNT(CASE WHEN a.los_days BETWEEN 2 AND 3 THEN 1 END)                     AS los_2_3_days,
+    COUNT(CASE WHEN a.los_days BETWEEN 4 AND 7 THEN 1 END)                     AS los_4_7_days,
+    COUNT(CASE WHEN a.los_days > 7             THEN 1 END)                     AS los_over_7_days
+FROM HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
+WHERE a.los_days IS NOT NULL
+{wh_a}
+GROUP BY ALL
+ORDER BY a.ward_name, a.is_30day_readmission
+"""
+    return run_query(sql)
+
+
+def load_ca_readmission_layer4(filters: dict, run_query) -> pd.DataFrame:
+    """C4: Timing distribution — how many days after discharge patients return."""
+    wh_a = _w_adm(filters)
+    sql = f"""
+SELECT
+    LOWER(REPLACE(a.source_schema, '_CLEAN', ''))                              AS source_schema,
+    a.ward_name,
+    COUNT(*)                                                                   AS total_readmissions,
+    COUNT(CASE WHEN a.days_since_last_admission BETWEEN 0 AND 7   THEN 1 END)  AS days_0_7,
+    COUNT(CASE WHEN a.days_since_last_admission BETWEEN 8 AND 14  THEN 1 END)  AS days_8_14,
+    COUNT(CASE WHEN a.days_since_last_admission BETWEEN 15 AND 30 THEN 1 END)  AS days_15_30,
+    ROUND(MEDIAN(a.days_since_last_admission), 1)                              AS median_days_to_readmission,
+    ROUND(AVG(a.days_since_last_admission), 1)                                 AS avg_days_to_readmission,
+    MIN(a.days_since_last_admission)                                           AS min_days_to_readmission
+FROM HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
+WHERE a.is_30day_readmission = TRUE
+  AND a.days_since_last_admission >= 0
+{wh_a}
+GROUP BY ALL
+ORDER BY a.ward_name
+"""
+    return run_query(sql)
+
+
+def load_ca_readmission_layer4_detail(filters: dict, run_query) -> pd.DataFrame:
+    """C4b: Discharge type x return band x ward for early/late returner analysis."""
+    wh_a = _w_adm(filters)
+    sql = f"""
+SELECT
+    LOWER(REPLACE(a.source_schema, '_CLEAN', ''))                              AS source_schema,
+    a.ward_name,
+    a.discharge_type,
+    CASE
+        WHEN a.days_since_last_admission BETWEEN 0  AND 7  THEN '0-7 days (early)'
+        WHEN a.days_since_last_admission BETWEEN 8  AND 14 THEN '8-14 days'
+        WHEN a.days_since_last_admission BETWEEN 15 AND 30 THEN '15-30 days (late)'
+    END                                                                        AS return_band,
+    COUNT(*)                                                                   AS readmissions,
+    ROUND(MEDIAN(a.days_since_last_admission), 1)                              AS median_days_to_return,
+    ROUND(MEDIAN(a.los_days), 1)                                               AS median_los_at_index
+FROM HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
+WHERE a.is_30day_readmission = TRUE
+  AND a.days_since_last_admission >= 0
+  AND a.days_since_last_admission <= 30
+{wh_a}
+GROUP BY ALL
+ORDER BY a.ward_name, return_band, readmissions DESC
+"""
+    return run_query(sql)
+
+
+def load_ca_readmission_layer5(filters: dict, run_query) -> pd.DataFrame:
+    """C5: TCA documentation rate and OPD follow-up before readmission."""
+    wh_a = _w_adm(filters, alias="a")
+    sql = f"""
+WITH latest_discharge_request AS (
+    SELECT
+        dr.visit_id,
+        dr.tca,
+        dr.conditions,
+        dr.created_at AS discharge_request_date
+    FROM HOSPITALS.KISUMU_CLEAN.INPATIENT_DISCHARGE_REQUESTS dr
+    QUALIFY ROW_NUMBER() OVER (
+        PARTITION BY dr.visit_id ORDER BY dr.created_at DESC
+    ) = 1
+),
+discharge_base AS (
+    SELECT
+        LOWER(REPLACE(a.source_schema, '_CLEAN', ''))                          AS source_schema,
+        a.visit_id,
+        a.patient_id,
+        a.ward_name,
+        a.ward_category,
+        a.discharged_at,
+        a.is_30day_readmission,
+        a.discharge_type,
+        IFF(
+            dr.tca IS NOT NULL
+            AND UPPER(TRIM(dr.tca)) NOT IN ('NOT NEEDED', 'NOT REQUIRED', 'N/A'),
+            TRUE, FALSE
+        )                                                                      AS tca_documented
+    FROM HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
+    LEFT JOIN latest_discharge_request dr ON a.visit_id = dr.visit_id
+    WHERE a.discharged_at IS NOT NULL
+    {wh_a}
+),
+followup_opd AS (
+    SELECT DISTINCT
+        a.patient_id,
+        LOWER(REPLACE(a.source_schema, '_CLEAN', ''))                          AS source_schema,
+        TRUE                                                                   AS had_followup_opd_visit
+    FROM HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
+    INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_VISITS v
+        ON  a.patient_id = v.patient
+        AND LOWER(REPLACE(a.source_schema, '_CLEAN', '')) = v.source_schema
+        AND v.created_at > DATEADD('day', -30, a.admitted_at)
+        AND v.created_at < a.admitted_at
+    WHERE a.is_30day_readmission = TRUE
+    {wh_a}
+)
+SELECT
+    db.source_schema,
+    db.ward_name,
+    db.ward_category,
+    db.is_30day_readmission,
+    db.discharge_type,
+    COUNT(*)                                                                   AS total_admissions,
+    SUM(IFF(db.tca_documented, 1, 0))                                          AS tca_documented_count,
+    ROUND(DIV0(
+        SUM(IFF(db.tca_documented, 1, 0)), COUNT(*)
+    ) * 100.0, 2)                                                              AS tca_documented_pct,
+    SUM(IFF(fo.had_followup_opd_visit = TRUE, 1, 0))                           AS had_followup_opd_count,
+    ROUND(DIV0(
+        SUM(IFF(fo.had_followup_opd_visit = TRUE, 1, 0)),
+        NULLIF(COUNT(CASE WHEN db.is_30day_readmission = TRUE THEN 1 END), 0)
+    ) * 100.0, 2)                                                              AS followup_opd_before_readmission_pct
+FROM discharge_base db
+LEFT JOIN followup_opd fo
+    ON  db.patient_id    = fo.patient_id
+    AND db.source_schema = fo.source_schema
+GROUP BY ALL
+ORDER BY db.ward_name, db.is_30day_readmission
+"""
+    return run_query(sql)
+
+
+def load_ca_section_d(filters: dict, run_query) -> pd.DataFrame:
+    """D: Diagnosis-driven readmission — readmission rate per diagnosis group per ward."""
+    wh_a = _w_adm(filters)
+    schemas = filters.get("source_schemas") or []
+    dn_schema = (
+        "AND source_schema IN (" + ", ".join(repr(s) for s in schemas) + ")"
+        if schemas else ""
+    )
+    sql = f"""
+WITH deduped_notes AS (
+    SELECT visit_id, source_schema, TRIM(diagnosis) AS diagnosis
+    FROM HOSPITALS.STAGING.STG_EVALUATION_DOCTOR_NOTES
+    WHERE 1=1 {dn_schema}
+    QUALIFY ROW_NUMBER() OVER (
+        PARTITION BY visit_id ORDER BY created_at ASC NULLS LAST
+    ) = 1
+),
+base AS (
+    SELECT
+        LOWER(REPLACE(a.source_schema, '_CLEAN', ''))                          AS source_schema,
+        DATE_TRUNC('month', a.admitted_at)                                     AS month,
+        a.ward_name,
+        a.patient_id,
+        a.is_30day_readmission,
+        a.discharged_at,
+        a.los_days,
+        ARRAY_TO_STRING(ARRAY_SORT(ARRAY_DISTINCT(
+            ARRAY_CONSTRUCT_COMPACT(dp.icd10_code_1, dp.icd10_code_2, dp.icd10_code_3)
+        )), '+')                                                               AS icd10_code,
+        ARRAY_TO_STRING(ARRAY_SORT(ARRAY_DISTINCT(
+            ARRAY_CONSTRUCT_COMPACT(dp.icd10_name_1, dp.icd10_name_2, dp.icd10_name_3)
+        )), '+')                                                               AS icd10_name,
+        COALESCE(
+            NULLIF(TRIM(dp.disease_burden_group_1), ''),
+            HOSPITALS.STAGING.MAP_DIAGNOSIS_TO_BURDEN_GROUP(dn.diagnosis),
+            'Unclassified'
+        )                                                                      AS final_disease_burden_group,
+        dp.has_chronic_diagnosis,
+        dp.has_comorbidity
+    FROM HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
+    LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dp
+        ON  a.visit_id = dp.visit_id
+        AND LOWER(REPLACE(a.source_schema, '_CLEAN', '')) = dp.source_schema
+    LEFT JOIN deduped_notes dn
+        ON  a.visit_id = dn.visit_id
+        AND LOWER(REPLACE(a.source_schema, '_CLEAN', '')) = dn.source_schema
+    WHERE a.los_days IS NOT NULL
+    {wh_a}
+)
+SELECT
+    source_schema,
+    month,
+    ward_name,
+    icd10_code,
+    icd10_name,
+    has_chronic_diagnosis,
+    has_comorbidity,
+    final_disease_burden_group,
+    COUNT(DISTINCT patient_id)                                                 AS total_unique_patients,
+    COUNT(*)                                                                   AS total_admissions,
+    COUNT(CASE WHEN is_30day_readmission = TRUE THEN 1 END)                    AS readmissions_30d,
+    COUNT(CASE WHEN discharged_at IS NOT NULL   THEN 1 END)                    AS total_discharges,
+    ROUND(DIV0(
+        COUNT(CASE WHEN is_30day_readmission = TRUE THEN 1 END),
+        COUNT(CASE WHEN discharged_at IS NOT NULL   THEN 1 END)
+    ) * 100.0, 2)                                                              AS readmission_rate_pct,
+    ROUND(MEDIAN(los_days), 1)                                                 AS median_los,
+    ROUND(AVG(los_days), 1)                                                    AS avg_los,
+    CASE
+        WHEN final_disease_burden_group ILIKE '%Cardiovascular%' THEN 'Priority - Cardiac'
+        WHEN final_disease_burden_group ILIKE '%Respiratory%'    THEN 'Priority - Respiratory'
+        WHEN final_disease_burden_group ILIKE '%Diabetes%'       THEN 'Priority - Diabetes'
+        WHEN final_disease_burden_group ILIKE '%Renal%'          THEN 'Priority - Renal'
+        WHEN final_disease_burden_group ILIKE '%Sepsis%'         THEN 'Priority - Sepsis'
+        WHEN final_disease_burden_group ILIKE '%LRTI%'
+          OR final_disease_burden_group ILIKE '%Pneumonia%'      THEN 'Priority - Pneumonia'
+        ELSE 'Standard'
+    END                                                                        AS international_priority_flag
+FROM base
+GROUP BY ALL
+HAVING COUNT(*) >= 1
+ORDER BY readmission_rate_pct DESC
+"""
+    return run_query(sql)
+
+
+def load_ca_section_e(filters: dict, run_query) -> pd.DataFrame:
+    """E1: Infection burden by ward and month — communicable disease share."""
+    wh_a = _w_adm(filters)
+    schemas = filters.get("source_schemas") or []
+    dn_schema = (
+        "AND source_schema IN (" + ", ".join(repr(s) for s in schemas) + ")"
+        if schemas else ""
+    )
+    sql = f"""
+WITH deduped_notes AS (
+    SELECT visit_id, source_schema, TRIM(diagnosis) AS diagnosis
+    FROM HOSPITALS.STAGING.STG_EVALUATION_DOCTOR_NOTES
+    WHERE 1=1 {dn_schema}
+    QUALIFY ROW_NUMBER() OVER (
+        PARTITION BY visit_id ORDER BY created_at ASC NULLS LAST
+    ) = 1
+),
+base AS (
+    SELECT
+        LOWER(REPLACE(a.source_schema, '_CLEAN', ''))                          AS source_schema,
+        DATE_TRUNC('month', a.admitted_at)                                     AS month,
+        a.ward_name,
+        a.ward_category,
+        COALESCE(
+            NULLIF(TRIM(dp.disease_burden_group_1), ''),
+            HOSPITALS.STAGING.MAP_DIAGNOSIS_TO_BURDEN_GROUP(dn.diagnosis),
+            'Unclassified'
+        )                                                                      AS primary_burden_group
+    FROM HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
+    LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dp
+        ON  a.visit_id = dp.visit_id
+        AND LOWER(REPLACE(a.source_schema, '_CLEAN', '')) = dp.source_schema
+    LEFT JOIN deduped_notes dn
+        ON  a.visit_id = dn.visit_id
+        AND LOWER(REPLACE(a.source_schema, '_CLEAN', '')) = dn.source_schema
+    WHERE 1=1
+    {wh_a}
+)
+SELECT
+    source_schema,
+    month,
+    ward_name,
+    ward_category,
+    COUNT(*)                                                                   AS total_admissions,
+    COUNT(CASE WHEN primary_burden_group ILIKE '%Communicable%' THEN 1 END)    AS communicable_admissions,
+    ROUND(DIV0(
+        COUNT(CASE WHEN primary_burden_group ILIKE '%Communicable%' THEN 1 END),
+        COUNT(*)
+    ) * 100.0, 2)                                                              AS communicable_pct,
+    COUNT(CASE WHEN primary_burden_group ILIKE '%Typhoid%'      THEN 1 END)    AS typhoid_admissions,
+    COUNT(CASE WHEN primary_burden_group ILIKE '%Malaria%'      THEN 1 END)    AS malaria_admissions,
+    COUNT(CASE WHEN primary_burden_group ILIKE '%Sepsis%'
+              OR primary_burden_group ILIKE '%Other Infectious%' THEN 1 END)   AS sepsis_other_admissions,
+    COUNT(CASE WHEN primary_burden_group ILIKE '%URTI%'
+              OR primary_burden_group ILIKE '%LRTI%'
+              OR primary_burden_group ILIKE '%Pneumonia%'        THEN 1 END)   AS respiratory_infection_admissions
+FROM base
+GROUP BY ALL
+ORDER BY month DESC, communicable_admissions DESC
+"""
+    return run_query(sql)
+
+
+def load_ca_typhoid(filters: dict, run_query) -> pd.DataFrame:
+    """E2: Typhoid monthly trend with rolling average and spike flag, per ward."""
+    wh_a = _w_adm(filters)
+    sql = f"""
+WITH monthly_typhoid AS (
+    SELECT
+        LOWER(REPLACE(a.source_schema, '_CLEAN', ''))                          AS source_schema,
+        DATE_TRUNC('month', a.admitted_at)                                     AS month,
+        a.ward_name,
+        COUNT(*)                                                               AS typhoid_admissions
+    FROM HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
+    INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dp
+        ON  a.visit_id = dp.visit_id
+        AND LOWER(REPLACE(a.source_schema, '_CLEAN', '')) = dp.source_schema
+    WHERE dp.disease_burden_group_1 ILIKE '%Typhoid%'
+    {wh_a}
+    GROUP BY ALL
+)
+SELECT
+    source_schema, month, ward_name, typhoid_admissions,
+    ROUND(AVG(typhoid_admissions) OVER (
+        PARTITION BY source_schema, ward_name
+        ORDER BY month ROWS BETWEEN 2 PRECEDING AND CURRENT ROW
+    ), 2)                                                                      AS rolling_3m_avg,
+    IFF(
+        typhoid_admissions > (
+            AVG(typhoid_admissions) OVER (
+                PARTITION BY source_schema, ward_name
+                ORDER BY month ROWS BETWEEN 2 PRECEDING AND CURRENT ROW
+            ) + 1.5 * STDDEV(typhoid_admissions) OVER (
+                PARTITION BY source_schema, ward_name
+                ORDER BY month ROWS BETWEEN 2 PRECEDING AND CURRENT ROW
+            )
+        ), TRUE, FALSE
+    )                                                                          AS is_spike_month
+FROM monthly_typhoid
+ORDER BY ward_name, month
+"""
+    return run_query(sql)
+
+
+def load_ca_los_diagnosis(filters: dict, run_query) -> pd.DataFrame:
+    """B2: LOS by diagnosis per ward — ward dropdown chart."""
+    wh_a    = _w_adm(filters)
+    schemas = filters.get("source_schemas") or []
+    dn_schema = (
+        "AND source_schema IN (" + ", ".join(repr(s) for s in schemas) + ")"
+        if schemas else ""
+    )
+    sql = f"""
+WITH deduped_notes AS (
+    SELECT visit_id, source_schema, TRIM(diagnosis) AS diagnosis
+    FROM HOSPITALS.STAGING.STG_EVALUATION_DOCTOR_NOTES
+    WHERE 1=1 {dn_schema}
+    QUALIFY ROW_NUMBER() OVER (
+        PARTITION BY visit_id ORDER BY created_at ASC NULLS LAST
+    ) = 1
+)
+SELECT
+    LOWER(REPLACE(a.source_schema, '_CLEAN', ''))                              AS source_schema,
+    a.ward_name,
+    COALESCE(
+        NULLIF(TRIM(dp.disease_burden_group_1), ''),
+        'Unclassified'
+    )                                                                          AS final_disease_burden_group,
+    ROUND(AVG(a.los_days), 1)                                                  AS average_los_days,
+    ROUND(MEDIAN(a.los_days), 1)                                               AS median_los_days
+FROM HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
+LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dp
+    ON  a.visit_id = dp.visit_id
+    AND LOWER(REPLACE(a.source_schema, '_CLEAN', '')) = dp.source_schema
+WHERE a.los_days IS NOT NULL
+{wh_a}
+GROUP BY ALL
+HAVING COUNT(*) >= 3
+ORDER BY a.ward_name, median_los_days DESC
+"""
+    return run_query(sql)
+
+
+def load_ca_general_male(filters: dict, run_query) -> pd.DataFrame:
+    """Q1: General Male ward readmission patient profile — age band and diagnosis."""
+    wh_a    = _w_adm(filters)
+    schemas = filters.get("source_schemas") or []
+    dn_schema = (
+        "AND source_schema IN (" + ", ".join(repr(s) for s in schemas) + ")"
+        if schemas else ""
+    )
+    sql = f"""
+SELECT
+    LOWER(REPLACE(a.source_schema, '_CLEAN', ''))                              AS source_schema,
+    a.patient_id,
+    a.sex,
+    a.dob,
+    a.ward_name,
+    a.admitted_at,
+    a.discharged_at,
+    a.discharge_type,
+    a.los_days,
+    a.days_since_last_admission,
+    a.admission_number,
+    a.is_30day_readmission,
+    CASE
+        WHEN DATEDIFF('year', a.dob, a.admitted_at) < 5   THEN 'Toddler (0-4)'
+        WHEN DATEDIFF('year', a.dob, a.admitted_at) < 13  THEN 'Child (5-12)'
+        WHEN DATEDIFF('year', a.dob, a.admitted_at) < 18  THEN 'Adolescent (13-17)'
+        WHEN DATEDIFF('year', a.dob, a.admitted_at) < 25  THEN 'Youth (18-24)'
+        WHEN DATEDIFF('year', a.dob, a.admitted_at) < 35  THEN 'Young Adult (25-34)'
+        WHEN DATEDIFF('year', a.dob, a.admitted_at) < 45  THEN 'Adult (35-44)'
+        WHEN DATEDIFF('year', a.dob, a.admitted_at) < 55  THEN 'Middle Age (45-54)'
+        WHEN DATEDIFF('year', a.dob, a.admitted_at) < 65  THEN 'Older Adult (55-64)'
+        ELSE 'Senior (65+)'
+    END                                                                        AS age_band,
+    COALESCE(
+        NULLIF(TRIM(dp.disease_burden_group_1), ''),
+        'Unclassified'
+    )                                                                          AS final_disease_burden_group,
+    dp.has_chronic_diagnosis,
+    dp.has_comorbidity
+FROM HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
+LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dp
+    ON  a.visit_id = dp.visit_id
+    AND LOWER(REPLACE(a.source_schema, '_CLEAN', '')) = dp.source_schema
+WHERE LOWER(a.ward_name) = 'general male'
+  AND a.is_30day_readmission = TRUE
+{wh_a}
+ORDER BY a.admitted_at DESC
+"""
+    return run_query(sql)
+
+
+def load_ca_layer4_conditions(filters: dict, run_query) -> pd.DataFrame:
+    """C4-conditions: Patient-level readmission profile for 3 high-volume wards."""
+    wh_a    = _w_adm(filters)
+    schemas = filters.get("source_schemas") or []
+    dn_schema = (
+        "AND source_schema IN (" + ", ".join(repr(s) for s in schemas) + ")"
+        if schemas else ""
+    )
+    sql = f"""
+WITH deduped_notes AS (
+    SELECT visit_id, source_schema, TRIM(diagnosis) AS diagnosis
+    FROM HOSPITALS.STAGING.STG_EVALUATION_DOCTOR_NOTES
+    WHERE 1=1 {dn_schema}
+    QUALIFY ROW_NUMBER() OVER (
+        PARTITION BY visit_id ORDER BY created_at ASC NULLS LAST
+    ) = 1
+)
+SELECT
+    LOWER(REPLACE(a.source_schema, '_CLEAN', ''))           AS source_schema,
+    a.patient_id,
+    a.sex,
+    a.dob,
+    a.ward_name,
+    a.admitted_at,
+    a.discharged_at,
+    a.discharge_type,
+    a.los_days,
+    a.days_since_last_admission,
+    a.admission_number,
+    a.is_30day_readmission,
+    CASE
+        WHEN a.days_since_last_admission BETWEEN 0  AND 7  THEN '0–7d (early)'
+        WHEN a.days_since_last_admission BETWEEN 8  AND 14 THEN '8–14d'
+        WHEN a.days_since_last_admission BETWEEN 15 AND 30 THEN '15–30d (late)'
+    END                                                     AS return_band,
+    CASE
+        WHEN DATEDIFF('year', a.dob, a.admitted_at) < 5   THEN 'Toddler (0-4)'
+        WHEN DATEDIFF('year', a.dob, a.admitted_at) < 13  THEN 'Child (5-12)'
+        WHEN DATEDIFF('year', a.dob, a.admitted_at) < 18  THEN 'Adolescent (13-17)'
+        WHEN DATEDIFF('year', a.dob, a.admitted_at) < 25  THEN 'Youth (18-24)'
+        WHEN DATEDIFF('year', a.dob, a.admitted_at) < 35  THEN 'Young Adult (25-34)'
+        WHEN DATEDIFF('year', a.dob, a.admitted_at) < 45  THEN 'Adult (35-44)'
+        WHEN DATEDIFF('year', a.dob, a.admitted_at) < 55  THEN 'Middle Age (45-54)'
+        WHEN DATEDIFF('year', a.dob, a.admitted_at) < 65  THEN 'Older Adult (55-64)'
+        ELSE 'Senior (65+)'
+    END                                                     AS age_band,
+    ARRAY_TO_STRING(ARRAY_SORT(ARRAY_DISTINCT(
+        ARRAY_CONSTRUCT_COMPACT(dp.icd10_code_1, dp.icd10_code_2, dp.icd10_code_3)
+    )), '+')                                                AS icd10_code,
+    ARRAY_TO_STRING(ARRAY_SORT(ARRAY_DISTINCT(
+        ARRAY_CONSTRUCT_COMPACT(dp.icd10_name_1, dp.icd10_name_2, dp.icd10_name_3)
+    )), '+')                                                AS icd10_name,
+    ARRAY_TO_STRING(ARRAY_SORT(ARRAY_DISTINCT(
+        ARRAY_CONSTRUCT_COMPACT(
+            dp.disease_burden_group_1,
+            dp.disease_burden_group_2,
+            dp.disease_burden_group_3
+        )
+    )), '+')                                                AS clean_disease_burden_group,
+    dn.diagnosis                                            AS notes_diagnosis,
+    HOSPITALS.STAGING.MAP_DIAGNOSIS_TO_BURDEN_GROUP(dn.diagnosis)
+                                                            AS notes_disease_burden_group,
+    ARRAY_TO_STRING(ARRAY_SORT(ARRAY_DISTINCT(
+        ARRAY_CONSTRUCT_COMPACT(clean_disease_burden_group, notes_disease_burden_group)
+    )), '+')                                                AS final_disease_burden_group,
+    dp.has_chronic_diagnosis,
+    dp.has_comorbidity
+FROM HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
+LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dp
+    ON  a.visit_id = dp.visit_id
+    AND LOWER(REPLACE(a.source_schema, '_CLEAN', '')) = dp.source_schema
+LEFT JOIN deduped_notes dn
+    ON  a.visit_id = dn.visit_id
+    AND LOWER(REPLACE(a.source_schema, '_CLEAN', '')) = dn.source_schema
+WHERE a.ward_name IN ('General Male', 'General Female', 'Pediatric General')
+  AND a.is_30day_readmission = TRUE
+  AND a.days_since_last_admission >= 0
+{wh_a}
+ORDER BY a.ward_name, a.days_since_last_admission ASC
+"""
+    return run_query(sql)
+
+
+def _ltfu_cohort_ctes(wh_a: str = "") -> str:
+    """Shared CTEs for the four care-pathway signal queries."""
+    return f"""
+WITH schema_anchor AS (
+    SELECT source_schema, MAX(created_at) AS max_date
+    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS
+    WHERE source_schema = 'kisumu'
+    GROUP BY source_schema
+),
+patient_visits AS (
+    SELECT
+        v.source_schema,
+        v.patient                                         AS patient_id,
+        DATEDIFF('day', MAX(v.created_at), sa.max_date)   AS days_since_last_visit
+    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
+    INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
+    WHERE v.created_at >= DATEADD('year', -1, sa.max_date)
+    GROUP BY v.source_schema, v.patient, sa.max_date
+),
+last_visit_ids AS (
+    SELECT
+        v.source_schema,
+        v.patient    AS patient_id,
+        v.id         AS last_visit_id,
+        v.created_at AS last_visit_date
+    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
+    INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
+    WHERE v.created_at >= DATEADD('year', -1, sa.max_date)
+    QUALIFY ROW_NUMBER() OVER (
+        PARTITION BY v.source_schema, v.patient
+        ORDER BY v.created_at DESC
+    ) = 1
+),
+chronic_patients AS (
+    SELECT DISTINCT v.source_schema, v.patient AS patient_id
+    FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS v
+    INNER JOIN schema_anchor sa ON v.source_schema = sa.source_schema
+    LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
+        ON v.id = dx.visit_id AND v.source_schema = dx.source_schema
+    LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_DOCTOR_NOTES n
+        ON v.id = n.visit_id AND v.source_schema = n.source_schema
+    WHERE v.created_at >= DATEADD('year', -1, sa.max_date)
+      AND (
+            COALESCE(dx.is_chronic_1, 0) = 1
+         OR COALESCE(dx.is_chronic_2, 0) = 1
+         OR n.diagnosis ILIKE '%cardiovascular%'
+         OR n.diagnosis ILIKE '%diabetes%'
+         OR n.diagnosis ILIKE '%hiv%'
+         OR n.diagnosis ILIKE '%neurolog%'
+         OR n.diagnosis ILIKE '%chronic%'
+         OR n.diagnosis ILIKE '%renal%'
+         OR n.diagnosis ILIKE '%respiratory%'
+         OR n.diagnosis ILIKE '%oncolog%'
+         OR n.diagnosis ILIKE '%mental%'
+      )
+),
+ltfu_cohort AS (
+    SELECT pv.source_schema, pv.patient_id, lvi.last_visit_id, lvi.last_visit_date
+    FROM patient_visits pv
+    INNER JOIN chronic_patients cp
+        ON pv.patient_id = cp.patient_id AND pv.source_schema = cp.source_schema
+    INNER JOIN last_visit_ids lvi
+        ON pv.patient_id = lvi.patient_id AND pv.source_schema = lvi.source_schema
+    WHERE pv.days_since_last_visit > 180
+)"""
+
+
+def load_care_pathway_lab(filters: dict, run_query) -> pd.DataFrame:
+    """Care Pathway Signal 1: % of chronic LTFU patients who had a lab test at their last visit."""
+    sql = _ltfu_cohort_ctes() + """
+,
+lab_flag AS (
+    SELECT DISTINCT i.visit_id
+    FROM HOSPITALS.STAGING.STG_EVALUATION_INVESTIGATIONS i
+    INNER JOIN ltfu_cohort c ON i.visit_id = c.last_visit_id
+    WHERE i.source_schema = 'kisumu'
+      AND i.procedure_clinical_division = 'Pathology / Laboratory Medicine'
+      AND i.investigation_deleted_at IS NULL
+      AND i.cancelled = 0
+)
+SELECT
+    COUNT(DISTINCT c.patient_id)                                               AS total_ltfu_patients,
+    COUNT(DISTINCT CASE WHEN l.visit_id IS NOT NULL THEN c.patient_id END)    AS patients_with_lab,
+    ROUND(
+        100.0 * COUNT(DISTINCT CASE WHEN l.visit_id IS NOT NULL THEN c.patient_id END)
+              / NULLIF(COUNT(DISTINCT c.patient_id), 0), 1
+    )                                                                          AS pct_had_lab
+FROM ltfu_cohort c
+LEFT JOIN lab_flag l ON l.visit_id = c.last_visit_id
+"""
+    return run_query(sql)
+
+
+def load_care_pathway_rx(filters: dict, run_query) -> pd.DataFrame:
+    """Care Pathway Signal 2: % of chronic LTFU patients who received a prescription at their last visit."""
+    sql = _ltfu_cohort_ctes() + """
+,
+rx_flag AS (
+    SELECT DISTINCT p.visit_id
+    FROM HOSPITALS.STAGING.STG_PRESCRIPTION_PAYMENTS p
+    INNER JOIN ltfu_cohort c ON p.visit_id = c.last_visit_id
+    WHERE p.source_schema = 'kisumu'
+      AND (p.stopped   = 0 OR p.stopped   IS NULL)
+      AND (p.canceled  = 0 OR p.canceled  IS NULL)
+)
+SELECT
+    COUNT(DISTINCT c.patient_id)                                               AS total_ltfu_patients,
+    COUNT(DISTINCT CASE WHEN r.visit_id IS NOT NULL THEN c.patient_id END)    AS patients_with_rx,
+    ROUND(
+        100.0 * COUNT(DISTINCT CASE WHEN r.visit_id IS NOT NULL THEN c.patient_id END)
+              / NULLIF(COUNT(DISTINCT c.patient_id), 0), 1
+    )                                                                          AS pct_had_rx
+FROM ltfu_cohort c
+LEFT JOIN rx_flag r ON r.visit_id = c.last_visit_id
+"""
+    return run_query(sql)
+
+
+def load_care_pathway_followup(filters: dict, run_query) -> pd.DataFrame:
+    """Care Pathway Signal 3: Follow-up documentation gap and return rate for chronic LTFU patients."""
+    sql = _ltfu_cohort_ctes() + """
+,
+followup_notes AS (
+    SELECT
+        n.visit_id,
+        CASE
+            WHEN n.next_visit_date IS NOT NULL
+             AND TRIM(CAST(n.next_visit_date AS VARCHAR)) != ''
+            THEN TRUE ELSE FALSE
+        END AS has_structured_date,
+        CASE
+            WHEN n.treatment_plan ILIKE '%follow%'
+              OR n.next_steps     ILIKE '%follow%'
+              OR n.diagnosis      ILIKE '%follow%'
+            THEN TRUE ELSE FALSE
+        END AS has_followup_freetext
+    FROM HOSPITALS.STAGING.STG_EVALUATION_DOCTOR_NOTES n
+    INNER JOIN ltfu_cohort c ON n.visit_id = c.last_visit_id
+    WHERE n.source_schema = 'kisumu'
+),
+return_visits AS (
+    SELECT DISTINCT c.patient_id, TRUE AS did_return
+    FROM ltfu_cohort c
+    INNER JOIN followup_notes fn
+        ON fn.visit_id = c.last_visit_id AND fn.has_followup_freetext = TRUE
+    INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_VISITS v
+        ON v.patient      = c.patient_id
+       AND v.source_schema = c.source_schema
+       AND v.created_at   > c.last_visit_date
+)
+SELECT
+    COUNT(DISTINCT c.patient_id)                                                        AS total_ltfu_patients,
+    COUNT(DISTINCT CASE WHEN COALESCE(fn.has_structured_date,    FALSE) = FALSE
+                        THEN c.patient_id END)                                          AS patients_no_structured_date,
+    ROUND(100.0 * COUNT(DISTINCT CASE WHEN COALESCE(fn.has_structured_date, FALSE) = FALSE
+                                      THEN c.patient_id END)
+                / NULLIF(COUNT(DISTINCT c.patient_id), 0), 1)                          AS pct_no_structured_date,
+    COUNT(DISTINCT CASE WHEN COALESCE(fn.has_followup_freetext, FALSE) = TRUE
+                        THEN c.patient_id END)                                          AS patients_followup_mentioned,
+    ROUND(100.0 * COUNT(DISTINCT CASE WHEN COALESCE(fn.has_followup_freetext, FALSE) = TRUE
+                                      THEN c.patient_id END)
+                / NULLIF(COUNT(DISTINCT c.patient_id), 0), 1)                          AS pct_followup_mentioned,
+    COUNT(DISTINCT CASE WHEN COALESCE(fn.has_followup_freetext, FALSE) = TRUE
+                         AND rv.did_return = TRUE
+                        THEN c.patient_id END)                                          AS patients_followup_mentioned_and_returned,
+    ROUND(100.0 * COUNT(DISTINCT CASE WHEN COALESCE(fn.has_followup_freetext, FALSE) = TRUE
+                                       AND rv.did_return = TRUE
+                                      THEN c.patient_id END)
+                / NULLIF(COUNT(DISTINCT CASE WHEN COALESCE(fn.has_followup_freetext, FALSE) = TRUE
+                                            THEN c.patient_id END), 0), 1)             AS pct_returned_after_followup_note,
+    COUNT(DISTINCT CASE WHEN COALESCE(fn.has_followup_freetext, FALSE) = TRUE
+                         AND rv.did_return IS NULL
+                        THEN c.patient_id END)                                          AS patients_followup_mentioned_not_returned,
+    ROUND(100.0 * COUNT(DISTINCT CASE WHEN COALESCE(fn.has_followup_freetext, FALSE) = TRUE
+                                       AND rv.did_return IS NULL
+                                      THEN c.patient_id END)
+                / NULLIF(COUNT(DISTINCT CASE WHEN COALESCE(fn.has_followup_freetext, FALSE) = TRUE
+                                            THEN c.patient_id END), 0), 1)             AS pct_not_returned_despite_followup_note
+FROM ltfu_cohort c
+LEFT JOIN followup_notes fn ON fn.visit_id = c.last_visit_id
+LEFT JOIN return_visits rv  ON rv.patient_id = c.patient_id
+"""
+    return run_query(sql)
+
+
+def load_care_pathway_radiology(filters: dict, run_query) -> pd.DataFrame:
+    """Care Pathway Signal 4: % of chronic LTFU patients who had radiology at their last visit."""
+    sql = _ltfu_cohort_ctes() + """
+,
+radiology_flag AS (
+    SELECT DISTINCT i.visit_id
+    FROM HOSPITALS.STAGING.STG_EVALUATION_INVESTIGATIONS i
+    INNER JOIN ltfu_cohort c ON i.visit_id = c.last_visit_id
+    WHERE i.source_schema = 'kisumu'
+      AND (
+            i.procedure_clinical_division ILIKE 'Radiology%'
+         OR i.procedure_discipline        ILIKE 'Radiology%'
+         OR i.procedure_discipline        ILIKE 'Imaging%'
+      )
+      AND i.investigation_deleted_at IS NULL
+      AND i.cancelled = 0
+)
+SELECT
+    COUNT(DISTINCT c.patient_id)                                               AS total_ltfu_patients,
+    COUNT(DISTINCT CASE WHEN r.visit_id IS NOT NULL THEN c.patient_id END)    AS patients_with_radiology,
+    ROUND(
+        100.0 * COUNT(DISTINCT CASE WHEN r.visit_id IS NOT NULL THEN c.patient_id END)
+              / NULLIF(COUNT(DISTINCT c.patient_id), 0), 1
+    )                                                                          AS pct_had_radiology
+FROM ltfu_cohort c
+LEFT JOIN radiology_flag r ON r.visit_id = c.last_visit_id
+"""
+    return run_query(sql)
+
+
+def load_ca_sepsis_enriched(filters: dict, run_query) -> pd.DataFrame:
+    """Section E: Single enriched query — Sepsis LOS outliers with prior IP and OPD context."""
+    wh_a = _w_adm(filters)
+    wh_v = _w(filters, alias="v")
+    sql = f"""
+WITH ward_fences AS (
+    SELECT
+        LOWER(REPLACE(a.source_schema, '_CLEAN', ''))  AS source_schema,
+        a.ward_name,
+        PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY a.los_days)
+            + 1.5 * (PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY a.los_days)
+                   - PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY a.los_days)) AS upper_fence
+    FROM HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
+    WHERE a.los_days IS NOT NULL
+    {wh_a}
+    GROUP BY ALL
+),
+deduped_notes AS (
+    SELECT visit_id, source_schema, TRIM(diagnosis) AS diagnosis
+    FROM HOSPITALS.STAGING.STG_EVALUATION_DOCTOR_NOTES
+    QUALIFY ROW_NUMBER() OVER (
+        PARTITION BY visit_id ORDER BY created_at ASC NULLS LAST
+    ) = 1
+),
+sepsis_outliers AS (
+    SELECT
+        a.patient_id,
+        LOWER(REPLACE(a.source_schema, '_CLEAN', ''))                           AS source_schema,
+        a.visit_id,
+        a.ward_name,
+        a.los_days,
+        a.admitted_at,
+        a.discharge_type,
+        a.is_30day_readmission,
+        COALESCE(dp.icd10_name_1, 'Other sepsis')                               AS sepsis_condition,
+        dn.diagnosis                                                             AS notes_diagnosis
+    FROM HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
+    INNER JOIN ward_fences wf
+        ON  LOWER(REPLACE(a.source_schema, '_CLEAN', '')) = wf.source_schema
+        AND a.ward_name = wf.ward_name
+        AND a.los_days  > wf.upper_fence
+    LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dp
+        ON  a.visit_id  = dp.visit_id
+        AND LOWER(REPLACE(a.source_schema, '_CLEAN', '')) = dp.source_schema
+    LEFT JOIN deduped_notes dn
+        ON  a.visit_id  = dn.visit_id
+        AND LOWER(REPLACE(a.source_schema, '_CLEAN', '')) = dn.source_schema
+    WHERE a.los_days IS NOT NULL
+    {wh_a}
+    AND (COALESCE(dp.disease_burden_group_1, '') ILIKE '%Infectious%'
+      OR COALESCE(dp.disease_burden_group_1, '') ILIKE '%Sepsis%')
+),
+prior_inpatient AS (
+    SELECT
+        so.patient_id,
+        so.source_schema,
+        dp.icd10_name_1                                                          AS prior_condition_display,
+        DATEDIFF('day', a.admitted_at, so.admitted_at)                          AS prior_condition_days
+    FROM sepsis_outliers so
+    INNER JOIN HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
+        ON  a.patient_id  = so.patient_id
+        AND LOWER(REPLACE(a.source_schema, '_CLEAN', '')) = so.source_schema
+        AND a.admitted_at < so.admitted_at
+    LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dp
+        ON  a.visit_id    = dp.visit_id
+        AND LOWER(REPLACE(a.source_schema, '_CLEAN', '')) = dp.source_schema
+    QUALIFY ROW_NUMBER() OVER (
+        PARTITION BY so.patient_id, so.source_schema
+        ORDER BY a.admitted_at DESC
+    ) = 1
+),
+prior_opd AS (
+    SELECT
+        so.patient_id,
+        so.source_schema,
+        DATEDIFF('day', MAX(v.created_at), so.admitted_at)                      AS last_opd_days_before,
+        dp.icd10_name_1                                                          AS last_opd_diagnosis
+    FROM sepsis_outliers so
+    INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_VISITS v
+        ON  v.patient      = so.patient_id
+        AND v.source_schema = so.source_schema
+        AND v.created_at   < so.admitted_at
+    LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dp
+        ON  dp.visit_id    = v.id
+        AND dp.source_schema = v.source_schema
+    WHERE 1=1 {wh_v}
+    GROUP BY so.patient_id, so.source_schema, so.admitted_at, dp.icd10_name_1
+    QUALIFY ROW_NUMBER() OVER (
+        PARTITION BY so.patient_id, so.source_schema
+        ORDER BY MAX(v.created_at) DESC
+    ) = 1
+)
+SELECT
+    so.ward_name,
+    so.los_days,
+    so.sepsis_condition,
+    pi.prior_condition_display,
+    pi.prior_condition_days,
+    po.last_opd_days_before,
+    po.last_opd_diagnosis,
+    so.discharge_type,
+    so.is_30day_readmission,
+    so.notes_diagnosis
+FROM sepsis_outliers so
+LEFT JOIN prior_inpatient pi
+    ON  pi.patient_id    = so.patient_id
+    AND pi.source_schema  = so.source_schema
+LEFT JOIN prior_opd po
+    ON  po.patient_id    = so.patient_id
+    AND po.source_schema  = so.source_schema
+ORDER BY so.los_days DESC
+"""
+    return run_query(sql)
+
+
+def load_ca_sepsis_prior_conditions(filters: dict, run_query) -> pd.DataFrame:
+    """Section E: Prior inpatient ICD10 conditions for Sepsis LOS outlier patients."""
+    wh_a = _w_adm(filters)
+    sql = f"""
+WITH ward_fences AS (
+    SELECT
+        LOWER(REPLACE(a.source_schema, '_CLEAN', ''))  AS source_schema,
+        a.ward_name,
+        PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY a.los_days)
+            + 1.5 * (PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY a.los_days)
+                   - PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY a.los_days)) AS upper_fence
+    FROM HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
+    WHERE a.los_days IS NOT NULL
+    {wh_a}
+    GROUP BY ALL
+),
+outlier_patients AS (
+    SELECT DISTINCT
+        a.patient_id,
+        LOWER(REPLACE(a.source_schema, '_CLEAN', ''))  AS source_schema,
+        a.admitted_at                                   AS sepsis_admitted_at
+    FROM HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
+    INNER JOIN ward_fences wf
+        ON  LOWER(REPLACE(a.source_schema, '_CLEAN', '')) = wf.source_schema
+        AND a.ward_name  = wf.ward_name
+        AND a.los_days   > wf.upper_fence
+    INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dp
+        ON  a.visit_id   = dp.visit_id
+        AND LOWER(REPLACE(a.source_schema, '_CLEAN', '')) = dp.source_schema
+    WHERE a.los_days IS NOT NULL
+    {wh_a}
+    AND (COALESCE(dp.disease_burden_group_1, '') ILIKE '%Infectious%'
+      OR COALESCE(dp.disease_burden_group_1, '') ILIKE '%Sepsis%')
+),
+prior_admissions AS (
+    SELECT
+        op.patient_id,
+        op.source_schema,
+        dp.icd10_name_1                                                          AS prior_icd10_name,
+        COALESCE(dp.disease_burden_group_1, 'Unclassified')                      AS prior_disease_burden_group,
+        DATEDIFF('day', a.admitted_at, op.sepsis_admitted_at)                   AS days_before_outlier,
+        CASE
+            WHEN DATEDIFF('day', a.admitted_at, op.sepsis_admitted_at) <= 30  THEN '≤30 days'
+            WHEN DATEDIFF('day', a.admitted_at, op.sepsis_admitted_at) <= 90  THEN '31–90 days'
+            WHEN DATEDIFF('day', a.admitted_at, op.sepsis_admitted_at) <= 180 THEN '91–180 days'
+            ELSE '>180 days'
+        END                                                                      AS relationship_window
+    FROM outlier_patients op
+    INNER JOIN HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
+        ON  a.patient_id  = op.patient_id
+        AND LOWER(REPLACE(a.source_schema, '_CLEAN', '')) = op.source_schema
+        AND a.admitted_at < op.sepsis_admitted_at
+    LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dp
+        ON  a.visit_id    = dp.visit_id
+        AND LOWER(REPLACE(a.source_schema, '_CLEAN', '')) = dp.source_schema
+    QUALIFY ROW_NUMBER() OVER (
+        PARTITION BY op.patient_id, op.source_schema
+        ORDER BY a.admitted_at DESC
+    ) = 1
+)
+SELECT
+    op.patient_id,
+    op.source_schema,
+    pa.prior_icd10_name,
+    pa.prior_disease_burden_group,
+    pa.days_before_outlier,
+    pa.relationship_window
+FROM outlier_patients op
+LEFT JOIN prior_admissions pa
+    ON  pa.patient_id   = op.patient_id
+    AND pa.source_schema = op.source_schema
+"""
+    return run_query(sql)
+
+
+def load_ca_sepsis_opd_history(filters: dict, run_query) -> pd.DataFrame:
+    """Section E: OPD visit history for Sepsis outlier patients with no prior inpatient admission."""
+    wh_a = _w_adm(filters)
+    wh_v = _w(filters, alias="v")
+    sql = f"""
+WITH sepsis_outlier_patients AS (
+    SELECT DISTINCT
+        a.patient_id,
+        LOWER(REPLACE(a.source_schema, '_CLEAN', ''))  AS source_schema,
+        a.ward_name                                     AS sepsis_ward,
+        a.los_days                                      AS sepsis_los,
+        a.admitted_at                                   AS sepsis_admitted_at
+    FROM HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
+    INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dp
+        ON  a.visit_id = dp.visit_id
+        AND LOWER(REPLACE(a.source_schema, '_CLEAN', '')) = dp.source_schema
+    WHERE a.los_days IS NOT NULL
+    {wh_a}
+    AND (COALESCE(dp.disease_burden_group_1, '') ILIKE '%Infectious%'
+      OR COALESCE(dp.disease_burden_group_1, '') ILIKE '%Sepsis%')
+),
+no_prior_inpatient AS (
+    SELECT sop.patient_id, sop.source_schema, sop.sepsis_ward,
+           sop.sepsis_los, sop.sepsis_admitted_at
+    FROM sepsis_outlier_patients sop
+    WHERE NOT EXISTS (
+        SELECT 1 FROM HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS prev
+        WHERE prev.patient_id   = sop.patient_id
+          AND LOWER(REPLACE(prev.source_schema, '_CLEAN', '')) = sop.source_schema
+          AND prev.admitted_at  < sop.sepsis_admitted_at
+    )
+),
+prior_opd AS (
+    SELECT
+        npi.patient_id,
+        npi.source_schema,
+        MAX(v.created_at)                                                       AS opd_visit_date,
+        DATEDIFF('day', MAX(v.created_at), npi.sepsis_admitted_at)             AS days_before_sepsis_opd,
+        CASE
+            WHEN DATEDIFF('day', MAX(v.created_at), npi.sepsis_admitted_at) <= 30  THEN '≤30 days'
+            WHEN DATEDIFF('day', MAX(v.created_at), npi.sepsis_admitted_at) <= 90  THEN '31–90 days'
+            ELSE '>90 days'
+        END                                                                     AS opd_relationship_window
+    FROM no_prior_inpatient npi
+    INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_VISITS v
+        ON  v.patient      = npi.patient_id
+        AND v.source_schema = npi.source_schema
+        AND v.created_at   < npi.sepsis_admitted_at
+    WHERE 1=1 {wh_v}
+    GROUP BY npi.patient_id, npi.source_schema, npi.sepsis_admitted_at
+)
+SELECT
+    npi.patient_id,
+    npi.sepsis_ward,
+    npi.sepsis_los,
+    CASE WHEN po.patient_id IS NOT NULL THEN TRUE ELSE FALSE END                AS had_prior_opd_visit,
+    po.opd_visit_date,
+    po.days_before_sepsis_opd,
+    po.opd_relationship_window
+FROM no_prior_inpatient npi
+LEFT JOIN prior_opd po
+    ON  po.patient_id   = npi.patient_id
+    AND po.source_schema = npi.source_schema
+ORDER BY npi.sepsis_los DESC
+"""
+    return run_query(sql)
+
+
+def load_ca_section_f(filters: dict, run_query) -> pd.DataFrame:
+    """F: OPD to admission time by ward — median hours and within-4h rate."""
+    wh   = _w(filters, alias="v")
+    wh_a = _w_adm(filters, alias="a")
+    sql = f"""
+SELECT
+    LOWER(REPLACE(a.source_schema, '_CLEAN', ''))                              AS source_schema,
+    DATE_TRUNC('month', a.admitted_at)                                         AS month,
+    a.ward_name,
+    a.ward_category,
+    COUNT(DISTINCT a.visit_id)                                                 AS total_admissions_with_prior_opd,
+    ROUND(MEDIAN(DATEDIFF('hour', v.created_at, a.admitted_at)), 1)            AS median_hours_opd_to_admission,
+    ROUND(AVG(DATEDIFF('hour', v.created_at, a.admitted_at)), 1)               AS avg_hours_opd_to_admission,
+    COUNT(CASE WHEN DATEDIFF('hour', v.created_at, a.admitted_at) <= 4
+               THEN 1 END)                                                     AS admitted_within_4h,
+    COUNT(CASE WHEN DATEDIFF('hour', v.created_at, a.admitted_at) BETWEEN 5  AND 24 THEN 1 END) AS admitted_5_24h,
+    COUNT(CASE WHEN DATEDIFF('hour', v.created_at, a.admitted_at) BETWEEN 25 AND 72 THEN 1 END) AS admitted_25_72h,
+    ROUND(DIV0(
+        COUNT(CASE WHEN DATEDIFF('hour', v.created_at, a.admitted_at) <= 4 THEN 1 END),
+        COUNT(DISTINCT a.visit_id)
+    ) * 100.0, 2)                                                              AS pct_admitted_within_4h
+FROM HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
+INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_VISITS v
+    ON  a.visit_id   = v.id
+    AND LOWER(REPLACE(a.source_schema, '_CLEAN', '')) = v.source_schema
+    AND v.created_at < a.admitted_at
+    AND DATEDIFF('hour', v.created_at, a.admitted_at) <= 72
+WHERE 1=1
+{wh_a}
+GROUP BY ALL
+ORDER BY month DESC, median_hours_opd_to_admission DESC
 """
     return run_query(sql)

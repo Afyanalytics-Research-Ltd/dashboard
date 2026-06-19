@@ -1,16 +1,21 @@
 import sys
 import os
 # Add dashboards/ to path so 'import ksh.clinical_module.X' resolves correctly
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath('__file__'))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import streamlit as st
 import plotly.io as pio
 import plotly.graph_objects as go
 import pandas as pd
 from datetime import date, timedelta
 
+import importlib
+
 import ksh.clinical_module.queries as Q
-from ksh.clinical_module.queries import run_query
 import ksh.clinical_module.views as V
+importlib.reload(Q)
+importlib.reload(V)
+from ksh.clinical_module.queries import run_query
+from ksh.clinical_module.ui_template import inject_global_css
 
 st.set_page_config(
     page_title="Afya Clinical Analytics",
@@ -18,6 +23,7 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+inject_global_css()
 
 # ── PALETTE ───────────────────────────────────────────────────────────────────
 AFYA_BLUE = "#0072CE"
@@ -37,12 +43,12 @@ RED       = "#C53030"
 
 pio.templates["afya"] = pio.templates["plotly_white"]
 _t = pio.templates["afya"].layout
-_t.font        = dict(family="Montserrat, sans-serif", color=COOL_BLUE, size=11)
-_t.legend.font = dict(family="Montserrat, sans-serif", color=COOL_BLUE, size=10)
-_t.xaxis.tickfont   = dict(color=MUTED, size=10)
-_t.xaxis.title.font = dict(color=COOL_BLUE, size=11)
-_t.yaxis.tickfont   = dict(color=MUTED, size=10)
-_t.yaxis.title.font = dict(color=COOL_BLUE, size=11)
+_t.font        = dict(family="Montserrat, sans-serif", color=COOL_BLUE, size=13)
+_t.legend.font = dict(family="Montserrat, sans-serif", color=COOL_BLUE, size=12)
+_t.xaxis.tickfont   = dict(color=MUTED, size=12)
+_t.xaxis.title.font = dict(color=COOL_BLUE, size=13)
+_t.yaxis.tickfont   = dict(color=MUTED, size=12)
+_t.yaxis.title.font = dict(color=COOL_BLUE, size=13)
 _t.xaxis.gridcolor  = "#EBF3FB"
 _t.yaxis.gridcolor  = "#EBF3FB"
 _t.paper_bgcolor    = "#fff"
@@ -51,73 +57,30 @@ pio.templates.default = "afya"
 
 CHART_LAYOUT = dict(
     plot_bgcolor="#fff", paper_bgcolor="#fff",
-    font=dict(family="Montserrat, sans-serif", size=11, color=COOL_BLUE),
+    font=dict(family="Montserrat, sans-serif", size=13, color=COOL_BLUE),
     margin=dict(t=10, b=10, l=0, r=10),
     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1,
-                font=dict(family="Montserrat, sans-serif", size=10, color=COOL_BLUE),
+                font=dict(family="Montserrat, sans-serif", size=12, color=COOL_BLUE),
                 bgcolor="rgba(0,0,0,0)"),
     colorway=SEQ,
 )
 AXIS = dict(
     showgrid=True, gridcolor="#EBF3FB", zeroline=False, color=COOL_BLUE,
-    tickfont=dict(color=MUTED, size=10, family="Montserrat, sans-serif"),
-    title_font=dict(color=COOL_BLUE, size=11, family="Montserrat, sans-serif"),
+    tickfont=dict(color=MUTED, size=12, family="Montserrat, sans-serif"),
+    title_font=dict(color=COOL_BLUE, size=13, family="Montserrat, sans-serif"),
     title_standoff=8,
 )
 def _ax(**overrides): return {**AXIS, **overrides}
 
-# ── CSS ───────────────────────────────────────────────────────────────────────
-st.markdown("""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap');
-html, body { font-family: 'Montserrat', sans-serif; background: #fff; color: #003467; }
-.stApp { background: #F4F8FC; }
-[data-testid="stSidebar"] { background: #F4F8FC; border-right: 1px solid #D6E4F0; }
-[data-testid="stSidebar"] p,
-[data-testid="stSidebar"] label,
-[data-testid="stSidebar"] button,
-[data-testid="stSidebar"] .stMarkdown { color: #003467; font-family: 'Montserrat', sans-serif; }
-[data-testid="stSidebar"] span[class*="material"] {
-    font-family: 'Material Symbols Rounded', 'Material Icons' !important; }
-.sh { font-size:11px; font-weight:700; color:#0072CE; text-transform:uppercase;
-      letter-spacing:2px; padding:8px 0 6px; border-bottom:2px solid #EBF3FB; margin-bottom:10px; }
-/* Diagnostic / predictive / prescriptive insight styles */
-.insight-blue  { background:#F4F8FC; border-left:4px solid #0072CE; border-radius:0 6px 6px 0; padding:10px 13px; margin-bottom:10px; }
-.insight-teal  { background:#E8F7F4; border-left:4px solid #0BB99F; border-radius:0 6px 6px 0; padding:10px 13px; margin-bottom:10px; }
-.insight-amber { background:#FFFBEB; border-left:4px solid #D97706; border-radius:0 6px 6px 0; padding:10px 13px; margin-bottom:10px; }
-.insight-red   { background:#FFF5F5; border-left:4px solid #E53E3E; border-radius:0 6px 6px 0; padding:10px 13px; margin-bottom:10px; }
-.insight-purple { background:#F5F0FF; border-left:4px solid #7B5EA7; border-radius:0 6px 6px 0; padding:10px 13px; margin-bottom:10px; }
-.insight-lbl   { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; margin-bottom:4px; }
-.insight-txt   { font-size:13px; color:#003467; line-height:1.6; }
-/* Analytics tier badges */
-.badge-diag  { background:#EBF5FF; color:#185FA5; font-size:10px; font-weight:700; padding:2px 8px; border-radius:20px; }
-.badge-pred  { background:#FFFBEB; color:#854F0B; font-size:10px; font-weight:700; padding:2px 8px; border-radius:20px; }
-.badge-presc { background:#E8F7F4; color:#0F6E56; font-size:10px; font-weight:700; padding:2px 8px; border-radius:20px; }
-/* KPI & flag cards */
-.kpi-card { background:#fff; border:1px solid #D6E4F0; border-radius:8px; padding:14px 14px 10px; }
-.fbadge-high  { background:#FED7D7; color:#9B2C2C; font-size:10px; font-weight:700; padding:2px 8px; border-radius:20px; }
-.fbadge-med   { background:#FEEBC8; color:#7B341E; font-size:10px; font-weight:700; padding:2px 8px; border-radius:20px; }
-.fbadge-watch { background:#BEE3F8; color:#2C5282; font-size:10px; font-weight:700; padding:2px 8px; border-radius:20px; }
-.fbadge-ok    { background:#C6F6D5; color:#276749; font-size:10px; font-weight:700; padding:2px 8px; border-radius:20px; }
-.freshness { background:#E8F7F4; border:1px solid #9FE1CB; border-radius:6px;
-             padding:8px 10px; font-size:11px; color:#0F6E56; margin-bottom:12px; }
-::-webkit-scrollbar { width:5px; }
-::-webkit-scrollbar-thumb { background:#B0C8E0; border-radius:10px; }
-[data-baseweb="tab"] { font-family:'Montserrat',sans-serif !important; font-weight:600 !important;
-                        font-size:13px !important; color:#6B8CAE !important; }
-[aria-selected="true"] { color:#0072CE !important; border-bottom-color:#0072CE !important; }
-</style>
-""", unsafe_allow_html=True)
-
 # ── UI HELPERS ────────────────────────────────────────────────────────────────
 def kpi_card(label, value, sub="", delta="", delta_color=MUTED, color=COOL_BLUE):
-    delta_html = f'<div style="font-size:11px;color:{delta_color};margin-top:3px">{delta}</div>' if delta else ""
-    sub_html   = f'<div style="font-size:10px;color:{MUTED};margin-top:2px">{sub}</div>' if sub else ""
+    delta_html = f'<div style="font-family:Montserrat,sans-serif;font-size:12px;color:{delta_color};margin-top:3px">{delta}</div>' if delta else ""
+    sub_html   = f'<div style="font-family:Inter,sans-serif;font-size:11px;color:{MUTED};margin-top:2px">{sub}</div>' if sub else ""
     st.markdown(
         f'<div style="background:#fff;border:1px solid {BORDER};border-radius:8px;padding:14px 14px 10px">'
-        f'<div style="font-size:10px;font-weight:600;color:{MUTED};text-transform:uppercase;'
+        f'<div style="font-family:Montserrat,sans-serif;font-size:11px;font-weight:600;color:{MUTED};text-transform:uppercase;'
         f'letter-spacing:1.2px;margin-bottom:5px">{label}</div>'
-        f'<div style="font-size:22px;font-weight:700;color:{color};line-height:1.1">{value}</div>'
+        f'<div style="font-family:Montserrat,sans-serif;font-size:26px;font-weight:700;color:{color};line-height:1.1">{value}</div>'
         f'{delta_html}{sub_html}</div>', unsafe_allow_html=True)
 
 def section_header(title):
@@ -132,7 +95,7 @@ def insight_card(text, label="Key insight", variant="blue"):
         f'<div class="insight-txt">{text}</div></div>', unsafe_allow_html=True)
 
 def prescriptive_card(text, action=""):
-    action_html = f'<div style="font-size:11px;font-weight:600;color:#0F6E56;margin-top:6px">→ {action}</div>' if action else ""
+    action_html = f'<div style="font-size:13px;font-weight:600;color:#0F6E56;margin-top:6px">→ {action}</div>' if action else ""
     st.markdown(
         f'<div style="background:#E8F7F4;border-left:4px solid #0BB99F;border-radius:0 6px 6px 0;padding:10px 13px;margin-bottom:10px">'
         f'<div class="insight-lbl" style="color:#0BB99F">Recommended action</div>'
@@ -155,7 +118,7 @@ def flag_badge(level, text):
     return f'<span class="{cls}">{text}</span>'
 
 def freshness_bar(date_str, schema=""):
-    schema_html = f' &nbsp;·&nbsp; <code style="font-size:10px">{schema}</code>' if schema else ""
+    schema_html = f' &nbsp;·&nbsp; <code style="font-size:12px">{schema}</code>' if schema else ""
     st.markdown(f'<div class="freshness">📅 Data as of <strong>{date_str}</strong>{schema_html} · Anchored to MAX(visit_date)</div>', unsafe_allow_html=True)
 
 def fmt_num(v, suffix=""):
@@ -185,7 +148,7 @@ def horizontal_bar(df, label_col, value_col, color=AFYA_BLUE, height=280, title=
     fig = go.Figure(go.Bar(
         y=df[label_col], x=df[value_col], orientation="h", marker_color=color,
         text=df[value_col].apply(lambda v: f"{v:.1f}{xaxis_suffix}"),
-        textposition="outside", textfont=dict(size=10, color=COOL_BLUE),
+        textposition="outside", textfont=dict(size=12, color=COOL_BLUE),
     ))
     fig.update_layout(**{**CHART_LAYOUT,"height":height,"title_text":title},
                       xaxis={**_ax(),"showgrid":False},
@@ -216,7 +179,7 @@ def donut_chart(labels, values, colors=None, height=220, title=""):
     colors = colors or SEQ
     fig = go.Figure(go.Pie(labels=labels,values=values,hole=0.55,
                            marker=dict(colors=colors),textinfo="percent",
-                           textfont=dict(size=10,family="Montserrat, sans-serif")))
+                           textfont=dict(size=12,family="Montserrat, sans-serif")))
     fig.update_layout(**{**CHART_LAYOUT,"height":height,"title_text":title,
                          "legend":dict(orientation="v",x=1.05,y=0.5,
                                        font=dict(size=10,family="Montserrat, sans-serif"))},
@@ -231,6 +194,13 @@ def heatmap_chart(z, x_labels, y_labels, height=220, title="", colorscale="Blues
     return fig
 
 # ── SESSION STATE ─────────────────────────────────────────────────────────────
+# Bump _DATE_DEFAULT_VERSION whenever the default from-date changes so that
+# every active session is force-reset to the new default on next render.
+_DATE_DEFAULT_VERSION = "2024-09-01-v1"
+if st.session_state.get("_date_default_version") != _DATE_DEFAULT_VERSION:
+    st.session_state["date_from"] = date(2024, 9, 1)
+    st.session_state["_date_default_version"] = _DATE_DEFAULT_VERSION
+
 if "role" not in st.session_state:
     st.session_state["role"] = "Head of Clinician"
 if "filters" not in st.session_state:
@@ -238,8 +208,8 @@ if "filters" not in st.session_state:
         "source_schemas": [], "schema_display": [], "facilities": [],
         "visit_type": "All", "payer_type": "All",
         "age_group": "All", "disease_group": "All",
-        "date_range": "Last 12 months",
-        "date_from": None, "date_to": None,
+        "date_range": "Custom",
+        "date_from": "2024-09-01", "date_to": None,
     }
 if "selected_patient" not in st.session_state:
     st.session_state["selected_patient"] = None
@@ -448,7 +418,7 @@ st.session_state["helpers"] = {
     "note":     lambda t, warn=False: st.markdown(
                     f'<div style="background:{"#FFFBEB" if warn else "#F4F8FC"};'
                     f'border-left:3px solid {"#D97706" if warn else "#0072CE"};'
-                    f'padding:7px 11px;font-size:13px;margin-top:5px;border-radius:0 4px 4px 0">{t}</div>',
+                    f'padding:7px 11px;font-size:15px;margin-top:5px;border-radius:0 4px 4px 0">{t}</div>',
                     unsafe_allow_html=True),
     "fmt_num":  fmt_num,
     "fmt_pct":  fmt_pct,
@@ -459,21 +429,29 @@ render_topbar()
 filters = render_sidebar()
 role    = st.session_state.get("role", "Head of Clinician")
 
-if role == "Clinician":
-    V.render_clinician_view(filters, run_query)
+# ── TEMPORARY DEBUG — remove once date filter is confirmed working ────────────
+with st.sidebar:
+    st.caption(
+        f"🔍 **Debug** | date_from: `{filters.get('date_from')}` "
+        f"| date_range: `{filters.get('date_range')}` "
+        f"| schemas: `{filters.get('source_schemas')}`"
+    )
+# ─────────────────────────────────────────────────────────────────────────────
 
-else:  # Head of Clinician — full access to all tabs including patient card
+if role == "Clinician":
+    tabs = st.tabs(["👤  Patient Card"])
+    with tabs[0]: V.render_clinician_view(filters, run_query)
+
+else:  # Head of Clinician — all analytics tabs, no patient card
     tabs = st.tabs([
-        "📈  Operations",
-        "🧑‍🤝‍🧑  Patient Demographics",
+        "🏥  OPD → IPD Conversion",
+        "🛏️  Clinical Activity",
+        "🔄  Patient Acquisition",
         "📊  Flow and Retention",
         "🦠  Disease Burden",
-        "🩺  Clinical Quality & Workload",
-        "👤  Patient Card",
     ])
-    with tabs[0]: V.render_tab1_operations(filters, run_query)
-    with tabs[1]: V.render_tab2_segmentation(filters, run_query)
-    with tabs[2]: V.render_tab3_retention(filters, run_query)
-    with tabs[3]: V.render_tab4_disease_burden(filters, run_query)
-    with tabs[4]: V.render_tab5_workload(filters, run_query)
-    with tabs[5]: V.render_clinician_view(filters, run_query)
+    with tabs[0]: V.render_tab_opd_ipd(filters, run_query)
+    with tabs[1]: V.render_tab_clinical_activity(filters, run_query)
+    with tabs[2]: V.render_tab_conversion_value(filters, run_query)
+    with tabs[3]: V.render_tab3_retention(filters, run_query)
+    with tabs[4]: V.render_tab4_disease_burden(filters, run_query)

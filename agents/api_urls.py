@@ -1,7 +1,7 @@
 from django.urls import path
-
-from agents.api import RunAgentsView
+from . import api
 
 urlpatterns = [
-    path("run/", RunAgentsView.as_view(), name="agents-run"),
+    path("query/", api.query, name="api-query"),
+    path("resume/", api.resume, name="api-resume"),
 ]

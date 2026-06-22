@@ -24,19 +24,33 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-change-me-in-production')
 DEBUG = os.getenv('DEBUG', 'False').strip().lower() in ('true', '1', 'yes', 'on')
 
+# settings.py — add/update these
+
 ALLOWED_HOSTS = [
     'datahub.afyaanalytics.com',
     'localhost',
     '127.0.0.1',
     '0.0.0.0',
+    '2c97-129-222-187-199.ngrok-free.app',
 ]
 
 CSRF_TRUSTED_ORIGINS = [
     'https://datahub.afyaanalytics.com',
     'http://localhost:8000',
     'http://127.0.0.1:8000',
+    'https://2c97-129-222-187-199.ngrok-free.app',
 ]
 
+# Add this — CORS was missing the ngrok origin
+CORS_ALLOWED_ORIGINS = [
+    'https://datahub.afyaanalytics.com',
+    'http://localhost:8000',
+    'http://127.0.0.1:8000',
+    'https://2c97-129-222-187-199.ngrok-free.app',
+]
+
+# Or for dev, just allow everything:
+# CORS_ALLOW_ALL_ORIGINS = True
 # ---------------------------------------------------------------------------
 # Applications
 # ---------------------------------------------------------------------------
@@ -64,13 +78,15 @@ INSTALLED_APPS = [
     'airflow_ui',
     'self_service',
     'agents',
+    'corsheaders',
+    'catalog'
 ]
 
 # ---------------------------------------------------------------------------
 # Middleware
 # ---------------------------------------------------------------------------
-
 MIDDLEWARE = [
+    "corsheaders.middleware.CorsMiddleware",  # must be first
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -87,6 +103,11 @@ ROOT_URLCONF = 'airflow_dashboard.urls'
 # ---------------------------------------------------------------------------
 # Templates
 # ---------------------------------------------------------------------------
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "sk-...").strip()
+
+CUBE_API_URL = os.getenv("CUBE_API_URL", "http://localhost:4000").strip()
+CUBE_API_TOKEN = os.getenv("CUBE_API_TOKEN", "your-cube-api-secret").strip()
+ANALYTICS_TEAM_EMAIL = os.getenv("ANALYTICS_TEAM_EMAIL", "data@afya.ai").strip()
 
 TEMPLATES = [
     {
@@ -108,7 +129,8 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'airflow_dashboard.wsgi.application'
 ASGI_APPLICATION = 'airflow_dashboard.asgi.application'
-
+WHAPI_TOKEN = os.getenv("WHAPI_TOKEN", "your-whapi-channel-token").strip()
+WHAPI_URL = os.getenv("WHAPI_URL", "https://gate.whapi.cloud").strip()
 # ---------------------------------------------------------------------------
 # Database
 # ---------------------------------------------------------------------------

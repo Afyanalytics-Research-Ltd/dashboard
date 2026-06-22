@@ -2515,57 +2515,6 @@ def render_tab_opd_ipd(filters: dict, run_query):
     _htn_rate_val = float(htn.iloc[0]['actual_rate_pct']) if not htn.empty else 2.7
     _mh_gap_pp    = round(max(0.0, 8.0 - mh_rate), 1)
 
-    # ── Rate context header with progress bar ────────────────────────────────
-    _prog_pct  = min(100, int(overall_rate / universe_rate * 100)) if universe_rate > 0 else 0
-    _floor_pos = min(98, int(8.0 / universe_rate * 100))           if universe_rate > 0 else 88
-    st.markdown(
-        f'<div style="border:1px solid #E5E7EB;border-radius:10px;padding:16px 18px 14px;">'
-        f'<div style="display:flex;align-items:baseline;gap:10px;margin-bottom:4px;">'
-        f'<span style="font-size:32px;font-weight:700;color:#E24B4A;line-height:1;">{overall_rate:.2f}%</span>'
-        f'<span style="font-size:13px;color:var(--text-color);opacity:.6;">'
-        f'Overall OPD → IPD · six factors identified</span>'
-        f'</div>'
-        f'<div style="font-size:12px;color:var(--text-color);opacity:.6;margin-bottom:12px;line-height:1.5;">'
-        f'Retention universe ({universe_rate:.1f}%) shows the achievable ceiling. '
-        f'Gap to the 8% reference floor explained below.</div>'
-        f'<div style="display:flex;align-items:center;gap:8px;">'
-        f'<span style="font-size:11px;font-weight:600;color:#E24B4A;min-width:38px;">{overall_rate:.2f}%</span>'
-        f'<div style="flex:1;position:relative;height:6px;background:#E5E7EB;border-radius:3px;">'
-        f'<div style="width:{_prog_pct}%;height:100%;background:#E24B4A;border-radius:3px 0 0 3px;"></div>'
-        f'<div style="position:absolute;left:{_floor_pos}%;top:-4px;width:1px;height:14px;background:#9CA3AF;"></div>'
-        f'</div>'
-        f'<span style="font-size:11px;color:#BA7517;font-weight:500;white-space:nowrap;">8% floor</span>'
-        f'<span style="font-size:11px;color:#9CA3AF;white-space:nowrap;">{universe_rate:.1f}% complex</span>'
-        f'</div>'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
-
-    # CSS: make accordion arrow buttons look like inline glyphs
-    st.markdown("""<style>
-div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:last-of-type button {
-    background: transparent !important;
-    border: none !important;
-    box-shadow: none !important;
-    color: #9CA3AF !important;
-    font-size: 16px !important;
-    padding: 10px 6px !important;
-    min-height: unset !important;
-    width: 100% !important;
-    height: 100% !important;
-}
-div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:last-of-type button:hover {
-    color: #374151 !important;
-    background: rgba(0,0,0,0.04) !important;
-    border-radius: 4px !important;
-}
-div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:last-of-type {
-    display: flex !important;
-    align-items: stretch !important;
-    border-bottom: 0.5px solid #E5E7EB;
-}
-</style>""", unsafe_allow_html=True)
-
     _FACTORS = [
         {
             "type": "Case mix",
@@ -2647,80 +2596,284 @@ div[data-testid="stHorizontalBlock"] > div[data-testid="column"]:last-of-type {
         },
     ]
 
-    # ── Section F accordion ───────────────────────────────────────────────────
-    _F_KEY = "opd_f_acc"
-    _ACC_STYLE = {
-        "high": ("#E24B4A", "#FCEBEB", "#791F1F"),
-        "med":  ("#BA7517", "#FAEEDA", "#633806"),
-        "low":  ("#185FA5", "#E6F1FB", "#0C447C"),
-    }
-    _IMP_LABEL = {"High impact": "High", "Medium impact": "Medium", "Monitor": "Monitor"}
+    # ── Section F — two-tier redesign ────────────────────────────────────────
+    _bar_pct = f"{min((overall_rate / 8.0) * 100, 100):.1f}%"
 
-    for _fi, _fac in enumerate(_FACTORS):
-        _acc_hex, _bdg_bg, _bdg_fg = _ACC_STYLE[_fac["level"]]
-        _badge_txt = _IMP_LABEL.get(_fac["impact"], _fac["impact"])
-        _sk = f"{_F_KEY}_{_fi}"
+    st.markdown(
+        # ── Outer open ──
+        f'<div style="'
+        f'background:var(--background-color);'
+        f'border:0.5px solid rgba(0,0,0,0.12);'
+        f'border-radius:10px;'
+        f'overflow:hidden;'
+        f'margin-bottom:16px;'
+        f'">'
+
+        # ── Header block ──
+        f'<div style="'
+        f'display:grid;grid-template-columns:auto 1fr;gap:14px;'
+        f'align-items:center;'
+        f'padding:14px 16px 12px;'
+        f'border-bottom:0.5px solid rgba(0,0,0,0.08);'
+        f'">'
+        f'<div>'
+        f'<div style="font-size:36px;font-weight:500;color:#C53030;line-height:1;">'
+        f'{overall_rate:.2f}%</div>'
+        f'<div style="font-size:11px;color:var(--text-color);opacity:.5;margin-top:2px;">'
+        f'OPD → IPD · all visits</div>'
+        f'</div>'
+        f'<div>'
+        f'<div style="font-size:12px;color:var(--text-color);opacity:.65;'
+        f'line-height:1.5;margin-bottom:8px;">'
+        f'Six factors explain the gap to the 8% floor. '
+        f'Complex patients already convert at {universe_rate:.1f}% — '
+        f'the problem is case mix and specific protocol gaps.'
+        f'</div>'
+        f'<div style="display:flex;align-items:center;gap:8px;">'
+        f'<span style="font-size:11px;color:var(--text-color);opacity:.5;white-space:nowrap;">'
+        f'{overall_rate:.2f}%</span>'
+        f'<div style="flex:1;height:4px;background:rgba(0,0,0,0.08);'
+        f'border-radius:2px;position:relative;">'
+        f'<div style="height:100%;width:{_bar_pct};background:#C53030;border-radius:2px;"></div>'
+        f'<div style="position:absolute;right:0;top:-3px;bottom:-3px;'
+        f'width:1.5px;background:#2F855A;"></div>'
+        f'</div>'
+        f'<span style="font-size:11px;color:#2F855A;white-space:nowrap;">8% floor</span>'
+        f'<span style="font-size:11px;color:var(--text-color);opacity:.5;white-space:nowrap;">'
+        f'{universe_rate:.1f}% complex</span>'
+        f'</div>'
+        f'<div style="display:flex;justify-content:space-between;font-size:10px;'
+        f'color:var(--text-color);opacity:.4;margin-top:2px;'
+        f'padding-left:44px;padding-right:90px;">'
+        f'<span>0%</span><span>8%</span>'
+        f'</div>'
+        f'</div>'
+        f'</div>'
+
+        # ── Tier 1 label ──
+        f'<div style="'
+        f'font-size:10px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;'
+        f'color:#C53030;padding:9px 16px 7px;'
+        f'border-bottom:0.5px solid rgba(0,0,0,0.08);'
+        f'">Act now — two factors account for most of the gap to 8%</div>'
+
+        # ── Tier 1 cards grid ──
+        f'<div style="display:grid;grid-template-columns:1fr 1fr;'
+        f'border-bottom:0.5px solid rgba(0,0,0,0.08);">'
+
+        # Card 1 — Case mix
+        f'<div style="padding:12px 14px;border-right:0.5px solid rgba(0,0,0,0.08);">'
+        f'<div style="height:2px;background:#E24B4A;border-radius:1px;margin-bottom:8px;"></div>'
+        f'<div style="font-size:10px;letter-spacing:.07em;text-transform:uppercase;'
+        f'color:var(--text-color);opacity:.5;margin-bottom:2px;">Case mix</div>'
+        f'<div style="font-size:14px;font-weight:500;color:#C53030;margin-bottom:4px;">'
+        f'~{mix_gap:.1f}pp suppression</div>'
+        f'<div style="font-size:12px;color:var(--text-color);opacity:.7;'
+        f'line-height:1.55;margin-bottom:8px;">'
+        f'High acute walk-in volume (~5.4% conversion) is diluting the overall rate. '
+        f'The facility is not attracting enough complex referral cases that would '
+        f'naturally convert. Complex patients are already performing at {universe_rate:.1f}% '
+        f'— the gap is in case mix, not clinical capability.'
+        f'</div>'
+        f'<div style="font-size:10px;letter-spacing:.07em;text-transform:uppercase;'
+        f'color:#C53030;font-weight:500;margin-bottom:2px;">To improve conversion</div>'
+        f'<div style="font-size:12px;color:var(--text-color);'
+        f'background:var(--secondary-background-color);'
+        f'border-radius:6px;padding:7px 10px;line-height:1.5;">'
+        f'Build referral pathways for complex cases — chronic disease, oncology, maternal. '
+        f'Track complex ({universe_rate:.1f}%) and acute (~5.4%) conversion separately. '
+        f'The {overall_rate:.2f}% headline will improve as case mix shifts.'
+        f'</div>'
+        f'</div>'
+
+        # Card 2 — Hypertension
+        f'<div style="padding:12px 14px;">'
+        f'<div style="height:2px;background:#E24B4A;border-radius:1px;margin-bottom:8px;"></div>'
+        f'<div style="font-size:10px;letter-spacing:.07em;text-transform:uppercase;'
+        f'color:var(--text-color);opacity:.5;margin-bottom:2px;">Clinical protocol gap</div>'
+        f'<div style="font-size:14px;font-weight:500;color:#C53030;margin-bottom:4px;">'
+        f'–5.8pp below reference</div>'
+        f'<div style="font-size:12px;color:var(--text-color);opacity:.7;'
+        f'line-height:1.55;margin-bottom:8px;">'
+        f'Hypertension conversion is {_htn_rate_text} against a 10–20% cardiovascular '
+        f'reference floor. Systolic &gt;180 presentations are leaving OPD without a '
+        f'documented admission decision — the largest single-diagnosis gap on the '
+        f'benchmark chart.'
+        f'</div>'
+        f'<div style="font-size:10px;letter-spacing:.07em;text-transform:uppercase;'
+        f'color:#C53030;font-weight:500;margin-bottom:2px;">To improve conversion</div>'
+        f'<div style="font-size:12px;color:var(--text-color);'
+        f'background:var(--secondary-background-color);'
+        f'border-radius:6px;padding:7px 10px;line-height:1.5;">'
+        f'Write admission criteria for systolic &gt;180. Every case at this threshold '
+        f'requires a documented clinical decision — either way. This single protocol '
+        f'change directly moves the cardiovascular segment conversion rate.'
+        f'</div>'
+        f'</div>'
+
+        f'</div>'  # end tier-1 grid
+
+        # ── Tier 2 label ──
+        f'<div style="'
+        f'font-size:10px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;'
+        f'color:var(--text-color);opacity:.45;padding:9px 16px 7px;'
+        f'border-bottom:0.5px solid rgba(0,0,0,0.08);'
+        f'">Contributing to the gap between {overall_rate:.2f}% and the 8% floor — expand for detail</div>',
+
+        unsafe_allow_html=True,
+    )
+
+    # ── Tier 2 accordion — four rows via session state ────────────────────────
+    _ACC_FACTORS = _FACTORS[2:]  # Mental Health, Age leakage, Under-triage, Workload
+
+    _ACC_BADGE = {
+        "med": ("#FAEEDA", "#633806"),
+        "low": ("#E6F1FB", "#0C447C"),
+    }
+    _ACC_BADGE_LBL = {
+        "Medium impact": "Medium",
+        "Monitor":       "Monitor",
+    }
+    _ACC_STATS = [
+        (f"–{mh_rate:.1f}pp",   True),
+        (_low_age_text[:12] + "…" if len(_low_age_text) > 12 else _low_age_text, False),
+        (f"{_child_esc_n} cases", False),
+        (f"–{gap:.2f}pp",       True),
+    ]
+    _ACC_TARGET = [
+        "Target: Mental Health segment reaches 8% reference floor",
+        "Secondary benefit: reduces LTFU rate in Retention tab",
+        "Target: 30% reduction in 72h escalations within 6 months",
+        "Threshold for action: >1.0pp drop over 2 consecutive months",
+    ]
+    _ACC_WHY = [
+        (f"Psychiatric severity is not assessed before the admission decision. "
+         f"Patients who warrant admission are being cleared outpatient at triage."),
+        (f"{_low_age_text} are the lowest converting chronic cohorts and show the "
+         f"highest LTFU dropout rates — under-admitted at OPD, then lost."),
+        (f"{_child_esc_n} children assessed at OPD, sent home, readmitted within 72h. "
+         f"Paediatric severity not detected at first contact."),
+        (f"High clinician load (>90 visits/day) suppresses conversion slightly. "
+         f"Small effect — not a material contributor at current levels. "
+         f"Peak: {peak_load:.1f} visits/clinician."),
+    ]
+    _ACC_ACTION = [
+        ("Structured psychiatric severity screening at OPD triage — "
+         "before the admission decision, not after. Confirm psychiatrist "
+         "availability at triage."),
+        ("OPD chronic disease assessment for these cohorts must be driven "
+         "by clinical severity, not patient preference to avoid admission."),
+        ("Implement PEWS at OPD triage for all Child 5–12 presentations. "
+         "Converts delayed admissions into same-day conversions."),
+        ("No action required at current levels. If gap exceeds 1.0pp over "
+         "two consecutive months, initiate a staffing capacity review."),
+    ]
+
+    _F2_KEY = "opd_f2_acc"
+
+    for _ai, _fac in enumerate(_ACC_FACTORS):
+        _sk = f"{_F2_KEY}_{_ai}"
         if _sk not in st.session_state:
             st.session_state[_sk] = False
 
-        _row_col, _arrow_col = st.columns([10, 1])
-        with _row_col:
-            st.markdown(
-                f'<div style="display:flex;align-items:center;gap:10px;'
-                f'padding:11px 14px;border-left:3px solid {_acc_hex};'
-                f'border-bottom:0.5px solid #E5E7EB;background:var(--background-color);">'
-                f'<span style="background:{_bdg_bg};color:{_bdg_fg};font-size:10px;'
-                f'font-weight:600;padding:2px 8px;border-radius:4px;white-space:nowrap;flex-shrink:0;">'
-                f'{_badge_txt}</span>'
-                f'<span style="font-size:10px;text-transform:uppercase;letter-spacing:.07em;'
-                f'color:#9CA3AF;white-space:nowrap;flex-shrink:0;">{_fac["type"]} ·</span>'
-                f'<span style="font-size:13px;font-weight:600;color:var(--text-color);flex:1;">'
-                f'{_fac["title"]}</span>'
-                f'<span style="font-size:12px;font-weight:500;color:{_acc_hex};'
-                f'white-space:nowrap;flex-shrink:0;margin-right:6px;">{_fac["stat"]}</span>'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
-        with _arrow_col:
-            if st.button("▴" if st.session_state[_sk] else "▾", key=f"{_sk}_btn"):
-                st.session_state[_sk] = not st.session_state[_sk]
-                st.rerun()
+        _bdg_bg, _bdg_fg   = _ACC_BADGE.get(_fac["level"], ("#E5E7EB", "#374151"))
+        _bdg_lbl           = _ACC_BADGE_LBL.get(_fac["impact"], _fac["impact"])
+        _stat_txt, _stat_is_gap = _ACC_STATS[_ai]
+        _stat_colour       = "#C53030" if _stat_is_gap else "rgba(0,0,0,0.4)"
+        _is_open           = st.session_state[_sk]
+        _border_bottom     = "0.5px solid rgba(0,0,0,0.08)"
 
-        if st.session_state[_sk]:
-            _find_items = "".join(
-                f'<li style="margin-bottom:4px;">{pt}</li>' for pt in _fac["find"]
-            )
+        st.markdown(
+            f'<div style="'
+            f'display:flex;align-items:center;gap:8px;'
+            f'padding:9px 14px;'
+            f'background:var(--secondary-background-color);'
+            f'border-bottom:{_border_bottom};'
+            f'cursor:pointer;'
+            f'">'
+            f'<span style="font-size:10px;font-weight:500;padding:2px 6px;'
+            f'border-radius:4px;background:{_bdg_bg};color:{_bdg_fg};'
+            f'white-space:nowrap;flex-shrink:0;">{_bdg_lbl}</span>'
+            f'<span style="font-size:10px;letter-spacing:.06em;text-transform:uppercase;'
+            f'color:var(--text-color);opacity:.45;flex-shrink:0;white-space:nowrap;">'
+            f'{_fac["type"]} ·</span>'
+            f'<span style="flex:1;font-size:12px;font-weight:500;color:var(--text-color);'
+            f'line-height:1.3;min-width:0;">{_fac["title"]}</span>'
+            f'<span style="font-size:12px;color:{_stat_colour};'
+            f'white-space:nowrap;flex-shrink:0;">{_stat_txt}</span>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+        _btn_lbl = "▲ Collapse" if _is_open else "▼ Expand"
+        if st.button(_btn_lbl, key=f"{_sk}_btn"):
+            st.session_state[_sk] = not _is_open
+            st.rerun()
+
+        if _is_open:
             st.markdown(
-                f'<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;'
-                f'padding:12px 14px 14px 17px;border-left:3px solid {_acc_hex};'
-                f'border-bottom:0.5px solid #E5E7EB;background:var(--secondary-background-color);">'
+                f'<div style="'
+                f'display:grid;grid-template-columns:1fr 1fr;gap:10px;'
+                f'padding:9px 14px 11px;'
+                f'border-bottom:{_border_bottom};'
+                f'background:var(--background-color);'
+                f'">'
                 f'<div>'
                 f'<div style="font-size:10px;letter-spacing:.07em;text-transform:uppercase;'
-                f'font-weight:500;color:#9CA3AF;margin-bottom:5px;">Clinical finding</div>'
-                f'<ul style="padding-left:14px;margin:0;font-size:12px;'
-                f'color:var(--text-color);opacity:.8;line-height:1.65;">{_find_items}</ul>'
+                f'color:var(--text-color);opacity:.45;font-weight:500;margin-bottom:3px;">'
+                f'Why conversion is low</div>'
+                f'<div style="font-size:12px;color:var(--text-color);opacity:.7;'
+                f'line-height:1.5;">{_ACC_WHY[_ai]}</div>'
                 f'</div>'
-                f'<div style="background:var(--background-color);border-radius:6px;padding:10px 12px;">'
+                f'<div style="background:var(--secondary-background-color);'
+                f'border-radius:6px;padding:7px 10px;">'
                 f'<div style="font-size:10px;letter-spacing:.07em;text-transform:uppercase;'
-                f'font-weight:500;color:#9CA3AF;margin-bottom:5px;">Action</div>'
-                f'<div style="font-size:12px;color:var(--text-color);line-height:1.55;">'
-                f'{_fac["action"]}</div>'
+                f'color:var(--text-color);opacity:.45;font-weight:500;margin-bottom:3px;">'
+                f'To improve conversion</div>'
+                f'<div style="font-size:12px;color:var(--text-color);line-height:1.5;">'
+                f'{_ACC_ACTION[_ai]}</div>'
+                f'<div style="font-size:11px;color:#2F855A;margin-top:4px;">'
+                f'{_ACC_TARGET[_ai]}</div>'
                 f'</div>'
                 f'</div>',
                 unsafe_allow_html=True,
             )
 
-    # ── Priority summary strip ────────────────────────────────────────────────
+    # ── Start here strip + close outer container ──────────────────────────────
     st.markdown(
-        f'<div style="padding:11px 16px;border-top:0.5px solid #E5E7EB;margin-top:2px;">'
-        f'<div style="font-size:10px;letter-spacing:.08em;font-weight:700;'
-        f'text-transform:uppercase;color:#9CA3AF;margin-bottom:5px;">Start here</div>'
-        f'<div style="font-size:12px;color:var(--text-color);line-height:1.8;">'
-        f'(1) Set segment-specific conversion targets &nbsp;·&nbsp; '
-        f'(2) Write hypertensive urgency admission criteria &nbsp;·&nbsp; '
-        f'(3) Introduce PEWS at paediatric OPD triage'
+        f'<div style="'
+        f'background:var(--secondary-background-color);'
+        f'padding:10px 16px;'
+        f'display:flex;flex-direction:column;gap:5px;'
+        f'">'
+        f'<div style="font-size:10px;letter-spacing:.08em;text-transform:uppercase;'
+        f'font-weight:500;color:var(--text-color);opacity:.45;margin-bottom:2px;">'
+        f'Start here</div>'
+        f'<div style="display:flex;align-items:flex-start;gap:8px;">'
+        f'<div style="display:flex;align-items:center;justify-content:center;'
+        f'width:17px;height:17px;border-radius:50%;background:#C53030;'
+        f'color:#fff;font-size:10px;font-weight:500;flex-shrink:0;margin-top:1px;">1</div>'
+        f'<span style="font-size:12px;color:var(--text-color);line-height:1.5;">'
+        f'Build referral pathways for complex cases — track complex and acute '
+        f'conversion as separate KPIs, not as a blended {overall_rate:.2f}%</span>'
         f'</div>'
-        f'</div>',
+        f'<div style="display:flex;align-items:flex-start;gap:8px;">'
+        f'<div style="display:flex;align-items:center;justify-content:center;'
+        f'width:17px;height:17px;border-radius:50%;background:#C53030;'
+        f'color:#fff;font-size:10px;font-weight:500;flex-shrink:0;margin-top:1px;">2</div>'
+        f'<span style="font-size:12px;color:var(--text-color);line-height:1.5;">'
+        f'Write hypertensive urgency admission criteria for systolic &gt;180 at OPD</span>'
+        f'</div>'
+        f'<div style="display:flex;align-items:flex-start;gap:8px;">'
+        f'<div style="display:flex;align-items:center;justify-content:center;'
+        f'width:17px;height:17px;border-radius:50%;background:#C53030;'
+        f'color:#fff;font-size:10px;font-weight:500;flex-shrink:0;margin-top:1px;">3</div>'
+        f'<span style="font-size:12px;color:var(--text-color);line-height:1.5;">'
+        f'Implement PEWS at paediatric OPD triage for all Child 5–12 presentations</span>'
+        f'</div>'
+        f'</div>'
+
+        f'</div>',  # closes outer container div
         unsafe_allow_html=True,
     )
 
@@ -4604,16 +4757,7 @@ def render_tab_clinical_activity(filters: dict, run_query):
                 f"{int(_top_esc['esc'])} of {int(_top_esc['total'])} revisits admitted"
                 if _top_esc is not None else ""
             )
-            st.markdown(
-                f'<div style="border:0.5px solid #D6E4F0;border-radius:8px;padding:14px 16px">'
-                f'<div style="font-size:10px;font-weight:600;color:#6B8CAE;text-transform:uppercase;'
-                f'letter-spacing:1px;margin-bottom:6px">Highest escalation rate</div>'
-                f'<div style="font-size:14px;font-weight:600;color:{_RED};line-height:1.3;'
-                f'margin-bottom:4px">{_top_esc_lbl}</div>'
-                f'<div style="font-size:11px;color:#6B8CAE">{_top_esc_sub}</div>'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
+            _kpi("Highest escalation rate", _top_esc_lbl, s=_top_esc_sub, color=_RED)
 
         _gap(8)
         rv_cl, rv_cr = st.columns(2)

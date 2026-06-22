@@ -928,12 +928,12 @@ def build_benchmark_chart(df_bench) -> go.Figure:
                       line=dict(color="rgba(0,0,0,0.12)", width=1, dash="dot"))
         # Labels at right edge, inside zones — no overlap with bars
         fig.add_annotation(x=_x_max * 0.92, y=sep_y + 0.4,
-                           text="Above reference floor", showarrow=False,
-                           font=dict(size=9, family=FONT_FAMILY, color=PRIMARY),
-                           xanchor="right", bgcolor="rgba(255,255,255,0.7)")
-        fig.add_annotation(x=_x_max * 0.92, y=sep_y - 0.4,
                            text="Below reference floor", showarrow=False,
                            font=dict(size=9, family=FONT_FAMILY, color=RED),
+                           xanchor="right", bgcolor="rgba(255,255,255,0.7)")
+        fig.add_annotation(x=_x_max * 0.92, y=sep_y - 0.4,
+                           text="Above reference floor", showarrow=False,
+                           font=dict(size=9, family=FONT_FAMILY, color=PRIMARY),
                            xanchor="right", bgcolor="rgba(255,255,255,0.7)")
 
     # Reference floor marker at x=0

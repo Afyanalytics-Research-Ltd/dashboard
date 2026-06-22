@@ -10610,7 +10610,8 @@ all_visits AS (
 admissions AS (
     SELECT REPLACE(LOWER(a.source_schema), '_clean', '') AS source_schema,
            a.visit_id, a.patient_id, a.admitted_at,
-           COALESCE(dx.icd10_name_1, dx.disease_burden_group_1) AS classified_dx
+           COALESCE(dx.icd10_name_1, dx.disease_burden_group_1) AS classified_dx,
+           dx.disease_burden_group_1 AS disease_burden_group
     FROM HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
     LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dx
         ON a.visit_id = dx.visit_id
@@ -10625,6 +10626,7 @@ opd_only AS (
 ),
 escalated AS (
     SELECT DISTINCT op.source_schema, op.visit_id AS opd_visit_id, op.patient,
+        adm.visit_id AS adm_visit_id,
         adm.admitted_at
     FROM opd_only op
     INNER JOIN admissions adm
@@ -10636,6 +10638,7 @@ escalated AS (
 with_age AS (
     SELECT e.source_schema, e.opd_visit_id, e.patient,
         adm.classified_dx,
+        adm.disease_burden_group,
         CASE
             WHEN TIMESTAMPDIFF('year', rp.dob, e.admitted_at) < 5   THEN 'Child Under 5'
             WHEN TIMESTAMPDIFF('year', rp.dob, e.admitted_at) < 13  THEN 'Child 5–12'
@@ -10648,7 +10651,7 @@ with_age AS (
             ELSE 'Senior 65+'
         END AS age_group
     FROM escalated e
-    INNER JOIN admissions adm ON e.opd_visit_id = adm.visit_id AND e.source_schema = adm.source_schema
+    LEFT JOIN admissions adm ON e.adm_visit_id = adm.visit_id AND e.source_schema = adm.source_schema
     LEFT JOIN HOSPITALS.STAGING.STG_RECEPTION_PATIENTS rp
         ON e.patient = rp.patient_id AND e.source_schema = rp.source_schema
 ),
@@ -10656,6 +10659,11 @@ top_dx AS (
     SELECT classified_dx,
            COUNT(*) AS cnt
     FROM with_age WHERE classified_dx IS NOT NULL
+    GROUP BY 1 ORDER BY cnt DESC LIMIT 1
+),
+top_burden_group AS (
+    SELECT disease_burden_group, COUNT(*) AS cnt
+    FROM with_age WHERE disease_burden_group IS NOT NULL
     GROUP BY 1 ORDER BY cnt DESC LIMIT 1
 ),
 totals AS (
@@ -10670,12 +10678,12 @@ SELECT
     COUNT(DISTINCT wa.opd_visit_id)  AS total_escalations,
     t.total_72h                      AS total_72h_escalations,
     ROUND(DIV0(t.total_72h, ao.n) * 100, 2) AS escalation_rate_pct,
-    td.classified_dx                 AS top_classified_diagnosis
+    (SELECT classified_dx FROM top_dx LIMIT 1)          AS top_classified_diagnosis,
+    (SELECT disease_burden_group FROM top_burden_group LIMIT 1) AS top_disease_burden_group
 FROM with_age wa
 CROSS JOIN totals t
 CROSS JOIN all_opd ao
-CROSS JOIN top_dx td
-GROUP BY wa.age_group, t.total_72h, ao.n, td.classified_dx
+GROUP BY wa.age_group, t.total_72h, ao.n
 ORDER BY total_escalations DESC
 """
     return run_query(sql)

@@ -9775,9 +9775,18 @@ ORDER BY ltfu_rate_pct DESC
 
 
 def load_ca_sepsis_enriched(filters: dict, run_query) -> pd.DataFrame:
-    """Section E: Single enriched query — Sepsis LOS outliers with prior IP and OPD context."""
+    """Section B: Sepsis LOS outliers with corrected prior-contact classification.
+
+    Changes from v1:
+      - prior_inpatient exposes discharged_at + hours_since_prior_discharge
+        (v1 only had days since prior admission — insufficient for 72h threshold)
+      - prior_opd GROUP BY bug fixed: icd10_name_1 removed from GROUP BY;
+        diagnosis joined after aggregation on visit_id only to prevent
+        multiple rows per patient before QUALIFY fires
+      - pathway_classification column added directly in SQL for inspection
+    """
     wh_a = _w_adm(filters)
-    wh_v = _w(filters, alias="v")
+    wh_v  = _w(filters, alias="v")
     sql = f"""
 WITH ward_fences AS (
     SELECT
@@ -9826,12 +9835,44 @@ sepsis_outliers AS (
     AND (COALESCE(dp.disease_burden_group_1, '') ILIKE '%Infectious%'
       OR COALESCE(dp.disease_burden_group_1, '') ILIKE '%Sepsis%')
 ),
+prior_opd_base AS (
+    SELECT
+        so.patient_id,
+        so.source_schema,
+        so.admitted_at                                                           AS sepsis_admitted_at,
+        v.id                                                                     AS opd_visit_id,
+        v.created_at                                                             AS opd_visit_date
+    FROM sepsis_outliers so
+    INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_VISITS v
+        ON  v.patient       = so.patient_id
+        AND v.source_schema = so.source_schema
+        AND v.created_at    < so.admitted_at
+    WHERE 1=1 {wh_v}
+    QUALIFY ROW_NUMBER() OVER (
+        PARTITION BY so.patient_id, so.source_schema
+        ORDER BY v.created_at DESC
+    ) = 1
+),
+prior_opd AS (
+    SELECT
+        ob.patient_id,
+        ob.source_schema,
+        DATEDIFF('day', ob.opd_visit_date, ob.sepsis_admitted_at)               AS last_opd_days_before,
+        dp.icd10_name_1                                                          AS last_opd_diagnosis
+    FROM prior_opd_base ob
+    LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dp
+        ON  dp.visit_id      = ob.opd_visit_id
+        AND dp.source_schema = ob.source_schema
+),
 prior_inpatient AS (
     SELECT
         so.patient_id,
         so.source_schema,
         dp.icd10_name_1                                                          AS prior_condition_display,
-        DATEDIFF('day', a.admitted_at, so.admitted_at)                          AS prior_condition_days
+        a.admitted_at                                                            AS prior_admitted_at,
+        a.discharged_at                                                          AS prior_discharged_at,
+        DATEDIFF('day',  a.admitted_at,   so.admitted_at)                       AS prior_condition_days,
+        DATEDIFF('hour', a.discharged_at, so.admitted_at)                       AS hours_since_prior_discharge
     FROM sepsis_outliers so
     INNER JOIN HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS a
         ON  a.patient_id  = so.patient_id
@@ -9844,46 +9885,46 @@ prior_inpatient AS (
         PARTITION BY so.patient_id, so.source_schema
         ORDER BY a.admitted_at DESC
     ) = 1
-),
-prior_opd AS (
-    SELECT
-        so.patient_id,
-        so.source_schema,
-        DATEDIFF('day', MAX(v.created_at), so.admitted_at)                      AS last_opd_days_before,
-        dp.icd10_name_1                                                          AS last_opd_diagnosis
-    FROM sepsis_outliers so
-    INNER JOIN HOSPITALS.STAGING.STG_EVALUATION_VISITS v
-        ON  v.patient      = so.patient_id
-        AND v.source_schema = so.source_schema
-        AND v.created_at   < so.admitted_at
-    LEFT JOIN HOSPITALS.STAGING.STG_EVALUATION_ICD10_DIAGNOSIS_PIVOTED dp
-        ON  dp.visit_id    = v.id
-        AND dp.source_schema = v.source_schema
-    WHERE 1=1 {wh_v}
-    GROUP BY so.patient_id, so.source_schema, so.admitted_at, dp.icd10_name_1
-    QUALIFY ROW_NUMBER() OVER (
-        PARTITION BY so.patient_id, so.source_schema
-        ORDER BY MAX(v.created_at) DESC
-    ) = 1
 )
 SELECT
     so.ward_name,
     so.los_days,
+    so.admitted_at                                                               AS sepsis_admitted_at,
     so.sepsis_condition,
-    pi.prior_condition_display,
-    pi.prior_condition_days,
-    po.last_opd_days_before,
-    po.last_opd_diagnosis,
     so.discharge_type,
     so.is_30day_readmission,
-    so.notes_diagnosis
+    so.notes_diagnosis,
+    pi.prior_condition_display,
+    pi.prior_admitted_at,
+    pi.prior_discharged_at,
+    pi.prior_condition_days,
+    pi.hours_since_prior_discharge,
+    po.last_opd_days_before,
+    po.last_opd_diagnosis,
+    CASE
+        WHEN pi.prior_condition_display IS NOT NULL
+             AND pi.prior_condition_days = 0
+            THEN 'comorbid'
+        WHEN pi.prior_condition_display IS NOT NULL
+             AND pi.hours_since_prior_discharge IS NOT NULL
+             AND pi.hours_since_prior_discharge > 0
+             AND pi.hours_since_prior_discharge <= 72
+            THEN 'hospital_acquired'
+        WHEN po.last_opd_days_before IS NOT NULL
+             AND po.last_opd_days_before = 0
+            THEN 'same_day_escalation'
+        WHEN po.last_opd_days_before IS NOT NULL
+             AND po.last_opd_days_before BETWEEN 1 AND 7
+            THEN 'opd_progression'
+        ELSE 'community_acquired'
+    END                                                                          AS pathway_classification
 FROM sepsis_outliers so
 LEFT JOIN prior_inpatient pi
     ON  pi.patient_id    = so.patient_id
-    AND pi.source_schema  = so.source_schema
+    AND pi.source_schema = so.source_schema
 LEFT JOIN prior_opd po
     ON  po.patient_id    = so.patient_id
-    AND po.source_schema  = so.source_schema
+    AND po.source_schema = so.source_schema
 ORDER BY so.los_days DESC
 """
     return run_query(sql)

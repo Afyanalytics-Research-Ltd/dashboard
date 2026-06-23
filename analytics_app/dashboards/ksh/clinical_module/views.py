@@ -5259,8 +5259,12 @@ def render_tab_clinical_activity(filters: dict, run_query):
         _sp_total = int(_sp_ward["sepsis_admissions"].sum())
 
         with _ep1:
-            _card_title("Co-occurring conditions by ward")
-            _sub("What Sepsis appears alongside in each ward — cumulative over period.")
+            st.markdown(
+                f'<div style="font-size:10px;font-weight:600;color:{_AMBER};'
+                f'text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;">'
+                f'Co-occurring conditions by ward — cumulative</div>',
+                unsafe_allow_html=True,
+            )
 
             _ward_seg_defs = [
                 ("Diabetes",              "with_diabetes",       _AMBER),
@@ -5329,9 +5333,6 @@ def render_tab_clinical_activity(filters: dict, run_query):
             )
 
         with _ep2:
-            _card_title("Coding quality and comorbidity profile")
-            _sub("Context for interpreting Sepsis volume.")
-
             st.markdown(
                 f'<div style="font-size:10px;font-weight:600;color:{_RED};'
                 f'text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">'
@@ -5371,7 +5372,7 @@ def render_tab_clinical_activity(filters: dict, run_query):
             st.markdown(
                 f'<div style="font-size:10px;font-weight:600;color:{_AMBER};'
                 f'text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">'
-                f'Top co-occurring conditions — all wards combined</div>',
+                f'Top co-occurring conditions — all wards</div>',
                 unsafe_allow_html=True,
             )
 
@@ -5616,10 +5617,11 @@ def render_tab_clinical_activity(filters: dict, run_query):
     else:
         st.info("No Sepsis outlier data for the selected period.")
 
-    # ── UNIFIED INSIGHT BAR ────────────────────────────────────────────────────
+    # ── UNIFIED CLINICAL PICTURE PANEL ────────────────────────────────────────
     _gap(12)
 
-    _e_bullets = []
+    # (dot_color, headline, body, action_or_None)
+    _e_cpts = []
 
     if not df_sepsis_wp.empty:
         _diab_n   = int(_sp_ward["with_diabetes"].sum())
@@ -5627,53 +5629,79 @@ def render_tab_clinical_activity(filters: dict, run_query):
         _diab_pct = round(_diab_n / _sp_total * 100) if _sp_total else 0
         _mal_pct  = round(_mal_n  / _sp_total * 100) if _sp_total else 0
 
-        _e_bullets.append(
-            f"<strong>Diabetes is the structural driver — present in every ward, "
-            f"every month ({_diab_pct}% of Sepsis admissions).</strong> "
-            f"Uncontrolled hyperglycaemia allows any localised infection to progress "
-            f"to systemic Sepsis. This is a chronic disease management failure, "
-            f"not an acute care failure. "
-            f"<strong style='color:{_AMBER}'>Action: strengthen OPD-level NCD control. "
-            f"Prioritise uncontrolled diabetic patients before infection escalates.</strong>"
-        )
-        _e_bullets.append(
-            f"<strong>Malaria co-occurs in {_mal_pct}% of Sepsis admissions — "
-            f"spikes May–June with long rains season.</strong> "
-            f"Malaria lowers infection resistance, driving secondary Sepsis. Predictable and plannable. "
-            f"<strong style='color:{_BLUE}'>Action: Q2 surge capacity plan and "
-            f"Malaria prophylaxis programme annually.</strong>"
-        )
+        _e_cpts.append((_AMBER,
+            f"Diabetes is the structural driver — present in every ward, "
+            f"every month ({_diab_pct}% of Sepsis admissions).",
+            "Uncontrolled hyperglycaemia allows any localised infection to progress "
+            "to systemic Sepsis. This is a chronic disease management failure, "
+            "not an acute care failure.",
+            "Action: strengthen OPD-level NCD control. "
+            "Prioritise uncontrolled diabetic patients before infection escalates.",
+        ))
+        _e_cpts.append((_BLUE,
+            f"Malaria co-occurs in {_mal_pct}% of Sepsis admissions — "
+            "spikes May–June with long rains season.",
+            "Malaria lowers infection resistance, driving secondary Sepsis. "
+            "Predictable and plannable.",
+            "Action: Q2 surge capacity plan and Malaria prophylaxis programme annually.",
+        ))
 
     if not df_sepsis.empty:
-        _e_bullets.append(
-            f"<strong>Sepsis produces the longest outlier stays — median "
-            f"{_pm('same_day_escalation')}d to {_pm('community_acquired')}d depending "
-            f"on pathway.</strong> "
-            f"80% of outliers are same-day escalations: patients arrived at OPD already "
-            f"systemically unwell. The long LOS is biology, not a care failure. "
-            f"It cannot be compressed."
-        )
+        _e_cpts.append((_RED,
+            f"Sepsis produces the longest outlier stays — median "
+            f"{_pm('same_day_escalation')}d to {_pm('community_acquired')}d "
+            "depending on pathway.",
+            "80% of outliers are same-day escalations: patients arrived at OPD already "
+            "systemically unwell. The long LOS is biology, not a care failure. "
+            "It cannot be compressed.",
+            None,
+        ))
         if _dama_n > 0:
-            _e_bullets.append(
-                f"<strong>{_dama_pct}% of Sepsis outlier patients left against medical "
-                f"advice — and {_readm_dama} of {_readm_n} 30-day readmissions came "
-                f"from this group.</strong> "
-                f"Incomplete Sepsis treatment is the direct cause of readmission. "
-                f"<strong style='color:{_RED}'>Action: post-discharge follow-up "
-                f"protocol for all Sepsis patients who leave against medical advice.</strong>"
+            _e_cpts.append((_RED,
+                f"{_dama_pct}% of Sepsis outlier patients left against medical advice "
+                f"— and {_readm_dama} of {_readm_n} 30-day readmissions came "
+                "from this group.",
+                "Incomplete Sepsis treatment is the direct cause of readmission.",
+                "Action: post-discharge follow-up protocol for all Sepsis patients "
+                "who leave against medical advice.",
+            ))
+
+    _e_cpts.append((_GREY,
+        "100% of Sepsis admissions are coded ‘Other Sepsis’ — "
+        "no organism named, not improving over time.",
+        "Volume and LOS figures cannot be used for public health escalation decisions "
+        "until coding specificity improves.",
+        "Action: ICD10 coding review — document suspected organism at every "
+        "Sepsis admission, even if culture is pending.",
+    ))
+
+    if _e_cpts:
+        _cp_bullets = ""
+        for _ci, (_cdot, _chd, _cbd, _cact) in enumerate(_e_cpts):
+            _clast = _ci == len(_e_cpts) - 1
+            _csep  = "" if _clast else f"border-bottom:1px solid #F0C4C1;"
+            _cact_html = (
+                f'<div style="font-size:11px;color:{_AMBER};margin-top:4px;'
+                f'font-style:italic;">{_cact}</div>'
+            ) if _cact else ""
+            _cp_bullets += (
+                f'<div style="display:flex;gap:10px;padding:10px 0;{_csep}">'
+                f'<span style="width:8px;height:8px;border-radius:50%;'
+                f'background:{_cdot};flex-shrink:0;margin-top:4px;"></span>'
+                f'<div style="font-size:12px;line-height:1.6;color:#374151;">'
+                f'<span style="font-weight:600;">{_chd}</span> {_cbd}'
+                f'{_cact_html}</div>'
+                f'</div>'
             )
-
-    _e_bullets.append(
-        f"<strong>100% of Sepsis admissions are coded 'Other Sepsis' — no organism "
-        f"named, not improving over time.</strong> "
-        f"Volume and LOS figures cannot be used for public health escalation decisions "
-        f"until coding specificity improves. "
-        f"<strong style='color:{_RED}'>Action: ICD10 coding review — document "
-        f"suspected organism at every Sepsis admission, even if culture is pending.</strong>"
-    )
-
-    if _e_bullets:
-        _insight(_e_bullets, variant="warn")
+        st.markdown(
+            f'<div style="border:1px solid #F0C4C1;border-left:3px solid {_RED};'
+            f'border-radius:8px;padding:14px 16px;background:#FEF2F2;">'
+            f'<div style="font-size:10px;font-weight:600;color:{_RED};'
+            f'text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px;">'
+            f'Sepsis (A41) — complete clinical picture</div>'
+            f'{_cp_bullets}</div>',
+            unsafe_allow_html=True,
+        )
 
     # ── Typhoid trend — full width ─────────────────────────────────────────────
     _gap(12)

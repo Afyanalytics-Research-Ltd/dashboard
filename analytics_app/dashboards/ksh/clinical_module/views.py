@@ -5262,53 +5262,71 @@ def render_tab_clinical_activity(filters: dict, run_query):
             _card_title("Co-occurring conditions by ward")
             _sub("What Sepsis appears alongside in each ward — cumulative over period.")
 
-            fig_sp_ward = go.Figure()
-            for _sp_lbl, _col, _clr in _sp_segs:
-                _yvals = (
-                    _sp_ward[_col]
-                    if _col != "with_other"
-                    else _sp_ward["with_other"]
-                )
-                fig_sp_ward.add_trace(go.Bar(
-                    name=_sp_lbl,
-                    y=_sp_ward["ward_name"],
-                    x=_yvals,
-                    orientation="h",
-                    marker_color=_clr,
-                    showlegend=False,
-                    hovertemplate=f"{_sp_lbl}: %{{x}}<extra></extra>",
-                ))
-            fig_sp_ward.update_layout(
-                height=max(300, len(_sp_ward) * 52 + 60),
-                margin=dict(l=0, r=60, t=10, b=10),
-                barmode="stack",
-                plot_bgcolor="white", paper_bgcolor="white",
-                xaxis=dict(
-                    title="Sepsis admissions",
-                    showgrid=True, gridcolor="#EBF3FB",
-                ),
-                yaxis=dict(showgrid=False, automargin=True),
-            )
-            _pc(fig_sp_ward)
+            _ward_seg_defs = [
+                ("Diabetes",              "with_diabetes",       _AMBER),
+                ("Malaria",               "with_malaria",        _BLUE),
+                ("Respiratory / URTI",    "with_respiratory",    _GREEN),
+                ("Gynaecological",        "with_gynaecological", _PINK),
+                ("Malnutrition",          "with_malnutrition",   _PURPLE),
+                ("Other",                 "with_other",          _MUTED),
+            ]
 
-            _badges_html = (
-                '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;">'
-            )
+            _wards_html = ""
             for _, _wr in _sp_ward.iterrows():
-                _bg  = "#FCEBEB" if _wr["sepsis_share"] >= 25 \
-                       else "#FAEEDA" if _wr["sepsis_share"] >= 15 \
-                       else "#F1EFE8"
-                _fc  = "#791F1F" if _wr["sepsis_share"] >= 25 \
-                       else "#633806" if _wr["sepsis_share"] >= 15 \
-                       else "#444441"
-                _badges_html += (
-                    f'<span style="background:{_bg};color:{_fc};'
-                    f'font-size:10px;font-weight:600;padding:2px 8px;'
-                    f'border-radius:3px;">'
-                    f'{_wr["ward_name"]}: {_wr["sepsis_share"]:.0f}%</span>'
+                _w_name  = str(_wr["ward_name"])
+                _w_share = float(_wr["sepsis_share"])
+                _w_bg    = "#FCEBEB" if _w_share >= 25 \
+                           else "#FAEEDA" if _w_share >= 15 \
+                           else "#F1EFE8"
+                _w_fc    = "#791F1F" if _w_share >= 25 \
+                           else "#633806" if _w_share >= 15 \
+                           else "#444441"
+
+                _w_counts = [
+                    (_slbl, float(_wr[_scol]), _sclr)
+                    for _slbl, _scol, _sclr in _ward_seg_defs
+                    if float(_wr.get(_scol, 0)) > 0
+                ]
+                _w_total = sum(v for _, v, _ in _w_counts) or 1.0
+
+                _bar_segs = ""
+                for _slbl, _sv, _sclr in _w_counts:
+                    _sw = round(_sv / _w_total * 100, 1)
+                    _bar_segs += (
+                        f'<div style="width:{_sw}%;background:{_sclr};" '
+                        f'title="{_slbl}: {int(_sv)}"></div>'
+                    )
+
+                _leg_items = "".join(
+                    f'<span style="display:flex;align-items:center;gap:3px;'
+                    f'font-size:10px;color:#6B7280;">'
+                    f'<span style="display:inline-block;width:8px;height:8px;'
+                    f'border-radius:1px;background:{_sclr};flex-shrink:0;"></span>'
+                    f'{_slbl}</span>'
+                    for _slbl, _sv, _sclr in _w_counts
                 )
-            _badges_html += '</div>'
-            st.markdown(_badges_html, unsafe_allow_html=True)
+
+                _wards_html += (
+                    f'<div style="margin-bottom:12px;">'
+                    f'<div style="display:flex;align-items:center;gap:6px;margin-bottom:5px;">'
+                    f'<span style="font-size:12px;font-weight:600;color:#374151;">'
+                    f'{_w_name}</span>'
+                    f'<span style="background:{_w_bg};color:{_w_fc};font-size:10px;'
+                    f'font-weight:700;padding:1px 7px;border-radius:3px;">'
+                    f'{_w_share:.0f}%</span>'
+                    f'</div>'
+                    f'<div style="display:flex;height:12px;border-radius:3px;'
+                    f'overflow:hidden;margin-bottom:5px;">{_bar_segs}</div>'
+                    f'<div style="display:flex;gap:8px;flex-wrap:wrap;">'
+                    f'{_leg_items}</div>'
+                    f'</div>'
+                )
+
+            st.markdown(
+                f'<div style="background:var(--secondary-background-color);'
+                f'border-radius:8px;padding:12px 14px;">{_wards_html}</div>',
+                unsafe_allow_html=True,
+            )
 
         with _ep2:
             _card_title("Coding quality and comorbidity profile")
@@ -7174,6 +7192,504 @@ def render_tab4_disease_burden(filters: dict, run_query):
             f'</tr></thead><tbody>{rows_html}</tbody></table>'
         )
 
+    # ── NCD / COMM HTML helpers ───────────────────────────────────────────────
+    CHART_BASE = dict(
+        paper_bgcolor="#fff", plot_bgcolor="#fff",
+        margin=dict(l=0, r=0, t=6, b=0),
+        font=dict(family="system-ui, sans-serif", size=12, color="#111827"),
+    )
+    AX = dict(showgrid=True, gridcolor="rgba(0,0,0,0.05)",
+              showline=False, tickfont=dict(size=11, color="#888780"))
+
+    _NCD_BASE = (
+        '<!DOCTYPE html><html><head><meta charset="utf-8">'
+        '<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">'
+        '<style>*{{box-sizing:border-box;margin:0;padding:0;}}'
+        'body{{background:#fff;font-family:system-ui,-apple-system,sans-serif;padding:0;}}'
+        'table{{width:100%;border-collapse:collapse;}}'
+        'th{{font-size:11px;font-weight:600;color:#888780;text-transform:uppercase;letter-spacing:0.03em;'
+        '    padding:7px 8px 7px 0;border-bottom:0.5px solid rgba(0,0,0,0.10);text-align:left;white-space:nowrap;}}'
+        'td{{font-size:12px;padding:7px 8px 7px 0;vertical-align:middle;border-bottom:0.5px solid rgba(0,0,0,0.05);}}'
+        'tr:last-child td{{border-bottom:none;}}'
+        '.ins{{background:#f5f5f3;border-radius:8px;padding:6px 9px;font-size:12px;color:#5f5e5a;margin-top:8px;}}'
+        '.warn{{background:#FAEEDA;border-left:3px solid #EF9F27;border-radius:0 8px 8px 0;'
+        '       padding:6px 10px;font-size:12px;color:#633806;margin-top:8px;}}'
+        '</style></head><body>{}</body></html>'
+    )
+
+    _SORT_SCRIPT = (
+        '<script>'
+        '(function(){'
+        'var tbl=document.querySelector("table");'
+        'var ths=tbl.querySelectorAll("thead th");'
+        'var sCol=-1,sDir=1;'
+        'ths.forEach(function(th,ci){'
+        'th.style.cursor="pointer";th.style.userSelect="none";'
+        'th.title="Click to sort";'
+        'th.addEventListener("click",function(){'
+        'if(sCol===ci){sDir*=-1;}else{sCol=ci;sDir=1;}'
+        'ths.forEach(function(t,i){'
+        'var txt=t.dataset.label||(t.dataset.label=t.textContent.trim());'
+        't.textContent=txt+(i===ci?(sDir===1?" ▲":" ▼"):"");'
+        '});'
+        'var tb=tbl.querySelector("tbody");'
+        'var rows=Array.from(tb.querySelectorAll("tr"));'
+        'rows.sort(function(a,b){'
+        'var av=a.cells[ci]?a.cells[ci].textContent.trim():"";'
+        'var bv=b.cells[ci]?b.cells[ci].textContent.trim():"";'
+        'var an=parseFloat(av.replace(/[^0-9.\\-]/g,""));'
+        'var bn=parseFloat(bv.replace(/[^0-9.\\-]/g,""));'
+        'if(!isNaN(an)&&!isNaN(bn))return(an-bn)*sDir;'
+        'return av.localeCompare(bv)*sDir;'
+        '});'
+        'rows.forEach(function(r){tb.appendChild(r);});'
+        '});'
+        '});'
+        '})();'
+        '</script>'
+    )
+
+    _COMM_BASE = (
+        '<!DOCTYPE html><html><head><meta charset="utf-8">'
+        '<style>'
+        '*{{box-sizing:border-box;margin:0;padding:0;}}'
+        'html,body{{height:100%;overflow-y:auto;}}'
+        'body{{background:#fff;font-family:system-ui,-apple-system,sans-serif;padding:0;}}'
+        'table{{width:100%;border-collapse:collapse;}}'
+        'th{{font-size:11px;font-weight:600;color:#888780;text-transform:uppercase;'
+        '    letter-spacing:0.03em;padding:7px 10px 7px 0;'
+        '    border-bottom:0.5px solid rgba(0,0,0,0.10);text-align:left;white-space:nowrap;}}'
+        'td{{font-size:12px;padding:7px 10px 7px 0;vertical-align:middle;'
+        '    border-bottom:0.5px solid rgba(0,0,0,0.05);}}'
+        'tr:last-child td{{border-bottom:none;}}'
+        '.ins{{background:#f5f5f3;border-radius:8px;padding:6px 9px;font-size:12px;color:#5f5e5a;margin-top:8px;}}'
+        '.warn{{background:#FAEEDA;border-left:3px solid #EF9F27;border-radius:0 8px 8px 0;'
+        '       padding:6px 10px;font-size:12px;color:#633806;margin-top:8px;}}'
+        '</style></head><body>{}</body></html>'
+    )
+
+    _COMM_CLR_MAP = [
+        ("Malaria",    "#1D9E75"),
+        ("Typhoid",    "#EF9F27"),
+        ("URTI",       "#378ADD"),
+        ("TB",         "#E24B4A"),
+        ("Enteric",    "#7F77DD"),
+        ("GI",         "#7F77DD"),
+        ("HIV",        "#D85A30"),
+        ("Infectious", "#9B59B6"),
+    ]
+
+    def _comm_clr(disease: str) -> str:
+        d = str(disease).lower()
+        for key, clr in _COMM_CLR_MAP:
+            if key.lower() in d:
+                return clr
+        return "#888780"
+
+    def _payer_badge_ncd(payer: str) -> str:
+        p = str(payer or "")
+        if "Cash" in p or "PRIVATE" in p.upper():
+            return f'<span style="background:#FAEEDA;color:#633806;font-size:9px;font-weight:500;padding:2px 7px;border-radius:20px;">{p}</span>'
+        return f'<span style="background:#E6F1FB;color:#185FA5;font-size:9px;font-weight:500;padding:2px 7px;border-radius:20px;">{p}</span>'
+
+    def _ip_dot(ip_pct: float) -> str:
+        c = "#E24B4A" if ip_pct > 20 else "#EF9F27" if ip_pct >= 10 else "#1D9E75"
+        return f'<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:{c};margin-right:4px;vertical-align:middle;"></span>'
+
+    def _ip_border(ip_pct: float) -> str:
+        c = "#E24B4A" if ip_pct > 20 else "#EF9F27" if ip_pct >= 10 else "#1D9E75"
+        return f"border-left:3px solid {c};padding-left:7px;"
+
+    def _ip_badge_comm(ip_pct: float) -> str:
+        if ip_pct >= 20:
+            bg, col = "#FCEBEB", "#A32D2D"
+        elif ip_pct >= 10:
+            bg, col = "#FAEEDA", "#854F0B"
+        elif ip_pct >= 1:
+            bg, col = "#E6F1FB", "#185FA5"
+        else:
+            bg, col = "#f5f5f3", "#888780"
+        return (f'<span style="background:{bg};color:{col};font-size:9px;font-weight:600;'
+                f'padding:3px 9px;border-radius:20px;">{ip_pct:.0f}%</span>')
+
+    def _ncd_t1_html(df):
+        total = int(df["patient_count"].sum()) if not df.empty else 1
+        max_n = int(df["patient_count"].max()) if not df.empty else 1
+        _cx_col = {"1 NCD": "#1D9E75", "2 NCDs": "#EF9F27", "3 NCDs": "#E24B4A", "4+ NCDs (Complex)": "#A32D2D"}
+        hdr = ('<table><thead><tr>'
+               '<th>Complexity</th><th>Share of NCD Pts</th>'
+               '<th style="text-align:right;">Patients</th>'
+               '<th style="text-align:right;">% of NCD Pts</th>'
+               '</tr></thead><tbody>')
+        rows = ""
+        for _, r in df.iterrows():
+            label = str(r.get("ncd_complexity", ""))
+            n     = int(r.get("patient_count") or 0)
+            pct   = float(r.get("pct_of_ncd_patients") or 0)
+            col   = _cx_col.get(label, "#888780")
+            bw    = round(n / max_n * 120)
+            rows += (f'<tr>'
+                     f'<td style="font-weight:500;color:#1a1a18;">{label}</td>'
+                     f'<td><div style="display:flex;align-items:center;gap:6px;">'
+                     f'<div style="width:{bw}px;height:8px;border-radius:3px;background:{col};opacity:0.8;flex-shrink:0;"></div>'
+                     f'<span style="font-size:9px;color:#5f5e5a;">{n:,}</span></div></td>'
+                     f'<td style="text-align:right;font-weight:500;">{n:,}</td>'
+                     f'<td style="text-align:right;color:#5f5e5a;">{pct:.1f}%</td>'
+                     f'</tr>')
+        multi_pct = df.loc[df["ncd_complexity"] != "1 NCD", "pct_of_ncd_patients"].sum() if not df.empty else 0
+        insight_text = (f"{multi_pct:.0f}% of NCD patients carry 2+ conditions. "
+                        f"These patients need integrated management protocols.")
+        return _NCD_BASE.format(hdr + rows + "</tbody></table>"), insight_text
+
+    def _ncd_t2_html(df):
+        df = df.head(10).copy()
+        max_days = float(df["avg_days_between_diagnoses"].max()) if not df.empty else 1
+        hdr = ('<table><thead><tr>'
+               '<th>Condition pair</th><th style="text-align:center;">Patients</th>'
+               '<th>Avg days to 2nd</th><th>Speed</th>'
+               '</tr></thead><tbody>')
+        rows = ""
+        fastest_row = None
+        for _, r in df.iterrows():
+            pair = str(r.get("condition_pair", ""))
+            n    = int(r.get("patient_count") or 0)
+            days = r.get("avg_days_between_diagnoses")
+            try:    days = float(days)
+            except: days = None
+            if days is not None and (fastest_row is None or days < fastest_row[1]):
+                fastest_row = (pair, days)
+            if days is None:
+                spd_lbl, spd_bg, spd_col, bar_col = "—", "#f5f5f3", "#888780", "#888780"
+                bw = 0
+            elif days < 45:
+                spd_lbl, spd_bg, spd_col, bar_col = "Fast", "#FCEBEB", "#A32D2D", "#A32D2D"
+                bw = round(days / max_days * 150) if max_days else 0
+            elif days <= 60:
+                spd_lbl, spd_bg, spd_col, bar_col = "Moderate", "#FAEEDA", "#854F0B", "#854F0B"
+                bw = round(days / max_days * 150) if max_days else 0
+            else:
+                spd_lbl, spd_bg, spd_col, bar_col = "Slower", "#E1F5EE", "#0F6E56", "#0F6E56"
+                bw = round(days / max_days * 150) if max_days else 0
+            badge = (f'<span style="background:{spd_bg};color:{spd_col};font-size:9px;font-weight:500;'
+                     f'padding:2px 7px;border-radius:20px;">{spd_lbl}</span>')
+            days_cell = (f'<div style="display:flex;align-items:center;gap:6px;">'
+                         f'<div style="width:{bw}px;height:8px;border-radius:3px;background:{bar_col};opacity:0.75;flex-shrink:0;"></div>'
+                         f'<span style="font-size:9px;color:{bar_col};font-weight:500;">{int(days)}d</span></div>'
+                         ) if days is not None else "—"
+            rows += (f'<tr>'
+                     f'<td style="line-height:1.4;">{pair}</td>'
+                     f'<td style="text-align:center;font-weight:500;">{n:,}</td>'
+                     f'<td>{days_cell}</td><td>{badge}</td>'
+                     f'</tr>')
+        insight_text = ""
+        if fastest_row:
+            insight_text = (f"Fastest progression: {fastest_row[0]} — "
+                            f"avg {int(fastest_row[1])} days to second diagnosis. "
+                            f"This pair needs a co-management protocol.")
+        return _NCD_BASE.format(hdr + rows + "</tbody></table>" + _SORT_SCRIPT), insight_text
+
+    def _ncd_t3_html(df):
+        import math as _m
+        _HTN_BG   = {"Controlled": "rgba(29,158,117,0.06)", "Uncontrolled": "rgba(228,75,74,0.06)", "No BP Recorded": "rgba(136,135,128,0.06)"}
+        _HTN_BDGE = {"Controlled": ("#E1F5EE","#0F6E56"),   "Uncontrolled": ("#FCEBEB","#A32D2D"),  "No BP Recorded": ("#f5f5f3","#888780")}
+        _HTN_BARC = {"Controlled": "#1D9E75",               "Uncontrolled": "#E24B4A",              "No BP Recorded": "#888780"}
+        max_inv = float(df["avg_inv"].max()) if not df.empty and "avg_inv" in df.columns else 1
+        if max_inv == 0 or _m.isnan(max_inv): max_inv = 1
+        hdr = ('<table><thead><tr>'
+               '<th>HTN status</th><th>Comorbidity</th>'
+               '<th style="text-align:center;">Patients</th>'
+               '<th>Avg investigations</th>'
+               '<th style="text-align:right;">On antihypertensive %</th>'
+               '</tr></thead><tbody>')
+        STATUS_ORDER = ["Controlled", "No BP Recorded", "Uncontrolled"]
+        rows_sorted = []
+        for st_key in STATUS_ORDER:
+            sub = df[df["htn_status"] == st_key]
+            for _, r in sub.iterrows():
+                rows_sorted.append((st_key, r))
+        rows = ""
+        for htn_status, r in rows_sorted:
+            comorb  = str(r.get("comorbidity_group", ""))
+            n       = int(r.get("patients") or 0)
+            avg_inv = float(r.get("avg_inv") or 0)
+            rx_pct  = float(r.get("on_rx_pct") or 0)
+            bdg_bg, bdg_col = _HTN_BDGE.get(htn_status, ("#f5f5f3","#888780"))
+            row_bg  = _HTN_BG.get(htn_status, "transparent")
+            bar_col = _HTN_BARC.get(htn_status, "#888780")
+            bw      = round(avg_inv / max_inv * 130) if max_inv else 0
+            badge   = (f'<span style="background:{bdg_bg};color:{bdg_col};font-size:9px;font-weight:500;'
+                       f'padding:2px 7px;border-radius:20px;">{htn_status}</span>')
+            rx_col  = "#A32D2D" if rx_pct > 60 and htn_status == "Uncontrolled" else "#1a1a18"
+            rows += (f'<tr style="background:{row_bg};">'
+                     f'<td>{badge}</td><td style="color:#5f5e5a;">{comorb}</td>'
+                     f'<td style="text-align:center;font-weight:500;">{n:,}</td>'
+                     f'<td><div style="display:flex;align-items:center;gap:6px;">'
+                     f'<div style="width:{bw}px;height:8px;border-radius:3px;background:{bar_col};opacity:0.7;flex-shrink:0;"></div>'
+                     f'<span style="font-size:9px;color:#5f5e5a;">{avg_inv:.1f}</span></div></td>'
+                     f'<td style="text-align:right;font-weight:500;color:{rx_col};">{rx_pct:.0f}%</td>'
+                     f'</tr>')
+        unc = df[df["htn_status"] == "Uncontrolled"] if not df.empty else pd.DataFrame()
+        insight = ""
+        if not unc.empty:
+            htn_only = unc[unc["comorbidity_group"] == "HTN Only"]
+            if not htn_only.empty:
+                r0   = htn_only.iloc[0]
+                n0   = int(r0.get("patients") or 0)
+                inv0 = float(r0.get("avg_inv") or 0)
+                rx0  = float(r0.get("on_rx_pct") or 0)
+                insight = (f'<div class="ins"><strong>{n0:,}</strong> uncontrolled HTN-only patients average '
+                           f'<strong>{inv0:.1f}</strong> investigations and <strong>{rx0:.0f}%</strong> are on '
+                           f'antihypertensive medication — investigate medication adherence and dose adequacy.</div>')
+        return _NCD_BASE.format(hdr + rows + "</tbody></table>" + insight)
+
+    def _ncd_t4_html(df):
+        hdr = ('<table><thead><tr>'
+               '<th>Payer</th><th>Condition</th>'
+               '<th style="text-align:center;">Patients affected</th>'
+               '<th style="text-align:right;">Avg annual rev</th>'
+               '<th>Risk level</th>'
+               '</tr></thead><tbody>')
+        rows = ""
+        import math as _m
+        for _, r in df.head(20).iterrows():
+            payer = str(r.get("payer", ""))
+            cond  = str(r.get("condition", ""))
+            n     = int(r.get("patient_count") or 0)
+            rev   = r.get("avg_annual_revenue")
+            try:    rev_f = float(rev)
+            except: rev_f = None
+            rev_s = "—" if rev_f is None or _m.isnan(rev_f) else f"KES {int(rev_f):,}"
+            if n > 200:   risk_bg, risk_col, risk_lbl = "#FCEBEB", "#A32D2D", "High"
+            elif n >= 50: risk_bg, risk_col, risk_lbl = "#FAEEDA", "#854F0B", "Medium"
+            else:         risk_bg, risk_col, risk_lbl = "#f5f5f3",  "#888780", "Low"
+            risk_badge = (f'<span style="background:{risk_bg};color:{risk_col};font-size:9px;'
+                          f'font-weight:500;padding:2px 7px;border-radius:20px;">{risk_lbl}</span>')
+            rows += (f'<tr>'
+                     f'<td>{_payer_badge_ncd(payer)}</td>'
+                     f'<td style="line-height:1.3;">{cond}</td>'
+                     f'<td style="text-align:center;font-weight:500;">{n:,}</td>'
+                     f'<td style="text-align:right;">{rev_s}</td>'
+                     f'<td>{risk_badge}</td>'
+                     f'</tr>')
+        return _NCD_BASE.format(hdr + rows + "</tbody></table>" + _SORT_SCRIPT)
+
+    def _ncd_t5_html(df):
+        import math as _m
+        max_pts = float(df["patient_count"].max()) if not df.empty else 1
+        if max_pts == 0: max_pts = 1
+        hdr = ('<table><thead><tr>'
+               '<th>Condition</th><th>Patients</th><th>6-mo trend</th>'
+               '<th>IP rate</th><th>Top payer</th>'
+               '<th style="text-align:center;">Visits/pt</th>'
+               '<th style="text-align:center;">Inv/visit</th>'
+               '<th style="text-align:right;">Avg rev/pt</th>'
+               '<th style="text-align:center;">Control %</th>'
+               '</tr></thead><tbody>')
+        rows = ""
+        for _, r in df.iterrows():
+            cond    = str(r.get("condition", ""))
+            pts     = int(r.get("patient_count") or 0)
+            trend   = r.get("trend_pct")
+            ip_rate = float(r.get("ip_rate_pct") or 0)
+            payer   = str(r.get("top_payer") or "—")
+            vpp     = float(r.get("avg_visits_per_patient") or 0)
+            inv_v   = float(r.get("investigations_per_visit") or 0)
+            rev_pt  = r.get("avg_revenue_per_patient")
+            ctrl    = r.get("controlled_pct")
+            try:    rev_f = float(rev_pt)
+            except: rev_f = None
+            rev_s   = f"KES {int(rev_f):,}" if rev_f is not None and not _m.isnan(rev_f) else "—"
+            try:    trend_f = float(trend)
+            except: trend_f = None
+            if trend_f is None or _m.isnan(trend_f): trend_s, trend_col = "—", "#888780"
+            elif trend_f > 5:  trend_s, trend_col = f"↑ +{trend_f:.0f}%", "#0F6E56"
+            elif trend_f < -5: trend_s, trend_col = f"↓ {trend_f:.0f}%", "#A32D2D"
+            else:              trend_s, trend_col = f"→ {trend_f:.0f}%", "#888780"
+            ip_bdr  = _ip_border(ip_rate)
+            ip_dot  = _ip_dot(ip_rate)
+            bw      = round(pts / max_pts * 50)
+            pts_cell = (f'<div style="display:flex;align-items:center;gap:4px;">'
+                        f'<div style="width:{bw}px;height:8px;border-radius:3px;background:#378ADD;opacity:0.6;flex-shrink:0;"></div>'
+                        f'<span style="font-size:9px;color:#5f5e5a;">{pts:,}</span></div>')
+            inv_col = "#A32D2D" if inv_v > 7 else "#854F0B" if inv_v >= 5 else "#5f5e5a"
+            try:    ctrl_f = float(ctrl)
+            except: ctrl_f = None
+            if ctrl_f is None or _m.isnan(ctrl_f): ctrl_s, ctrl_col = "—", "#888780"
+            elif ctrl_f >= 50: ctrl_s, ctrl_col = f"{ctrl_f:.0f}%", "#0F6E56"
+            elif ctrl_f >= 30: ctrl_s, ctrl_col = f"{ctrl_f:.0f}%", "#854F0B"
+            else:              ctrl_s, ctrl_col = f"{ctrl_f:.0f}%", "#A32D2D"
+            rows += (f'<tr>'
+                     f'<td style="{ip_bdr}line-height:1.3;">{cond}</td>'
+                     f'<td>{pts_cell}</td>'
+                     f'<td style="color:{trend_col};font-weight:500;">{trend_s}</td>'
+                     f'<td>{ip_dot}{ip_rate:.1f}%</td>'
+                     f'<td>{_payer_badge_ncd(payer)}</td>'
+                     f'<td style="text-align:center;color:#5f5e5a;">{vpp:.1f}</td>'
+                     f'<td style="text-align:center;font-weight:500;color:{inv_col};">{inv_v:.2f}</td>'
+                     f'<td style="text-align:right;">{rev_s}</td>'
+                     f'<td style="text-align:center;font-weight:500;color:{ctrl_col};">{ctrl_s}</td>'
+                     f'</tr>')
+        return _NCD_BASE.format(hdr + rows + "</tbody></table>" + _SORT_SCRIPT)
+
+    def _ncd_t6_html(df):
+        import math as _m
+        n_total = len(df)
+        hdr = ('<table><thead><tr>'
+               '<th>Patient</th>'
+               '<th style="text-align:center;">Flagged visits</th>'
+               '<th style="text-align:center;">Latest systolic</th>'
+               '<th style="text-align:center;">Days since last</th>'
+               '<th>Payer</th><th>Urgency</th>'
+               '</tr></thead><tbody>')
+        rows = ""
+        for _, r in df.head(40).iterrows():
+            pat_id = r.get("patient", "")
+            fv     = int(r.get("visit_count") or 0)
+            sys_v  = r.get("latest_systolic")
+            days_v = r.get("days_since_last_visit")
+            payer  = str(r.get("payer") or "")
+            try:    sys_f  = float(sys_v)
+            except: sys_f  = None
+            try:    days_f = float(days_v)
+            except: days_f = None
+            if sys_f is None or _m.isnan(sys_f):     sys_s, sys_col = "—", "#888780"
+            elif sys_f > 180:  sys_s, sys_col = f"{int(sys_f)}", "#A32D2D"
+            elif sys_f >= 160: sys_s, sys_col = f"{int(sys_f)}", "#854F0B"
+            else:              sys_s, sys_col = f"{int(sys_f)}", "#5f5e5a"
+            if days_f is None or _m.isnan(days_f):    days_s, days_col = "—", "#888780"
+            elif days_f > 300: days_s, days_col = f"{int(days_f)}d", "#A32D2D"
+            elif days_f >= 90: days_s, days_col = f"{int(days_f)}d", "#854F0B"
+            else:              days_s, days_col = f"{int(days_f)}d", "#888780"
+            critical = (sys_f is not None and sys_f > 180) or (days_f is not None and days_f > 300)
+            high     = (not critical) and ((sys_f is not None and sys_f >= 161) or (days_f is not None and days_f >= 150))
+            if critical: urg_bg, urg_col, urg_lbl = "#FCEBEB", "#A32D2D", "Critical"
+            elif high:   urg_bg, urg_col, urg_lbl = "#FAEEDA", "#854F0B", "High"
+            else:        urg_bg, urg_col, urg_lbl = "#f5f5f3",  "#5f5e5a", "Watch"
+            urg_badge = (f'<span style="background:{urg_bg};color:{urg_col};font-size:9px;'
+                         f'font-weight:500;padding:2px 7px;border-radius:20px;">{urg_lbl}</span>')
+            rows += (f'<tr>'
+                     f'<td style="color:#378ADD;font-weight:500;">Patient {pat_id}</td>'
+                     f'<td style="text-align:center;">{fv}</td>'
+                     f'<td style="text-align:center;font-weight:500;color:{sys_col};">{sys_s}</td>'
+                     f'<td style="text-align:center;font-weight:500;color:{days_col};">{days_s}</td>'
+                     f'<td>{_payer_badge_ncd(payer)}</td><td>{urg_badge}</td>'
+                     f'</tr>')
+        critical_count = sum(
+            1 for _, r in df.iterrows()
+            if (float(r.get("latest_systolic") or 0) > 180) or (float(r.get("days_since_last_visit") or 0) > 300)
+        )
+        return (_NCD_BASE.format(hdr + rows + "</tbody></table>" + _SORT_SCRIPT),
+                n_total, critical_count)
+
+    def _comm_t1_html(df):
+        import math as _m
+        if df.empty:
+            no_surge = '<div class="ins">No surge months detected in the selected period. All diseases remained within 1.5× of their period average.</div>'
+            return _COMM_BASE.format(no_surge), ""
+        max_vs = float(df["vs_avg"].max()) if not df.empty else 2.0
+        min_vs = 1.0
+        span   = max(max_vs - min_vs, 0.1)
+        hdr = ('<table><thead><tr>'
+               '<th>Disease</th><th>Month</th>'
+               '<th style="text-align:center;">Visits</th>'
+               '<th>Surge severity</th>'
+               '<th style="text-align:center;">Vs average</th>'
+               '<th>Level</th>'
+               '</tr></thead><tbody>')
+        rows = ""
+        for _, r in df.iterrows():
+            dis     = str(r.get("disease_label", ""))
+            month_s = str(r.get("month_str", ""))
+            visits  = int(r.get("visits") or 0)
+            vs_avg  = float(r.get("vs_avg") or 0)
+            clr     = _comm_clr(dis)
+            bw      = max(0, min(160, round((vs_avg - min_vs) / span * 160)))
+            vs_s    = f"{vs_avg:.1f}×"
+            if vs_avg >= 2.0:
+                lvl_bg, lvl_col, lvl_lbl, vs_col = "#FCEBEB", "#A32D2D", "Critical", "#A32D2D"
+            elif vs_avg >= 1.7:
+                lvl_bg, lvl_col, lvl_lbl, vs_col = "#FAEEDA", "#854F0B", "High", "#854F0B"
+            else:
+                lvl_bg, lvl_col, lvl_lbl, vs_col = "#f5f5f3", "#5f5e5a", "Elevated", "#5f5e5a"
+            badge = (f'<span style="background:{lvl_bg};color:{lvl_col};font-size:9px;'
+                     f'font-weight:500;padding:2px 7px;border-radius:20px;">{lvl_lbl}</span>')
+            dot = (f'<span style="display:inline-block;width:8px;height:8px;border-radius:50%;'
+                   f'background:{clr};margin-right:5px;vertical-align:middle;flex-shrink:0;"></span>')
+            rows += (f'<tr>'
+                     f'<td><div style="display:flex;align-items:center;">{dot}'
+                     f'<span style="font-weight:500;">{dis}</span></div></td>'
+                     f'<td style="color:#5f5e5a;">{month_s}</td>'
+                     f'<td style="text-align:center;font-weight:500;">{visits:,}</td>'
+                     f'<td><div style="width:160px;height:8px;border-radius:3px;background:#f5f5f3;overflow:hidden;">'
+                     f'<div style="width:{bw}px;height:8px;border-radius:3px;background:{clr};opacity:0.75;"></div>'
+                     f'</div></td>'
+                     f'<td style="text-align:center;font-weight:500;color:{vs_col};">{vs_s}</td>'
+                     f'<td>{badge}</td>'
+                     f'</tr>')
+        top_row   = df.iloc[0]
+        top_dis   = str(top_row["disease_label"])
+        top_month = str(top_row["month_str"])
+        top_vs    = float(top_row["vs_avg"])
+        surge_counts = df.groupby("disease_label").size()
+        most_dis  = surge_counts.idxmax()
+        most_n    = int(surge_counts.max())
+        pattern   = "sustained endemic spread" if most_n >= 2 else "repeated outbreaks"
+        insight_text = (f"{top_dis} in {top_month} was the most severe surge at {top_vs:.1f}× average. "
+                        f"{most_dis} surged {most_n} time{'s' if most_n != 1 else ''} in the period, "
+                        f"suggesting {pattern}.")
+        return _COMM_BASE.format(hdr + rows + "</tbody></table>" + _SORT_SCRIPT), insight_text
+
+    def _comm_t2_html(df):
+        import math as _m
+        max_v = float(df["quarterly_visits"].max()) if not df.empty else 1
+        if max_v == 0: max_v = 1
+        hdr = ('<table><thead><tr>'
+               '<th>Disease</th><th>90d visits</th>'
+               '<th>Primary demographic</th>'
+               '<th style="text-align:center;">Lab confirm %</th>'
+               '<th style="text-align:center;">IP admission %</th>'
+               '<th>Top comorbidity</th><th>Primary payer</th>'
+               '</tr></thead><tbody>')
+        rows = ""
+        for _, r in df.iterrows():
+            dis    = str(r.get("disease_group", ""))
+            visits = float(r.get("quarterly_visits") or 0)
+            demo   = str(r.get("primary_age_sex") or "—")
+            lab_pct= r.get("lab_confirmation_pct")
+            ip_pct = float(r.get("inpatient_admission_pct") or 0)
+            comorb = str(r.get("primary_comorbidity") or "—")
+            payer  = str(r.get("primary_payer") or "—")
+            clr    = _comm_clr(dis)
+            bw     = round(visits / max_v * 80)
+            try:    lab_f = float(lab_pct)
+            except: lab_f = None
+            lab_cell = '<span style="color:#888780;">—</span>' if lab_f is None or _m.isnan(lab_f) else f"{lab_f:.0f}%"
+            p_up = payer.upper()
+            if "CASH" in p_up or "PRIVATE" in p_up:
+                pay_bg, pay_col = "#FAEEDA", "#633806"
+            else:
+                pay_bg, pay_col = "#E6F1FB", "#185FA5"
+            pay_badge = (f'<span style="background:{pay_bg};color:{pay_col};font-size:9px;'
+                         f'font-weight:500;padding:2px 7px;border-radius:20px;">{payer}</span>')
+            visits_cell = (f'<div style="display:flex;align-items:center;gap:6px;">'
+                           f'<div style="width:{bw}px;height:8px;border-radius:3px;'
+                           f'background:#378ADD;opacity:0.6;flex-shrink:0;"></div>'
+                           f'<span style="font-size:9px;color:#5f5e5a;">{int(visits):,}</span></div>')
+            rows += (f'<tr>'
+                     f'<td style="border-left:3px solid {clr};padding-left:7px;'
+                     f'font-weight:500;line-height:1.3;">{dis}</td>'
+                     f'<td>{visits_cell}</td>'
+                     f'<td style="color:#5f5e5a;font-size:10px;">{demo}</td>'
+                     f'<td style="text-align:center;">{lab_cell}</td>'
+                     f'<td style="text-align:center;">{_ip_badge_comm(ip_pct)}</td>'
+                     f'<td style="color:#5f5e5a;font-size:10px;line-height:1.3;">{comorb}</td>'
+                     f'<td>{pay_badge}</td>'
+                     f'</tr>')
+        warning = ('<div class="warn">Lab Confirm % values are derived from live investigation records. '
+                   'If values appear unexpectedly low, verify whether lab investigations are being recorded '
+                   'against the correct visit ID in the EMR.</div>')
+        return _COMM_BASE.format(hdr + rows + "</tbody></table>" + _SORT_SCRIPT)
+
     # ── OVERVIEW TAB ─────────────────────────────────────────────────────────
     with st_a:
 
@@ -7895,7 +8411,7 @@ def render_tab4_disease_burden(filters: dict, run_query):
                             x=_chr_months, y=_idx,
                             name=f"{_g}  {_dstr}",
                             mode="lines+markers",
-                            line=dict(color=_CHR_GCOL.get(_g, GREY), width=2),
+                            line=dict(color=_CHR_GCOL.get(_g, GRAY), width=2),
                             marker=dict(size=5),
                         ))
                     fig_ch.add_hline(y=100, line_dash="dot",

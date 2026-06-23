@@ -27,6 +27,7 @@ from openai import OpenAI
 from .catalog import as_context, get_all, get_by_id, reload as reload_catalog
 from .cube_client import run_query
 from .state import AgentState
+from .facility import resolve_facility, inject_facility_filter
 
 logger = logging.getLogger(__name__)
 
@@ -165,6 +166,7 @@ Rules:
 def classify_intent(state: AgentState) -> dict:
     catalog_text = as_context()
     logging.warning(f'catalog_text: {catalog_text}')
+
     prompt = CLASSIFY_SYSTEM.format(catalog=catalog_text)
 
     response = _openai().chat.completions.create(
@@ -179,7 +181,7 @@ def classify_intent(state: AgentState) -> dict:
 
     raw = response.choices[0].message.content
     parsed: dict = json.loads(raw)
-
+    # import pdb;pdb.set_trace()
     metric_id = parsed.get("metric_id")
     confidence = float(parsed.get("confidence", 0.0))
     filters = parsed.get("filters", [])
@@ -216,6 +218,10 @@ def execute_query(state: AgentState) -> dict:
     query = dict(metric["cube_query"])  # shallow copy — don't mutate state
 
     # Promote inDateRange filters → timeDimension.dateRange before sending
+    user_facility = state.get("user_facility") or resolve_facility(state["user_id"])
+    if user_facility:
+        query = inject_facility_filter(query, user_facility)  # ← filter added here
+    
     filters = query.get("filters", [])
     if filters:
         query, filters = _promote_date_filters(query, filters)

@@ -4,4 +4,5 @@ from . import api
 urlpatterns = [
     path("query/", api.query, name="api-query"),
     path("resume/", api.resume, name="api-resume"),
+    path("whatsapp/", api.whatsapp_webhook, name="api-whatsapp"),
 ]

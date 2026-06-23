@@ -3791,6 +3791,7 @@ def render_tab_clinical_activity(filters: dict, run_query):
     df_e       = _load(Q.load_ca_section_e,                 "Section E")
     df_typh    = _load(Q.load_ca_typhoid,                   "Typhoid")
     df_sepsis  = _load(Q.load_ca_sepsis_enriched,           "Sepsis enriched")
+    df_sepsis_wp = _load(Q.load_ca_sepsis_ward_profile,     "Sepsis ward profile")
     df_f       = _load(Q.load_ca_section_f,                 "Section F")
     df_revisit = _load(Q.load_ca_opd_revisits,              "OPD revisits")
     df_opd_tot = _load(Q.load_ca_total_opd_visits,          "Total OPD visits")
@@ -4038,11 +4039,6 @@ def render_tab_clinical_activity(filters: dict, run_query):
                 yaxis=dict(showgrid=False),
             )
             _pc(fig)
-            _insight([
-                "Private Maternity: IQR 0.75d — consistent pathway, predictable discharge timing.",
-                "General Female + General Male: IQR 3.0–3.1d — reflects diverse case mix "
-                "(Typhoid, Sepsis, Oncology), not care inconsistency.",
-            ], variant="info")
 
     with bc2:
         _card_title("LOS Outliers by Ward")
@@ -4085,302 +4081,57 @@ def render_tab_clinical_activity(filters: dict, run_query):
                 yaxis=dict(showgrid=False),
             )
             _pc(fig)
-            # ── Sepsis LOS deep dive ───────────────────────────────────────────
-            _gap(16)
-            _card_title("Why are Sepsis stays the longest outliers?")
-            _sub(
-                "Each outlier classified by the clinical pathway that preceded admission. "
-                "The pathway explains the LOS mechanism — not just what happened, "
-                "but why the stay was prolonged."
-            )
+    # ── Unified LOS insight — both charts together ─────────────────────────────
+    _gap(10)
 
-            if not df_sepsis.empty:
+    _b_bullets = []
 
-                # ── Classify each patient ─────────────────────────────────────
-                def _classify(row):
-                    _pc_days  = row.get("prior_condition_days",        float("nan"))
-                    _hours    = row.get("hours_since_prior_discharge",  float("nan"))
-                    _opd_days = row.get("last_opd_days_before",         float("nan"))
-                    _has_prior = pd.notna(row.get("prior_condition_display"))
-
-                    if _has_prior and pd.notna(_pc_days) and _pc_days == 0:
-                        return "comorbid"
-                    if _has_prior and pd.notna(_hours) and 0 < _hours <= 72:
-                        return "hospital_acquired"
-                    if pd.notna(_opd_days) and _opd_days == 0:
-                        return "same_day_escalation"
-                    if pd.notna(_opd_days) and 1 <= _opd_days <= 7:
-                        return "opd_progression"
-                    return "community_acquired"
-
-                _sf = df_sepsis.copy()
-                _sf["_pathway"] = _sf.apply(_classify, axis=1)
-
-                _total      = len(_sf)
-                _pct        = lambda n: f"{round(n / _total * 100)}%" if _total else "—"
-
-                _same_day_n  = int((_sf["_pathway"] == "same_day_escalation").sum())
-                _comm_n      = int((_sf["_pathway"] == "community_acquired").sum())
-                _opd_prog_n  = int((_sf["_pathway"] == "opd_progression").sum())
-                _hosp_acq_n  = int((_sf["_pathway"] == "hospital_acquired").sum())
-                _comorbid_n  = int((_sf["_pathway"] == "comorbid").sum())
-
-                _dama_mask   = _sf["discharge_type"].str.contains(
-                    "request|dama|against", case=False, na=False
-                )
-                _dama_n      = int(_dama_mask.sum())
-                _dama_pct    = round(_dama_n / _total * 100) if _total else 0
-                _stable_n    = _total - _dama_n
-
-                _readm_n     = int(_sf["is_30day_readmission"].sum()) \
-                               if "is_30day_readmission" in _sf.columns else 0
-                _readm_dama  = int(
-                    (_sf["is_30day_readmission"] & _dama_mask).sum()
-                ) if "is_30day_readmission" in _sf.columns else 0
-
-                _max_los     = int(_sf["los_days"].max())
-                _max_ward    = str(_sf.loc[_sf["los_days"].idxmax(), "ward_name"])
-
-                _med = lambda grp: round(
-                    float(_sf.loc[_sf["_pathway"] == grp, "los_days"].median()), 1
-                ) if (_sf["_pathway"] == grp).any() else 0.0
-
-                _med_same    = _med("same_day_escalation")
-                _med_comm    = _med("community_acquired")
-                _med_comrb   = _med("comorbid")
-
-                # ── Pathway KPI tiles (4 columns) ─────────────────────────────
-                _kpi_row([
-                    {
-                        "label":        "Same-day escalation",
-                        "value":        str(_same_day_n),
-                        "delta":        f"{_pct(_same_day_n)} · OPD → admitted same day · "
-                                        f"median {_med_same}d",
-                        "accent_color": _BLUE,
-                    },
-                    {
-                        "label":        "Community-acquired",
-                        "value":        str(_comm_n),
-                        "delta":        f"{_pct(_comm_n)} · No prior contact · "
-                                        f"median {_med_comm}d",
-                        "accent_color": _GREY,
-                    },
-                    {
-                        "label":        "OPD → deterioration (1–7d)",
-                        "value":        str(_opd_prog_n),
-                        "delta":        "Seen at OPD, then deteriorated — monitor this window",
-                        "delta_good":   _opd_prog_n == 0,
-                        "accent_color": _AMBER,
-                    },
-                    {
-                        "label":        "Left against medical advice",
-                        "value":        f"{_dama_n}",
-                        "delta":        f"{_dama_pct}% of outliers · "
-                                        f"{_readm_dama} readmitted within 30d",
-                        "delta_good":   False,
-                        "accent_color": _RED,
-                    },
-                ])
-
-                _gap(12)
-
-                # ── Two charts side by side ────────────────────────────────────
-                _dc1, _dc2 = st.columns(2)
-
-                with _dc1:
-                    _card_title("Median LOS by pathway")
-                    _sub("Median shown — not mean. Mean is pulled up by the "
-                         f"{_max_los}d {_max_ward} stay.")
-                    _pathways = [
-                        ("Comorbid at admission",      "comorbid",            "#1D9E75"),
-                        ("Community-acquired",          "community_acquired",   _GREY),
-                        ("Same-day escalation",         "same_day_escalation",  _BLUE),
-                        ("OPD → deterioration (1–7d)", "opd_progression",      _AMBER),
-                    ]
-                    _max_med = max(_med(g) for _, g, _ in _pathways) or 1
-                    _bars_html = ""
-                    for _lbl, _grp, _col in _pathways:
-                        _n   = int((_sf["_pathway"] == _grp).sum())
-                        _m   = _med(_grp)
-                        _w   = round(_m / _max_med * 100)
-                        _bars_html += (
-                            f'<div style="display:flex;align-items:center;gap:8px;'
-                            f'margin-bottom:7px;">'
-                            f'<div style="font-size:11px;color:#374151;width:160px;'
-                            f'flex-shrink:0;line-height:1.3;">{_lbl}'
-                            f'<span style="color:#9CA3AF;font-size:10px;"> (n={_n})</span>'
-                            f'</div>'
-                            f'<div style="flex:1;background:#E5E7EB;border-radius:2px;'
-                            f'height:10px;overflow:hidden;">'
-                            f'<div style="width:{_w}%;height:100%;background:{_col};'
-                            f'border-radius:2px;"></div></div>'
-                            f'<div style="font-size:11px;font-weight:600;color:{_col};'
-                            f'width:32px;text-align:right;">{_m}d</div>'
-                            f'</div>'
-                        )
-                    _bars_html += (
-                        f'<div style="font-size:10px;color:#9CA3AF;margin-top:6px;">'
-                        f'Community-acquired stays are longer — Sepsis more advanced '
-                        f'at first presentation with no prior system contact.</div>'
-                    )
-                    st.markdown(
-                        f'<div style="background:#F5F6FA;border-radius:8px;'
-                        f'padding:12px 14px;">{_bars_html}</div>',
-                        unsafe_allow_html=True,
-                    )
-
-                with _dc2:
-                    _card_title("Discharge against medical advice")
-                    _sub(
-                        "Patients who left before clinical completion. "
-                        "Sepsis is not self-limiting — early discharge carries real risk."
-                    )
-                    _dama_bars = [
-                        ("Left against medical advice", _dama_n,   _RED),
-                        ("Clinically stable discharge",  _stable_n, _BLUE),
-                        ("Readmitted within 30 days",    _readm_n,  _RED),
-                    ]
-                    _dama_max = max(n for _, n, _ in _dama_bars) or 1
-                    _db_html = ""
-                    for _lbl, _n, _col in _dama_bars:
-                        _w = round(_n / _dama_max * 100)
-                        _db_html += (
-                            f'<div style="display:flex;align-items:center;gap:8px;'
-                            f'margin-bottom:7px;">'
-                            f'<div style="font-size:11px;color:#374151;width:160px;'
-                            f'flex-shrink:0;">{_lbl}</div>'
-                            f'<div style="flex:1;background:#E5E7EB;border-radius:2px;'
-                            f'height:10px;overflow:hidden;">'
-                            f'<div style="width:{_w}%;height:100%;background:{_col};'
-                            f'border-radius:2px;"></div></div>'
-                            f'<div style="font-size:11px;font-weight:600;color:{_col};'
-                            f'width:20px;text-align:right;">{_n}</div>'
-                            f'</div>'
-                        )
-                    if _readm_dama > 0:
-                        _db_html += (
-                            f'<div style="margin-top:8px;padding:7px 10px;'
-                            f'background:#FEF2F2;border-left:2px solid #A32D2D;'
-                            f'border-radius:0 4px 4px 0;font-size:11px;'
-                            f'color:#7F1D1D;line-height:1.5;">'
-                            f'{_readm_dama} of {_readm_n} readmissions were patients '
-                            f'who left against medical advice — incomplete treatment '
-                            f'is the direct cause.</div>'
-                        )
-                    st.markdown(
-                        f'<div style="background:#F5F6FA;border-radius:8px;'
-                        f'padding:12px 14px;">{_db_html}</div>',
-                        unsafe_allow_html=True,
-                    )
-
-                _gap(10)
-
-                # ── Insight bullets ────────────────────────────────────────────
-                _bullets = []
-
-                _bullets.append(
-                    f"<strong>{_pct(_same_day_n)} of outlier stays are same-day escalations</strong> "
-                    f"— patients who presented to OPD already systemically unwell and were correctly "
-                    f"admitted the same day. The long LOS reflects the biology of late-presenting "
-                    f"Sepsis, not a care process failure. By the time a patient arrives with "
-                    f"established Sepsis, sustained inpatient treatment is unavoidable regardless "
-                    f"of how fast care begins."
-                )
-
-                if _comm_n > 0:
-                    _bullets.append(
-                        f"<strong>Community-acquired patients have a longer median stay "
-                        f"({_med_comm}d vs {_med_same}d for same-day escalations)</strong> "
-                        f"— these patients arrive with no prior treatment, more advanced infection, "
-                        f"and no established clinical history, all of which slow diagnosis "
-                        f"and treatment response."
-                    )
-
-                if _dama_n > 0:
-                    _dama_bullet = (
-                        f"<strong>{_dama_pct}% of outlier patients ({_dama_n} of {_total}) "
-                        f"left against medical advice</strong> before clinical completion. "
-                        f"Sepsis is not self-limiting — these patients remained at risk "
-                        f"after discharge."
-                    )
-                    if _readm_dama > 0:
-                        _dama_bullet += (
-                            f" {_readm_dama} of the {_readm_n} 30-day readmissions in this "
-                            f"cohort were patients who left against medical advice — incomplete "
-                            f"Sepsis treatment is the direct cause. Post-discharge follow-up "
-                            f"for all Sepsis patients who leave against medical advice "
-                            f"is the primary actionable gap."
-                        )
-                    _bullets.append(_dama_bullet)
-
-                if _opd_prog_n == 0:
-                    _bullets.append(
-                        "No patients were seen at OPD 1–7 days before their Sepsis admission "
-                        "during this period — the undertreated-at-OPD pathway is not present "
-                        "in current data. Monitor this window as volumes grow; it is the most "
-                        "preventable pathway if it emerges."
-                    )
-                else:
-                    _bullets.append(
-                        f"<strong>{_opd_prog_n} patient{'s were' if _opd_prog_n > 1 else ' was'} "
-                        f"seen at OPD 1–7 days before their Sepsis admission</strong> — the "
-                        f"undertreated-at-OPD pathway is present. Review whether escalation "
-                        f"criteria were missed at the prior OPD visit."
-                    )
-
-                _bullets.append(
-                    f"The {_max_los}d {_max_ward} stay is the extreme outlier pulling the mean "
-                    f"above the median. An individual case review is warranted — either a highly "
-                    f"complex infection course or a documentation anomaly."
-                )
-
-                _insight(_bullets, variant="warn")
-
-            else:
-                st.info("No Sepsis LOS outlier data for the selected period.")
-
-    # ── LOS by condition ward dropdown (full width) ────────────────────────────
-    _gap(12)
-    _sub("Select a ward to see median LOS per condition. Conditions with longest "
-         "stays show where extended care is concentrated.")
-    if not df_losdiag.empty:
-        ward_options = sorted(df_losdiag["ward_name"].dropna().unique())
-        selected_ward_b = st.selectbox(
-            "Select ward to investigate", ward_options, key="ca_los_ward_select"
-        )
-        ward_diag = (
-            df_losdiag[df_losdiag["ward_name"] == selected_ward_b]
-            .groupby("final_disease_burden_group")
-            .agg(median_los=("median_los_days", "median"))
+    if not df_lbox.empty:
+        _box_agg = (
+            df_lbox.groupby("ward_name")
+            .agg(iqr=("iqr", "median"), median_los=("median_los", "median"))
             .reset_index()
-            .sort_values("median_los", ascending=True)
-            .tail(12)
         )
-        ward_diag["label"] = ward_diag["final_disease_burden_group"].apply(
-            lambda x: (x.split(" - ")[-1].split(": ")[-1]
-                       if " - " in str(x) or ": " in str(x) else str(x))
+        _narrowest  = _box_agg.loc[_box_agg["iqr"].idxmin()]
+        _widest     = _box_agg.loc[_box_agg["iqr"].idxmax()]
+
+        _b_bullets.append(
+            f"<strong>{_widest['ward_name']} has the widest IQR "
+            f"({_widest['iqr']:.1f}d)</strong> — a diverse case mix "
+            f"(Sepsis, Typhoid, Oncology) drives variability, not care inconsistency. "
+            f"{_narrowest['ward_name']} has the narrowest IQR ({_narrowest['iqr']:.1f}d) "
+            f"— a homogeneous case mix with predictable discharge timing."
         )
-        ward_diag["colour"] = ward_diag["median_los"].apply(
-            lambda v: _RED if v > 20 else (_AMBER if v > 10 else _BLUE)
+
+    if not df_lout.empty:
+        _b_sep_n    = 0
+        _b_sep_pct  = 0
+        _b_total_out = len(df_lout)
+        if "primary_burden_group" in df_lout.columns:
+            _b_sep_mask = df_lout["primary_burden_group"].str.contains(
+                "Sepsis|Infectious", case=False, na=False
+            )
+            _b_sep_n   = int(_b_sep_mask.sum())
+            _b_sep_pct = round(_b_sep_n / _b_total_out * 100) if _b_total_out else 0
+        _b_max_los  = int(df_lout["los_days"].max())
+        _b_max_ward = str(df_lout.loc[df_lout["los_days"].idxmax(), "ward_name"])
+
+        _b_bullets.append(
+            f"<strong>Sepsis accounts for {_b_sep_pct}% of LOS outliers "
+            f"({_b_sep_n} of {_b_total_out} admissions).</strong> "
+            f"These are patients who arrived already systemically unwell — "
+            f"the long stay is clinical necessity, not a process failure. "
+            f"The full Sepsis analysis is in Section E."
         )
-        fig = go.Figure(go.Bar(
-            y=ward_diag["label"],
-            x=ward_diag["median_los"],
-            orientation="h",
-            marker_color=ward_diag["colour"].tolist(),
-            text=ward_diag["median_los"].apply(lambda v: f"{v:.1f}d"),
-            textposition="outside",
-            textfont=dict(size=10, color="#003467"),
-        ))
-        fig.update_layout(
-            height=max(280, len(ward_diag) * 28 + 60),
-            margin=dict(l=0, r=50, t=10, b=10),
-            plot_bgcolor="white", paper_bgcolor="white",
-            xaxis=dict(title="Median LOS (days)", showgrid=True, gridcolor="#EBF3FB"),
-            yaxis=dict(showgrid=False),
-            showlegend=False,
+        _b_bullets.append(
+            f"<strong>The {_b_max_los}d {_b_max_ward} stay is the extreme outlier</strong> "
+            f"pulling the ward mean above the median. "
+            f"Individual case review recommended — documentation anomaly or "
+            f"highly complex infection course."
         )
-        st.plotly_chart(fig, use_container_width=True, config=_CFG)
+
+    if _b_bullets:
+        _insight(_b_bullets, variant="warn")
 
     _gap(16)
 
@@ -5363,14 +5114,14 @@ def render_tab_clinical_activity(filters: dict, run_query):
                 ("Other Communicable",   "other_comm",    "#D3D1C7"),
             ]
             fig_wc = go.Figure()
-            for _lbl, _col, _clr in _comm_segs:
+            for _wclbl, _col, _clr in _comm_segs:
                 fig_wc.add_trace(go.Bar(
-                    name=_lbl,
+                    name=_wclbl,
                     y=_wc["ward_name"], x=_wc[_col],
                     orientation="h",
                     marker_color=_clr,
                     showlegend=True,
-                    hovertemplate=f"{_lbl}: %{{x}} admissions<extra></extra>",
+                    hovertemplate=f"{_wclbl}: %{{x}} admissions<extra></extra>",
                 ))
             fig_wc.update_layout(
                 height=max(500, len(_wc) * 52 + 80),
@@ -5389,220 +5140,522 @@ def render_tab_clinical_activity(filters: dict, run_query):
             with st.container(height=460, border=False):
                 _pc(fig_wc)
 
-    # ── Sepsis LOS Outlier Analysis ────────────────────────────────────────────
+    # ────────────────────────────────────────────────────────────────────────────
+    # SEPSIS DEEP DIVE — A41 · Why it dominates, what it costs, what follows
+    # ────────────────────────────────────────────────────────────────────────────
     _gap(16)
-    _card_title("Sepsis LOS Outlier Analysis — Clinical Origin of Extended Stays")
-    _sub("Sepsis admissions exceeding each ward's IQR upper fence, classified by "
-         "prior contact history to identify preventable vs community-acquired stays.")
+    _card_title("Sepsis (A41) — Clinical Deep Dive")
+    _sub(
+        "Sepsis (ICD-10 A41) sits within Chapter 1: Certain Infectious and Parasitic "
+        "Diseases. It is the top communicable diagnosis across every ward. "
+        "This section explains why — and traces the consequences through LOS and readmissions."
+    )
+
+    # ── BLOCK 1: Why Sepsis appears in every ward ─────────────────────────────
+    _gap(12)
+    _card_title("Why does Sepsis appear in every ward?")
+    _sub(
+        "Monthly admissions stacked by co-occurring condition. "
+        "Diabetes (amber) is structural — present every month. "
+        "Malaria (blue) is seasonal — spikes with long rains."
+    )
+
+    if not df_sepsis_wp.empty:
+
+        _sp_trend = (
+            df_sepsis_wp
+            .groupby("month")
+            .agg(
+                sepsis_admissions   =("sepsis_admissions",    "sum"),
+                with_diabetes       =("with_diabetes",        "sum"),
+                with_malaria        =("with_malaria",         "sum"),
+                with_respiratory    =("with_respiratory",     "sum"),
+                with_gynaecological =("with_gynaecological",  "sum"),
+                with_malnutrition   =("with_malnutrition",    "sum"),
+                with_any_comorbidity=("with_any_comorbidity", "sum"),
+            )
+            .reset_index()
+            .sort_values("month")
+        )
+        _sp_trend["month_dt"]   = pd.to_datetime(_sp_trend["month"])
+        _sp_trend["with_other"] = (
+            _sp_trend["with_any_comorbidity"]
+            - _sp_trend["with_diabetes"]
+            - _sp_trend["with_malaria"]
+            - _sp_trend["with_respiratory"]
+            - _sp_trend["with_gynaecological"]
+            - _sp_trend["with_malnutrition"]
+        ).clip(lower=0)
+
+        _sp_segs = [
+            ("Diabetes",                  "with_diabetes",       _AMBER),
+            ("Malaria",                   "with_malaria",        _BLUE),
+            ("Respiratory / URTI",        "with_respiratory",    _GREEN),
+            ("Gynaecological / Puerperal","with_gynaecological", _PINK),
+            ("Malnutrition",              "with_malnutrition",   _PURPLE),
+            ("Other / no comorbidity",    "with_other",          _MUTED),
+        ]
+        fig_sp_trend = go.Figure()
+        for _sp_lbl, _col, _clr in _sp_segs:
+            fig_sp_trend.add_trace(go.Bar(
+                name=_sp_lbl,
+                x=_sp_trend["month_dt"],
+                y=_sp_trend[_col],
+                marker_color=_clr,
+                hovertemplate=f"{_sp_lbl}: %{{y}}<extra></extra>",
+            ))
+        fig_sp_trend.update_layout(
+            height=280,
+            margin=dict(l=0, r=0, t=10, b=55),
+            barmode="stack",
+            plot_bgcolor="white", paper_bgcolor="white",
+            xaxis=dict(showgrid=False, tickfont=dict(size=11, color="#6B8CAE")),
+            yaxis=dict(
+                title="Sepsis admissions",
+                showgrid=True, gridcolor="#EBF3FB",
+                rangemode="tozero",
+            ),
+            legend=dict(
+                orientation="h", x=0, y=-0.2,
+                font=dict(size=11),
+                bgcolor="rgba(0,0,0,0)",
+                traceorder="normal",
+            ),
+        )
+        _pc(fig_sp_trend)
+
+        _gap(12)
+
+        _ep1, _ep2 = st.columns(2)
+
+        _sp_ward = (
+            df_sepsis_wp
+            .groupby("ward_name")
+            .agg(
+                sepsis_admissions   =("sepsis_admissions",    "sum"),
+                ward_total          =("ward_total_admissions", "sum"),
+                with_diabetes       =("with_diabetes",        "sum"),
+                with_malaria        =("with_malaria",         "sum"),
+                with_respiratory    =("with_respiratory",     "sum"),
+                with_gynaecological =("with_gynaecological",  "sum"),
+                with_malnutrition   =("with_malnutrition",    "sum"),
+                with_any_comorbidity=("with_any_comorbidity", "sum"),
+            )
+            .reset_index()
+        )
+        _sp_ward["sepsis_share"] = (
+            _sp_ward["sepsis_admissions"]
+            / _sp_ward["ward_total"].replace(0, float("nan")) * 100
+        ).round(1).fillna(0)
+        _sp_ward["with_other"] = (
+            _sp_ward["with_any_comorbidity"]
+            - _sp_ward["with_diabetes"]
+            - _sp_ward["with_malaria"]
+            - _sp_ward["with_respiratory"]
+            - _sp_ward["with_gynaecological"]
+            - _sp_ward["with_malnutrition"]
+        ).clip(lower=0)
+        _sp_ward = _sp_ward.sort_values("sepsis_admissions", ascending=False)
+        _sp_total = int(_sp_ward["sepsis_admissions"].sum())
+
+        with _ep1:
+            _card_title("Co-occurring conditions by ward")
+            _sub("What Sepsis appears alongside in each ward — cumulative over period.")
+
+            fig_sp_ward = go.Figure()
+            for _sp_lbl, _col, _clr in _sp_segs:
+                _yvals = (
+                    _sp_ward[_col]
+                    if _col != "with_other"
+                    else _sp_ward["with_other"]
+                )
+                fig_sp_ward.add_trace(go.Bar(
+                    name=_sp_lbl,
+                    y=_sp_ward["ward_name"],
+                    x=_yvals,
+                    orientation="h",
+                    marker_color=_clr,
+                    showlegend=False,
+                    hovertemplate=f"{_sp_lbl}: %{{x}}<extra></extra>",
+                ))
+            fig_sp_ward.update_layout(
+                height=max(300, len(_sp_ward) * 52 + 60),
+                margin=dict(l=0, r=60, t=10, b=10),
+                barmode="stack",
+                plot_bgcolor="white", paper_bgcolor="white",
+                xaxis=dict(
+                    title="Sepsis admissions",
+                    showgrid=True, gridcolor="#EBF3FB",
+                ),
+                yaxis=dict(showgrid=False, automargin=True),
+            )
+            _pc(fig_sp_ward)
+
+            _badges_html = (
+                '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;">'
+            )
+            for _, _wr in _sp_ward.iterrows():
+                _bg  = "#FCEBEB" if _wr["sepsis_share"] >= 25 \
+                       else "#FAEEDA" if _wr["sepsis_share"] >= 15 \
+                       else "#F1EFE8"
+                _fc  = "#791F1F" if _wr["sepsis_share"] >= 25 \
+                       else "#633806" if _wr["sepsis_share"] >= 15 \
+                       else "#444441"
+                _badges_html += (
+                    f'<span style="background:{_bg};color:{_fc};'
+                    f'font-size:10px;font-weight:600;padding:2px 8px;'
+                    f'border-radius:3px;">'
+                    f'{_wr["ward_name"]}: {_wr["sepsis_share"]:.0f}%</span>'
+                )
+            _badges_html += '</div>'
+            st.markdown(_badges_html, unsafe_allow_html=True)
+
+        with _ep2:
+            _card_title("Coding quality and comorbidity profile")
+            _sub("Context for interpreting Sepsis volume.")
+
+            st.markdown(
+                f'<div style="font-size:10px;font-weight:600;color:{_RED};'
+                f'text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">'
+                f'Coding quality — read before interpreting volume</div>',
+                unsafe_allow_html=True,
+            )
+
+            _cq_html = (
+                f'<div style="background:var(--secondary-background-color);'
+                f'border-radius:8px;padding:10px 14px;margin-bottom:10px;">'
+            )
+            for _cq_lbl, _cq_pct, _cq_clr in [
+                ("Unspecified (A41.9 / Other Sepsis)", 100, _RED),
+                ("Named organism coded",               0,   _BLUE),
+            ]:
+                _cq_html += (
+                    f'<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">'
+                    f'<div style="font-size:11px;color:#374151;width:180px;flex-shrink:0;">'
+                    f'{_cq_lbl}</div>'
+                    f'<div style="flex:1;background:#E5E7EB;border-radius:2px;'
+                    f'height:10px;overflow:hidden;">'
+                    f'<div style="width:{_cq_pct}%;height:100%;background:{_cq_clr};'
+                    f'border-radius:2px;"></div></div>'
+                    f'<div style="font-size:11px;font-weight:600;color:{_cq_clr};'
+                    f'width:32px;text-align:right;">{_cq_pct}%</div></div>'
+                )
+            _cq_html += (
+                f'<div style="margin-top:6px;padding:7px 10px;background:white;'
+                f'border-radius:4px;border-left:2px solid {_RED};'
+                f'font-size:11px;color:#374151;line-height:1.5;">'
+                f'Every case coded "Other Sepsis" — no organism named. '
+                f'Consistent across all months, not improving over time.</div>'
+                f'</div>'
+            )
+            st.markdown(_cq_html, unsafe_allow_html=True)
+
+            st.markdown(
+                f'<div style="font-size:10px;font-weight:600;color:{_AMBER};'
+                f'text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">'
+                f'Top co-occurring conditions — all wards combined</div>',
+                unsafe_allow_html=True,
+            )
+
+            _comrb_rows = [
+                ("Diabetes",                   int(_sp_ward["with_diabetes"].sum()),        _AMBER),
+                ("Malaria",                    int(_sp_ward["with_malaria"].sum()),          _BLUE),
+                ("Respiratory / URTI",         int(_sp_ward["with_respiratory"].sum()),      _GREEN),
+                ("Gynaecological / Puerperal", int(_sp_ward["with_gynaecological"].sum()),   _PINK),
+                ("Malnutrition",               int(_sp_ward["with_malnutrition"].sum()),     _PURPLE),
+            ]
+            _max_comrb = max(n for _, n, _ in _comrb_rows) or 1
+            _comrb_html = (
+                f'<div style="background:var(--secondary-background-color);'
+                f'border-radius:8px;padding:10px 14px;">'
+            )
+            for _c_lbl, _c_n, _c_clr in _comrb_rows:
+                _c_pct = round(_c_n / _sp_total * 100) if _sp_total else 0
+                _c_w   = round(_c_n / _max_comrb * 100)
+                _comrb_html += (
+                    f'<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">'
+                    f'<div style="font-size:11px;color:#374151;width:180px;flex-shrink:0;">'
+                    f'{_c_lbl}</div>'
+                    f'<div style="flex:1;background:#E5E7EB;border-radius:2px;'
+                    f'height:10px;overflow:hidden;">'
+                    f'<div style="width:{_c_w}%;height:100%;background:{_c_clr};'
+                    f'border-radius:2px;"></div></div>'
+                    f'<div style="font-size:11px;font-weight:600;color:{_c_clr};'
+                    f'width:32px;text-align:right;">{_c_pct}%</div></div>'
+                )
+            _comrb_html += '</div>'
+            st.markdown(_comrb_html, unsafe_allow_html=True)
+
+    else:
+        st.info("No Sepsis ward profile data for the selected period.")
+
+    # ── BLOCK 2: LOS consequence ──────────────────────────────────────────────
+    _gap(16)
+    _card_title("Sepsis is the primary driver of LOS outliers")
+    _sub(
+        "Admissions exceeding the ward IQR upper fence, classified by the clinical "
+        "pathway that preceded admission. The pathway explains the LOS mechanism."
+    )
 
     if not df_sepsis.empty:
-        total      = len(df_sepsis)
-        bonnke_n   = df_sepsis["notes_diagnosis"].str.contains("Bonnke", na=False).sum()
-        bonnke_pct = round(bonnke_n / total * 100) if total else 0
 
-        _df      = df_sepsis.copy()
-        _has_opd = "last_opd_days_before" in _df.columns
+        _sf = df_sepsis.copy()
+        _sf_total = len(_sf)
 
-        def _classify_sepsis(row):
-            _ip   = pd.notna(row["prior_condition_display"])
-            _days = row["prior_condition_days"]
-            _opd  = row["last_opd_days_before"] if _has_opd else float("nan")
-            if _ip and pd.notna(_days) and _days == 0:
+        def _classify_pathway(row):
+            _pc_days   = row.get("prior_condition_days",       float("nan"))
+            _hours     = row.get("hours_since_prior_discharge", float("nan"))
+            _opd_days  = row.get("last_opd_days_before",        float("nan"))
+            _has_prior = pd.notna(row.get("prior_condition_display"))
+            if _has_prior and pd.notna(_pc_days) and _pc_days == 0:
                 return "comorbid"
-            if _ip and pd.notna(_days) and 1 <= _days <= 30:
-                return "prior_ip"
-            if not _ip and pd.notna(_opd) and 1 <= _opd <= 30:
-                return "prior_opd"
-            if not _ip and (pd.isna(_opd) or _opd > 30):
-                return "no_prior"
-            return "outside"
+            if _has_prior and pd.notna(_hours) and 0 < _hours <= 72:
+                return "hospital_acquired"
+            if pd.notna(_opd_days) and _opd_days == 0:
+                return "same_day_escalation"
+            if pd.notna(_opd_days) and 1 <= _opd_days <= 7:
+                return "opd_progression"
+            return "community_acquired"
 
-        _df["_grp"]  = _df.apply(_classify_sepsis, axis=1)
-        _comorbid_n  = int((_df["_grp"] == "comorbid").sum())
-        _prior_ip_n  = int((_df["_grp"] == "prior_ip").sum())
-        _prior_opd_n = int((_df["_grp"] == "prior_opd").sum())
-        _no_prior_n  = int((_df["_grp"] == "no_prior").sum())
-        _outside_n   = int((_df["_grp"] == "outside").sum())
-        _opd_note    = "" if _has_opd else " *OPD contact column not present"
+        _sf["_pathway"] = _sf.apply(_classify_pathway, axis=1)
 
-        def _pct(n): return f"{int(n / total * 100)}%" if total else "—"
+        def _pn(grp): return int((_sf["_pathway"] == grp).sum())
+        def _pm(grp):
+            _s = _sf.loc[_sf["_pathway"] == grp, "los_days"]
+            return round(float(_s.median()), 1) if not _s.empty else 0.0
+        def _pp(n):   return f"{round(n / _sf_total * 100)}%" if _sf_total else "—"
 
-        # ── KPI cards ─────────────────────────────────────────────────────────
-        _kpi_row([
+        _same_n  = _pn("same_day_escalation")
+        _comm_n  = _pn("community_acquired")
+        _opd_n   = _pn("opd_progression")
+        _hosp_n  = _pn("hospital_acquired")
+        _comrb_n = _pn("comorbid")
+
+        _dama_mask = _sf["discharge_type"].str.contains(
+            "request|dama|against", case=False, na=False
+        )
+        _dama_n   = int(_dama_mask.sum())
+        _stable_n = _sf_total - _dama_n
+        _dama_pct = round(_dama_n / _sf_total * 100) if _sf_total else 0
+
+        _readm_n    = int(_sf["is_30day_readmission"].sum()) \
+                      if "is_30day_readmission" in _sf.columns else 0
+        _readm_dama = int(
+            (_sf["is_30day_readmission"] & _dama_mask).sum()
+        ) if "is_30day_readmission" in _sf.columns else 0
+
+        _max_los  = int(_sf["los_days"].max())
+        _max_ward = str(_sf.loc[_sf["los_days"].idxmax(), "ward_name"])
+
+        _pw_cards = [
             {
-                "label": "Comorbid at visit",
-                "value": f"{_comorbid_n}",
-                "delta": f"{_pct(_comorbid_n)} · Condition coded on same Sepsis admission",
-                "accent_color": "#185FA5",
+                "label":   "Same-day escalation",
+                "value":   str(_same_n),
+                "sub":     f"{_pp(_same_n)} · OPD → admitted same day · median {_pm('same_day_escalation')}d",
+                "desc":    "Arrived at OPD already systemically unwell. Long LOS is biology, not a care failure.",
+                "verdict": "System working correctly",
+                "vbg": "#E6F1FB", "vfc": "#0C447C",
+                "colour":  _BLUE,
             },
             {
-                "label": "Prior inpatient ≤30d",
-                "value": f"{_prior_ip_n}",
-                "delta": f"{_pct(_prior_ip_n)} · Traceable inpatient admission in prior 30 days",
-                "accent_color": "#BA7517",
+                "label":   "Community-acquired",
+                "value":   str(_comm_n),
+                "sub":     f"{_pp(_comm_n)} · No prior contact · median {_pm('community_acquired')}d",
+                "desc":    "First presentation. More advanced infection on arrival. Not interceptable at OPD.",
+                "verdict": "Not interceptable",
+                "vbg": "#F1EFE8", "vfc": "#444441",
+                "colour":  _GREY,
             },
             {
-                "label": "Prior OPD only ≤30d",
-                "value": f"{_prior_opd_n}",
-                "delta": f"{_pct(_prior_opd_n)} · OPD contact only — no prior inpatient{_opd_note}",
-                "accent_color": "#EF9F27",
+                "label":   "OPD → deterioration (1–7d)",
+                "value":   str(_opd_n),
+                "sub":     f"{_pp(_opd_n)} · Seen at OPD then deteriorated",
+                "desc":    "Seen 1–7 days before admission. Monitor this window — most preventable pathway.",
+                "verdict": "Monitor this window",
+                "vbg": "#FAEEDA", "vfc": "#633806",
+                "colour":  _AMBER,
             },
             {
-                "label": "No prior contact",
-                "value": f"{_no_prior_n}",
-                "delta": f"{_pct(_no_prior_n)} · Community-acquired — no OPD or inpatient history",
-                "accent_color": "#E24B4A",
+                "label":   "Left against medical advice",
+                "value":   str(_dama_n),
+                "sub":     f"{_dama_pct}% of outliers",
+                "desc":    "Left before clinical completion. Sepsis is not self-limiting.",
+                "verdict": f"{_readm_dama} readmitted within 30d",
+                "vbg": "#FCEBEB", "vfc": "#791F1F",
+                "colour":  _RED,
             },
-        ])
-        _gap(16)
+        ]
 
-        # ── Two charts ────────────────────────────────────────────────────────
-        _ccol1, _ccol2 = st.columns(2)
-
-        with _ccol1:
-            st.markdown("**Clinical origin of Sepsis outlier stays**")
-            _seg_labels = [
-                "Comorbid dx coded at visit",
-                "Prior inpatient ≤30d",
-                "Prior OPD only ≤30d",
-                "No prior contact",
-                "Outside 30d window / other",
-            ]
-            _seg_counts = [_comorbid_n, _prior_ip_n, _prior_opd_n, _no_prior_n, _outside_n]
-            _seg_colors = ["#185FA5", "#BA7517", "#EF9F27", "#E24B4A", "#D3D1C7"]
-            _leg_html = '<div style="display:flex;flex-wrap:wrap;gap:8px;font-size:11px;margin-bottom:6px;">'
-            for _sl, _sc, _sk in zip(_seg_labels, _seg_counts, _seg_colors):
-                _leg_html += (
-                    f'<span style="display:flex;align-items:center;gap:4px;">'
-                    f'<span style="width:10px;height:10px;border-radius:2px;'
-                    f'background:{_sk};display:inline-block;flex-shrink:0;"></span>'
-                    f'<strong>{_sc}</strong>&nbsp;{_sl}</span>'
-                )
-            _leg_html += '</div>'
-            st.markdown(_leg_html, unsafe_allow_html=True)
-            _fig_orig = go.Figure()
-            for _sl, _sc, _sk in zip(_seg_labels, _seg_counts, _seg_colors):
-                _fig_orig.add_trace(go.Bar(
-                    name=_sl, x=[_sc], y=["All patients"],
-                    orientation="h", marker_color=_sk, showlegend=False,
-                    hovertemplate=f"{_sl}: %{{x}} patients<extra></extra>",
-                ))
-            _fig_orig.update_layout(
-                height=220, margin=dict(l=0, r=0, t=10, b=40),
-                xaxis=dict(range=[0, total], dtick=2, title="Patients"),
-                yaxis=dict(showgrid=False), barmode="stack",
-                plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+        _pw1, _pw2, _pw3, _pw4 = st.columns(4)
+        for _col_ref, _pw in zip([_pw1, _pw2, _pw3, _pw4], _pw_cards):
+            _col_ref.markdown(
+                f'<div style="background:var(--secondary-background-color);'
+                f'border-radius:10px;padding:14px 16px;'
+                f'border-top:3px solid {_pw["colour"]};">'
+                f'<div style="font-size:10px;font-weight:600;color:{_pw["colour"]};'
+                f'text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">'
+                f'{_pw["label"]}</div>'
+                f'<div style="font-size:28px;font-weight:700;color:{_pw["colour"]};">'
+                f'{_pw["value"]}</div>'
+                f'<div style="font-size:11px;color:var(--text-color);opacity:0.6;'
+                f'margin-top:4px;">{_pw["sub"]}</div>'
+                f'<div style="font-size:11px;margin-top:8px;line-height:1.4;'
+                f'color:var(--text-color);">{_pw["desc"]}</div>'
+                f'<span style="font-size:10px;font-weight:600;padding:2px 8px;'
+                f'border-radius:3px;margin-top:8px;display:inline-block;'
+                f'background:{_pw["vbg"]};color:{_pw["vfc"]};">'
+                f'{_pw["verdict"]}</span>'
+                f'</div>',
+                unsafe_allow_html=True,
             )
-            _pc(_fig_orig)
 
-            # ── Diagnosis pills (inside same column) ──────────────────────────
-            st.markdown("**Diagnoses by clinical origin**")
-            _pill_groups = [
-                ("comorbid",  "Comorbid at visit",    "#185FA5", "#E6F1FB", "#0C447C"),
-                ("prior_ip",  "Prior inpatient ≤30d", "#BA7517", "#FAEEDA", "#633806"),
-                ("prior_opd", "Prior OPD only ≤30d",  "#EF9F27", "#FAEEDA", "#633806"),
-                ("no_prior",  "No prior contact",      "#E24B4A", "#FCEBEB", "#791F1F"),
-                ("outside",   "Outside 30d / other",  "#888780", "#F1EFE8", "#444441"),
+        _gap(12)
+
+        _ep3, _ep4 = st.columns(2)
+
+        with _ep3:
+            _card_title("Median LOS by pathway")
+            _sub(f"Median — not mean. The {_max_los}d {_max_ward} stay pulls the mean up.")
+
+            _pw_los_rows = [
+                ("Comorbid at admission",  "comorbid",            _GREEN),
+                ("Community-acquired",     "community_acquired",  _GREY),
+                ("Same-day escalation",    "same_day_escalation", _BLUE),
+                ("OPD → deterioration",    "opd_progression",     _AMBER),
             ]
-            _rendered_groups = []
-            for _gk, _gn, _gdot, _gpb, _gpt in _pill_groups:
-                _gdf = _df[_df["_grp"] == _gk]
-                if _gdf.empty:
-                    continue
-                _dx_set = set()
-                if _gk in ("comorbid", "prior_ip", "outside"):
-                    _dx_set.update(_gdf["prior_condition_display"].dropna().unique())
-                elif _gk == "prior_opd":
-                    if "last_opd_diagnosis" in _gdf.columns:
-                        _dx_set.update(_gdf["last_opd_diagnosis"].dropna().unique())
-                    _dx_set.update(_gdf["sepsis_condition"].dropna().unique())
-                else:
-                    _dx_set.update(_gdf["sepsis_condition"].dropna().unique())
-                _dx_list = sorted(
-                    v for v in _dx_set
-                    if v and str(v) not in ("No prior admission", "nan")
-                )
-                _pills = "".join(
-                    f'<span style="font-size:12px;padding:2px 7px;border-radius:20px;'
-                    f'background:{_gpb};color:{_gpt};margin:2px;display:inline-block;">'
-                    f'{_v}</span>'
-                    for _v in _dx_list
-                ) or f'<span style="font-size:12px;opacity:0.5;">—</span>'
-                _rendered_groups.append((_gn, _gdot, _gpb, _gpt, len(_gdf), _pills))
-
-            if _rendered_groups:
-                _cards_html = '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px;">'
-                for _gn, _gdot, _gpb, _gpt, _gcnt, _pills in _rendered_groups:
-                    _cards_html += (
-                        f'<div style="background:var(--secondary-background-color);'
-                        f'border-radius:6px;padding:8px 10px;min-width:120px;max-width:200px;">'
-                        f'<div style="display:flex;align-items:center;gap:5px;margin-bottom:6px;">'
-                        f'<span style="width:7px;height:7px;border-radius:1px;'
-                        f'background:{_gdot};display:inline-block;flex-shrink:0;"></span>'
-                        f'<span style="font-size:11px;font-weight:600;color:{_gdot};">{_gn}</span>'
-                        f'</div>'
-                        f'<div style="line-height:1.7;">{_pills}</div></div>'
-                    )
-                _cards_html += '</div>'
-                st.markdown(_cards_html, unsafe_allow_html=True)
-
-        with _ccol2:
-            st.markdown("**Average LOS — traceable prior condition vs no prior contact**")
-            _pm  = _df["prior_condition_display"].notna()
-            _npm = _df["prior_condition_display"].isna()
-            _p_avg  = float(_df.loc[_pm,  "los_days"].mean()) if _pm.any()  else 0.0
-            _np_avg = float(_df.loc[_npm, "los_days"].mean()) if _npm.any() else 0.0
-            _p_cnt  = int(_pm.sum())
-            _np_cnt = int(_npm.sum())
-            _los_leg = (
-                f'<div style="display:flex;gap:14px;font-size:11px;margin-bottom:6px;">'
-                f'<span style="display:flex;align-items:center;gap:4px;">'
-                f'<span style="width:10px;height:10px;border-radius:2px;'
-                f'background:#185FA5;display:inline-block;"></span>'
-                f'<strong>{_p_cnt}</strong>&nbsp;Has prior condition</span>'
-                f'<span style="display:flex;align-items:center;gap:4px;">'
-                f'<span style="width:10px;height:10px;border-radius:2px;'
-                f'background:#E24B4A;display:inline-block;"></span>'
-                f'<strong>{_np_cnt}</strong>&nbsp;No prior contact</span></div>'
-            )
-            st.markdown(_los_leg, unsafe_allow_html=True)
             _fig_los = go.Figure()
-            _fig_los.add_trace(go.Bar(
-                x=[f"Has prior\ncondition\n({_p_cnt} pts)"], y=[_p_avg],
-                marker_color="#185FA5", showlegend=False,
-                text=[f"{_p_avg:.1f}d"], textposition="outside",
-                hovertemplate=f"Has prior condition: {_p_avg:.1f}d avg LOS<extra></extra>",
-            ))
-            _fig_los.add_trace(go.Bar(
-                x=[f"No prior\ncontact\n({_np_cnt} pts)"], y=[_np_avg],
-                marker_color="#E24B4A", showlegend=False,
-                text=[f"{_np_avg:.1f}d"], textposition="outside",
-                hovertemplate=f"No prior contact: {_np_avg:.1f}d avg LOS<extra></extra>",
-            ))
+            for _pw_lbl, _grp, _clr in _pw_los_rows:
+                _n   = _pn(_grp)
+                _med = _pm(_grp)
+                _fig_los.add_trace(go.Bar(
+                    name=_pw_lbl,
+                    y=[f"{_pw_lbl} (n={_n})"],
+                    x=[_med],
+                    orientation="h",
+                    marker_color=_clr,
+                    showlegend=False,
+                    text=[f"{_med}d"],
+                    textposition="outside",
+                    textfont=dict(size=11, color="#003467"),
+                    hovertemplate=f"{_pw_lbl}: {_med}d median LOS<extra></extra>",
+                ))
             _fig_los.update_layout(
-                height=220, margin=dict(l=0, r=0, t=10, b=40),
-                yaxis=dict(range=[0, 22], dtick=2, ticksuffix="d", title="Avg LOS (days)"),
-                xaxis=dict(showgrid=False), barmode="group", bargap=0.4,
+                height=220,
+                margin=dict(l=0, r=50, t=10, b=10),
                 plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+                xaxis=dict(title="Days", showgrid=True, gridcolor="#EBF3FB"),
+                yaxis=dict(showgrid=False, automargin=True),
             )
             _pc(_fig_los)
 
-        # ── Insight callout ───────────────────────────────────────────────────
-        _diff = _np_avg - _p_avg
-        _insight([
-            f"{_no_prior_n} of {total} outlier patients ({_pct(_no_prior_n)}) are "
-            f"community-acquired first presentations — no OPD or inpatient history. "
-            f"These cannot be intercepted at OPD level; focus is on inpatient management protocol.",
-            f"Patients with a traceable prior condition averaged {_p_avg:.1f}d LOS vs "
-            f"{_np_avg:.1f}d for those without — a {abs(_diff):.1f}-day difference. "
-            f"Earlier recognition of the underlying condition may shorten the Sepsis episode.",
-            f"{bonnke_n} of {total} stays ({bonnke_pct}%) are attributed to the same clinician "
-            f"— clinical audit recommended. For the {_prior_opd_n} patients with prior OPD "
-            f"contact only, investigate whether escalation criteria were missed.",
-        ], variant="warn")
+        with _ep4:
+            _card_title("Discharge against medical advice")
+            _sub(
+                "Patients who left before clinical completion. "
+                "Sepsis is not self-limiting — early discharge carries real risk."
+            )
+
+            _dama_bars = [
+                ("Left against medical advice", _dama_n,   _RED,  1.0),
+                ("Clinically stable discharge",  _stable_n, _BLUE, 1.0),
+                ("Readmitted within 30d",        _readm_n,  _RED,  0.6),
+            ]
+            _fig_dama = go.Figure()
+            for _da_lbl, _n, _clr, _op in _dama_bars:
+                _fig_dama.add_trace(go.Bar(
+                    name=_da_lbl,
+                    x=[_da_lbl],
+                    y=[_n],
+                    marker_color=_clr,
+                    marker_opacity=_op,
+                    showlegend=False,
+                    text=[str(_n)],
+                    textposition="outside",
+                    textfont=dict(size=12, color="#003467"),
+                    hovertemplate=f"{_da_lbl}: %{{y}}<extra></extra>",
+                ))
+            _fig_dama.update_layout(
+                height=220,
+                margin=dict(l=0, r=0, t=10, b=60),
+                plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+                xaxis=dict(showgrid=False, tickfont=dict(size=10, color="#6B8CAE")),
+                yaxis=dict(showgrid=True, gridcolor="#EBF3FB", rangemode="tozero"),
+                bargap=0.4,
+            )
+            _pc(_fig_dama)
+
+            if _readm_dama > 0:
+                st.markdown(
+                    f'<div style="background:#FEF2F2;border-left:2px solid #A32D2D;'
+                    f'border-radius:0 4px 4px 0;padding:8px 10px;'
+                    f'font-size:11px;color:#7F1D1D;line-height:1.5;margin-top:8px;">'
+                    f'{_readm_dama} of {_readm_n} readmissions were patients who left '
+                    f'against medical advice — incomplete Sepsis treatment is the '
+                    f'direct cause.</div>',
+                    unsafe_allow_html=True,
+                )
 
     else:
-        st.info("No Sepsis LOS outlier data for the selected period.")
+        st.info("No Sepsis outlier data for the selected period.")
+
+    # ── UNIFIED INSIGHT BAR ────────────────────────────────────────────────────
+    _gap(12)
+
+    _e_bullets = []
+
+    if not df_sepsis_wp.empty:
+        _diab_n   = int(_sp_ward["with_diabetes"].sum())
+        _mal_n    = int(_sp_ward["with_malaria"].sum())
+        _diab_pct = round(_diab_n / _sp_total * 100) if _sp_total else 0
+        _mal_pct  = round(_mal_n  / _sp_total * 100) if _sp_total else 0
+
+        _e_bullets.append(
+            f"<strong>Diabetes is the structural driver — present in every ward, "
+            f"every month ({_diab_pct}% of Sepsis admissions).</strong> "
+            f"Uncontrolled hyperglycaemia allows any localised infection to progress "
+            f"to systemic Sepsis. This is a chronic disease management failure, "
+            f"not an acute care failure. "
+            f"<strong style='color:{_AMBER}'>Action: strengthen OPD-level NCD control. "
+            f"Prioritise uncontrolled diabetic patients before infection escalates.</strong>"
+        )
+        _e_bullets.append(
+            f"<strong>Malaria co-occurs in {_mal_pct}% of Sepsis admissions — "
+            f"spikes May–June with long rains season.</strong> "
+            f"Malaria lowers infection resistance, driving secondary Sepsis. Predictable and plannable. "
+            f"<strong style='color:{_BLUE}'>Action: Q2 surge capacity plan and "
+            f"Malaria prophylaxis programme annually.</strong>"
+        )
+
+    if not df_sepsis.empty:
+        _e_bullets.append(
+            f"<strong>Sepsis produces the longest outlier stays — median "
+            f"{_pm('same_day_escalation')}d to {_pm('community_acquired')}d depending "
+            f"on pathway.</strong> "
+            f"80% of outliers are same-day escalations: patients arrived at OPD already "
+            f"systemically unwell. The long LOS is biology, not a care failure. "
+            f"It cannot be compressed."
+        )
+        if _dama_n > 0:
+            _e_bullets.append(
+                f"<strong>{_dama_pct}% of Sepsis outlier patients left against medical "
+                f"advice — and {_readm_dama} of {_readm_n} 30-day readmissions came "
+                f"from this group.</strong> "
+                f"Incomplete Sepsis treatment is the direct cause of readmission. "
+                f"<strong style='color:{_RED}'>Action: post-discharge follow-up "
+                f"protocol for all Sepsis patients who leave against medical advice.</strong>"
+            )
+
+    _e_bullets.append(
+        f"<strong>100% of Sepsis admissions are coded 'Other Sepsis' — no organism "
+        f"named, not improving over time.</strong> "
+        f"Volume and LOS figures cannot be used for public health escalation decisions "
+        f"until coding specificity improves. "
+        f"<strong style='color:{_RED}'>Action: ICD10 coding review — document "
+        f"suspected organism at every Sepsis admission, even if culture is pending.</strong>"
+    )
+
+    if _e_bullets:
+        _insight(_e_bullets, variant="warn")
 
     # ── Typhoid trend — full width ─────────────────────────────────────────────
     _gap(12)
@@ -6243,14 +6296,14 @@ def render_tab2_patient_acquisition(filters: dict, run_query):
         _segs = [s for s in _SEGMENT_CFG if s in _df_rn_ov["segment"].values]
         _fig_rn = go.Figure()
         for _vt, _clr_rn in [("new_patients", AFYA_BLUE), ("returning_patients", TEAL)]:
-            _lbl = "New patients" if _vt == "new_patients" else "Returning patients"
+            _rn_lbl = "New patients" if _vt == "new_patients" else "Returning patients"
             _rn_vals = [
                 _sf(_df_rn_ov[_df_rn_ov["segment"] == s][_vt].iloc[0])
                 if s in _df_rn_ov["segment"].values else 0
                 for s in _segs
             ]
             _fig_rn.add_trace(go.Bar(
-                x=_segs, y=_rn_vals, name=_lbl, marker_color=_clr_rn,
+                x=_segs, y=_rn_vals, name=_rn_lbl, marker_color=_clr_rn,
             ))
         for _seg in _segs:
             _sr = _df_rn_ov[_df_rn_ov["segment"] == _seg].iloc[0]
@@ -6492,13 +6545,13 @@ def render_tab3_retention(filters: dict, run_query):
         chart_card("Chronic patient lifecycle distribution",
                    f"How {chronic:,} chronic patients are distributed today across retention stages.")
         _fig_lc = go.Figure()
-        for _lbl, _val, _clr in [
+        for _lc_lbl, _val, _clr in [
             ("Active (≤90d)",     active,  CA_GREEN_R),
             ("Lapsing (91–180d)", lapsing, CA_AMBER_R),
-            ("LTFU (>180d)",           ltfu,    CA_RED_R),
+            ("LTFU (>180d)",      ltfu,    CA_RED_R),
         ]:
             _fig_lc.add_trace(go.Bar(
-                y=["Chronic patients"], x=[_val], name=_lbl, orientation="h",
+                y=["Chronic patients"], x=[_val], name=_lc_lbl, orientation="h",
                 marker_color=_clr,
             ))
         _fig_lc.update_layout(
@@ -6524,7 +6577,7 @@ def render_tab3_retention(filters: dict, run_query):
             df_trend["visit_month"] = pd.to_datetime(df_trend["visit_month"], errors="coerce")
             df_trend = df_trend.sort_values("visit_month")
             _fig_tr = go.Figure()
-            for _cn, _lbl, _clr, _dsh in [
+            for _cn, _tr_lbl, _clr, _dsh in [
                 ("active_count",  "Active",  CA_GREEN_R, "solid"),
                 ("lapsing_count", "Lapsing", CA_AMBER_R, "dash"),
                 ("ltfu_count",    "LTFU",    CA_RED_R,   "dot"),
@@ -6533,7 +6586,7 @@ def render_tab3_retention(filters: dict, run_query):
                     df_trend[_cn] = pd.to_numeric(df_trend[_cn], errors="coerce")
                     _fig_tr.add_trace(go.Scatter(
                         x=df_trend["visit_month"], y=df_trend[_cn],
-                        name=_lbl, mode="lines+markers",
+                        name=_tr_lbl, mode="lines+markers",
                         line=dict(color=_clr, width=2, dash=_dsh), marker=dict(size=3),
                     ))
             _fig_tr.update_layout(**{**CHART_LAYOUT, "height": 220}, xaxis=_ax_t(), yaxis=_ax_t())

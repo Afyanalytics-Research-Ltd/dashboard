@@ -5,8 +5,13 @@ Run: streamlit run private_analysis/dashboard.py
 
 import sys
 import os
+import json
 import urllib.parse
+from pathlib import Path
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+import requests as _requests
 
 import streamlit as st
 import pandas as pd
@@ -19,12 +24,13 @@ import warnings
 warnings.filterwarnings("ignore")
 
 from facility_utilization.m1_ward_forecast import get_forecast
+from facility_utilization.forecasting.adapter import build_contract as _build_forecast_contract
 from notifier import send_digest, get_recipients, write_current_notices
 from facility_utilization.queries import (
     q_overview_gap, q_overview_alerts,
     q_leakage_gap, q_leakage_submission_rate, q_leakage_ksh_dispatch_trend,
     q_leakage_aging_dist, q_leakage_recovery_priority,
-    q_theatre_trend, q_theatre_by_type,
+    q_theatre_trend, q_theatre_by_type, q_theatre_emergency_tat,
     q_beds_revpab, q_beds_los, q_beds_monthly, q_dialysis_trend, q_specialty_admissions,
     q_imaging_trend,
     # q_readmission_pattern, q_readmission_trend,                     # READM_HIDDEN — clinical finding, not ops metric
@@ -197,6 +203,11 @@ _BOR_P25 = {  # P25 floors from Inv 48 re-run — corrected 32-bed denominator (
     "Private Female":    11.8, "Private Male":       9.7,
     "Private Maternity":  8.1,
 }
+# Rule 31b — BOR ward high occupancy — MoH optimal anchor is 85% (CLAUDE.md L1)
+# WATCH: 2 consecutive months > 85% (sustained pressure, no buffer for emergencies)
+# CRITICAL: single month > 95% (ward effectively full)
+_BOR_HIGH_WATCH = 85.0
+_BOR_HIGH_CRIT  = 95.0
 
 
 def cl(**kw):
@@ -330,9 +341,16 @@ def _filter_epoch(df, date_col):
     return df[df[date_col] >= "2000-01-01"].copy()
 
 
+# ── ML platform paths ─────────────────────────────────────────────────────────
+
+_ML_PLATFORM         = Path(os.path.abspath(__file__)).parent / "ml_platform"
+_FORECAST_CACHE      = _ML_PLATFORM / "forecast_cache.json"
+_RETRAIN_STATUS_FILE = _ML_PLATFORM / "retrain_status.json"
+_DJANGO_RETRAIN_URL  = "http://127.0.0.1:8001/forecast/retrain/"
+
 # ── Session state init ────────────────────────────────────────────────────────
 
-for k in ("p1", "p2", "p3", "p4", "p5", "p6", "p_causal"):
+for k in ("p1", "p2", "p3", "p4", "p5", "p6", "p6_ksh", "p_causal"):
     if k not in st.session_state:
         st.session_state[k] = {}
 
@@ -934,6 +952,27 @@ if page == "Business Overview":
                 _bor_mo_lbl  = _bw_months[1].strftime("%b %Y")
                 _bor_ward_alerts.append((_bw, _bor_latest, _bw_p25, round(_bw_p25 - _bor_latest, 1), _bor_mo_lbl))
 
+    # Rule 31b pre-compute — BOR ward high occupancy (Inv 48)
+    # Same source data. WATCH: 2 consecutive months > 85%. CRITICAL: single month > 95%.
+    # Not suppressed by Rule 29 — high BOR + low BTR would be contradictory and worth surfacing.
+    _bor_high_alerts = []   # list of (ward_name, bor_latest, sev, month_lbl)
+    if _is_ksh and len(_bor_alert_df) and "bor_pct" in _bor_alert_df.columns:
+        for _bh in _bor_alert_df["ward_name"].unique():
+            _bh_tail = _bor_alert_df[_bor_alert_df["ward_name"] == _bh].tail(2)
+            if not len(_bh_tail):
+                continue
+            _bh_months = pd.to_datetime(_bh_tail["month"]).tolist()
+            _bh_vals   = _bh_tail["bor_pct"].tolist()
+            _bh_latest = float(_bh_vals[-1])
+            _bh_mo_lbl = _bh_months[-1].strftime("%b %Y")
+            if _bh_latest > _BOR_HIGH_CRIT:
+                _bor_high_alerts.append((_bh, _bh_latest, "CRITICAL", _bh_mo_lbl))
+            elif (len(_bh_tail) == 2
+                  and ((_bh_months[1].year * 12 + _bh_months[1].month)
+                       - (_bh_months[0].year * 12 + _bh_months[0].month)) == 1
+                  and _two_consec(_bh_vals, _BOR_HIGH_WATCH, direction="above")):
+                _bor_high_alerts.append((_bh, _bh_latest, "WATCH", _bh_mo_lbl))
+
     # Rule 32 pre-compute — Private ward revenue drop (Inv 49)
     # Combined Private Female + Male monthly revenue vs 3-month rolling avg
     _revpab_priv_df = P.get("revpab_priv", pd.DataFrame()).copy()
@@ -1368,7 +1407,9 @@ if page == "Business Overview":
                     f"BTI {_wi_bti - _wi_bti_p75:.0f}d above ward ceiling ({_wi_bti_p75:.0f}d)",
                     f"{_wi_mo_lbl} — {_wi_ward}: {_wi_btr:.2f} admissions/bed (ward floor {_wi_btr_p25:.2f}) "
                     f"and beds idle avg {_wi_bti:.0f} days (ward ceiling {_wi_bti_p75:.0f}d). "
-                    "Low admissions confirmed by extended idle time — flag to ward manager.",
+                    "Investigate before acting — if visit volume to this ward is also low, this is a demand gap; "
+                    "if visits are normal but admissions are low, investigate the admissions process. "
+                    "Flag to ward manager with visit volume context.",
                     COLORS["warning"],
                 )
                 _active += 1
@@ -1394,6 +1435,30 @@ if page == "Business Overview":
                                  "title": f"{_bw_ward} — Low Occupancy",
                                  "metric": f"BOR {_bw_bor:.1f}%",
                                  "action": f"Flag to ward manager — BOR {_bw_gap}pp below ward P25 floor ({_bw_p25:.1f}%)"})
+
+            # Rule 31b — BOR ward high occupancy (Inv 48)
+            for _bh_ward, _bh_bor, _bh_sev, _bh_mo_lbl in _bor_high_alerts:
+                _bh_thresh = _BOR_HIGH_CRIT if _bh_sev == "CRITICAL" else _BOR_HIGH_WATCH
+                _bh_gap    = round(_bh_bor - _bh_thresh, 1)
+                _bh_clr    = COLORS["danger"] if _bh_sev == "CRITICAL" else COLORS["warning"]
+                _bh_dur    = "single month" if _bh_sev == "CRITICAL" else "2 consecutive months"
+                _notice_card(
+                    _bh_sev,
+                    f"{_bh_ward} — High Occupancy",
+                    f"BOR {_bh_bor:.1f}%",
+                    f"{_bh_gap}pp above {_BOR_HIGH_WATCH:.0f}% MoH anchor · {_bh_dur}",
+                    f"{_bh_mo_lbl} — {_bh_ward} at {_bh_bor:.1f}% occupancy ({_bh_gap}pp above "
+                    f"{_bh_thresh:.0f}% threshold, {_bh_dur}). "
+                    "Ward near capacity — investigate discharge clearance and assess whether "
+                    "any elective admissions should be deferred. Flag to ward manager and facility management.",
+                    _bh_clr,
+                )
+                _active += 1
+                _notices.append({"level": _bh_sev,
+                                 "title": f"{_bh_ward} — High Occupancy",
+                                 "metric": f"BOR {_bh_bor:.1f}%",
+                                 "action": f"Flag to ward manager — {_bh_ward} {_bh_gap}pp above "
+                                           f"{_bh_thresh:.0f}% for {_bh_dur}"})
 
             # Rule 32 — Private ward revenue drop (Inv 49)
             if _revpab_alert is not None:
@@ -1601,7 +1666,8 @@ if page == "Business Overview":
                     f"({_c12_thresh:.0f}%) · {_c12_not_adm} of {_c12_total} not admitted",
                     f"{_c12_mo_lbl} — {_c12_rate:.1f}% of critical creatinine results not followed by admission "
                     f"({_c12_not_adm} of {_c12_total} patients, {_c12_gap}pp above {_c12_thresh:.0f}% threshold). "
-                    "Flag to clinical lead — review creatinine-flagged patients for admission decision audit.",
+                    "Not-admitted could reflect AMA, affordability, or outward referral — investigate the routing "
+                    "pathway before concluding operational failure. Flag to clinical lead for case-level audit.",
                     _c12_clr,
                 )
                 _active += 1
@@ -1644,7 +1710,8 @@ if page == "Business Overview":
                     f"{_img_mo_lbl} — {_img_sess} CT/Angio sessions recorded "
                     f"({_img_pct:.1f}% of 3-month avg of {_img_avg_r}, drop of {_img_drop:.1f}%). "
                     f"Below {'critical' if _img_sev == 'CRITICAL' else 'watch'} threshold of {_img_thresh:.0f}% of avg. "
-                    "Flag to imaging lead — review CT scheduling backlog and equipment availability.",
+                    "Investigate cause before acting — could be equipment downtime, scheduling backlog, "
+                    "or referring doctor absence. Flag to imaging lead.",
                     _img_clr,
                 )
                 _active += 1
@@ -2122,14 +2189,26 @@ elif page == "Revenue Leakage" and AR_PAGE_ENABLED:  # AR_PAGE_DISABLED — see 
                     key="t3_avg_claim",
                 )
 
-            forecast_adm = 364
+            try:
+                _p6_ksh = st.session_state.get("p6_ksh") or {}
+                _fc3 = _p6_ksh.get("forecast", []) if isinstance(_p6_ksh, dict) else []
+                if _fc3:
+                    forecast_adm = int(round(sum(r["point"] for r in _fc3)))
+                    _fcast_src   = f"Prophet · {len(_fc3)}-month sum"
+                else:
+                    _ct3 = _build_forecast_contract(_FORECAST_CACHE)
+                    forecast_adm = int(round(sum(r["point"] for r in _ct3["forecast"])))
+                    _fcast_src   = f"Prophet · {len(_ct3['forecast'])}-month sum"
+            except Exception:
+                forecast_adm = 364
+                _fcast_src   = "Holt trend estimate (Prophet cache not ready)"
             insured_adm  = int(forecast_adm * insured_share / 100)
             new_backlog  = insured_adm * avg_claim_val
 
             adm_kc1, adm_kc2, adm_kc3 = st.columns(3)
             with adm_kc1:
                 kpi_card("Forecast Admissions", f"{forecast_adm:,}",
-                         "Next 3 months · 94.1% model confidence", COLORS["primary"])
+                         _fcast_src, COLORS["primary"])
             with adm_kc2:
                 kpi_card("Insured Admissions", f"{insured_adm:,}",
                          f"At {insured_share}% insured share", COLORS["warning"])
@@ -2138,9 +2217,11 @@ elif page == "Revenue Leakage" and AR_PAGE_ENABLED:  # AR_PAGE_DISABLED — see 
                          "Joins existing backlog · starts new SHA 90-day clock per admission",
                          COLORS["danger"], icon="⚠")
 
-            dq_note("Forecast from Holt's linear trend model (Page 6). "
-                    "Avg claim default: SHA outstanding ÷ SHA invoices from G7. "
-                    "Adjust sliders for different clinical profiles.")
+            dq_note(
+                f"Forecast: {_fcast_src}. "
+                "Avg claim default: SHA outstanding ÷ SHA invoices from G7. "
+                "Adjust sliders for different clinical profiles."
+            )
 
         # ── Section 3: Appeals Urgency Calendar ──────────────────────────────
         if facility == "KISUMU_CLEAN" and len(ksh_trend):
@@ -2368,7 +2449,6 @@ elif page == "Capacity & Operations":
             st.session_state.p3 = {
                 "_fac":        fac_key,
                 "th_trend":    q_theatre_trend(),
-                "th_type":     q_theatre_by_type(),
                 "beds_revpab":   q_beds_revpab(facility),
                 "beds_los":      q_beds_los(facility),
                 "beds_monthly":  q_beds_monthly() if _is_ksh_p3 else pd.DataFrame(),
@@ -2389,11 +2469,11 @@ elif page == "Capacity & Operations":
                 "peak_bk":     q_peak_breakdown()                  if _is_ksh_p3 else pd.DataFrame(),
                 "btr_bti":     q_btr_bti_monthly()           if _is_ksh_p3 else pd.DataFrame(),
                 "adm_tat":     q_admission_tat_bimodal()     if _is_ksh_p3 else pd.DataFrame(),
+                "th_emer_tat": q_theatre_emergency_tat()    if _is_ksh_p3 else pd.DataFrame(),
             }
 
     P = st.session_state.p3
     th_trend  = _filter_epoch(P["th_trend"], "SESSION_MONTH")
-    th_type   = P["th_type"]
     beds_r    = P["beds_revpab"]
     beds_l    = P["beds_los"]
     dialysis  = _filter_epoch(P["dialysis"], "SESSION_MONTH")
@@ -2507,17 +2587,31 @@ elif page == "Capacity & Operations":
                                  else "Stable")
                 section_header(f"Theatre Completion {_th_direction} — {th_recent_rate:.0f}% Recent vs {th_overall_rate:.0f}% All-Time Avg")
                 if len(th_trend):
-                    fig = go.Figure()
+                    _th_plot = th_trend[th_trend["SESSION_MONTH"] >= "2024-09-01"].copy()
+                    fig = make_subplots(specs=[[{"secondary_y": True}]])
+                    fig.add_bar(
+                        x=_th_plot["SESSION_MONTH"], y=_th_plot["TOTAL_SESSIONS"],
+                        name="Sessions booked",
+                        marker_color=COLORS["muted"], opacity=0.30,
+                        hovertemplate="%{x|%b %Y}: %{y} sessions booked<extra></extra>",
+                        secondary_y=True)
                     fig.add_scatter(
-                        x=th_trend["SESSION_MONTH"], y=th_trend["COMPLETION_RATE_PCT"],
+                        x=_th_plot["SESSION_MONTH"], y=_th_plot["COMPLETION_RATE_PCT"],
                         mode="lines+markers", name="Completion %",
-                        line=dict(color=COLORS["primary"], width=2), marker=dict(size=5))
-                    _add_regression(fig, th_trend["SESSION_MONTH"],
-                                    th_trend["COMPLETION_RATE_PCT"], name="Trend",
-                                    color=COLORS["warning"])
-                    _add_data_end_line(fig, "2025-10-01", "Completion drop")
-                    fig.update_layout(**cl(height=360, yaxis_title="Completion %", yaxis_range=[0, 110],
-                                           legend=dict(orientation="h", y=1.08)))
+                        line=dict(color=COLORS["primary"], width=2), marker=dict(size=5),
+                        hovertemplate="%{x|%b %Y}: %{y:.1f}% completed<extra></extra>",
+                        secondary_y=False)
+                    _add_data_end_line(fig, "2025-07-01", "Jul drop")
+                    _add_data_end_line(fig, "2025-10-01", "Oct drop")
+                    fig.update_layout(**cl(
+                        height=360,
+                        legend=dict(orientation="h", y=1.08),
+                        margin=dict(l=0, r=50, t=10, b=30),
+                    ))
+                    fig.update_yaxes(title_text="Completion %", range=[0, 110],
+                                     ticksuffix="%", secondary_y=False)
+                    fig.update_yaxes(title_text="Sessions", secondary_y=True,
+                                     showgrid=False, rangemode="tozero")
                     st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
             with col_r:
@@ -2534,21 +2628,288 @@ elif page == "Capacity & Operations":
                 else:
                     section_header("Monthly Theatre Revenue — KSH")
                 if len(th_trend):
+                    _th_rev_plot = th_trend[th_trend["SESSION_MONTH"] >= "2024-09-01"].copy()
                     fig = go.Figure()
                     fig.add_bar(
-                        x=th_trend["SESSION_MONTH"], y=th_trend["TOTAL_REVENUE"],
+                        x=_th_rev_plot["SESSION_MONTH"], y=_th_rev_plot["TOTAL_REVENUE"],
                         name="Revenue",
                         marker_color=COLORS["success"], opacity=0.75,
                         hovertemplate="%{x|%b %Y}: %{customdata}<extra></extra>",
-                        customdata=th_trend["TOTAL_REVENUE"].apply(fmt_kes),
+                        customdata=_th_rev_plot["TOTAL_REVENUE"].apply(fmt_kes),
                     )
-                    _add_regression(fig, th_trend["SESSION_MONTH"],
-                                    th_trend["TOTAL_REVENUE"], name="Trend",
+                    _add_regression(fig, _th_rev_plot["SESSION_MONTH"],
+                                    _th_rev_plot["TOTAL_REVENUE"], name="Trend",
                                     color=COLORS["warning"])
                     fig.update_layout(**cl(height=360, yaxis_title="KES Revenue",
                                            legend=dict(orientation="h", y=1.08)))
                     st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
+            # ── Completion loss KPI (full-width) ─────────────────────────────────
+            if len(th_trend):
+                _th_cl = th_trend.copy()
+                _th_cl.columns = [c.upper() for c in _th_cl.columns]
+                _th_cl = _th_cl[_th_cl["TOTAL_SESSIONS"] > 0].sort_values("SESSION_MONTH")
+                if len(_th_cl) and "COMPLETED_SESSIONS" in _th_cl.columns:
+                    _th_lm       = _th_cl.iloc[-1]
+                    _th_missed   = int(_th_lm["TOTAL_SESSIONS"]) - int(_th_lm["COMPLETED_SESSIONS"])
+                    _th_avg_r    = float(_th_lm["TOTAL_REVENUE"]) / max(int(_th_lm["COMPLETED_SESSIONS"]), 1)
+                    _th_miss_kes = _th_missed * _th_avg_r
+                    _th_lm_lbl   = pd.Timestamp(_th_lm["SESSION_MONTH"]).strftime("%b %Y")
+                    _th_below85  = int((_th_cl["COMPLETION_RATE_PCT"] < 85).sum())
+                    st.markdown("<div style='margin-top:12px'></div>", unsafe_allow_html=True)
+                    _cl1, _cl2 = st.columns(2, gap="large")
+                    with _cl1:
+                        kpi_card(
+                            f"Revenue Missed — {_th_lm_lbl}",
+                            fmt_kes(_th_miss_kes),
+                            f"{_th_missed} incomplete sessions × {fmt_kes(_th_avg_r)} avg/session",
+                            COLORS["danger"], icon="⚠",
+                        )
+                    with _cl2:
+                        info_card(
+                            f"At 100% completion, {_th_missed} additional sessions this month would have "
+                            f"generated <b>{fmt_kes(_th_miss_kes)}</b>. "
+                            f"Completion fell below 85% in <b>{_th_below85}</b> of the last "
+                            f"{len(_th_cl)} months — the gap is structural, not a one-off."
+                        )
+
+            # ── Payer mix (full width) — colored line, cliff auto-detected ────────
+            _th_cols = {c.upper() for c in th_trend.columns}
+            if (len(th_trend)
+                    and "INSURED_REVENUE" in _th_cols
+                    and "CASH_REVENUE" in _th_cols):
+                _pm = th_trend[th_trend["SESSION_MONTH"] >= "2024-09-01"].copy()
+                _pm.columns = [c.upper() for c in _pm.columns]
+                _pm["_total"] = _pm["INSURED_REVENUE"] + _pm["CASH_REVENUE"]
+                _pm["_ins_pct"] = (
+                    100 * _pm["INSURED_REVENUE"]
+                    / _pm["_total"].replace(0, float("nan"))
+                ).round(1)
+                _pm = _pm.dropna(subset=["_ins_pct"]).reset_index(drop=True)
+
+                # Cliff = largest single-month drop ≥ 30pp (fully dynamic — no hardcoded date)
+                _drops = _pm["_ins_pct"].shift(1) - _pm["_ins_pct"]
+                _cliff_idx = (
+                    int(_drops.idxmax())
+                    if len(_pm) > 1 and float(_drops.max()) >= 30.0
+                    else None
+                )
+                if _cliff_idx == 0:
+                    _cliff_idx = None  # no baseline to compare against
+
+                _curr_pct = float(_pm["_ins_pct"].iloc[-1])
+                _norm_pct = (
+                    float(_pm["_ins_pct"].iloc[:_cliff_idx].median())
+                    if _cliff_idx else float(_pm["_ins_pct"].median())
+                )
+                _cliff_lbl = (
+                    pd.Timestamp(_pm["SESSION_MONTH"].iloc[_cliff_idx]).strftime("%b %Y")
+                    if _cliff_idx is not None else None
+                )
+
+                _hdr = (
+                    f"Theatre Payer Mix — Insured {_curr_pct:.0f}% (from {_norm_pct:.0f}% baseline)"
+                    if _cliff_idx is not None else
+                    f"Theatre Payer Mix — Insured Revenue {_curr_pct:.0f}%"
+                )
+                st.markdown("<div style='margin-top:8px'></div>", unsafe_allow_html=True)
+                section_header(_hdr)
+
+                fig_pm = go.Figure()
+                if _cliff_idx is not None:
+                    _seg_n = _pm.iloc[:_cliff_idx]       # normal period (excludes cliff month)
+                    _seg_a = _pm.iloc[_cliff_idx - 1:]   # anomaly (overlap 1 pt for line continuity)
+                    fig_pm.add_scatter(
+                        x=_seg_n["SESSION_MONTH"], y=_seg_n["_ins_pct"],
+                        mode="lines+markers",
+                        name=f"Normal billing (~{_norm_pct:.0f}%)",
+                        line=dict(color=COLORS["primary"], width=2.5),
+                        marker=dict(size=6),
+                        hovertemplate="%{x|%b %Y}: %{y:.1f}% insured<extra></extra>",
+                    )
+                    fig_pm.add_scatter(
+                        x=_seg_a["SESSION_MONTH"], y=_seg_a["_ins_pct"],
+                        mode="lines+markers",
+                        name=f"Billing pattern change ({_cliff_lbl})",
+                        line=dict(color=COLORS["danger"], width=2.5),
+                        marker=dict(size=6),
+                        hovertemplate="%{x|%b %Y}: %{y:.1f}% insured<extra></extra>",
+                    )
+                    _cliff_date_str = str(_pm["SESSION_MONTH"].iloc[_cliff_idx])[:10]
+                    _add_data_end_line(fig_pm, _cliff_date_str, _cliff_lbl)
+                else:
+                    fig_pm.add_scatter(
+                        x=_pm["SESSION_MONTH"], y=_pm["_ins_pct"],
+                        mode="lines+markers",
+                        name="Insured revenue %",
+                        line=dict(color=COLORS["primary"], width=2.5),
+                        marker=dict(size=6),
+                        hovertemplate="%{x|%b %Y}: %{y:.1f}% insured<extra></extra>",
+                    )
+                fig_pm.update_layout(**cl(
+                    height=280,
+                    legend=dict(orientation="h", y=1.12),
+                    yaxis=dict(title="Insured revenue %", range=[-5, 110],
+                               ticksuffix="%"),
+                    margin=dict(l=0, r=50, t=10, b=30),
+                ))
+                st.plotly_chart(fig_pm, use_container_width=True,
+                                config={"displayModeBar": False})
+                if _cliff_idx is not None:
+                    dq_note(
+                        f"Insured revenue share dropped from ~{_norm_pct:.0f}% to "
+                        f"{_curr_pct:.1f}% from {_cliff_lbl}. "
+                        "Insurers still listed on invoices — likely a billing workflow change. "
+                        "Escalate to KSH finance team to confirm cause before acting on this signal."
+                    )
+
+
+            # ── Emergency TAT distribution + day-of-week analysis (KSH only) ─
+            _tat_df = P.get("th_emer_tat", pd.DataFrame())
+            if facility == "KISUMU_CLEAN" and len(_tat_df):
+                _tat_df.columns = [c.upper() for c in _tat_df.columns]
+                _lags = _tat_df["BOOKING_TO_START_MIN"].values.astype(float)
+                _total_n  = len(_lags)
+                _median_h = round(float(np.median(_lags)) / 60, 1)
+                _over_24  = int((_lags > 1440).sum())
+                _over_24_pct = round(100 * _over_24 / _total_n, 1)
+
+                _BIN_DEF = [
+                    ("0–2h",   0,    120,  COLORS["success"]),
+                    ("2–6h",   120,  360,  COLORS["primary"]),
+                    ("6–12h",  360,  720,  COLORS["warning"]),
+                    ("12–24h", 720,  1440, "#F97316"),
+                    (">24h",   1440, 1e9,  COLORS["danger"]),
+                ]
+                _bin_counts = [
+                    (lbl, int(((_lags > lo) & (_lags <= hi)).sum()), col)
+                    for lbl, lo, hi, col in _BIN_DEF
+                ]
+
+                _hdr = (
+                    f"Emergency Booking-to-Theatre — Median {_median_h}h  "
+                    f"({_over_24} of {_total_n} cases, {_over_24_pct}% waited >24h)"
+                )
+                st.markdown("<div style='margin-top:8px'></div>", unsafe_allow_html=True)
+                section_header(_hdr)
+
+                # Option A: single stacked horizontal bar — proportion-of-whole
+                fig_wf = go.Figure()
+                for lbl, cnt, col in _bin_counts:
+                    _seg_pct = round(100 * cnt / _total_n, 1)
+                    fig_wf.add_trace(go.Bar(
+                        name=f"{lbl} — {cnt} cases",
+                        x=[cnt],
+                        y=["Emergency TAT"],
+                        orientation="h",
+                        marker_color=col,
+                        text=[f"<b>{lbl}</b><br>{cnt}"],
+                        textposition="inside",
+                        insidetextanchor="middle",
+                        constraintext="inside",
+                        hovertemplate=(
+                            f"<b>{lbl}</b><br>{cnt} cases ({_seg_pct}%)<extra></extra>"
+                        ),
+                    ))
+                fig_wf.update_layout(**cl(
+                    barmode="stack",
+                    height=120,
+                    legend=dict(orientation="h", y=-0.6, x=0),
+                    xaxis=dict(visible=False),
+                    yaxis=dict(visible=False),
+                    margin=dict(l=0, r=0, t=4, b=55),
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    paper_bgcolor="rgba(0,0,0,0)",
+                ))
+                st.plotly_chart(fig_wf, use_container_width=True,
+                                config={"displayModeBar": False})
+                dq_note(
+                    f"n={_total_n} emergency surgical cases. Each segment = TAT bin from booking "
+                    "entry to theatre start. Booking entry time used as emergency-declared proxy. "
+                    "These are inpatient deteriorations — patients already admitted, not walk-in emergencies. "
+                    f"Escalate the {_over_24} cases that exceeded 24h to KSH theatre management."
+                )
+
+                # ── Day-of-week delay rate ─────────────────────────────────────
+                if "DECLARATION_DAY" in _tat_df.columns:
+                    _DAY_ORDER = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+                    _tat_df["_over_24"] = _tat_df["BOOKING_TO_START_MIN"] > 1440
+                    _dow = (
+                        _tat_df.groupby("DECLARATION_DAY")
+                        .agg(n_total=("BOOKING_TO_START_MIN", "count"),
+                             n_delayed=("_over_24", "sum"))
+                        .reset_index()
+                    )
+                    _dow["_sort"] = _dow["DECLARATION_DAY"].map(
+                        {d: i for i, d in enumerate(_DAY_ORDER)}
+                    )
+                    _dow = _dow.sort_values("_sort").reset_index(drop=True)
+                    _dow["delay_pct"] = (
+                        100 * _dow["n_delayed"] / _dow["n_total"]
+                    ).round(1)
+                    _dow["bar_label"] = _dow.apply(
+                        lambda r: f"{int(r.n_delayed)}/{int(r.n_total)}", axis=1
+                    )
+
+                    def _dow_color(pct):
+                        if pct == 0:
+                            return COLORS["success"]
+                        if pct < 25:
+                            return COLORS["warning"]
+                        return COLORS["danger"]
+
+                    _bar_colors = [_dow_color(p) for p in _dow["delay_pct"]]
+
+                    st.markdown("<div style='margin-top:8px'></div>", unsafe_allow_html=True)
+                    section_header("Emergency Delay by Day of Week — Over-24h Rate")
+
+                    fig_dow = go.Figure(go.Bar(
+                        x=_dow["DECLARATION_DAY"].tolist(),
+                        y=_dow["delay_pct"].tolist(),
+                        text=_dow["bar_label"].tolist(),
+                        textposition="outside",
+                        marker_color=_bar_colors,
+                        hovertemplate=(
+                            "<b>%{x}</b><br>Delay rate: %{y:.1f}%"
+                            "<br>%{text} cases<extra></extra>"
+                        ),
+                    ))
+
+                    _sat_row = _dow[_dow["DECLARATION_DAY"] == "Sat"]
+                    if len(_sat_row):
+                        fig_dow.add_annotation(
+                            x="Sat", y=4,
+                            text="No elective<br>competition<br>164 min median",
+                            showarrow=True, arrowhead=2,
+                            arrowcolor=COLORS["success"],
+                            font=dict(size=9, color=COLORS["success"]),
+                            bgcolor="rgba(255,255,255,0.85)",
+                            bordercolor=COLORS["success"],
+                            borderwidth=1,
+                            ax=50, ay=-50,
+                        )
+
+                    fig_dow.update_layout(**cl(
+                        height=300,
+                        yaxis=dict(title="% over-24h delay", range=[0, 48]),
+                        xaxis=dict(
+                            title=None,
+                            categoryorder="array",
+                            categoryarray=_DAY_ORDER,
+                        ),
+                        margin=dict(l=0, r=0, t=10, b=20),
+                        showlegend=False,
+                    ))
+                    st.plotly_chart(fig_dow, use_container_width=True,
+                                    config={"displayModeBar": False})
+                    dq_note(
+                        "INDICATIVE — n=8 total delayed cases (n=55 with positive TAT). "
+                        "Bar labels = delayed/total cases per day. "
+                        "Delays concentrate on weekdays when elective theatre is busiest. "
+                        "Saturday: 10 cases, 0 delayed, 164 min median — internal optimal benchmark. "
+                        "Tuesday cause unresolved (3 delays, does not fit elective-competition pattern). "
+                        "Mechanism inferred, not directly measured."
+                    )
 
     # ── Tab 2: Beds ───────────────────────────────────────────────────────────
 
@@ -2804,10 +3165,58 @@ elif page == "Capacity & Operations":
                 st.plotly_chart(fig_cp, use_container_width=True,
                                 config={"displayModeBar": True, "displaylogo": False,
                                         "modeBarButtonsToRemove": ["select2d", "lasso2d"]})
-                dq_note(
-                    "Bed days = discharged admissions only. Open admissions excluded. "
-                    "Rising bed days + stable LOS → more patients. "
-                    "Rising bed days + rising LOS → beds blocked longer, compressing capacity."
+                # ── Capacity pressure insight card ───────────────────────────
+                _bm_agg = (
+                    _bm.groupby("ADMISSION_MONTH")
+                    .agg(total_bed_days=("TOTAL_BED_DAYS", "sum"),
+                         avg_los=("AVG_LOS_DAYS", "mean"))
+                    .reset_index().sort_values("ADMISSION_MONTH")
+                )
+                if len(_bm_agg) >= 4:
+                    _rec3    = _bm_agg.iloc[-3:]
+                    _pri3    = _bm_agg.iloc[-6:-3] if len(_bm_agg) >= 6 else _bm_agg.iloc[:-3]
+                    _bd_up   = _rec3["total_bed_days"].mean() > _pri3["total_bed_days"].mean() * 1.05
+                    _los_up  = _rec3["avg_los"].mean() > _pri3["avg_los"].mean() * 1.05
+                    _los_dn  = _rec3["avg_los"].mean() < _pri3["avg_los"].mean() * 0.95
+                    _is_max  = _bd_up and _los_up
+                    _is_min  = (not _bd_up) and _los_dn
+                else:
+                    _is_max = _is_min = False
+
+                _c_max = "#FEF2F2" if _is_max else "#F9FAFB"
+                _b_max = "#DC2626" if _is_max else "#E5E7EB"
+                _t_max = "#991B1B" if _is_max else "#9CA3AF"
+                _c_min = "#F0FDF4" if _is_min else "#F9FAFB"
+                _b_min = "#16A34A" if _is_min else "#E5E7EB"
+                _t_min = "#166534" if _is_min else "#9CA3AF"
+                _curr_lbl = (
+                    "▲ Currently: Maximum Pressure — beds are blocked, new admissions constrained"
+                    if _is_max else
+                    "▼ Currently: Minimum Pressure — beds cycling freely"
+                    if _is_min else
+                    "Current pattern: Mixed — read chart for ward-level detail"
+                )
+                _curr_clr = "#DC2626" if _is_max else "#16A34A" if _is_min else "#6B8CAE"
+                st.markdown(
+                    f'<div style="background:#F4F8FC;border:1px solid #D6E4F0;border-radius:8px;'
+                    f'padding:14px 18px;margin:10px 0">'
+                    f'<div style="font-size:10px;font-weight:700;color:#6B8CAE;text-transform:uppercase;'
+                    f'letter-spacing:1.5px;margin-bottom:10px">WARD CAPACITY PRESSURE — WHAT THE TREND MEANS</div>'
+                    f'<div style="display:flex;gap:10px;margin-bottom:10px">'
+                    f'<div style="flex:1;background:{_c_max};border-left:3px solid {_b_max};border-radius:4px;padding:10px 12px">'
+                    f'<div style="font-size:11px;font-weight:700;color:{_t_max}">HIGH BED DAYS + LONG ALOS</div>'
+                    f'<div style="font-size:12px;font-weight:600;color:{_t_max};margin-top:4px">Maximum Pressure</div>'
+                    f'<div style="font-size:11px;color:{_t_max};margin-top:3px">Beds rarely vacate. New patients cannot be admitted.</div>'
+                    f'</div>'
+                    f'<div style="flex:1;background:{_c_min};border-left:3px solid {_b_min};border-radius:4px;padding:10px 12px">'
+                    f'<div style="font-size:11px;font-weight:700;color:{_t_min}">LOW BED DAYS + SHORT ALOS</div>'
+                    f'<div style="font-size:12px;font-weight:600;color:{_t_min};margin-top:4px">Minimum Pressure</div>'
+                    f'<div style="font-size:11px;color:{_t_min};margin-top:3px">Beds open quickly. Plenty of room for new admissions.</div>'
+                    f'</div>'
+                    f'</div>'
+                    f'<div style="font-size:11px;font-weight:700;color:{_curr_clr}">{_curr_lbl}</div>'
+                    f'</div>',
+                    unsafe_allow_html=True,
                 )
 
         # ── Ward Signals (KSH only) ──────────────────────────────────────────
@@ -2935,11 +3344,46 @@ elif page == "Capacity & Operations":
                     f"— lower BTI = faster cycling. "
                     f"**ALOS** = {_btr_alos:.1f} days (12-month avg, {_sel_btr})."
                 )
-                dq_note(
-                    "Oct 2025 excluded — source pipeline data gap (Inv 32). "
-                    "Descriptive framing — no external KSH benchmark; "
-                    "internal ward median is the reference baseline."
-                )
+                # ── BTI/BTR quadrant insight card ─────────────────────────────
+                if len(_btr_w) >= 2:
+                    _btr_med_r = float(_btr_w["btr"].median())
+                    _btr_med_i = float(_btr_w["bti_days"].median())
+                    _btr_cur_r = float(_btr_w.iloc[-1]["btr"])
+                    _btr_cur_i = float(_btr_w.iloc[-1]["bti_days"])
+                    _hi_btr    = _btr_cur_r >= _btr_med_r
+                    _hi_bti    = _btr_cur_i >= _btr_med_i
+
+                    if not _hi_bti and _hi_btr:
+                        _q_lbl  = "LOW BTI + HIGH BTR — High Efficiency, High Occupancy"
+                        _q_body = "Beds fill almost instantly and patient volume is high. Peak operational state — vulnerable to sudden surges."
+                        _q_bg, _q_br, _q_tc = "#FFFBEB", "#D97706", "#92400E"
+                    elif _hi_bti and not _hi_btr:
+                        _q_lbl  = "HIGH BTI + LOW BTR — Low Efficiency, Low Occupancy"
+                        _q_body = "Beds sit empty for long periods between patients. Low demand or delayed admissions — investigate intake protocol."
+                        _q_bg, _q_br, _q_tc = "#F9FAFB", "#9CA3AF", "#6B7280"
+                    elif not _hi_bti and not _hi_btr:
+                        _q_lbl  = "LOW BTI + LOW BTR — Long-Stay Bottleneck"
+                        _q_body = "Beds are always full but few new patients cycle through. Existing patients cannot leave — ALOS is the pressure driver, not demand volume."
+                        _q_bg, _q_br, _q_tc = "#FEF2F2", "#DC2626", "#991B1B"
+                    else:
+                        _q_lbl  = "HIGH BTI + HIGH BTR — Surge Pattern"
+                        _q_body = "Long gaps between patients but high overall volume — short ALOS ward cycling rapidly. Pressure swings between extremes."
+                        _q_bg, _q_br, _q_tc = "#EFF6FF", "#0072CE", "#1E40AF"
+
+                    st.markdown(
+                        f'<div style="background:{_q_bg};border-left:3px solid {_q_br};'
+                        f'border-radius:6px;padding:12px 16px;margin:10px 0">'
+                        f'<div style="font-size:10px;font-weight:700;color:#6B8CAE;text-transform:uppercase;'
+                        f'letter-spacing:1.5px;margin-bottom:6px">WARD TURNOVER STATE — {_sel_btr.upper()}</div>'
+                        f'<div style="font-size:13px;font-weight:700;color:{_q_tc}">{_q_lbl}</div>'
+                        f'<div style="font-size:12px;color:{_q_tc};margin-top:5px">{_q_body}</div>'
+                        f'<div style="font-size:11px;color:#6B8CAE;margin-top:6px">'
+                        f'Latest: BTR {_btr_cur_r:.2f} (median {_btr_med_r:.2f}) · '
+                        f'BTI {_btr_cur_i:.1f} d (median {_btr_med_i:.1f} d) · '
+                        f'ALOS {_btr_alos:.1f} d · Oct 2025 excluded (data gap Inv 32)</div>'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
 
         # ── Admission TAT by Day of Week ──────────────────────────────────────
         if _is_ksh_p3:
@@ -3012,11 +3456,39 @@ elif page == "Capacity & Operations":
                     f"1 in 4 waited {_second['p75_tat_min']:.0f}+ min). "
                     "When visit load line is high and bars are red — volume is driving the delay."
                 )
-                dq_note(
-                    "Admission speed = % of admissions with bed assignment under 60 min. "
-                    "1-in-4 wait = the time that 75% of patients were below (1 in 4 waited longer). "
-                    "TAT = evaluation visit creation → first inpatient admission record. "
-                    "Capped at 480 min. Sep 2024+ window."
+                # ── TAT–volume correlation insight card ───────────────────────
+                _tat_corr     = _tat_df[["fast_pct", "total_evaluations"]].corr().iloc[0, 1]
+                _vol_driven   = _tat_corr < -0.3   # higher visits → lower fast_pct
+                _tat_wst      = _tat_df.sort_values("fast_pct").iloc[0]
+                _tat_bst      = _tat_df.sort_values("fast_pct").iloc[-1]
+                if _vol_driven:
+                    _ti_title = "VOLUME IS DRIVING DELAYS"
+                    _ti_body  = (
+                        f"Days with more evaluation visits show slower bed assignment "
+                        f"(r = {abs(_tat_corr):.2f}). "
+                        f"{_tat_wst['day_name']} is the slowest day "
+                        f"({_tat_wst['fast_pct']:.0f}% fast) and carries the highest visit load. "
+                        f"Staggering slots or adding triage capacity at peak would recover the delay."
+                    )
+                    _ti_bg, _ti_br, _ti_tc = "#FFFBEB", "#D97706", "#92400E"
+                else:
+                    _ti_title = "DELAYS NOT DRIVEN BY VOLUME ALONE"
+                    _ti_body  = (
+                        f"Visit volume does not fully explain variation in bed assignment speed. "
+                        f"{_tat_wst['day_name']} is slowest ({_tat_wst['fast_pct']:.0f}% fast), "
+                        f"{_tat_bst['day_name']} fastest ({_tat_bst['fast_pct']:.0f}% fast). "
+                        f"Staffing pattern, bed availability, or process gaps may be the primary driver."
+                    )
+                    _ti_bg, _ti_br, _ti_tc = "#F4F8FC", "#6B8CAE", "#003467"
+                st.markdown(
+                    f'<div style="background:{_ti_bg};border-left:3px solid {_ti_br};'
+                    f'border-radius:6px;padding:12px 16px;margin:10px 0">'
+                    f'<div style="font-size:10px;font-weight:700;color:#6B8CAE;text-transform:uppercase;'
+                    f'letter-spacing:1.5px;margin-bottom:6px">ADMISSION SPEED — WHAT IS DRIVING IT</div>'
+                    f'<div style="font-size:13px;font-weight:700;color:{_ti_tc}">{_ti_title}</div>'
+                    f'<div style="font-size:12px;color:{_ti_tc};margin-top:5px">{_ti_body}</div>'
+                    f'</div>',
+                    unsafe_allow_html=True,
                 )
                 st.caption(
                     "▸ When visit load spikes (Monday peak), TAT degrades — conversion drops and "
@@ -3149,7 +3621,6 @@ elif page == "Capacity & Operations":
         if _is_ksh_p3:
             st.markdown("<div style='margin-top:24px'></div>", unsafe_allow_html=True)
             section_header("Dialysis — Why It Connects to the Above")
-            _d3c1, _d3c2, _d3c3 = st.columns(3, gap="large")
             _dial_peak_row   = fac_dialysis_ops.nlargest(1, "SESSIONS_BILLED") if len(fac_dialysis_ops) else pd.DataFrame()
             _dial_peak_sess  = int(_dial_peak_row["SESSIONS_BILLED"].iloc[0])  if len(_dial_peak_row) else 0
             _dial_peak_month = (pd.to_datetime(_dial_peak_row["INVOICE_MONTH"].iloc[0]).strftime("%b %Y")
@@ -3171,18 +3642,30 @@ elif page == "Capacity & Operations":
                 _rev_latest = 0
                 _rev_clr    = COLORS["muted"]
                 _rev_sub    = "—"
-            with _d3c1:
+            # Row 1 — programme performance
+            _dr1, _dr2 = st.columns(2, gap="large")
+            with _dr1:
                 kpi_card("Programme Sessions",
                          str(_dial_peak_sess) if _dial_peak_sess else "—",
                          f"Peak {_dial_peak_month} · NHIF-funded", COLORS["primary"])
-            with _d3c2:
+            with _dr2:
                 kpi_card("Monthly Session Revenue",
                          fmt_kes(_rev_latest) if _rev_latest else "—",
-                         _rev_sub,
-                         _rev_clr)
-            with _d3c3:
+                         _rev_sub, _rev_clr)
+            st.markdown("<div style='margin-top:12px'></div>", unsafe_allow_html=True)
+            # Row 2 — the gap
+            _demand_kes = 122 * 8 * 10_650
+            _dr3, _dr4 = st.columns(2, gap="large")
+            with _dr3:
                 kpi_card("CD12 Routing Gap", "96.8%",
                          "122 of 126 critical creatinine patients not in programme", COLORS["danger"])
+            with _dr4:
+                kpi_card(
+                    "Patient Demand Not Reached",
+                    fmt_kes(_demand_kes),
+                    "122 patients × 8 sessions/month × KES 10,650 · indicative upper bound",
+                    COLORS["warning"], icon="⚠",
+                )
             _dial3 = fac_dialysis_ops.sort_values("INVOICE_MONTH") if len(fac_dialysis_ops) else pd.DataFrame()
             if len(_dial3):
                 # Chart 1 — sessions by payer: stacked NHIF / cash (growth story)
@@ -3393,14 +3876,65 @@ elif page == "Capacity & Operations":
                         ))
                         st.plotly_chart(fig_ut, use_container_width=True,
                                         config={"displayModeBar": False})
-                        dq_note(
-                            "Green band = indicative benchmark range per 100 outpatient visits. "
-                            "X-Ray 5–10, Ultrasound 2–5 (WHO Essential Imaging 2020); "
-                            "CT/Angio 0.5–2, MRI 0.1–0.5 (RSNA low-resource guidance); "
-                            "ECHO 0.5–1 (indicative — no Kenya standard). "
-                            "Outpatient visits from EVALUATION_VISITS, Sep 2024+. "
-                            "Rates above range may reflect high-acuity referrals or over-ordering; "
-                            "below range may indicate under-utilised equipment or referral gaps."
+                        # ── Imaging benchmark position insight card ──────────
+                        _img_latest = (
+                            _img_u[_img_u["MODALITY"].isin(_ut_mods)]
+                            .sort_values("MONTH")
+                            .groupby("MODALITY", as_index=False)
+                            .last()
+                        )
+                        _img_above, _img_below = [], []
+                        for _, _ir in _img_latest.iterrows():
+                            _b = _BENCH.get(_ir["MODALITY"])
+                            if _b:
+                                if _ir["rate"] > _b["high"]:
+                                    _img_above.append(_ir["MODALITY"])
+                                elif _ir["rate"] < _b["low"]:
+                                    _img_below.append(_ir["MODALITY"])
+
+                        _img_parts = []
+                        if _img_above:
+                            _img_parts.append(
+                                f'<div style="flex:1;background:#FFFBEB;border-left:3px solid #D97706;'
+                                f'border-radius:4px;padding:10px 12px">'
+                                f'<div style="font-size:11px;font-weight:700;color:#92400E">ABOVE BENCHMARK</div>'
+                                f'<div style="font-size:12px;font-weight:600;color:#D97706;margin-top:4px">'
+                                f'{", ".join(_img_above)}</div>'
+                                f'<div style="font-size:11px;color:#92400E;margin-top:3px">'
+                                f'Higher sessions per visit than expected. '
+                                f'Investigate: high-acuity referral mix or over-ordering.</div>'
+                                f'</div>'
+                            )
+                        if _img_below:
+                            _img_parts.append(
+                                f'<div style="flex:1;background:#EFF6FF;border-left:3px solid #0072CE;'
+                                f'border-radius:4px;padding:10px 12px">'
+                                f'<div style="font-size:11px;font-weight:700;color:#1E40AF">BELOW BENCHMARK</div>'
+                                f'<div style="font-size:12px;font-weight:600;color:#0072CE;margin-top:4px">'
+                                f'{", ".join(_img_below)}</div>'
+                                f'<div style="font-size:11px;color:#1E40AF;margin-top:3px">'
+                                f'Fewer sessions per visit than expected. '
+                                f'Investigate: under-utilised equipment or referral pathway gap.</div>'
+                                f'</div>'
+                            )
+                        if not _img_parts:
+                            _img_parts.append(
+                                f'<div style="flex:1;background:#F0FDF4;border-left:3px solid #16A34A;'
+                                f'border-radius:4px;padding:10px 12px">'
+                                f'<div style="font-size:11px;font-weight:700;color:#166534">ALL MODALITIES IN RANGE</div>'
+                                f'<div style="font-size:12px;color:#166534;margin-top:4px">'
+                                f'Current utilisation rates are within indicative benchmarks across all modalities.</div>'
+                                f'</div>'
+                            )
+                        st.markdown(
+                            f'<div style="background:#F4F8FC;border:1px solid #D6E4F0;border-radius:8px;'
+                            f'padding:14px 18px;margin:10px 0">'
+                            f'<div style="font-size:10px;font-weight:700;color:#6B8CAE;text-transform:uppercase;'
+                            f'letter-spacing:1.5px;margin-bottom:10px">'
+                            f'IMAGING UTILISATION — WHAT THE POSITION MEANS</div>'
+                            f'<div style="display:flex;gap:10px">{"".join(_img_parts)}</div>'
+                            f'</div>',
+                            unsafe_allow_html=True,
                         )
 
             st.markdown("---")
@@ -3656,6 +4190,7 @@ elif page == "Causal Intelligence":
                     "peak_doc_load": q_peak_doctor_load(),
                     "peak_funnel":   q_peak_patient_funnel(),
                     "doctor_conv":   q_doctor_conversion_monthly(),
+                    "dialysis_ops":  q_dialysis_ops_monthly(),
                 }
 
         P7 = st.session_state.p_causal
@@ -3738,7 +4273,25 @@ elif page == "Causal Intelligence":
                     unsafe_allow_html=True,
                 )
 
-            dq_note("Peak window: Mon 14:00–17:59 · Sep 2024 onward.")
+            # ── CD5 four-cost connector card ─────────────────────────────────
+            st.markdown(
+                '<div style="background:#FEF2F2;border:1px solid #FCA5A5;border-radius:8px;'
+                'padding:14px 18px;margin:10px 0">'
+                '<div style="font-size:10px;font-weight:700;color:#DC2626;text-transform:uppercase;'
+                'letter-spacing:1.5px;margin-bottom:10px">MONDAY 14–17H — FOUR CONNECTED COSTS</div>'
+                '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'
+                '<div style="font-size:12px;color:#991B1B">▼ <b>Conversion −33%</b> '
+                '— fewer patients admitted per evaluation during peak</div>'
+                '<div style="font-size:12px;color:#991B1B">▲ <b>TAT +81% median</b> '
+                '— bed wait nearly doubles, 43 → 78 min</div>'
+                '<div style="font-size:12px;color:#991B1B">▼ <b>Private capture −30%</b> '
+                '— higher-yield admissions deflected at peak</div>'
+                '<div style="font-size:12px;color:#991B1B">✕ <b>44% of peak non-admissions are permanent</b> '
+                '— patients who leave during peak do not return to KSH</div>'
+                '</div>'
+                '</div>',
+                unsafe_allow_html=True,
+            )
 
             st.markdown("<div style='margin-top:24px'></div>", unsafe_allow_html=True)
 
@@ -4004,6 +4557,24 @@ elif page == "Causal Intelligence":
         with _r5:
             kpi_card("Dialysis Routing Gap", "96.8%",
                      "122 of 126 patients never billed for dialysis", COLORS["danger"])
+
+        _ci_dial_raw = P7.get("dialysis_ops", pd.DataFrame())
+        _ci_dial = (
+            _ci_dial_raw[~_ci_dial_raw["IS_PARTIAL_MONTH"]]
+            if len(_ci_dial_raw) and "IS_PARTIAL_MONTH" in _ci_dial_raw.columns
+            else _ci_dial_raw
+        )
+        if len(_ci_dial):
+            _ci_peak_row = _ci_dial.nlargest(1, "SESSIONS_BILLED")
+            _ci_peak     = int(_ci_peak_row["SESSIONS_BILLED"].iloc[0])
+            _ci_headroom = (264 - _ci_peak) * 10_650
+            _ci_val_str  = f"KES {_ci_headroom / 1e6:.2f}M/month"
+            _ci_sub_str  = f"(264 − {_ci_peak}) × KES 10,650 NHIF tariff"
+            st.markdown("<div style='margin-top:8px'></div>", unsafe_allow_html=True)
+            _r6, _ = st.columns(2, gap="large")
+            with _r6:
+                kpi_card("Unused Dialysis Capacity — Revenue Headroom",
+                         _ci_val_str, _ci_sub_str, COLORS["warning"])
 
         st.caption(
             "Non-admission is a clinical decision, not patient-driven — DAMA rate matches the facility baseline. "
@@ -4665,274 +5236,455 @@ elif page == "Service Mix":
 
 elif page == "Predictive Analytics":
 
-    # Load once — covers both facilities, no facility-scoping needed
-    if not st.session_state.p6:
-        with st.spinner("Computing demand forecasts…"):
-            df_hist, df_fcast = get_forecast()
-            st.session_state.p6 = {"hist": df_hist, "fcast": df_fcast}
-
-    df_hist  = st.session_state.p6["hist"]
-    df_fcast = st.session_state.p6["fcast"]
-
-    fac_label = "KSH" if facility == "KISUMU_CLEAN" else "TENRI"
-
     st.markdown(
         '<p style="font-size:11px;font-weight:800;letter-spacing:3px;text-transform:uppercase;'
         'color:#0072CE;margin-bottom:4px">Private Hospitals · Predictive Analytics</p>',
         unsafe_allow_html=True)
-    st.caption(f"{fac_name} — admission demand projections, ward planning, model confidence")
+    st.caption(f"{fac_name} — admission demand projections, ward planning, model quality")
     st.markdown("<div style='margin-bottom:16px'></div>", unsafe_allow_html=True)
 
-    # ── Controls row (horizon + capacity — must be above KPIs) ──────────────────
+    # ══════════════════════════════════════════════════════════════════════════
+    # KSH — Prophet (probabilistic, daily grain, monthly display)
+    # ══════════════════════════════════════════════════════════════════════════
 
-    ctrl1, ctrl2, _ = st.columns([1, 1, 2])
-    with ctrl1:
-        horizon = st.select_slider(
-            "Forecast horizon",
-            options=[1, 2, 3],
-            value=3,
-            format_func=lambda x: f"{x} month{'s' if x > 1 else ''}",
-        )
-    with ctrl2:
-        capacity = st.number_input(
-            "Monthly admission capacity",
-            min_value=0, value=0, step=10,
-            help="Set to see capacity utilisation on the KPI and chart.",
-        )
+    if facility == "KISUMU_CLEAN":
 
-    st.markdown("<div style='margin-bottom:12px'></div>", unsafe_allow_html=True)
+        # ── Model Controls (always visible — retrain + reload) ─────────────────
+        with st.expander("Model Controls", expanded=False):
+            # Read retrain status from file — no HTTP call on every rerun
+            _rs = {}
+            if _RETRAIN_STATUS_FILE.exists():
+                try:
+                    with open(_RETRAIN_STATUS_FILE, encoding="utf-8") as _f:
+                        _rs = json.load(_f)
+                except Exception:
+                    pass
 
-    # ── KPI derived values ────────────────────────────────────────────────────
-
-    # Historical mean (all available months)
-    h_fac_all = df_hist[
-        (df_hist["facility"] == fac_label) & (df_hist["ward"] == "Facility")
-    ]
-    hist_mean = float(h_fac_all["admissions"].mean()) if len(h_fac_all) else None
-
-    # Forecast for selected horizon month
-    fcast_row = df_fcast[
-        (df_fcast["facility"] == fac_label) &
-        (df_fcast["ward"] == "Facility") &
-        (df_fcast["month_offset"] == horizon)
-    ]
-    fcast_all_fac = df_fcast[
-        (df_fcast["facility"] == fac_label) &
-        (df_fcast["ward"] == "Facility") &
-        (df_fcast["month_offset"] <= horizon)
-    ]
-
-    if not fcast_row.empty:
-        r          = fcast_row.iloc[0]
-        point_val  = int(r["point"])
-        lo_val     = int(r["low_90"])
-        hi_val     = int(r["high_90"])
-        month_lbl  = r["forecast_month"].strftime("%b %Y")
-        model_t    = r["model_type"]
-        fac_mape   = r["mape"]
-    else:
-        point_val = lo_val = hi_val = 0
-        month_lbl = "—"
-        model_t   = "holts"
-        fac_mape  = None
-
-    # Delta vs historical mean
-    if hist_mean and hist_mean > 0:
-        delta_pct = ((point_val - hist_mean) / hist_mean) * 100
-        arrow     = "▲" if delta_pct >= 0 else "▼"
-        d_color   = COLORS["warning"] if delta_pct > 10 else COLORS["success"] if delta_pct >= 0 else COLORS["muted"]
-        delta_html = (
-            f"<span style='color:{d_color};font-weight:700'>"
-            f"{arrow} {abs(delta_pct):.1f}% vs avg</span>"
-        )
-    else:
-        delta_html = ""
-
-    horizon_labels = {1: "Next Month", 2: "Month 2", 3: "Month 3"}
-    card1_title = f"{fac_label} — {horizon_labels[horizon]}"
-    card1_sub   = f"{month_lbl}  ·  range {lo_val}–{hi_val}  &nbsp; {delta_html}"
-
-    # Card 2: capacity fill OR cumulative total
-    cum_total = int(fcast_all_fac["point"].sum()) if len(fcast_all_fac) else 0
-    if capacity > 0:
-        fill_pct   = (point_val / capacity * 100) if capacity > 0 else 0
-        fill_color = (COLORS["danger"] if fill_pct > 95
-                      else COLORS["warning"] if fill_pct > 80
-                      else COLORS["success"])
-        card2_title = f"Capacity Fill — {horizon_labels[horizon]}"
-        card2_val   = f"{fill_pct:.0f}%"
-        card2_sub   = f"{point_val} projected / {capacity} capacity"
-    else:
-        fill_color  = COLORS["primary"]
-        card2_title = f"{horizon}-Month Cumulative"
-        card2_val   = f"{cum_total:,}"
-        card2_sub   = f"admissions over {horizon} month{'s' if horizon > 1 else ''}"
-
-    # Gauge: model confidence = 100 - MAPE (for Holt's), else 0
-    if model_t == "holts" and fac_mape is not None:
-        confidence  = max(0.0, 100.0 - fac_mape)
-        gauge_color = (COLORS["success"] if confidence >= 90
-                       else COLORS["warning"] if confidence >= 85
-                       else COLORS["danger"])
-    else:
-        confidence  = None
-        gauge_color = COLORS["muted"]
-
-    # ── KPI cards ─────────────────────────────────────────────────────────────
-
-    c1, c2, c3 = st.columns(3)
-
-    with c1:
-        st.markdown(
-            f'<div style="background:#F4F8FC;border:1px solid #D6E4F0;border-radius:8px;padding:18px 16px">'
-            f'<div style="font-size:10px;font-weight:700;color:#6B8CAE;text-transform:uppercase;'
-            f'letter-spacing:1.5px;margin-bottom:8px">{card1_title}</div>'
-            f'<div style="font-size:28px;font-weight:800;color:{COLORS["primary"]};line-height:1">'
-            f'{point_val}</div>'
-            f'<div style="font-size:11px;color:#6B8CAE;margin-top:6px">{card1_sub}</div>'
-            f'</div>', unsafe_allow_html=True)
-
-    with c2:
-        st.markdown(
-            f'<div style="background:#F4F8FC;border:1px solid #D6E4F0;border-radius:8px;padding:18px 16px">'
-            f'<div style="font-size:10px;font-weight:700;color:#6B8CAE;text-transform:uppercase;'
-            f'letter-spacing:1.5px;margin-bottom:8px">{card2_title}</div>'
-            f'<div style="font-size:28px;font-weight:800;color:{fill_color};line-height:1">'
-            f'{card2_val}</div>'
-            f'<div style="font-size:11px;color:#6B8CAE;margin-top:6px">{card2_sub}</div>'
-            f'</div>', unsafe_allow_html=True)
-
-    with c3:
-        if confidence is not None:
-            gauge_fig = go.Figure(go.Indicator(
-                mode="gauge+number",
-                value=confidence,
-                number={"suffix": "%", "font": {"size": 22, "color": "#003467",
-                                                "family": "Montserrat"}},
-                gauge={
-                    "axis": {"range": [0, 100],
-                             "tickfont": {"size": 9, "color": "#6B8CAE"}},
-                    "bar":  {"color": gauge_color, "thickness": 0.6},
-                    "steps": [
-                        {"range": [0,  70], "color": "#FEE2E2"},
-                        {"range": [70, 85], "color": "#FEF3C7"},
-                        {"range": [85, 100], "color": "#D1FAE5"},
-                    ],
-                    "threshold": {
-                        "line": {"color": COLORS["danger"], "width": 2},
-                        "thickness": 0.75, "value": 85,
-                    },
-                },
-                title={"text": "Holdout Accuracy (100 − MAPE)",
-                       "font": {"size": 10, "color": "#6B8CAE",
-                                "family": "Montserrat"}},
-            ))
-            gauge_fig.update_layout(
-                paper_bgcolor="#F4F8FC",
-                height=160,
-                margin=dict(l=10, r=10, t=30, b=5),
-                font=dict(family="Montserrat", color="#003467"),
-            )
+            _rs_status = _rs.get("status", "never_run")
+            _rs_color  = {"success": "#22C55E", "running": "#F59E0B",
+                          "error": "#EF4444"}.get(_rs_status, "#6B8CAE")
+            _rs_time   = str(_rs.get("completed_at", _rs.get("started_at", "—")))[:19]
             st.markdown(
-                '<div style="background:#F4F8FC;border:1px solid #D6E4F0;'
-                'border-radius:8px;padding:4px 4px 0px 4px">',
-                unsafe_allow_html=True)
-            st.plotly_chart(gauge_fig, use_container_width=True,
-                            config={"displayModeBar": False})
-            st.markdown('</div>', unsafe_allow_html=True)
-            if fac_mape:
-                dq_note(f"Holdout MAPE: {fac_mape:.1f}%  ·  Accuracy = 100 − MAPE  ·  Validated threshold: MAPE < 15%")
+                f'<div style="font-size:12px;margin-bottom:12px">'
+                f'<span style="color:{_rs_color};font-weight:700">● {_rs_status.upper()}</span>'
+                f'<span style="color:#6B8CAE;margin-left:12px">{_rs_time}</span>'
+                + (f'<span style="color:#6B8CAE;margin-left:12px">run: {_rs["run_id"][:8]}…</span>'
+                   if "run_id" in _rs else "")
+                + '</div>',
+                unsafe_allow_html=True,
+            )
+
+            _mc1, _mc2 = st.columns(2)
+            with _mc1:
+                if st.button("Trigger Retrain", key="p6_retrain_btn", use_container_width=True):
+                    try:
+                        _resp = _requests.post(_DJANGO_RETRAIN_URL, timeout=5)
+                        _rd   = _resp.json()
+                        if _rd.get("status") == "accepted":
+                            st.success("Retrain started. Takes ~60–90s. Click Reload when done.")
+                        elif _rd.get("status") == "already_running":
+                            st.warning("Retrain already in progress — check status above.")
+                        else:
+                            st.error(str(_rd))
+                    except Exception as _e:
+                        st.error(f"Django not reachable at {_DJANGO_RETRAIN_URL}: {_e}")
+            with _mc2:
+                if st.button("Reload Forecast", key="p6_reload_btn", use_container_width=True):
+                    st.session_state.p6_ksh = {}
+                    st.rerun()
+
+            st.caption(
+                "Retrain pulls fresh data, refits Prophet, and writes a new cache. "
+                "Run after each data load. Reload picks up the new cache without restarting Streamlit."
+            )
+
+        # Load contract once per session (facility-keyed cache)
+        _contract_error = None
+        if not st.session_state.p6_ksh:
+            with st.spinner("Loading forecast…"):
+                try:
+                    st.session_state.p6_ksh = _build_forecast_contract(_FORECAST_CACHE)
+                except Exception as _e:
+                    _contract_error = str(_e)
+
+        if _contract_error:
+            st.warning(_contract_error)
+            st.info("Use **Model Controls → Trigger Retrain**, wait ~60–90s, then click **Reload Forecast**.")
+            st.stop()
+
+        _ct      = st.session_state.p6_ksh
+        _fc_rows = _ct["forecast"]
+        _metrics = _ct["metrics"]
+        _wmape    = _metrics.get("wmape")
+        _coverage = _metrics.get("coverage")
+        _wmape_str    = f"{_wmape:.1f}%" if _wmape is not None else "—"
+        _coverage_str = f"{_coverage:.0f}%" if _coverage is not None else "—"
+        _gen_date = str(_ct.get("generated_at", ""))[:10]
+
+        # ── Model quality badge (inline, not a card) ───────────────────────────
+        st.markdown(
+            f'<div style="font-size:10px;color:#6B8CAE;margin-bottom:20px">'
+            f'Probabilistic · {_ct.get("model_version", "—")} &nbsp;·&nbsp; '
+            f'Coverage {_coverage_str} &nbsp;·&nbsp; WMAPE {_wmape_str} &nbsp;·&nbsp; '
+            f'Updated {_gen_date}'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+        # ── Three month trajectory cards ───────────────────────────────────────
+        _TREND_THRESHOLD = 0.05   # <5% = Stable; ≥5% = Rising / Falling
+
+        def _trend(current, prior):
+            if prior is None or prior == 0:
+                return None, None, COLORS["muted"]
+            pct = (current - prior) / prior
+            if abs(pct) < _TREND_THRESHOLD:
+                return "Stable", None, COLORS["muted"]
+            elif pct > 0:
+                return f"Rising +{abs(pct)*100:.0f}%", pct, COLORS["warning"]
+            else:
+                return f"Falling {pct*100:.0f}%", pct, "#5DADE2"
+
+        _mc = st.columns(len(_fc_rows)) if _fc_rows else []
+        _prior_pt = None
+        for _col, _row in zip(_mc, _fc_rows):
+            _pt     = _row["point"]
+            _mo_lbl = pd.Timestamp(_row["forecast_month"]).strftime("%b %Y").upper()
+            _lo     = _row.get("low_approx")
+            _hi     = _row.get("high_approx")
+            _range_html = (
+                f'<div style="font-size:10px;color:#6B8CAE;margin-top:4px">'
+                f'~{int(_lo):,} – {int(_hi):,}</div>'
+                if _lo is not None and _hi is not None else ""
+            )
+            _trend_lbl, _trend_pct, _trend_color = _trend(_pt, _prior_pt)
+            _trend_html = (
+                f'<div style="font-size:11px;font-weight:700;color:{_trend_color};margin-top:6px">'
+                f'{_trend_lbl}</div>'
+                if _trend_lbl else ""
+            )
+            with _col:
+                st.markdown(
+                    f'<div style="background:#F4F8FC;border:1px solid #D6E4F0;border-radius:8px;'
+                    f'padding:20px 16px;text-align:center">'
+                    f'<div style="font-size:10px;font-weight:700;color:#6B8CAE;text-transform:uppercase;'
+                    f'letter-spacing:1.5px;margin-bottom:10px">{_mo_lbl}</div>'
+                    f'<div style="font-size:36px;font-weight:800;color:{COLORS["primary"]};line-height:1">'
+                    f'{int(round(_pt)):,}</div>'
+                    f'{_trend_html}'
+                    f'{_range_html}'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+            _prior_pt = _pt
+
+        st.markdown("<div style='margin-bottom:4px'></div>", unsafe_allow_html=True)
+        dq_note(
+            "Range = conservative approximation from daily interval sums — wider than true monthly uncertainty. "
+            "Month-to-month changes <5% are labelled Stable regardless of direction. "
+            "Yearly seasonality weakly identified at 1.5 training cycles — treat trajectory directionally."
+        )
+        st.markdown("<div style='margin-bottom:24px'></div>", unsafe_allow_html=True)
+
+        # ── Bar chart — 3-month trajectory ────────────────────────────────────
+
+        _bar_labels = [
+            pd.Timestamp(r["forecast_month"]).strftime("%b %Y") for r in _fc_rows
+        ]
+        _bar_vals   = [int(round(r["point"])) for r in _fc_rows]
+
+        _bar_colors = []
+        _prev = None
+        for _v in _bar_vals:
+            if _prev is None:
+                _bar_colors.append(COLORS["primary"])
+            elif (_v - _prev) / max(_prev, 1) >= _TREND_THRESHOLD:
+                _bar_colors.append(COLORS["warning"])
+            elif (_v - _prev) / max(_prev, 1) <= -_TREND_THRESHOLD:
+                _bar_colors.append("#5DADE2")
+            else:
+                _bar_colors.append(COLORS["primary"])
+            _prev = _v
+
+        _fig_bar = go.Figure()
+        _fig_bar.add_bar(
+            x=_bar_labels,
+            y=_bar_vals,
+            marker_color=_bar_colors,
+            text=[f"{v:,}" for v in _bar_vals],
+            textposition="outside",
+            textfont=dict(size=13, color=COLORS["primary"], family="Montserrat"),
+            hovertemplate="%{x}: %{y:,} admissions<extra></extra>",
+            width=0.45,
+        )
+        _fig_bar.update_layout(**cl(
+            height=260,
+            yaxis=dict(visible=False),
+            xaxis=dict(tickfont=dict(size=12, family="Montserrat", color=COLORS["primary"])),
+            showlegend=False,
+            margin=dict(l=0, r=0, t=30, b=20),
+            plot_bgcolor="#FFFFFF",
+        ))
+        st.plotly_chart(_fig_bar, use_container_width=True, config={"displayModeBar": False})
+
+        # ── Model health expander ──────────────────────────────────────────────
+
+        st.markdown("<div style='margin-top:4px'></div>", unsafe_allow_html=True)
+        with st.expander("Model Health", expanded=False):
+            _mh_rows = [
+                {"Series": "KSH · Facility", "Model": "Prophet (probabilistic)",
+                 "WMAPE": _wmape_str, "Coverage (90%)": _coverage_str,
+                 "Grain": "Daily", "Status": "✓ Champion"},
+            ]
+            st.dataframe(pd.DataFrame(_mh_rows), hide_index=True, use_container_width=True)
+            dq_note(
+                f"Model version: {_ct.get('model_version', '—')}  ·  "
+                f"Contract version: {_ct.get('contract_version', '—')}  ·  "
+                f"Generated: {str(_ct.get('generated_at', '—'))[:19]}"
+            )
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # TENRI — Holt's Linear Trend (deterministic, monthly grain) — unchanged
+    # ══════════════════════════════════════════════════════════════════════════
+
+    else:
+
+        if not st.session_state.p6:
+            with st.spinner("Computing demand forecasts…"):
+                df_hist, df_fcast = get_forecast()
+                st.session_state.p6 = {"hist": df_hist, "fcast": df_fcast}
+
+        df_hist  = st.session_state.p6["hist"]
+        df_fcast = st.session_state.p6["fcast"]
+
+        fac_label = "TENRI"
+
+        ctrl1, ctrl2, _ = st.columns([1, 1, 2])
+        with ctrl1:
+            horizon = st.select_slider(
+                "Forecast horizon",
+                options=[1, 2, 3],
+                value=3,
+                format_func=lambda x: f"{x} month{'s' if x > 1 else ''}",
+            )
+        with ctrl2:
+            capacity = st.number_input(
+                "Monthly admission capacity",
+                min_value=0, value=0, step=10,
+                help="Set to see capacity utilisation on the KPI and chart.",
+            )
+
+        st.markdown("<div style='margin-bottom:12px'></div>", unsafe_allow_html=True)
+
+        h_fac_all = df_hist[
+            (df_hist["facility"] == fac_label) & (df_hist["ward"] == "Facility")
+        ]
+        hist_mean = float(h_fac_all["admissions"].mean()) if len(h_fac_all) else None
+
+        fcast_row = df_fcast[
+            (df_fcast["facility"] == fac_label) &
+            (df_fcast["ward"] == "Facility") &
+            (df_fcast["month_offset"] == horizon)
+        ]
+        fcast_all_fac = df_fcast[
+            (df_fcast["facility"] == fac_label) &
+            (df_fcast["ward"] == "Facility") &
+            (df_fcast["month_offset"] <= horizon)
+        ]
+
+        if not fcast_row.empty:
+            r          = fcast_row.iloc[0]
+            point_val  = int(r["point"])
+            lo_val     = int(r["low_90"])
+            hi_val     = int(r["high_90"])
+            month_lbl  = r["forecast_month"].strftime("%b %Y")
+            model_t    = r["model_type"]
+            fac_mape   = r["mape"]
         else:
-            kpi_card("Holdout Accuracy", "Trendline fallback",
-                     "Model did not clear 15% MAPE — linear extrapolation only", COLORS["muted"])
+            point_val = lo_val = hi_val = 0
+            month_lbl = "—"
+            model_t   = "holts"
+            fac_mape  = None
 
-    st.markdown("<div style='margin-bottom:20px'></div>", unsafe_allow_html=True)
+        if hist_mean and hist_mean > 0:
+            delta_pct = ((point_val - hist_mean) / hist_mean) * 100
+            arrow     = "▲" if delta_pct >= 0 else "▼"
+            d_color   = COLORS["warning"] if delta_pct > 10 else COLORS["success"] if delta_pct >= 0 else COLORS["muted"]
+            delta_html = (
+                f"<span style='color:{d_color};font-weight:700'>"
+                f"{arrow} {abs(delta_pct):.1f}% vs avg</span>"
+            )
+        else:
+            delta_html = ""
 
-    # ── Tabs ──────────────────────────────────────────────────────────────────
+        horizon_labels = {1: "Next Month", 2: "Month 2", 3: "Month 3"}
+        card1_title = f"{fac_label} — {horizon_labels[horizon]}"
+        card1_sub   = f"{month_lbl}  ·  range {lo_val}–{hi_val}  &nbsp; {delta_html}"
 
-    tab1, tab2 = st.tabs(["◉  Facility Forecast", "△  Ward Demand"])
-
-    # ── Tab 1: Facility forecast ──────────────────────────────────────────────
-
-    with tab1:
-        section_header(f"{fac_label} — Facility-Level Forecast")
-        info_card(
-            "<b>Holt's Linear Trend</b> — extrapolates the historical direction. "
-            "Dashed line = trendline fallback (model did not clear 15% MAPE threshold). "
-            "Shaded band = 90% prediction interval.",
-            COLORS["muted"])
-
-        h_fac = (
-            df_hist[(df_hist["facility"] == fac_label) & (df_hist["ward"] == "Facility")]
-            .sort_values("admission_month").tail(18)
-        )
-        f_fac = (
-            df_fcast[
-                (df_fcast["facility"] == fac_label) &
-                (df_fcast["ward"] == "Facility") &
-                (df_fcast["month_offset"] <= horizon)
-            ].sort_values("forecast_month")
-        )
-
-        chart_model_type = f_fac["model_type"].iloc[0] if len(f_fac) else "holts"
-        line_dash  = "solid" if chart_model_type == "holts" else "dash"
-        band_color = "rgba(0,114,206,0.12)"
-
-        fig = go.Figure()
-        fig.add_scatter(
-            x=h_fac["admission_month"], y=h_fac["admissions"],
-            mode="lines+markers", name="Historical",
-            line=dict(color=COLORS["primary"], width=2),
-            marker=dict(size=5))
-
-        if len(f_fac):
-            fig.add_scatter(
-                x=f_fac["forecast_month"], y=f_fac["high_90"],
-                mode="lines", line=dict(width=0), showlegend=False, name="Upper")
-            fig.add_scatter(
-                x=f_fac["forecast_month"], y=f_fac["low_90"],
-                mode="lines", fill="tonexty", fillcolor=band_color,
-                line=dict(width=0), showlegend=False, name="90% interval")
-            fig.add_scatter(
-                x=f_fac["forecast_month"], y=f_fac["point"],
-                mode="lines+markers", name="Forecast",
-                line=dict(color=COLORS["primary"], width=2, dash=line_dash),
-                marker=dict(size=7, symbol="circle-open"))
-
-        cutoff = h_fac["admission_month"].max() if len(h_fac) else None
-        if cutoff:
-            _add_data_end_line(fig, str(cutoff.date()), "Data cutoff")
-
+        cum_total = int(fcast_all_fac["point"].sum()) if len(fcast_all_fac) else 0
         if capacity > 0:
-            fig.add_hline(
-                y=capacity, line_dash="dot", line_color=COLORS["danger"],
-                annotation_text=f"Capacity: {capacity}",
-                annotation_font_size=9, annotation_font_color=COLORS["danger"])
-
-        fig.update_layout(**cl(
-            height=420,
-            yaxis_title="Admissions / Month",
-            legend=dict(orientation="h", y=1.06)))
-        st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
-
-        chart_mape = f_fac["mape"].iloc[0] if len(f_fac) else None
-        label_text = (
-            f"Holt's Linear Trend · Holdout MAPE: {chart_mape:.1f}%"
-            if chart_model_type == "holts" and chart_mape is not None
-            else "Linear trendline fallback · Model did not clear 15% MAPE threshold"
-        )
-        dq_note(label_text)
-
-    # ── Tab 2: Ward Demand ────────────────────────────────────────────────────
-
-    with tab2:
-        if facility == "KISUMU_CLEAN":
-            info_card(
-                "Ward-level forecasting is not available for KSH. All ward volumes fall below "
-                "the 25 admissions/ward/month threshold required for reliable predictions. "
-                "KSH demand is tracked at facility level.",
-                COLORS["muted"])
+            fill_pct   = (point_val / capacity * 100) if capacity > 0 else 0
+            fill_color = (COLORS["danger"] if fill_pct > 95
+                          else COLORS["warning"] if fill_pct > 80
+                          else COLORS["success"])
+            card2_title = f"Capacity Fill — {horizon_labels[horizon]}"
+            card2_val   = f"{fill_pct:.0f}%"
+            card2_sub   = f"{point_val} projected / {capacity} capacity"
         else:
+            fill_color  = COLORS["primary"]
+            card2_title = f"{horizon}-Month Cumulative"
+            card2_val   = f"{cum_total:,}"
+            card2_sub   = f"admissions over {horizon} month{'s' if horizon > 1 else ''}"
+
+        if model_t == "holts" and fac_mape is not None:
+            confidence  = max(0.0, 100.0 - fac_mape)
+            gauge_color = (COLORS["success"] if confidence >= 90
+                           else COLORS["warning"] if confidence >= 85
+                           else COLORS["danger"])
+        else:
+            confidence  = None
+            gauge_color = COLORS["muted"]
+
+        c1, c2, c3 = st.columns(3)
+
+        with c1:
+            st.markdown(
+                f'<div style="background:#F4F8FC;border:1px solid #D6E4F0;border-radius:8px;padding:18px 16px">'
+                f'<div style="font-size:10px;font-weight:700;color:#6B8CAE;text-transform:uppercase;'
+                f'letter-spacing:1.5px;margin-bottom:8px">{card1_title}</div>'
+                f'<div style="font-size:28px;font-weight:800;color:{COLORS["primary"]};line-height:1">'
+                f'{point_val}</div>'
+                f'<div style="font-size:11px;color:#6B8CAE;margin-top:6px">{card1_sub}</div>'
+                f'</div>', unsafe_allow_html=True)
+
+        with c2:
+            st.markdown(
+                f'<div style="background:#F4F8FC;border:1px solid #D6E4F0;border-radius:8px;padding:18px 16px">'
+                f'<div style="font-size:10px;font-weight:700;color:#6B8CAE;text-transform:uppercase;'
+                f'letter-spacing:1.5px;margin-bottom:8px">{card2_title}</div>'
+                f'<div style="font-size:28px;font-weight:800;color:{fill_color};line-height:1">'
+                f'{card2_val}</div>'
+                f'<div style="font-size:11px;color:#6B8CAE;margin-top:6px">{card2_sub}</div>'
+                f'</div>', unsafe_allow_html=True)
+
+        with c3:
+            if confidence is not None:
+                gauge_fig = go.Figure(go.Indicator(
+                    mode="gauge+number",
+                    value=confidence,
+                    number={"suffix": "%", "font": {"size": 22, "color": "#003467",
+                                                    "family": "Montserrat"}},
+                    gauge={
+                        "axis": {"range": [0, 100],
+                                 "tickfont": {"size": 9, "color": "#6B8CAE"}},
+                        "bar":  {"color": gauge_color, "thickness": 0.6},
+                        "steps": [
+                            {"range": [0,  70], "color": "#FEE2E2"},
+                            {"range": [70, 85], "color": "#FEF3C7"},
+                            {"range": [85, 100], "color": "#D1FAE5"},
+                        ],
+                        "threshold": {
+                            "line": {"color": COLORS["danger"], "width": 2},
+                            "thickness": 0.75, "value": 85,
+                        },
+                    },
+                    title={"text": "Holdout Accuracy (100 − MAPE) · Deterministic",
+                           "font": {"size": 10, "color": "#6B8CAE",
+                                    "family": "Montserrat"}},
+                ))
+                gauge_fig.update_layout(
+                    paper_bgcolor="#F4F8FC",
+                    height=160,
+                    margin=dict(l=10, r=10, t=30, b=5),
+                    font=dict(family="Montserrat", color="#003467"),
+                )
+                st.markdown(
+                    '<div style="background:#F4F8FC;border:1px solid #D6E4F0;'
+                    'border-radius:8px;padding:4px 4px 0px 4px">',
+                    unsafe_allow_html=True)
+                st.plotly_chart(gauge_fig, use_container_width=True,
+                                config={"displayModeBar": False})
+                st.markdown('</div>', unsafe_allow_html=True)
+                if fac_mape:
+                    dq_note(f"Holdout MAPE: {fac_mape:.1f}%  ·  Accuracy = 100 − MAPE  ·  Validated threshold: MAPE < 15%")
+            else:
+                kpi_card("Holdout Accuracy", "Trendline fallback",
+                         "Model did not clear 15% MAPE — linear extrapolation only", COLORS["muted"])
+
+        st.markdown("<div style='margin-bottom:20px'></div>", unsafe_allow_html=True)
+
+        tab1, tab2 = st.tabs(["◉  Facility Forecast", "△  Ward Demand"])
+
+        with tab1:
+            section_header(f"{fac_label} — Facility-Level Forecast (Holt's Linear Trend · Deterministic)")
+            info_card(
+                "<b>Holt's Linear Trend</b> — extrapolates the historical direction. "
+                "Dashed line = trendline fallback (model did not clear 15% MAPE threshold). "
+                "Shaded band = 90% prediction interval.",
+                COLORS["muted"])
+
+            h_fac = (
+                df_hist[(df_hist["facility"] == fac_label) & (df_hist["ward"] == "Facility")]
+                .sort_values("admission_month").tail(18)
+            )
+            f_fac = (
+                df_fcast[
+                    (df_fcast["facility"] == fac_label) &
+                    (df_fcast["ward"] == "Facility") &
+                    (df_fcast["month_offset"] <= horizon)
+                ].sort_values("forecast_month")
+            )
+
+            chart_model_type = f_fac["model_type"].iloc[0] if len(f_fac) else "holts"
+            line_dash  = "solid" if chart_model_type == "holts" else "dash"
+            band_color = "rgba(0,114,206,0.12)"
+
+            fig = go.Figure()
+            fig.add_scatter(
+                x=h_fac["admission_month"], y=h_fac["admissions"],
+                mode="lines+markers", name="Historical",
+                line=dict(color=COLORS["primary"], width=2),
+                marker=dict(size=5))
+
+            if len(f_fac):
+                fig.add_scatter(
+                    x=f_fac["forecast_month"], y=f_fac["high_90"],
+                    mode="lines", line=dict(width=0), showlegend=False, name="Upper")
+                fig.add_scatter(
+                    x=f_fac["forecast_month"], y=f_fac["low_90"],
+                    mode="lines", fill="tonexty", fillcolor=band_color,
+                    line=dict(width=0), showlegend=False, name="90% interval")
+                fig.add_scatter(
+                    x=f_fac["forecast_month"], y=f_fac["point"],
+                    mode="lines+markers", name="Forecast",
+                    line=dict(color=COLORS["primary"], width=2, dash=line_dash),
+                    marker=dict(size=7, symbol="circle-open"))
+
+            cutoff = h_fac["admission_month"].max() if len(h_fac) else None
+            if cutoff:
+                _add_data_end_line(fig, str(cutoff.date()), "Data cutoff")
+
+            if capacity > 0:
+                fig.add_hline(
+                    y=capacity, line_dash="dot", line_color=COLORS["danger"],
+                    annotation_text=f"Capacity: {capacity}",
+                    annotation_font_size=9, annotation_font_color=COLORS["danger"])
+
+            fig.update_layout(**cl(
+                height=420,
+                yaxis_title="Admissions / Month",
+                legend=dict(orientation="h", y=1.06)))
+            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
+
+            chart_mape = f_fac["mape"].iloc[0] if len(f_fac) else None
+            label_text = (
+                f"Holt's Linear Trend · Holdout MAPE: {chart_mape:.1f}%"
+                if chart_model_type == "holts" and chart_mape is not None
+                else "Linear trendline fallback · Model did not clear 15% MAPE threshold"
+            )
+            dq_note(label_text)
+
+        with tab2:
             section_header("TENRI — Projected Admissions by Ward (Next Month)")
 
             ward_fcast = df_fcast[
@@ -4976,7 +5728,6 @@ elif page == "Predictive Analytics":
                 st.plotly_chart(fig2, use_container_width=True, config={"displayModeBar": False})
                 dq_note("Orange bars: General, Medical Female, Paediatric — high month-to-month variability.")
 
-                # Horizon-adjusted view if > 1 month
                 if horizon > 1:
                     st.markdown("<div style='margin-top:16px'></div>", unsafe_allow_html=True)
                     section_header(f"TENRI — {horizon}-Month Outlook by Ward")
@@ -5002,27 +5753,26 @@ elif page == "Predictive Analytics":
                         legend=dict(orientation="h", y=1.08)))
                     st.plotly_chart(fig3, use_container_width=True, config={"displayModeBar": False})
 
-    # ── Model health ──────────────────────────────────────────────────────────
+        st.markdown("<div style='margin-top:8px'></div>", unsafe_allow_html=True)
+        with st.expander("Model Health", expanded=False):
+            meta = (
+                df_fcast[
+                    (df_fcast["facility"] == fac_label) &
+                    (df_fcast["month_offset"] == 1)
+                ][["series", "model_type", "mape"]]
+                .drop_duplicates()
+                .copy()
+            )
+            meta["status"] = meta.apply(
+                lambda r: "✓ Validated" if r["model_type"] == "holts" else "~ Trendline fallback", axis=1)
+            meta["mape"] = meta["mape"].apply(lambda x: f"{x:.1f}%" if pd.notna(x) else "—")
+            meta.columns = ["Series", "Model", "Holdout MAPE", "Status"]
+            st.dataframe(meta, hide_index=True, use_container_width=True)
 
-    st.markdown("<div style='margin-top:8px'></div>", unsafe_allow_html=True)
-    with st.expander("Model Health", expanded=False):
-        meta = (
-            df_fcast[
-                (df_fcast["facility"] == fac_label) &
-                (df_fcast["month_offset"] == 1)
-            ][["series", "model_type", "mape"]]
-            .drop_duplicates()
-            .copy()
-        )
-        meta["status"] = meta.apply(
-            lambda r: "✓ Validated" if r["model_type"] == "holts" else "~ Trendline fallback", axis=1)
-        meta["mape"] = meta["mape"].apply(lambda x: f"{x:.1f}%" if pd.notna(x) else "—")
-        meta.columns = ["Series", "Model", "Holdout MAPE", "Status"]
-        st.dataframe(meta, hide_index=True, use_container_width=True)
-
-        from facility_utilization.m1_ward_forecast import VALIDATED_DATE, RETRAIN_DATE
-        dq_note(
-            f"Last validated: {VALIDATED_DATE.strftime('%Y-%m-%d')}  ·  "
-            f"Retrain recommended by: {RETRAIN_DATE.strftime('%Y-%m-%d')}  ·  "
-            f"Holdout = last 3 months per facility  ·  Acceptance threshold: MAPE < 15%")
+            from facility_utilization.m1_ward_forecast import VALIDATED_DATE, RETRAIN_DATE
+            dq_note(
+                f"Last validated: {VALIDATED_DATE.strftime('%Y-%m-%d')}  ·  "
+                f"Retrain recommended by: {RETRAIN_DATE.strftime('%Y-%m-%d')}  ·  "
+                f"Holdout = last 3 months per facility  ·  Acceptance threshold: MAPE < 15%"
+            )
 

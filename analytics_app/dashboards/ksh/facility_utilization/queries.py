@@ -157,7 +157,7 @@ def q_leakage_recovery_priority(facility=None):
 
 
 def q_theatre_trend():
-    """G3: monthly completion rate + revenue — KSH only."""
+    """G3: monthly completion rate + revenue + payer mix — KSH only."""
     return run_query_df("""
         SELECT
             session_month,
@@ -166,7 +166,9 @@ def q_theatre_trend():
             ROUND(100.0 * SUM(completed_sessions)
                   / NULLIF(SUM(total_sessions), 0), 2) AS completion_rate_pct,
             SUM(total_revenue)      AS total_revenue,
-            SUM(emergency_sessions) AS emergency_sessions
+            SUM(emergency_sessions) AS emergency_sessions,
+            SUM(insured_revenue)    AS insured_revenue,
+            SUM(cash_revenue)       AS cash_revenue
         FROM HOSPITALS.REPORTING.rpt_theatre_utilization
         GROUP BY session_month
         ORDER BY session_month
@@ -189,6 +191,37 @@ def q_theatre_by_type():
         FROM HOSPITALS.REPORTING.rpt_theatre_utilization
         GROUP BY theatre_type, theatre_name
         ORDER BY total_revenue DESC
+    """)
+
+
+def q_theatre_emergency_tat():
+    """Raw emergency booking-to-theatre lags (minutes) — KSH only.
+    One row per positive-TAT case (n≈55). Binning and aggregation done in Python.
+    Dedup: MAX(id) per booking on THEATRE_THEATRE_SCHEDULES (rescheduling fan-out).
+    Both timestamp columns stored as TEXT — TRY_TO_TIMESTAMP required (Inv 70).
+    """
+    return run_query_df("""
+        SELECT
+            DATEDIFF('minute',
+                TRY_TO_TIMESTAMP(b.created_at),
+                TRY_TO_TIMESTAMP(s.schedule_start_time)
+            ) AS booking_to_start_min,
+            DAYNAME(TRY_TO_TIMESTAMP(b.created_at)) AS declaration_day
+        FROM HOSPITALS.KISUMU_CLEAN.THEATRE_THEATRE_BOOKINGS b
+        LEFT JOIN (
+            SELECT booking_id, MAX(id) AS max_sched_id
+            FROM HOSPITALS.KISUMU_CLEAN.THEATRE_THEATRE_SCHEDULES
+            GROUP BY booking_id
+        ) sdedup ON sdedup.booking_id = b.id
+        LEFT JOIN HOSPITALS.KISUMU_CLEAN.THEATRE_THEATRE_SCHEDULES s
+               ON s.id = sdedup.max_sched_id
+        WHERE b.emergency = 1
+          AND b.deleted_at IS NULL
+          AND TRY_TO_TIMESTAMP(s.schedule_start_time) IS NOT NULL
+          AND DATEDIFF('minute',
+                TRY_TO_TIMESTAMP(b.created_at),
+                TRY_TO_TIMESTAMP(s.schedule_start_time)) > 0
+        ORDER BY booking_to_start_min
     """)
 
 

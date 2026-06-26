@@ -78,12 +78,15 @@
                             </td>
 
                             <!-- ACTION -->
-                            <td class="text-end pe-4">
+                            {% if 'localhost' in d.streamlit_url or '127.0.0.1' in d.streamlit_url %}
                                 <a href="{% url 'dashboard_view' d.slug %}" class="btn btn-primary btn-sm">
                                     Open →
                                 </a>
-
-                            </td>
+                            {% else %}
+                                <a href="{{ d.streamlit_url }}" class="btn btn-primary btn-sm" target="_blank">
+                                    Open →
+                                </a>
+                            {% endif %}
 
                         </tr>
                         {% empty %}

@@ -1089,12 +1089,22 @@
               <i class="bi bi-pencil-square"></i>
             </a>
             {% endif %}
-            <a href="{% url 'analytics:dashboard_view' db.slug %}"
-               class="dl-btn-open"
-               data-launch-name="{{ db.name }}"
-               data-streamlit-url="{{ db.streamlit_url|default:'' }}">
-              Open <i class="bi bi-arrow-right-short" style="font-size:1.1em;"></i>
-            </a>
+            {% if 'localhost' in db.streamlit_url or '127.0.0.1' in db.streamlit_url %}
+                <a href="{% url 'analytics:dashboard_view' db.slug %}"
+                  class="dl-btn-open"
+                  data-launch-name="{{ db.name }}"
+                  data-streamlit-url="{{ db.streamlit_url|default:'' }}">
+                    Open <i class="bi bi-arrow-right-short" style="font-size:1.1em;"></i>
+                </a>
+            {% else %}
+                <a href="{{ db.streamlit_url }}"
+                  class="dl-btn-open"
+                  target="_blank"
+                  data-launch-name="{{ db.name }}"
+                  data-streamlit-url="">
+                    Open <i class="bi bi-arrow-right-short" style="font-size:1.1em;"></i>
+                </a>
+            {% endif %}
           </div>
         </div>
 

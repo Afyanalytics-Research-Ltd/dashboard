@@ -15,6 +15,10 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
   <!-- Afya Main CSS -->
   <link rel="stylesheet" href="{% static 'css/main.css' %}" />
+  <!-- Self-Service Analytics Chat -->
+  {% if request.user.is_authenticated %}
+  <link rel="stylesheet" href="{% static 'css/chat.css' %}" />
+  {% endif %}
 
   {% block extra_css %}{% endblock %}
 </head>
@@ -366,10 +370,112 @@
 
 </div><!-- /afya-shell -->
 
+<!-- ======================================================================
+     SELF-SERVICE ANALYTICS — Chatbot FAB + Slide-in Panel
+     Rendered only for authenticated users; invisible to guests.
+     ====================================================================== -->
+{% if request.user.is_authenticated %}
+
+<!-- Floating Action Button -->
+<button id="chatbotFab"
+        class="chatbot-fab"
+        aria-label="Open Analytics Assistant"
+        aria-expanded="false"
+        aria-controls="chatbotPanel"
+        title="Analytics Assistant">
+  <i class="bi bi-robot"></i>
+  <span id="chatbotBadge" class="chatbot-fab-badge d-none" aria-label="Unread messages"></span>
+</button>
+
+<!-- Slide-in Chat Panel (≤ 25% screen width) -->
+<aside id="chatbotPanel"
+       class="chatbot-panel"
+       role="complementary"
+       aria-label="Analytics Assistant"
+       aria-hidden="true">
+
+  <!-- Header -->
+  <div class="chatbot-header">
+    <div class="chatbot-header-left">
+      <div class="chatbot-avatar-icon">
+        <i class="bi bi-robot"></i>
+      </div>
+      <div>
+        <div class="chatbot-title">Analytics Assistant</div>
+        <div class="chatbot-subtitle">
+          <span id="chatbotStatusDot" class="chatbot-status-dot"></span>
+          <span id="chatbotStatusText">Connecting…</span>
+        </div>
+        <div class="chatbot-role-badge">
+          <i class="bi bi-shield-lock"></i>
+          {% if request.user.is_superuser %}
+            Super Admin
+          {% else %}
+            {{ request.user.groups.first.name|default:"Viewer" }}
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    <button id="chatbotCloseBtn" class="chatbot-close-btn" aria-label="Close chat panel">
+      <i class="bi bi-x-lg"></i>
+    </button>
+  </div>
+
+  <!-- Messages Area -->
+  <div id="chatbotMessages" class="chatbot-messages" role="log" aria-live="polite" aria-atomic="false">
+    <!-- Chat bubbles injected by chat.js -->
+  </div>
+
+  <!-- Typing Indicator -->
+  <div id="chatbotTyping" class="chatbot-typing d-none" aria-label="Assistant is typing">
+    <span class="typing-dot"></span>
+    <span class="typing-dot"></span>
+    <span class="typing-dot"></span>
+  </div>
+
+  <!-- Input Area -->
+  <div class="chatbot-input-area">
+    <!-- Quick suggestion chips (shown after connect) -->
+    <div id="chatbotSuggestions" class="chatbot-suggestions d-none">
+      <button class="chatbot-chip" data-query="Give me an overview" type="button">Overview</button>
+      <button class="chatbot-chip" data-query="Show available dashboards" type="button">Dashboards</button>
+      <button class="chatbot-chip" data-query="Show active facilities" type="button">Facilities</button>
+      <button class="chatbot-chip" data-query="help" type="button">Help</button>
+    </div>
+
+    <div class="chatbot-input-row">
+      <textarea id="chatbotInput"
+                class="chatbot-textarea"
+                placeholder="Ask about your data…"
+                rows="1"
+                aria-label="Message to analytics assistant"
+                autocomplete="off"
+                spellcheck="true"></textarea>
+      <button id="chatbotSendBtn"
+              class="chatbot-send-btn"
+              aria-label="Send message"
+              disabled>
+        <i class="bi bi-send-fill"></i>
+      </button>
+    </div>
+
+    <div class="text-muted mt-2" style="font-size:10.5px;text-align:center;">
+      <i class="bi bi-shield-check me-1"></i>
+      Responses are scoped to your access level
+    </div>
+  </div>
+
+</aside><!-- /chatbotPanel -->
+{% endif %}
+
 <!-- Bootstrap 5.3 JS -->
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <!-- Afya Main JS -->
 <script src="{% static 'js/main.js' %}"></script>
+{% if request.user.is_authenticated %}
+<!-- Self-Service Analytics Chat -->
+<script src="{% static 'js/chat.js' %}"></script>
+{% endif %}
 {% block extra_js %}{% endblock %}
 
 </body>

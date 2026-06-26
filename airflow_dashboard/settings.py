@@ -24,24 +24,40 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-change-me-in-production')
 DEBUG = os.getenv('DEBUG', 'False').strip().lower() in ('true', '1', 'yes', 'on')
 
+# settings.py — add/update these
+
 ALLOWED_HOSTS = [
     'datahub.afyaanalytics.com',
     'localhost',
     '127.0.0.1',
     '0.0.0.0',
+    '2c97-129-222-187-199.ngrok-free.app',
 ]
 
 CSRF_TRUSTED_ORIGINS = [
     'https://datahub.afyaanalytics.com',
     'http://localhost:8000',
     'http://127.0.0.1:8000',
+    'https://2c97-129-222-187-199.ngrok-free.app',
 ]
 
+# Add this — CORS was missing the ngrok origin
+CORS_ALLOWED_ORIGINS = [
+    'https://datahub.afyaanalytics.com',
+    'http://localhost:8000',
+    'http://127.0.0.1:8000',
+    'https://2c97-129-222-187-199.ngrok-free.app',
+]
+
+# Or for dev, just allow everything:
+# CORS_ALLOW_ALL_ORIGINS = True
 # ---------------------------------------------------------------------------
 # Applications
 # ---------------------------------------------------------------------------
 
 INSTALLED_APPS = [
+    # daphne must be first to override runserver with ASGI
+    'daphne',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -53,19 +69,24 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt',
     'drf_spectacular',
     'django_filters',
+    'channels',
     # Local apps
     'core',
     'authentication',
     'analytics_app',
     'warehouse',
     'airflow_ui',
+    'self_service',
+    'agents',
+    'corsheaders',
+    'catalog'
 ]
 
 # ---------------------------------------------------------------------------
 # Middleware
 # ---------------------------------------------------------------------------
-
 MIDDLEWARE = [
+    "corsheaders.middleware.CorsMiddleware",  # must be first
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -82,6 +103,11 @@ ROOT_URLCONF = 'airflow_dashboard.urls'
 # ---------------------------------------------------------------------------
 # Templates
 # ---------------------------------------------------------------------------
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "sk-...").strip()
+
+CUBE_API_URL = os.getenv("CUBE_API_URL", "http://localhost:4000").strip()
+CUBE_API_TOKEN = os.getenv("CUBE_API_TOKEN", "your-cube-api-secret").strip()
+ANALYTICS_TEAM_EMAIL = os.getenv("ANALYTICS_TEAM_EMAIL", "data@afya.ai").strip()
 
 TEMPLATES = [
     {
@@ -102,7 +128,9 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'airflow_dashboard.wsgi.application'
-
+ASGI_APPLICATION = 'airflow_dashboard.asgi.application'
+WHAPI_TOKEN = os.getenv("WHAPI_TOKEN", "your-whapi-channel-token").strip()
+WHAPI_URL = os.getenv("WHAPI_URL", "https://gate.whapi.cloud").strip()
 # ---------------------------------------------------------------------------
 # Database
 # ---------------------------------------------------------------------------
@@ -363,6 +391,16 @@ LOGGING = {
             'level': 'DEBUG',
             'propagate': False,
         },
+        'self_service': {
+            'handlers': ['console', 'file'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+        'agents': {
+            'handlers': ['console', 'file'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
     },
 }
 
@@ -391,3 +429,24 @@ AFYA_BRAND = {
 SESSION_COOKIE_AGE = 86400  # 24 hours
 SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SECURE = not DEBUG
+
+# ---------------------------------------------------------------------------
+# Django Channels — Self-Service Analytics WebSocket
+# ---------------------------------------------------------------------------
+
+_REDIS_URL = os.getenv('REDIS_URL', '').strip()
+
+if _REDIS_URL:
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels_redis.core.RedisChannelLayer',
+            'CONFIG': {'hosts': [_REDIS_URL]},
+        }
+    }
+else:
+    # In-memory layer: suitable for single-process dev; not shared across workers
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels.layers.InMemoryChannelLayer',
+        }
+    }

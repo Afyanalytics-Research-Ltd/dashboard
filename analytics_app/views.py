@@ -47,6 +47,7 @@ def _sync_dashboards_for_client(client_slug: str, client_obj) -> dict:
     created = updated = deactivated = 0
     current_slugs: set[str] = set()
 
+
     if os.path.isdir(folder):
         for filename in os.listdir(folder):
             if not filename.endswith('.py') or filename in EXCLUDED_FILES:
@@ -74,6 +75,7 @@ def _sync_dashboards_for_client(client_slug: str, client_obj) -> dict:
         Dashboard.objects
         .filter(client=client_obj)
         .exclude(slug__in=current_slugs)
+        .filter(streamlit_url__regex=r'^https?://(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?') #handle external urls 
         .update(is_active=False)
     )
     return {'created': created, 'updated': updated, 'deactivated': deactivated}

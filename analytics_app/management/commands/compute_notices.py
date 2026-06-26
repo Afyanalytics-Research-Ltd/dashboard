@@ -92,15 +92,18 @@ _LAB_VOL_WATCH, _LAB_VOL_CRIT       = 430,  350
 _LAB_ABNORM_WATCH, _LAB_ABNORM_CRIT = 9.0, 11.0
 
 # Rule 29 — Ward Idle BTR+BTI (per-ward P25/P75 floors from Inv 46)
+# Recalibrated 2026-06-18 using corrected 32-bed denominator (Inv 54). Full Sep 2024–Apr 2026 window.
 _BTR_P25 = {
-    "General Female": 0.62, "General Male": 0.69, "General Maternity": 0.42,
-    "Pediatric General": 0.53, "Private Female": 0.45,
-    "Private Male": 0.25, "Private Maternity": 0.20,
+    "General Female":    3.86, "General Male":      4.50,
+    "General Maternity": 1.43, "Pediatric General": 3.17,
+    "Private Female":    1.50, "Private Male":      1.33,
+    "Private Maternity": 0.50,
 }
 _BTI_P75 = {
-    "General Female": 46.6,  "General Male": 41.7,  "General Maternity": 71.7,
-    "Pediatric General": 58.2, "Private Female": 66.8,
-    "Private Male": 118.6, "Private Maternity": 147.0,
+    "General Female":     4.6, "General Male":       3.7,
+    "General Maternity": 19.0, "Pediatric General":  7.4,
+    "Private Female":    18.0, "Private Male":      20.2,
+    "Private Maternity": 56.0,
 }
 
 # Rule 30 — Admission TAT fast-track rate + P75 wait time
@@ -108,6 +111,9 @@ _TAT_WATCH, _TAT_CRIT         = 45.0, 35.0
 _TAT_P75_WATCH, _TAT_P75_CRIT = 240.0, 360.0
 
 # Rule 31 — BOR low occupancy (per-ward P25 from Inv 48)
+# Rule 31b — BOR high occupancy — MoH optimal anchor 85% (CLAUDE.md L1)
+_BOR_HIGH_WATCH = 85.0   # WATCH: 2 consecutive months above this
+_BOR_HIGH_CRIT  = 95.0   # CRITICAL: single month above this
 _BOR_P25 = {  # P25 floors from Inv 48 re-run — corrected 32-bed denominator (Inv 54, 2026-06-18)
     "General Female": 40.0, "General Male": 46.7, "General Maternity": 11.1,
     "Pediatric General": 23.7, "Private Female": 11.8,
@@ -492,6 +498,33 @@ def _rule31_bor_low(df, fired_wards):
     return notices
 
 
+def _rule31b_bor_high(df):
+    """BOR > 95% single month (CRITICAL) or > 85% for 2 consecutive months (WATCH).
+    Not suppressed by Rule 29 — high BOR + low BTR is contradictory and worth surfacing."""
+    notices = []
+    if df.empty or "bor_pct" not in df.columns:
+        return notices
+    d = df[df["month"].astype(str) != _OCT_2025_GAP].sort_values("month")
+    for ward in d["ward_name"].unique():
+        wd = d[d["ward_name"] == ward].tail(2)
+        if wd.empty:
+            continue
+        vals   = wd["bor_pct"].tolist()
+        latest = float(vals[-1])
+        mo     = pd.to_datetime(wd["month"].iloc[-1]).strftime("%b %Y")
+        gap    = round(latest - _BOR_HIGH_WATCH, 1)
+        if latest > _BOR_HIGH_CRIT:
+            notices.append(_notice("CRITICAL", f"High BOR — {ward}",
+                f"{latest:.1f}% occupancy · {gap}pp above {_BOR_HIGH_WATCH:.0f}% MoH anchor · {mo}",
+                f"Ward manager: {ward} at critical capacity — investigate admission routing"))
+        elif (len(wd) == 2 and _consec_adjacent(wd, "month")
+              and _two_consec(vals, _BOR_HIGH_WATCH, direction="above")):
+            notices.append(_notice("WATCH", f"High BOR — {ward}",
+                f"{latest:.1f}% occupancy · {gap}pp above {_BOR_HIGH_WATCH:.0f}% MoH anchor · 2 months",
+                f"Ward manager: {ward} sustained high occupancy — investigate capacity buffer"))
+    return notices
+
+
 def _rule32_private_revenue(df):
     """Private ward revenue > 25% below 3-month rolling average."""
     if df.empty or "total_revenue" not in df.columns:
@@ -651,6 +684,7 @@ class Command(BaseCommand):
         notices += r29
         notices += _rule30_admission_tat(tat_df)
         notices += _rule31_bor_low(btr_df, fired_wards)
+        notices += _rule31b_bor_high(btr_df)
         notices += _rule32_private_revenue(rv_df)
         notices += _rule33_physician_workload(dw_df)
 

@@ -40,7 +40,7 @@ def get_dispensing_history(
             f.dispensed_from_negative_stock,
             f.patient_id,
             f.raw_dispensing_id,
-            t.canonical_name,
+            COALESCE(t.canonical_name, f.product_id::VARCHAR) AS canonical_name,
             t.therapeutic_class,
             t.therapeutic_subclass,
             t.product_category,
@@ -95,7 +95,7 @@ def get_current_soh(schema: str, ref_date: str = "CURRENT_DATE") -> pd.DataFrame
         SELECT
             l.product_id,
             l.canonical_product_id,
-            t.canonical_name,
+            COALESCE(t.canonical_name, l.product_id::VARCHAR) AS canonical_name,
             t.therapeutic_class,
             t.therapeutic_subclass,
             t.product_category,
@@ -139,21 +139,15 @@ def get_kpi_summary(schema: str, ref_date: str = "CURRENT_DATE") -> pd.DataFrame
     """
     Single-row aggregate KPIs for the Command Centre header.
 
+    Product universe matches get_dos_watchlist(): pharma products with at least
+    one dispensing event in the last 90 days. This ensures Briefing KPI counts
+    are directly comparable to Stockout Watch and Order Workbench figures.
+
     ref_date: SQL date expression anchoring all lookback windows.
     Pass sql_ref_date(fac) from utils.facility.
     """
     return run_query(f"""
-        WITH stock AS (
-            SELECT
-                product_id,
-                soh_after_raw,
-                soh_after_display,
-                dispensed_at,
-                ROW_NUMBER() OVER (PARTITION BY product_id ORDER BY dispensed_at DESC) AS rn
-            FROM HOSPITALS.REPORTING.FACT_DISPENSING
-            WHERE source_schema = '{schema}'
-        ),
-        avg_c AS (
+        WITH consumption AS (
             SELECT
                 product_id,
                 SUM(quantity_dispensed) /
@@ -163,31 +157,52 @@ def get_kpi_summary(schema: str, ref_date: str = "CURRENT_DATE") -> pd.DataFrame
               AND dispensed_at >= DATEADD('day', -90, {ref_date})
             GROUP BY product_id
         ),
-        status_agg AS (
+        current_soh AS (
             SELECT
-                COUNT(DISTINCT s.product_id)                                           AS total_products,
-                COUNT_IF(s.soh_after_raw <= 0)                                         AS active_stockouts,
-                COUNT_IF(s.soh_after_display / NULLIF(a.avg_daily_units, 0) < 7
-                         AND s.soh_after_raw > 0)                                      AS critical_count,
-                COUNT_IF(s.soh_after_display / NULLIF(a.avg_daily_units, 0) BETWEEN 7 AND 30) AS low_count
-            FROM stock s
-            LEFT JOIN avg_c a ON s.product_id = a.product_id
-            WHERE s.rn = 1
-        ),
-        value_30d AS (
-            SELECT
-                SUM(line_total)         AS total_dispensing_value_30d,
-                SUM(quantity_dispensed) AS total_units_30d
+                product_id,
+                soh_after_raw        AS current_soh,
+                soh_after_display    AS current_soh_display,
+                ROW_NUMBER() OVER (PARTITION BY product_id ORDER BY dispensed_at DESC) AS rn
             FROM HOSPITALS.REPORTING.FACT_DISPENSING
             WHERE source_schema = '{schema}'
-              AND dispensed_at >= DATEADD('day', -30, {ref_date})
+        ),
+        active_pharma AS (
+            -- Active pharma products: dispensed in last 90 days, in taxonomy as pharma.
+            -- Matches the product universe used by get_dos_watchlist().
+            SELECT
+                cs.product_id,
+                cs.current_soh,
+                cs.current_soh_display,
+                c.avg_daily_units
+            FROM consumption c
+            JOIN current_soh cs  ON c.product_id = cs.product_id AND cs.rn = 1
+            JOIN HOSPITALS.REPORTING.CANONICAL_PRODUCT_TAXONOMY t
+                ON UPPER('{schema}') = UPPER(t.facility) AND c.product_id = t.product_id
+            WHERE t.product_category = 'pharma'
+        ),
+        status_agg AS (
+            SELECT
+                COUNT(*)                                                               AS total_products,
+                COUNT_IF(current_soh <= 0)                                             AS active_stockouts,
+                COUNT_IF(current_soh_display / NULLIF(avg_daily_units, 0) < 7
+                         AND current_soh > 0)                                          AS critical_count,
+                COUNT_IF(current_soh_display / NULLIF(avg_daily_units, 0) BETWEEN 7 AND 30) AS low_count
+            FROM active_pharma
+        ),
+        value_90d AS (
+            SELECT
+                SUM(line_total)         AS total_dispensing_value_90d,
+                SUM(quantity_dispensed) AS total_units_90d
+            FROM HOSPITALS.REPORTING.FACT_DISPENSING
+            WHERE source_schema = '{schema}'
+              AND dispensed_at >= DATEADD('day', -90, {ref_date})
         ),
         patient_risk AS (
             SELECT
                 COUNT_IF(has_chronic_drug = 1
-                    AND last_dispensed_at >= DATEADD('day', -60, {ref_date})) AS chronic_patients_active,
+                    AND last_dispensed_at >= DATEADD('day', -90, {ref_date})) AS chronic_patients_active,
                 COUNT_IF(has_opioid = 1
-                    AND last_dispensed_at >= DATEADD('day', -60, {ref_date})) AS opioid_patients_active
+                    AND last_dispensed_at >= DATEADD('day', -90, {ref_date})) AS opioid_patients_active
             FROM HOSPITALS.REPORTING.FACT_PATIENT_DISPENSING
             WHERE source_schema = '{schema}'
         )
@@ -196,12 +211,12 @@ def get_kpi_summary(schema: str, ref_date: str = "CURRENT_DATE") -> pd.DataFrame
             sa.active_stockouts,
             sa.critical_count,
             sa.low_count,
-            v.total_dispensing_value_30d,
-            v.total_units_30d,
+            v.total_dispensing_value_90d,
+            v.total_units_90d,
             pr.chronic_patients_active,
             pr.opioid_patients_active
         FROM status_agg sa
-        CROSS JOIN value_30d v
+        CROSS JOIN value_90d v
         CROSS JOIN patient_risk pr
     """)
 
@@ -250,7 +265,8 @@ def get_dos_watchlist(
             GROUP BY product_id
         )
         SELECT
-            t.canonical_name,
+            c.product_id,
+            COALESCE(t.canonical_name, c.product_id::VARCHAR) AS canonical_name,
             t.therapeutic_class,
             t.therapeutic_subclass,
             cs.current_soh,
@@ -317,7 +333,7 @@ def get_dead_stock(
             FROM HOSPITALS.REPORTING.FACT_DISPENSING WHERE source_schema = '{schema}'
         )
         SELECT
-            t.canonical_name,
+            COALESCE(t.canonical_name, a.product_id::VARCHAR) AS canonical_name,
             t.therapeutic_class,
             t.therapeutic_subclass,
             a.last_dispensed_at,
@@ -383,7 +399,7 @@ def get_monthly_trends(schema: str) -> pd.DataFrame:
 def get_deficit_dispenses(schema: str) -> pd.DataFrame:
     return run_query(f"""
         SELECT
-            t.canonical_name,
+            COALESCE(t.canonical_name, f.product_id::VARCHAR) AS canonical_name,
             t.therapeutic_class,
             t.therapeutic_subclass,
             h.dispensed_by_user_id,

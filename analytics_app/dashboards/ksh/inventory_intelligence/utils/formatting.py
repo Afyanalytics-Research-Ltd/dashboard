@@ -114,6 +114,10 @@ def fmt_pct(value: Optional[float], decimals: int = 1) -> str:
 def fmt_days(value: Optional[float]) -> str:
     if value is None:
         return "—"
+    if value == 0:
+        return "Stockout"
+    if value < 1:
+        return "< 1 day"
     return f"{int(value)}d"
 
 

@@ -17,6 +17,10 @@ from intelligence.config import (
     MIN_DAYS_FOR_FORECAST,
     MIN_MONTHS_HIGH_CONFIDENCE,
     MIN_MONTHS_MEDIUM_CONFIDENCE,
+    MIN_DAYS_HIGH_CONFIDENCE,
+    MIN_DAYS_MEDIUM_CONFIDENCE,
+    SB_ADI_THRESHOLD,
+    SB_CV2_THRESHOLD,
     TREND_THRESHOLD,
     DOS_CRITICAL,
     DOS_LOW,
@@ -29,16 +33,44 @@ class DemandForecast:
     canonical_name: str
     avg_daily_units: float
     std_daily_units: float
-    cv: float
+    cv: float                  # std / ewm_avg over zero-filled series (used in SS formula)
+    demand_type: str           # SMOOTH | ERRATIC | INTERMITTENT | LUMPY (Syntetos-Boylan)
+    adi: float                 # average demand interval — calendar days per non-zero dispense
+    cv_nz: float               # CV of non-zero dispensing quantities only
     forecast_30d: float
     forecast_60d: float
     forecast_90d: float
     ci_lower_30d: float
     ci_upper_30d: float
-    confidence: str           # HIGH | MEDIUM | LOW
+    confidence: str            # HIGH | MEDIUM | LOW
     data_months: int
     seasonality_detected: bool
-    trend_direction: str      # UP | DOWN | STABLE
+    trend_direction: str       # UP | DOWN | STABLE
+
+
+def confidence_score(n_days: int, demand_type: str) -> str:
+    """
+    Derive forecast confidence tier from data sufficiency and Syntetos-Boylan demand type.
+
+    HIGH:   SMOOTH  + ≥90 days
+    MEDIUM: SMOOTH  + 30–89 days
+            ERRATIC + ≥30 days  (frequent demand — EWM trend is still useful)
+            INTERMITTENT + ≥30 days  (consistent quantity per event)
+    LOW:    LUMPY   (infrequent AND variable — genuinely unpredictable regardless of history)
+            Any type + <30 days  (insufficient history)
+
+    Parameters
+    ----------
+    n_days      : int — number of calendar days spanned by dispensing history
+    demand_type : str — SMOOTH | ERRATIC | INTERMITTENT | LUMPY
+    """
+    if n_days < MIN_DAYS_MEDIUM_CONFIDENCE:
+        return "LOW"
+    if demand_type == "LUMPY":
+        return "LOW"
+    if demand_type == "SMOOTH" and n_days >= MIN_DAYS_HIGH_CONFIDENCE:
+        return "HIGH"
+    return "MEDIUM"
 
 
 class DemandEngine:
@@ -111,10 +143,34 @@ class DemandEngine:
         ewm_avg = float(pd.Series(units).ewm(span=span, adjust=False).mean().iloc[-1])
         ewm_avg = max(0.0, ewm_avg)
 
-        # Variability from active (non-zero) dispensing days
-        active = units[units > 0]
-        std = float(active.std()) if len(active) > 1 else ewm_avg * 0.3
-        cv = std / ewm_avg if ewm_avg > 0 else 0.0
+        # std over zero-filled daily series — correct denominator for safety stock formula
+        std = float(pd.Series(units).std()) if len(units) > 1 else ewm_avg * 0.3
+        std = max(std, 0.0)
+        cv  = std / ewm_avg if ewm_avg > 0 else 0.0
+
+        # ── Syntetos-Boylan demand classification ────────────────────────────
+        # ADI on daily data: avg calendar days between non-zero dispensing events
+        nonzero_daily = units[units > 0]
+        n_nonzero = len(nonzero_daily)
+        if n_nonzero >= 2:
+            adi = n / n_nonzero
+        else:
+            adi = float(n)
+
+        # CV_nz on weekly aggregated quantities: absorbs prescription batch-size noise
+        # (30/90-day supplies inflate daily CV without reflecting true demand variability)
+        weekly_qty = prod.set_index("date")["quantity_dispensed"].resample("W").sum()
+        weekly_nonzero = weekly_qty[weekly_qty > 0]
+        if len(weekly_nonzero) >= 2 and weekly_nonzero.mean() > 0:
+            cv_nz = float(weekly_nonzero.std() / weekly_nonzero.mean())
+        else:
+            cv_nz = 0.0
+        cv2_nz = cv_nz ** 2
+
+        if adi < SB_ADI_THRESHOLD:
+            demand_type = "ERRATIC" if cv2_nz >= SB_CV2_THRESHOLD else "SMOOTH"
+        else:
+            demand_type = "LUMPY"   if cv2_nz >= SB_CV2_THRESHOLD else "INTERMITTENT"
 
         # Trend detection: last 30d mean vs prior 30d mean
         trend = "STABLE"
@@ -136,12 +192,7 @@ class DemandEngine:
         ci_lo = max(0.0, f30 - z * std * np.sqrt(30))
         ci_hi = f30 + z * std * np.sqrt(30)
 
-        if data_months >= MIN_MONTHS_HIGH_CONFIDENCE:
-            confidence = "HIGH"
-        elif data_months >= MIN_MONTHS_MEDIUM_CONFIDENCE:
-            confidence = "MEDIUM"
-        else:
-            confidence = "LOW"
+        confidence = confidence_score(n_days=n, demand_type=demand_type)
 
         # Seasonality: high monthly CV (>25%) indicates seasonal variation
         seasonality = False
@@ -156,6 +207,9 @@ class DemandEngine:
             avg_daily_units=round(ewm_avg, 3),
             std_daily_units=round(std, 3),
             cv=round(cv, 3),
+            demand_type=demand_type,
+            adi=round(adi, 2),
+            cv_nz=round(cv_nz, 3),
             forecast_30d=round(f30, 1),
             forecast_60d=round(f60, 1),
             forecast_90d=round(f90, 1),

@@ -176,21 +176,147 @@ def q_theatre_trend():
 
 
 def q_theatre_by_type():
-    """G3: revenue + sessions by theatre_type — KSH only."""
+    """G3: per-theatre summary — KSH only. Inv 76 confirmed revenue cols are FLOAT."""
     return run_query_df("""
         SELECT
-            theatre_type,
             theatre_name,
-            SUM(total_sessions)                   AS total_sessions,
-            SUM(completed_sessions)               AS completed_sessions,
+            SUM(total_sessions)                                              AS total_sessions,
+            SUM(completed_sessions)                                          AS completed_sessions,
             ROUND(100.0 * SUM(completed_sessions)
-                  / NULLIF(SUM(total_sessions), 0), 2) AS completion_rate_pct,
-            SUM(total_revenue)                    AS total_revenue,
-            ROUND(AVG(avg_revenue_per_session), 2) AS avg_revenue_per_session,
-            ROUND(SUM(total_duration_hrs), 1)     AS total_duration_hrs
+                  / NULLIF(SUM(total_sessions), 0), 1)                      AS completion_rate_pct,
+            SUM(emergency_sessions)                                          AS emergency_sessions,
+            SUM(elective_sessions)                                           AS elective_sessions,
+            ROUND(SUM(emergency_sessions) * 100.0
+                  / NULLIF(SUM(emergency_sessions) + SUM(elective_sessions), 0), 1)
+                                                                             AS emergency_pct,
+            SUM(total_revenue)                                               AS total_revenue,
+            ROUND(SUM(total_revenue) / NULLIF(SUM(completed_sessions), 0), 0)
+                                                                             AS avg_rev_per_completed,
+            SUM(insured_revenue)                                             AS insured_revenue,
+            SUM(cash_revenue)                                                AS cash_revenue,
+            ROUND(SUM(insured_revenue) * 100.0
+                  / NULLIF(SUM(total_revenue), 0), 1)                       AS insured_pct,
+            MIN(session_month)                                               AS first_month,
+            MAX(session_month)                                               AS last_month
         FROM HOSPITALS.REPORTING.rpt_theatre_utilization
-        GROUP BY theatre_type, theatre_name
-        ORDER BY total_revenue DESC
+        WHERE booking_status = 'booked'
+        GROUP BY theatre_name
+        ORDER BY total_sessions DESC
+    """)
+
+
+def q_theatre_procedures():
+    """All-time procedure booking counts — KSH only.
+    Join: THEATRE_THEATRE_BOOKINGS.operation_procedure → EVALUATION_PROCEDURES.id (Inv 77).
+    EP.id is unique (0 duplicates confirmed) — no fan-out risk.
+    Revenue NOT included: Q1 invoice aggregation overcounts by ~34% (Inv 77 Round 2).
+    Name variants consolidated via CASE WHEN (5 groups confirmed in Inv 77).
+    """
+    return run_query_df("""
+        SELECT
+            CASE
+                WHEN UPPER(ep.name) LIKE '%CESA%' OR UPPER(ep.name) LIKE '%CEAS%'
+                    THEN 'CAESAREAN SECTION'
+                WHEN UPPER(ep.name) LIKE 'DVIU%'
+                    THEN 'DVIU'
+                WHEN UPPER(ep.name) LIKE 'LAPAROT%' OR UPPER(ep.name) LIKE 'LAPARATOM%'
+                    THEN 'LAPAROTOMY'
+                WHEN UPPER(ep.name) = 'HERNIORRAPHY'
+                    THEN 'HERNIORRHAPHY'
+                WHEN UPPER(ep.name) = 'ADENOTONSILLECTOMY +'
+                    THEN 'ADENOTONSILLECTOMY'
+                ELSE ep.name
+            END                                     AS procedure_name,
+            COUNT(DISTINCT b.id)                    AS bookings
+        FROM HOSPITALS.KISUMU_CLEAN.THEATRE_THEATRE_BOOKINGS b
+        JOIN HOSPITALS.KISUMU_CLEAN.EVALUATION_PROCEDURES ep
+            ON ep.id = b.operation_procedure
+        WHERE b.deleted_at IS NULL
+        GROUP BY procedure_name
+        ORDER BY bookings DESC
+        LIMIT 20
+    """)
+
+
+def q_theatre_trend_by_theatre():
+    """Monthly revenue + sessions per theatre from gold table — KSH only.
+    Used for MoM revenue comparison. Revenue cols are FLOAT (Inv 76) — no TRY_TO_NUMBER().
+    Jan 2025 onwards — matches q_theatre_procedures_monthly() window.
+    """
+    return run_query_df("""
+        SELECT
+            session_month,
+            theatre_name,
+            SUM(total_sessions)                                              AS total_sessions,
+            SUM(completed_sessions)                                          AS completed_sessions,
+            ROUND(SUM(total_revenue) / 1000, 0)                             AS total_revenue_kes_k,
+            ROUND(SUM(total_revenue) / NULLIF(SUM(completed_sessions), 0), 0)
+                                                                             AS avg_rev_per_completed
+        FROM HOSPITALS.REPORTING.rpt_theatre_utilization
+        WHERE booking_status = 'booked'
+          AND session_month  >= '2025-01-01'
+        GROUP BY session_month, theatre_name
+        ORDER BY session_month DESC, theatre_name
+    """)
+
+
+def q_theatre_procedures_monthly():
+    """Monthly procedure booking counts per theatre — KSH only.
+    Join path: THEATRE_THEATRE_BOOKINGS → THEATRE_THEATRE_SCHEDULES (deduped) +
+               EVALUATION_PROCEDURES (via operation_procedure FK).
+    Schedule dedup: ROW_NUMBER by booking_id DESC handles rescheduling fan-out (Inv 70).
+    Revenue NOT returned: invoice aggregation overcounts by ~34% (Inv 77 Round 2).
+    Use gold table (rpt_theatre_utilization) for revenue. This query supplies case mix only.
+    Name consolidation: same CASE WHEN as q_theatre_procedures().
+    """
+    return run_query_df("""
+        WITH sched AS (
+            SELECT
+                booking_id,
+                theatre_id,
+                DATE_TRUNC('month', TRY_TO_TIMESTAMP(schedule_start_time))::DATE AS session_month
+            FROM (
+                SELECT
+                    booking_id,
+                    theatre_id,
+                    schedule_start_time,
+                    ROW_NUMBER() OVER (PARTITION BY booking_id ORDER BY id DESC) AS rn
+                FROM HOSPITALS.KISUMU_CLEAN.THEATRE_THEATRE_SCHEDULES
+                -- THEATRE_THEATRE_SCHEDULES has no deleted_at column (confirmed Inv 77 Round 2)
+            )
+            WHERE rn = 1
+        )
+        SELECT
+            s.session_month,
+            CASE s.theatre_id
+                WHEN 1 THEN 'Operating Theatre'
+                WHEN 2 THEN 'Operating Theatre 2'
+                WHEN 3 THEN 'Theatre 12'
+                ELSE 'Unknown'
+            END                                                     AS theatre_name,
+            CASE
+                WHEN UPPER(ep.name) LIKE '%CESA%' OR UPPER(ep.name) LIKE '%CEAS%'
+                    THEN 'CAESAREAN SECTION'
+                WHEN UPPER(ep.name) LIKE 'DVIU%'
+                    THEN 'DVIU'
+                WHEN UPPER(ep.name) LIKE 'LAPAROT%' OR UPPER(ep.name) LIKE 'LAPARATOM%'
+                    THEN 'LAPAROTOMY'
+                WHEN UPPER(ep.name) = 'HERNIORRAPHY'
+                    THEN 'HERNIORRHAPHY'
+                WHEN UPPER(ep.name) = 'ADENOTONSILLECTOMY +'
+                    THEN 'ADENOTONSILLECTOMY'
+                ELSE ep.name
+            END                                                     AS procedure_name,
+            COUNT(DISTINCT b.id)                                    AS bookings
+        FROM HOSPITALS.KISUMU_CLEAN.THEATRE_THEATRE_BOOKINGS b
+        JOIN HOSPITALS.KISUMU_CLEAN.EVALUATION_PROCEDURES ep
+            ON ep.id = b.operation_procedure
+        JOIN sched s
+            ON s.booking_id = b.id
+        WHERE b.deleted_at IS NULL
+          AND s.session_month >= '2025-01-01'
+        GROUP BY s.session_month, theatre_name, procedure_name
+        ORDER BY s.session_month DESC, bookings DESC
     """)
 
 

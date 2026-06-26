@@ -31,6 +31,7 @@ from facility_utilization.queries import (
     q_leakage_gap, q_leakage_submission_rate, q_leakage_ksh_dispatch_trend,
     q_leakage_aging_dist, q_leakage_recovery_priority,
     q_theatre_trend, q_theatre_by_type, q_theatre_emergency_tat,
+    q_theatre_procedures, q_theatre_procedures_monthly, q_theatre_trend_by_theatre,
     q_beds_revpab, q_beds_los, q_beds_monthly, q_dialysis_trend, q_specialty_admissions,
     q_imaging_trend,
     # q_readmission_pattern, q_readmission_trend,                     # READM_HIDDEN — clinical finding, not ops metric
@@ -2470,6 +2471,10 @@ elif page == "Capacity & Operations":
                 "btr_bti":     q_btr_bti_monthly()           if _is_ksh_p3 else pd.DataFrame(),
                 "adm_tat":     q_admission_tat_bimodal()     if _is_ksh_p3 else pd.DataFrame(),
                 "th_emer_tat": q_theatre_emergency_tat()    if _is_ksh_p3 else pd.DataFrame(),
+                "th_by_theatre":  q_theatre_by_type()      if _is_ksh_p3 else pd.DataFrame(),
+                "th_procedures":     q_theatre_procedures()          if _is_ksh_p3 else pd.DataFrame(),
+                "th_proc_monthly":   q_theatre_procedures_monthly()   if _is_ksh_p3 else pd.DataFrame(),
+                "th_trend_theatre":  q_theatre_trend_by_theatre()     if _is_ksh_p3 else pd.DataFrame(),
             }
 
     P = st.session_state.p3
@@ -2629,19 +2634,48 @@ elif page == "Capacity & Operations":
                     section_header("Monthly Theatre Revenue — KSH")
                 if len(th_trend):
                     _th_rev_plot = th_trend[th_trend["SESSION_MONTH"] >= "2024-09-01"].copy()
+                    _th_rev_plot["SESSION_MONTH"] = pd.to_datetime(_th_rev_plot["SESSION_MONTH"])
+                    _th_rev_plot = _th_rev_plot.sort_values("SESSION_MONTH")
+                    _th_rev_plot["MA3"] = _th_rev_plot["TOTAL_REVENUE"].rolling(3).mean()
+                    _pk_idx = _th_rev_plot["TOTAL_REVENUE"].idxmax()
+                    _pk_rev = float(_th_rev_plot.loc[_pk_idx, "TOTAL_REVENUE"])
+                    _pk_mo  = _th_rev_plot.loc[_pk_idx, "SESSION_MONTH"]
                     fig = go.Figure()
-                    fig.add_bar(
-                        x=_th_rev_plot["SESSION_MONTH"], y=_th_rev_plot["TOTAL_REVENUE"],
-                        name="Revenue",
-                        marker_color=COLORS["success"], opacity=0.75,
+                    fig.add_scatter(
+                        x=_th_rev_plot["SESSION_MONTH"],
+                        y=_th_rev_plot["TOTAL_REVENUE"],
+                        name="Monthly",
+                        mode="lines+markers",
+                        line=dict(color=COLORS["primary"], width=2,
+                                  shape="spline", smoothing=0.8),
+                        marker=dict(size=5, color=COLORS["primary"]),
                         hovertemplate="%{x|%b %Y}: %{customdata}<extra></extra>",
                         customdata=_th_rev_plot["TOTAL_REVENUE"].apply(fmt_kes),
+                        opacity=0.6,
                     )
-                    _add_regression(fig, _th_rev_plot["SESSION_MONTH"],
-                                    _th_rev_plot["TOTAL_REVENUE"], name="Trend",
-                                    color=COLORS["warning"])
-                    fig.update_layout(**cl(height=360, yaxis_title="KES Revenue",
-                                           legend=dict(orientation="h", y=1.08)))
+                    _ma_valid = _th_rev_plot.dropna(subset=["MA3"])
+                    fig.add_scatter(
+                        x=_ma_valid["SESSION_MONTH"],
+                        y=_ma_valid["MA3"],
+                        name="3-month avg",
+                        mode="lines",
+                        line=dict(color=COLORS["warning"], width=2.5, dash="dash"),
+                        hovertemplate="%{x|%b %Y} 3-mo avg: %{customdata}<extra></extra>",
+                        customdata=_ma_valid["MA3"].apply(fmt_kes),
+                    )
+                    fig.add_annotation(
+                        x=_pk_mo, y=_pk_rev,
+                        text=f"Peak {fmt_kes(_pk_rev)}",
+                        showarrow=True, arrowhead=2,
+                        arrowcolor=COLORS["muted"],
+                        font=dict(size=10, color=COLORS["muted"]),
+                        yshift=15, ax=0, ay=-30,
+                    )
+                    fig.update_layout(**cl(
+                        height=320, yaxis_title="KES Revenue",
+                        yaxis=dict(tickformat=",.0f"),
+                        legend=dict(orientation="h", y=1.08),
+                    ))
                     st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False})
 
             # ── Completion loss KPI (full-width) ─────────────────────────────────
@@ -2763,6 +2797,202 @@ elif page == "Capacity & Operations":
                         "Escalate to KSH finance team to confirm cause before acting on this signal."
                     )
 
+            # ── MoM revenue + case mix (KSH only) ────────────────────────────
+            _th_mmr = P.get("th_trend_theatre", pd.DataFrame())
+            _th_pmx = P.get("th_proc_monthly",  pd.DataFrame())
+            if facility == "KISUMU_CLEAN" and len(_th_mmr):
+                _th_mmr = _th_mmr.copy()
+                _th_mmr.columns = [c.upper() for c in _th_mmr.columns]
+                _th_mmr["SESSION_MONTH"] = pd.to_datetime(_th_mmr["SESSION_MONTH"])
+                _months_avail = sorted(_th_mmr["SESSION_MONTH"].unique())
+                if len(_months_avail) >= 2:
+                    _mo_cur  = _months_avail[-1]
+                    _mo_prv  = _months_avail[-2]
+                    _lbl_cur = _mo_cur.strftime("%b %Y")
+                    _lbl_prv = _mo_prv.strftime("%b %Y")
+                    _mm_cur  = _th_mmr[_th_mmr["SESSION_MONTH"] == _mo_cur]
+                    _mm_prv  = _th_mmr[_th_mmr["SESSION_MONTH"] == _mo_prv]
+                    _active_th = _mm_cur["THEATRE_NAME"].tolist()
+
+                    st.markdown("<div style='margin-top:24px'></div>", unsafe_allow_html=True)
+                    section_header(f"Theatre Revenue — {_lbl_prv} → {_lbl_cur}")
+
+                    _mom_cols = st.columns(max(len(_active_th), 1), gap="large")
+                    for _mc, _tn in zip(_mom_cols, _active_th):
+                        with _mc:
+                            _rc = _mm_cur[_mm_cur["THEATRE_NAME"] == _tn].iloc[0]
+                            _rp = _mm_prv[_mm_prv["THEATRE_NAME"] == _tn]
+                            _c_rev  = float(_rc["TOTAL_REVENUE_KES_K"])
+                            _c_sess = int(_rc["TOTAL_SESSIONS"])
+                            _c_comp = int(_rc["COMPLETED_SESSIONS"])
+                            _c_avg  = float(_rc["AVG_REV_PER_COMPLETED"])
+                            if len(_rp):
+                                _p_rev  = float(_rp.iloc[0]["TOTAL_REVENUE_KES_K"])
+                                _p_comp = int(_rp.iloc[0]["COMPLETED_SESSIONS"])
+                                _rev_d  = round(100 * (_c_rev - _p_rev) / _p_rev, 1) if _p_rev else 0
+                                _ses_d  = _c_comp - _p_comp
+                                _arrow  = "↑" if _rev_d >= 0 else "↓"
+                                _dc     = COLORS["success"] if _rev_d >= 0 else COLORS["danger"]
+                                _sub    = (f"{_c_sess} sessions ({_c_comp} completed) · "
+                                           f"KES {_c_avg:,.0f}/session · "
+                                           f'<span style="color:{_dc};font-weight:700">'
+                                           f"{_arrow} {abs(_rev_d):.1f}% vs {_lbl_prv}</span> "
+                                           f"({'+'if _ses_d>=0 else ''}{_ses_d} completed sessions)")
+                                _clr = COLORS["primary"]
+                            else:
+                                _sub = (f"{_c_sess} sessions ({_c_comp} completed) · "
+                                        f"KES {_c_avg:,.0f}/session · new this period")
+                                _clr = COLORS["primary"]
+                            kpi_card(_tn, f"KES {_c_rev:,.0f}K", _sub, _clr)
+
+                    # Case mix — why revenue changed
+                    if len(_th_pmx):
+                        _pmx = _th_pmx.copy()
+                        _pmx.columns = [c.upper() for c in _pmx.columns]
+                        _pmx["SESSION_MONTH"] = pd.to_datetime(_pmx["SESSION_MONTH"])
+                        st.markdown("<div style='margin-top:16px'></div>", unsafe_allow_html=True)
+                        section_header(f"Case Mix — {_lbl_prv} vs {_lbl_cur}")
+                        for _tn in _active_th:
+                            _pc = _pmx[(_pmx["SESSION_MONTH"] == _mo_cur) &
+                                       (_pmx["THEATRE_NAME"]  == _tn)].head(8)
+                            _pp = _pmx[(_pmx["SESSION_MONTH"] == _mo_prv) &
+                                       (_pmx["THEATRE_NAME"]  == _tn)].head(8)
+                            if len(_pc) == 0 and len(_pp) == 0:
+                                continue
+                            _mix = pd.merge(
+                                _pc[["PROCEDURE_NAME", "BOOKINGS"]].rename(
+                                    columns={"BOOKINGS": _lbl_cur}),
+                                _pp[["PROCEDURE_NAME", "BOOKINGS"]].rename(
+                                    columns={"BOOKINGS": _lbl_prv}),
+                                on="PROCEDURE_NAME", how="outer",
+                            ).fillna(0).sort_values(_lbl_cur, ascending=False).head(8)
+                            _max_bk = max(float(_mix[[_lbl_prv, _lbl_cur]].values.max()), 1)
+                            _legend = (
+                                f'<div style="display:flex;gap:16px;align-items:center;'
+                                f'font-size:10px;color:#6B8CAE;margin-bottom:8px;margin-top:4px">'
+                                f'<span style="font-weight:700;font-size:11px;color:#003467">{_tn}</span>'
+                                f'<span><span style="display:inline-block;width:10px;height:7px;'
+                                f'background:{COLORS["success"]};border-radius:2px;margin-right:4px"></span>{_lbl_prv}</span>'
+                                f'<span><span style="display:inline-block;width:10px;height:7px;'
+                                f'background:{COLORS["primary"]};border-radius:2px;margin-right:4px"></span>{_lbl_cur}</span>'
+                                f'</div>'
+                            )
+                            _rows_html = _legend
+                            for _, _mr in _mix.iterrows():
+                                _proc = str(_mr["PROCEDURE_NAME"])
+                                _pn   = int(_mr[_lbl_prv])
+                                _cn   = int(_mr[_lbl_cur])
+                                _d    = _cn - _pn
+                                _d_str = (f"+{_d}" if _d > 0 else str(_d)) if _d != 0 else "—"
+                                _pill_dc = (COLORS["success"] if _d > 0
+                                            else COLORS["danger"] if _d < 0
+                                            else COLORS["muted"])
+                                _pw = max(round(100 * _pn / _max_bk), 0)
+                                _cw = max(round(100 * _cn / _max_bk), 0)
+                                _rows_html += (
+                                    f'<div style="display:flex;align-items:center;gap:10px;'
+                                    f'padding:6px 10px;background:#F4F8FC;border-radius:6px;'
+                                    f'margin-bottom:4px;">'
+                                    f'<div style="width:185px;font-size:11px;font-weight:600;'
+                                    f'color:#003467;white-space:nowrap;overflow:hidden;'
+                                    f'text-overflow:ellipsis" title="{_proc}">{_proc}</div>'
+                                    f'<div style="flex:1;display:flex;flex-direction:column;gap:3px;">'
+                                    f'<div style="display:flex;align-items:center;gap:5px;">'
+                                    f'<div style="width:{_pw}%;height:7px;background:{COLORS["success"]};'
+                                    f'border-radius:3px;{"min-width:3px;" if _pn else ""}"></div>'
+                                    f'<span style="font-size:10px;color:{COLORS["success"]}">{_pn}</span></div>'
+                                    f'<div style="display:flex;align-items:center;gap:5px;">'
+                                    f'<div style="width:{_cw}%;height:7px;background:{COLORS["primary"]};'
+                                    f'border-radius:3px;{"min-width:3px;" if _cn else ""}"></div>'
+                                    f'<span style="font-size:10px;color:{COLORS["primary"]}">{_cn}</span></div>'
+                                    f'</div>'
+                                    f'<div style="font-size:12px;font-weight:700;color:{_pill_dc};'
+                                    f'min-width:28px;text-align:right">{_d_str}</div>'
+                                    f'</div>'
+                                )
+                            st.markdown(_rows_html, unsafe_allow_html=True)
+                        dq_note(
+                            f"Case mix from EMR booking records · procedure type, not revenue. "
+                            f"Revenue figures above from gold table. "
+                            f"{_lbl_cur} data may be partial — EMR data typically lags ~2 months."
+                        )
+
+            # ── Per-theatre comparison (KSH only) ─────────────────────────────
+            _th_by = P.get("th_by_theatre", pd.DataFrame())
+            if facility == "KISUMU_CLEAN" and len(_th_by):
+                _th_by = _th_by.copy()
+                _th_by.columns = [c.upper() for c in _th_by.columns]
+                # Dormant = last session month is >2 months before today (reactivation clears automatically)
+                _dorm_cutoff = (pd.Timestamp.today() - pd.DateOffset(months=2)).to_period("M").to_timestamp()
+                st.markdown("<div style='margin-top:24px'></div>", unsafe_allow_html=True)
+                section_header("Theatre Performance — Per Facility")
+                _th_ncols = min(len(_th_by), 3)
+                _th_kpi_cols = st.columns(_th_ncols, gap="large")
+                for _tcol, (_, _tr) in zip(_th_kpi_cols, _th_by.iterrows()):
+                    with _tcol:
+                        _tname   = str(_tr["THEATRE_NAME"])
+                        _tavg    = float(_tr["AVG_REV_PER_COMPLETED"])
+                        _tcomp   = float(_tr["COMPLETION_RATE_PCT"])
+                        _temerg  = float(_tr["EMERGENCY_PCT"])
+                        _tins    = float(_tr["INSURED_PCT"])
+                        _tsess   = int(_tr["TOTAL_SESSIONS"])
+                        _tlast   = pd.Timestamp(_tr["LAST_MONTH"])
+                        _tdorm   = _tlast < _dorm_cutoff
+                        _tclr    = COLORS["warning"] if _tdorm else COLORS["primary"]
+                        kpi_card(
+                            _tname,
+                            fmt_kes(_tavg),
+                            (f"{_tsess} sessions · {_tcomp:.0f}% completion · "
+                             f"{_temerg:.0f}% emergency · {_tins:.0f}% insured"
+                             + (" · ⚠ dormant" if _tdorm else "")),
+                            _tclr,
+                        )
+                _ot2_rows = _th_by[_th_by["THEATRE_NAME"].str.contains("2", na=False)]
+                if len(_ot2_rows):
+                    _ot2r   = _ot2_rows.iloc[0]
+                    _ot2lst = pd.Timestamp(_ot2r["LAST_MONTH"])
+                    if _ot2lst < _dorm_cutoff:
+                        _ot2_avg = float(_ot2r["AVG_REV_PER_COMPLETED"])
+                        st.markdown("<div style='margin-top:8px'></div>", unsafe_allow_html=True)
+                        info_card(
+                            f"<b>Operating Theatre 2 — dormant since {_ot2lst.strftime('%b %Y')}.</b> "
+                            f"Sessions continue to be scheduled (1–4/month) but none are completing. "
+                            f"At its historical rate of {fmt_kes(_ot2_avg)}/session, 3 active sessions/month "
+                            f"would add ~{fmt_kes(_ot2_avg * 3)}/month. Cause not recorded in EMR — "
+                            "investigate with theatre manager.",
+                            border_color=COLORS["warning"],
+                        )
+                # All-time procedure mix — EVALUATION_PROCEDURES join (Inv 77)
+                # No exclusion filter needed: EP join returns clinical procedures only.
+                # No revenue: invoice aggregation overcounts by ~34% (Inv 77 Round 2).
+                _proc_raw = P.get("th_procedures", pd.DataFrame())
+                if len(_proc_raw):
+                    _proc_df = _proc_raw.copy()
+                    _proc_df.columns = [c.upper() for c in _proc_df.columns]
+                    _proc_df = _proc_df.head(15).sort_values("BOOKINGS", ascending=True)
+                    st.markdown("<div style='margin-top:16px'></div>", unsafe_allow_html=True)
+                    section_header("Top Procedures — By Booking Volume (All-Time)")
+                    fig_proc = go.Figure()
+                    fig_proc.add_bar(
+                        x=_proc_df["BOOKINGS"], y=_proc_df["PROCEDURE_NAME"],
+                        orientation="h",
+                        marker_color=COLORS["primary"],
+                        text=_proc_df["BOOKINGS"].astype(str),
+                        textposition="outside",
+                        hovertemplate="%{y}: %{x} bookings<extra></extra>",
+                    )
+                    fig_proc.update_layout(**cl(
+                        height=max(200, len(_proc_df) * 36),
+                        xaxis_title="Bookings (all-time)",
+                        margin=dict(l=220, r=60, t=10, b=30),
+                    ))
+                    st.plotly_chart(fig_proc, use_container_width=True,
+                                    config={"displayModeBar": False})
+                    dq_note(
+                        "Procedure names from EMR booking records (EVALUATION_PROCEDURES) · all-time. "
+                        "Spelling variants consolidated (Inv 77). "
+                        "Revenue not shown — use monthly theatre revenue figures above."
+                    )
 
             # ── Emergency TAT distribution + day-of-week analysis (KSH only) ─
             _tat_df = P.get("th_emer_tat", pd.DataFrame())
@@ -3603,7 +3833,7 @@ elif page == "Capacity & Operations":
                 )
                 fig_cd12.add_hline(
                     y=41, line_dash="dot", line_color=COLORS["muted"], line_width=1.5,
-                    annotation_text="CD12 baseline 41%",
+                    annotation_text="41% baseline",
                     annotation_font_size=9,
                     annotation_font_color=COLORS["muted"],
                     annotation_position="top left",
@@ -3643,27 +3873,38 @@ elif page == "Capacity & Operations":
                 _rev_clr    = COLORS["muted"]
                 _rev_sub    = "—"
             # Row 1 — programme performance
-            _dr1, _dr2 = st.columns(2, gap="large")
+            _dial_total_sess = int(fac_dialysis_ops["SESSIONS_BILLED"].sum()) if len(fac_dialysis_ops) else 0
+            _dial_prog_start = (pd.to_datetime(_dial_rev_sorted["INVOICE_MONTH"].iloc[0]).strftime("%b %Y")
+                                if len(_dial_rev_sorted) else "")
+            _dial_prog_end   = (pd.to_datetime(_dial_rev_sorted["INVOICE_MONTH"].iloc[-1]).strftime("%b %Y")
+                                if len(_dial_rev_sorted) else "")
+            _dial_prog_sub   = (f"{_dial_prog_start}–{_dial_prog_end} · NHIF-funded · Apr 2026 partial"
+                                if _dial_prog_start else "NHIF-funded")
+            _dr1, _dr2, _dr3 = st.columns(3, gap="large")
             with _dr1:
                 kpi_card("Programme Sessions",
-                         str(_dial_peak_sess) if _dial_peak_sess else "—",
-                         f"Peak {_dial_peak_month} · NHIF-funded", COLORS["primary"])
+                         str(_dial_total_sess) if _dial_total_sess else "—",
+                         _dial_prog_sub, COLORS["primary"])
             with _dr2:
+                kpi_card("Enrolled Patients", "54",
+                         "Distinct patients · Mar 2025–Apr 2026 · confirmed via billing records",
+                         COLORS["primary"])
+            with _dr3:
                 kpi_card("Monthly Session Revenue",
                          fmt_kes(_rev_latest) if _rev_latest else "—",
                          _rev_sub, _rev_clr)
             st.markdown("<div style='margin-top:12px'></div>", unsafe_allow_html=True)
             # Row 2 — the gap
-            _demand_kes = 122 * 8 * 10_650
-            _dr3, _dr4 = st.columns(2, gap="large")
-            with _dr3:
-                kpi_card("CD12 Routing Gap", "96.8%",
-                         "122 of 126 critical creatinine patients not in programme", COLORS["danger"])
+            _demand_kes = 123 * 8 * 10_650
+            _dr4, _dr5 = st.columns(2, gap="large")
             with _dr4:
+                kpi_card("Renal Routing Gap", "97.6%",
+                         "123 of 126 critical creatinine patients never enrolled in programme", COLORS["danger"])
+            with _dr5:
                 kpi_card(
                     "Patient Demand Not Reached",
                     fmt_kes(_demand_kes),
-                    "122 patients × 8 sessions/month × KES 10,650 · indicative upper bound",
+                    "123 patients × 8 sessions/month × KES 10,650 · indicative upper bound",
                     COLORS["warning"], icon="⚠",
                 )
             _dial3 = fac_dialysis_ops.sort_values("INVOICE_MONTH") if len(fac_dialysis_ops) else pd.DataFrame()
@@ -3731,11 +3972,12 @@ elif page == "Capacity & Operations":
                                     config={"displayModeBar": False})
             info_card(
                 "KSH dialysis programme is operational — 135 sessions in December 2025, predominantly "
-                "NHIF-funded at KES 10,650/session. Running at 35–51% of one-shift theoretical capacity "
-                "(6 machines, 264 sessions/month maximum). Data to April 21 2026. "
-                "The clinical gap is referral routing: 122 of 126 patients with critical creatinine results "
-                "(96.8%) have no dialysis billing record. Capacity exists — the pathway from critical "
-                "creatinine detection to dialysis enrolment is not functioning. See Causal Intelligence → CD12.",
+                "NHIF-funded at KES 10,650/session. 54 patients enrolled since March 2025. Running at "
+                "35–51% of one-shift theoretical capacity (6 machines, 264 sessions/month maximum). "
+                "Data to April 21 2026. "
+                "The clinical gap is referral routing: 123 of 126 patients with critical creatinine results "
+                "(97.6%) have never enrolled in the dialysis programme. Only 3 patients crossed from the "
+                "outpatient renal pathway into the programme. Capacity exists — the referral pathway is not functioning.",
                 border_color=COLORS["warning"],
             )
 
@@ -4499,7 +4741,7 @@ elif page == "Causal Intelligence":
 
                 # ── Simulated absence impact ──────────────────────────────────
                 st.markdown("<div style='margin-top:20px'></div>", unsafe_allow_html=True)
-                section_header("Simulated Impact — If E.Awando Is Absent")
+                section_header(f"{_fmt_doc(_dom_doc)}'s Contribution to Conversion Rate")
                 _sim_raw = P7.get("doctor_conv", pd.DataFrame())
                 if len(_sim_raw):
                     _sim = _sim_raw.copy()
@@ -4515,16 +4757,18 @@ elif page == "Causal Intelligence":
                     with _s1:
                         kpi_card("Actual Conversion Rate",
                                  f"{_actual_rate}%",
-                                 "Via evaluation pathway · all doctors",
+                                 "All-time aggregate · all doctors · all months",
                                  COLORS["primary"])
                     with _s2:
-                        kpi_card(f"Without {_fmt_doc(_dom_doc)}",
+                        kpi_card("Facility Rate Without His Admissions",
                                  f"{_sim_rate}%",
-                                 f"−{_drop} percentage points · simulation",
+                                 f"−{_drop}pp · {_fmt_doc(_dom_doc)}'s admissions removed · all-time basis",
                                  COLORS["danger"])
                     st.caption(
-                        f"Simulation: {_fmt_doc(_dom_doc)}'s {_sim_dom_adm:,} admissions removed. "
-                        "Evaluation volume held constant. This is a modelled estimate, not a measured outcome."
+                        f"Structural dependency test: {_fmt_doc(_dom_doc)}'s {_sim_dom_adm:,} admissions "
+                        "removed from all-time total (facility-wide, all months). Evaluation volume held "
+                        "constant — gap shows what the facility rate would have been without his admitted "
+                        "patients. Modelled estimate, not a measured outcome."
                     )
             else:
                 st.caption("E.Awando ward share data not found — username may differ.")
@@ -4535,7 +4779,7 @@ elif page == "Causal Intelligence":
 
         # ── CD12: Renal Patient Safety ────────────────────────────────────────
 
-        section_header("Renal Pathway — Critical Patients Leaving Without Admission (CD12)")
+        section_header("Renal Pathway — Critical Patients Leaving Without Admission")
 
         _r1, _r2, _r3 = st.columns(3, gap="large")
         with _r1:
@@ -4555,8 +4799,8 @@ elif page == "Causal Intelligence":
             kpi_card("Returned to KSH", "72%",
                      "Most came back outpatient only", COLORS["primary"])
         with _r5:
-            kpi_card("Dialysis Routing Gap", "96.8%",
-                     "122 of 126 patients never billed for dialysis", COLORS["danger"])
+            kpi_card("Renal Routing Gap", "97.6%",
+                     "123 of 126 critical creatinine patients never enrolled in dialysis", COLORS["danger"])
 
         _ci_dial_raw = P7.get("dialysis_ops", pd.DataFrame())
         _ci_dial = (
@@ -4578,8 +4822,8 @@ elif page == "Causal Intelligence":
 
         st.caption(
             "Non-admission is a clinical decision, not patient-driven — DAMA rate matches the facility baseline. "
-            "The dialysis programme is operational (80–135 sessions/month, NHIF-funded), "
-            "but 96.8% of critical creatinine patients are not being routed into it. "
+            "The dialysis programme is operational (54 patients enrolled, 80–135 sessions/month, NHIF-funded), "
+            "but 97.6% of critical creatinine patients have never enrolled. Only 3 of 126 ever crossed over. "
             "Escalate to Clinical Director and Renal Lead."
         )
         dq_note("Patient safety finding — not an operational alert. Analysis covers January 2024 onward.")
@@ -4590,9 +4834,10 @@ elif page == "Causal Intelligence":
                 "- Of those who left without admission and returned: a quarter required admission on their return visit — delayed escalation.\n"
                 "- Referral patients waited an average of **18 days** before transfer. No rapid referral pathway confirmed in data.\n"
                 "- 1 patient death within 24 hours of admission. 28% never returned — death, transfer, or lost to follow-up.\n"
-                "- Every patient in this cohort had **no dialysis billing record** at KSH. "
-                "The programme served 80–135 sessions/month (NHIF-funded) — the clinical referral pathway "
-                "from critical creatinine detection to dialysis enrolment is not functioning."
+                "- 123 of 126 critical creatinine patients (97.6%) have never enrolled in the dialysis programme. "
+                "3 patients crossed over. The programme served 54 enrolled patients at 80–135 sessions/month "
+                "(NHIF-funded) — the referral pathway from critical creatinine detection to dialysis enrolment "
+                "is not functioning for the outpatient renal cohort."
             )
 
         # ── Go deeper — suggested chat questions ─────────────────────────────

@@ -44,6 +44,7 @@ from facility_utilization.queries import (
     q_btr_bti_monthly, q_admission_tat_bimodal, q_admission_tat_monthly,
     q_revpab_private_monthly,
     q_peak_tat_conversion, q_peak_doctor_load, q_peak_patient_funnel,
+    q_data_freshness,
     q_dialysis_ops_monthly,
 )
 
@@ -106,6 +107,15 @@ COLORS = {
 
 FAC_DISPLAY = {"KISUMU_CLEAN": "KSH", "TENRI": "TENRI"}
 FAC_OTHER   = {"KISUMU_CLEAN": "TENRI", "TENRI": "KISUMU_CLEAN"}
+
+@st.cache_data(ttl=3600)
+def _load_data_freshness():
+    df = q_data_freshness()
+    out = {}
+    for _, row in df.iterrows():
+        d = pd.to_datetime(row["MAX_DATE"])
+        out[row["FACILITY"]] = f"{d.day} {d.strftime('%b %Y')}"
+    return out
 
 CHAT_URL = os.getenv("CHAT_URL", "http://localhost:8001")
 
@@ -426,11 +436,17 @@ with st.sidebar:
     _logo = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ksh_logo.png")
     if os.path.exists(_logo):
         st.image(_logo, width=80)
+    _freshness   = _load_data_freshness()
+    _data_start  = "Sep 2024" if facility == "KISUMU_CLEAN" else "Jan 2022"
+    _data_end    = _freshness.get(facility, "—")
     st.markdown(
         f'<div style="font-size:11px;font-weight:800;color:#003467;text-transform:uppercase;'
         f'letter-spacing:1.5px;padding:2px 0 2px">Private Hospitals</div>'
-        f'<div style="font-size:10px;color:#6B8CAE;padding-bottom:14px;'
-        f'border-bottom:1px solid #D6E4F0;margin-bottom:10px">{fac_name}</div>',
+        f'<div style="font-size:10px;color:#6B8CAE;padding-bottom:10px;'
+        f'border-bottom:1px solid #D6E4F0;margin-bottom:8px">{fac_name}</div>'
+        f'<div style="font-size:10px;background:#EEF4FB;border-radius:5px;'
+        f'padding:6px 9px;margin-bottom:10px;color:#4A6B8A">'
+        f'<span style="font-weight:700">Data:</span> {_data_start} &mdash; {_data_end}</div>',
         unsafe_allow_html=True)
 
     page = option_menu(
@@ -476,11 +492,6 @@ with st.sidebar:
         },
     )
 
-    _data_end = "Apr 2026" if facility == "KISUMU_CLEAN" else "Jul 2022"
-    st.markdown(
-        f'<div style="font-size:9px;color:#6B8CAE;margin-top:16px;padding-top:8px;'
-        f'border-top:1px solid #D6E4F0">Data through {_data_end}</div>',
-        unsafe_allow_html=True)
 
     # ── Notify ────────────────────────────────────────────────────────────────
     st.markdown("<div style='margin-top:20px'></div>", unsafe_allow_html=True)
@@ -2503,18 +2514,35 @@ elif page == "Capacity & Operations":
     th_overall_rate = (
         100 * th_trend["COMPLETED_SESSIONS"].sum() / max(th_trend["TOTAL_SESSIONS"].sum(), 1)
         if len(th_trend) else 0)
-    _recent_th_rev = th_trend.nlargest(3, "SESSION_MONTH") if len(th_trend) >= 3 else th_trend
-    th_monthly_rev = float(_recent_th_rev["TOTAL_REVENUE"].mean()) if len(_recent_th_rev) else 0
+    # Current month vs prior month — more actionable than trailing averages
+    _th_sorted  = th_trend.sort_values("SESSION_MONTH") if len(th_trend) else th_trend
+    _th_cur_row = _th_sorted.iloc[-1] if len(_th_sorted) >= 1 else None
+    _th_pri_row = _th_sorted.iloc[-2] if len(_th_sorted) >= 2 else None
 
+    th_cur_rate = (100 * float(_th_cur_row["COMPLETED_SESSIONS"]) / max(float(_th_cur_row["TOTAL_SESSIONS"]), 1)
+                   if _th_cur_row is not None else th_overall_rate)
+    th_cur_rev  = float(_th_cur_row["TOTAL_REVENUE"]) if _th_cur_row is not None else 0
+    th_cur_lbl  = pd.to_datetime(_th_cur_row["SESSION_MONTH"]).strftime("%b %Y") if _th_cur_row is not None else "—"
+    th_pri_rate = (100 * float(_th_pri_row["COMPLETED_SESSIONS"]) / max(float(_th_pri_row["TOTAL_SESSIONS"]), 1)
+                   if _th_pri_row is not None else None)
+    th_pri_rev  = float(_th_pri_row["TOTAL_REVENUE"]) if _th_pri_row is not None else None
 
-    # Trailing 3-month completion rate — more current than all-time average
-    _recent_th = th_trend.nlargest(3, "SESSION_MONTH") if len(th_trend) >= 3 else th_trend
-    th_recent_rate = (
-        100 * _recent_th["COMPLETED_SESSIONS"].sum() / max(_recent_th["TOTAL_SESSIONS"].sum(), 1)
-        if len(_recent_th) else th_overall_rate)
-    th_rate_color = (COLORS["danger"] if th_recent_rate < 90
-                     else COLORS["warning"] if th_recent_rate < 95
-                     else COLORS["success"])
+    _comp_delta    = th_cur_rate - th_pri_rate if th_pri_rate is not None else None
+    _rev_delta_pct = ((th_cur_rev - th_pri_rev) / max(th_pri_rev, 1) * 100
+                      if th_pri_rev is not None else None)
+
+    th_rate_subtitle = (
+        f"{th_cur_lbl} · {th_pri_rate:.1f}% prior month · {'+' if _comp_delta >= 0 else ''}{_comp_delta:.1f}pp"
+        if _comp_delta is not None else th_cur_lbl)
+    th_rev_subtitle = (
+        f"{th_cur_lbl} · {fmt_kes(th_pri_rev)} prior month · {'+' if _rev_delta_pct >= 0 else ''}{_rev_delta_pct:.1f}%"
+        if _rev_delta_pct is not None else th_cur_lbl)
+
+    th_monthly_rev = th_cur_rev
+    th_recent_rate = th_cur_rate  # alias used by section header below
+    th_rate_color  = (COLORS["danger"]  if th_cur_rate < 90
+                      else COLORS["warning"] if th_cur_rate < 95
+                      else COLORS["success"])
 
     top_revpab_row = beds_r.iloc[0] if len(beds_r) else None
     top_revpab_val = fmt_kes(float(top_revpab_row["REVPAB"])) if top_revpab_row is not None else "—"
@@ -2528,12 +2556,12 @@ elif page == "Capacity & Operations":
     if facility == "KISUMU_CLEAN":
         c1, c2, c3 = st.columns(3)
         with c1:
-            kpi_card("Theatre Completion", f"{th_recent_rate:.1f}%",
-                     f"Trailing 3 months · all-time avg: {th_overall_rate:.1f}% {th_dot}",
+            kpi_card("Theatre Completion", f"{th_cur_rate:.1f}%",
+                     th_rate_subtitle,
                      th_rate_color)
         with c2:
-            kpi_card("Monthly Theatre Revenue", fmt_kes(th_monthly_rev),
-                     "Trailing 3-month avg", COLORS["success"])
+            kpi_card("Monthly Theatre Revenue", fmt_kes(th_cur_rev),
+                     th_rev_subtitle, COLORS["success"])
         with c3:
             kpi_card("Top Ward RevPAB", top_revpab_val, top_revpab_label, COLORS["warning"])
     else:
@@ -2590,7 +2618,7 @@ elif page == "Capacity & Operations":
                 _th_direction = ("Declining" if th_recent_rate < th_overall_rate - 3
                                  else "Improving" if th_recent_rate > th_overall_rate + 3
                                  else "Stable")
-                section_header(f"Theatre Completion {_th_direction} — {th_recent_rate:.0f}% Recent vs {th_overall_rate:.0f}% All-Time Avg")
+                section_header(f"Theatre Completion {_th_direction} — {th_recent_rate:.0f}% {th_cur_lbl} vs {th_overall_rate:.0f}% All-Time Avg")
                 if len(th_trend):
                     _th_plot = th_trend[th_trend["SESSION_MONTH"] >= "2024-09-01"].copy()
                     fig = make_subplots(specs=[[{"secondary_y": True}]])

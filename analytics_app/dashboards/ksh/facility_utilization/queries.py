@@ -206,32 +206,15 @@ def q_theatre_by_type():
 
 
 def q_theatre_procedures():
-    """All-time procedure booking counts — KSH only.
-    Join: THEATRE_THEATRE_BOOKINGS.operation_procedure → EVALUATION_PROCEDURES.id (Inv 77).
-    EP.id is unique (0 duplicates confirmed) — no fan-out risk.
-    Revenue NOT included: Q1 invoice aggregation overcounts by ~34% (Inv 77 Round 2).
-    Name variants consolidated via CASE WHEN (5 groups confirmed in Inv 77).
+    """All-time procedure booking counts — KSH only. Source: rpt_theatre_case_mix (gold).
+    Note: 11 bookings with orphaned procedure IDs excluded (no match in EVALUATION_PROCEDURES).
+    Unscheduled bookings also excluded (no session_month) — only cases that reached theatre.
     """
     return run_query_df("""
         SELECT
-            CASE
-                WHEN UPPER(ep.name) LIKE '%CESA%' OR UPPER(ep.name) LIKE '%CEAS%'
-                    THEN 'CAESAREAN SECTION'
-                WHEN UPPER(ep.name) LIKE 'DVIU%'
-                    THEN 'DVIU'
-                WHEN UPPER(ep.name) LIKE 'LAPAROT%' OR UPPER(ep.name) LIKE 'LAPARATOM%'
-                    THEN 'LAPAROTOMY'
-                WHEN UPPER(ep.name) = 'HERNIORRAPHY'
-                    THEN 'HERNIORRHAPHY'
-                WHEN UPPER(ep.name) = 'ADENOTONSILLECTOMY +'
-                    THEN 'ADENOTONSILLECTOMY'
-                ELSE ep.name
-            END                                     AS procedure_name,
-            COUNT(DISTINCT b.id)                    AS bookings
-        FROM HOSPITALS.KISUMU_CLEAN.THEATRE_THEATRE_BOOKINGS b
-        JOIN HOSPITALS.KISUMU_CLEAN.EVALUATION_PROCEDURES ep
-            ON ep.id = b.operation_procedure
-        WHERE b.deleted_at IS NULL
+            procedure_name,
+            SUM(bookings) AS bookings
+        FROM HOSPITALS.REPORTING.rpt_theatre_case_mix
         GROUP BY procedure_name
         ORDER BY bookings DESC
         LIMIT 20
@@ -261,93 +244,30 @@ def q_theatre_trend_by_theatre():
 
 
 def q_theatre_procedures_monthly():
-    """Monthly procedure booking counts per theatre — KSH only.
-    Join path: THEATRE_THEATRE_BOOKINGS → THEATRE_THEATRE_SCHEDULES (deduped) +
-               EVALUATION_PROCEDURES (via operation_procedure FK).
-    Schedule dedup: ROW_NUMBER by booking_id DESC handles rescheduling fan-out (Inv 70).
-    Revenue NOT returned: invoice aggregation overcounts by ~34% (Inv 77 Round 2).
-    Use gold table (rpt_theatre_utilization) for revenue. This query supplies case mix only.
-    Name consolidation: same CASE WHEN as q_theatre_procedures().
+    """Monthly procedure booking counts per theatre — KSH only. Source: rpt_theatre_case_mix (gold).
+    Jan 2025+ window applied at query time — gold table covers all scheduled sessions.
     """
     return run_query_df("""
-        WITH sched AS (
-            SELECT
-                booking_id,
-                theatre_id,
-                DATE_TRUNC('month', TRY_TO_TIMESTAMP(schedule_start_time))::DATE AS session_month
-            FROM (
-                SELECT
-                    booking_id,
-                    theatre_id,
-                    schedule_start_time,
-                    ROW_NUMBER() OVER (PARTITION BY booking_id ORDER BY id DESC) AS rn
-                FROM HOSPITALS.KISUMU_CLEAN.THEATRE_THEATRE_SCHEDULES
-                -- THEATRE_THEATRE_SCHEDULES has no deleted_at column (confirmed Inv 77 Round 2)
-            )
-            WHERE rn = 1
-        )
         SELECT
-            s.session_month,
-            CASE s.theatre_id
-                WHEN 1 THEN 'Operating Theatre'
-                WHEN 2 THEN 'Operating Theatre 2'
-                WHEN 3 THEN 'Theatre 12'
-                ELSE 'Unknown'
-            END                                                     AS theatre_name,
-            CASE
-                WHEN UPPER(ep.name) LIKE '%CESA%' OR UPPER(ep.name) LIKE '%CEAS%'
-                    THEN 'CAESAREAN SECTION'
-                WHEN UPPER(ep.name) LIKE 'DVIU%'
-                    THEN 'DVIU'
-                WHEN UPPER(ep.name) LIKE 'LAPAROT%' OR UPPER(ep.name) LIKE 'LAPARATOM%'
-                    THEN 'LAPAROTOMY'
-                WHEN UPPER(ep.name) = 'HERNIORRAPHY'
-                    THEN 'HERNIORRHAPHY'
-                WHEN UPPER(ep.name) = 'ADENOTONSILLECTOMY +'
-                    THEN 'ADENOTONSILLECTOMY'
-                ELSE ep.name
-            END                                                     AS procedure_name,
-            COUNT(DISTINCT b.id)                                    AS bookings
-        FROM HOSPITALS.KISUMU_CLEAN.THEATRE_THEATRE_BOOKINGS b
-        JOIN HOSPITALS.KISUMU_CLEAN.EVALUATION_PROCEDURES ep
-            ON ep.id = b.operation_procedure
-        JOIN sched s
-            ON s.booking_id = b.id
-        WHERE b.deleted_at IS NULL
-          AND s.session_month >= '2025-01-01'
-        GROUP BY s.session_month, theatre_name, procedure_name
-        ORDER BY s.session_month DESC, bookings DESC
+            session_month,
+            theatre_name,
+            procedure_name,
+            bookings
+        FROM HOSPITALS.REPORTING.rpt_theatre_case_mix
+        WHERE session_month >= '2025-01-01'
+        ORDER BY session_month DESC, bookings DESC
     """)
 
 
 def q_theatre_emergency_tat():
-    """Raw emergency booking-to-theatre lags (minutes) — KSH only.
-    One row per positive-TAT case (n≈55). Binning and aggregation done in Python.
-    Dedup: MAX(id) per booking on THEATRE_THEATRE_SCHEDULES (rescheduling fan-out).
-    Both timestamp columns stored as TEXT — TRY_TO_TIMESTAMP required (Inv 70).
+    """Raw emergency booking-to-theatre lags (minutes) — KSH only. Source: rpt_theatre_emergency_tat (gold).
+    One row per positive-TAT case (n=55). Binning and aggregation done in Python.
+    Column renamed booking_to_start_min → tat_min in gold; dashboard must use tat_min.
     """
     return run_query_df("""
-        SELECT
-            DATEDIFF('minute',
-                TRY_TO_TIMESTAMP(b.created_at),
-                TRY_TO_TIMESTAMP(s.schedule_start_time)
-            ) AS booking_to_start_min,
-            DAYNAME(TRY_TO_TIMESTAMP(b.created_at)) AS declaration_day
-        FROM HOSPITALS.KISUMU_CLEAN.THEATRE_THEATRE_BOOKINGS b
-        LEFT JOIN (
-            SELECT booking_id, MAX(id) AS max_sched_id
-            FROM HOSPITALS.KISUMU_CLEAN.THEATRE_THEATRE_SCHEDULES
-            GROUP BY booking_id
-        ) sdedup ON sdedup.booking_id = b.id
-        LEFT JOIN HOSPITALS.KISUMU_CLEAN.THEATRE_THEATRE_SCHEDULES s
-               ON s.id = sdedup.max_sched_id
-        WHERE b.emergency = 1
-          AND b.deleted_at IS NULL
-          AND TRY_TO_TIMESTAMP(s.schedule_start_time) IS NOT NULL
-          AND DATEDIFF('minute',
-                TRY_TO_TIMESTAMP(b.created_at),
-                TRY_TO_TIMESTAMP(s.schedule_start_time)) > 0
-        ORDER BY booking_to_start_min
+        SELECT tat_min AS booking_to_start_min, declaration_day
+        FROM HOSPITALS.REPORTING.rpt_theatre_emergency_tat
+        ORDER BY tat_min
     """)
 
 
@@ -433,71 +353,19 @@ def q_dialysis_trend(facility=None):
 
 
 def q_dialysis_ops_monthly():
-    """KSH only: monthly dialysis throughput + utilisation from FINANCE_INVOICES.
-    Replaces q_dialysis_trend() for KSH — rpt_dialysis.total_sessions is broken
-    (reads DIALYSIS_SESSIONS, which only captured 3 records Mar–Apr 2025; Inv 63).
-    Source: HOSPITALS.KISUMU_CLEAN.FINANCE_INVOICES JOIN FINANCE_INVOICE_ITEMS.
-    Timestamps are billing-time (fi.created_at), not confirmed clinical service time.
-    For NHIF (pay-after-completion model) this is a strong session proxy.
-    Session definition: item_name LIKE '%dialysis service fee%' OR = 'haemodialysis'.
-      Classified once in CTE — covers all observed NHIF and cash session billing codes.
-    Capacity denominator: 264/month = 6 machines × 2 sessions/day × 22 operating days.
-      Theoretical maximum — assumes all 6 machines operational, Mon–Fri, no downtime.
-    is_partial_month: TRUE when the last invoice in that month falls before the 25th
-      (same partial-month logic as KSH_DATA_END.day < 25 used elsewhere in codebase).
-    Data boundary: April 21 2026 (Inv 64) — last month is partial, no May/Jun data.
-    Columns: invoice_month, sessions_billed, sessions_insured, sessions_cash,
-             session_fee_revenue, total_dialysis_revenue, ancillary_revenue,
-             avg_session_fee, utilisation_pct_theoretical, is_partial_month."""
+    """KSH only: monthly dialysis throughput + utilisation. Source: rpt_dialysis_ops (gold).
+    Silver stg_dialysis_billing dedups both FINANCE_INVOICE_ITEMS and FINANCE_INVOICES
+    (both had exact-duplicate rows from ingestion — Inv 80).
+    Columns unchanged: invoice_month, sessions_billed, sessions_insured, sessions_cash,
+    session_fee_revenue, total_dialysis_revenue, ancillary_revenue,
+    avg_session_fee, utilisation_pct_theoretical, is_partial_month.
+    """
     return run_query_df("""
-        WITH all_dialysis AS (
-            SELECT
-                fi.company_id,
-                ii.item_name,
-                ii.amount,
-                TRY_TO_TIMESTAMP(fi.created_at::STRING)                            AS invoice_ts,
-                DATE_TRUNC('month',
-                    TRY_TO_TIMESTAMP(fi.created_at::STRING))::DATE                 AS invoice_month,
-                CASE
-                    WHEN LOWER(ii.item_name) LIKE '%dialysis service fee%'
-                      OR LOWER(ii.item_name) = 'haemodialysis'
-                    THEN TRUE ELSE FALSE
-                END                                                                AS is_session_fee
-            FROM HOSPITALS.KISUMU_CLEAN.FINANCE_INVOICES fi
-            JOIN HOSPITALS.KISUMU_CLEAN.FINANCE_INVOICE_ITEMS ii
-                ON ii.invoice_id = fi.id
-            WHERE LOWER(ii.item_name) LIKE '%dialysis%'
-              AND fi.deleted_at IS NULL
-              AND ii.deleted_at IS NULL
-              AND ii.amount     >  0
-        ),
-        monthly AS (
-            SELECT
-                invoice_month,
-                SUM(CASE WHEN is_session_fee                              THEN 1 ELSE 0 END) AS sessions_billed,
-                SUM(CASE WHEN is_session_fee AND company_id IS NOT NULL   THEN 1 ELSE 0 END) AS sessions_insured,
-                SUM(CASE WHEN is_session_fee AND company_id IS NULL       THEN 1 ELSE 0 END) AS sessions_cash,
-                ROUND(SUM(CASE WHEN is_session_fee THEN amount ELSE 0 END), 0)              AS session_fee_revenue,
-                ROUND(SUM(amount), 0)                                                        AS total_dialysis_revenue,
-                ROUND(SUM(amount)
-                      - SUM(CASE WHEN is_session_fee THEN amount ELSE 0 END), 0)            AS ancillary_revenue,
-                MAX(invoice_ts)::DATE                                                        AS last_invoice_date
-            FROM all_dialysis
-            WHERE invoice_month IS NOT NULL
-            GROUP BY invoice_month
-        )
         SELECT
-            invoice_month,
-            sessions_billed,
-            sessions_insured,
-            sessions_cash,
-            session_fee_revenue,
-            total_dialysis_revenue,
-            ancillary_revenue,
-            ROUND(session_fee_revenue / NULLIF(sessions_billed, 0), 0)   AS avg_session_fee,
-            ROUND(100.0 * sessions_billed / 264.0, 1)                    AS utilisation_pct_theoretical,
-            DAY(last_invoice_date) < 25                                   AS is_partial_month
-        FROM monthly
+            invoice_month, sessions_billed, sessions_insured, sessions_cash,
+            session_fee_revenue, total_dialysis_revenue, ancillary_revenue,
+            avg_session_fee, utilisation_pct_theoretical, is_partial_month
+        FROM HOSPITALS.REPORTING.rpt_dialysis_ops
         ORDER BY invoice_month
     """)
 
@@ -687,76 +555,13 @@ def q_readmission_ward_trend(facility=None):
 
 def q_imaging_trend(facility=None):
     """Imaging revenue by modality + month — CT, MRI, ECHO, Ultrasound, X-Ray.
-    NOTE: queries stg_procedure_revenue directly (no gold table yet). Flag: G8 pending."""
+    Source: rpt_imaging_ops (gold). Grain: revenue_month x facility x modality.
+    """
     fac_filter = f"AND facility = '{facility}'" if facility in _VALID_FACILITIES else ""
     return run_query_df(f"""
-        SELECT
-            DATE_TRUNC('month', invoice_date)::DATE  AS revenue_month,
-            CASE
-                WHEN (   item_name ILIKE 'CT %'
-                      OR item_name ILIKE 'CT-%'
-                      OR item_name ILIKE '% CT %'
-                      OR item_name ILIKE '% CT-%'
-                      OR item_name ILIKE '% CT'
-                      OR item_name ILIKE 'HRCT%'
-                      OR item_name ILIKE '%HRCT %'
-                      OR item_name ILIKE '%computed%'
-                      OR (item_name ILIKE '%angio%'
-                          AND item_name NOT ILIKE '%angiotensin%'))
-                                                      THEN 'CT / Angio'
-                WHEN item_name ILIKE '%echo%'         THEN 'ECHO / Cardiac'
-                WHEN item_name ILIKE '%ultrasound%'
-                  OR item_name ILIKE '%USS%'
-                  OR item_name ILIKE '%sonograph%'    THEN 'Ultrasound'
-                WHEN item_name ILIKE '%x-ray%'
-                  OR item_name ILIKE '%xray%'
-                  OR item_name ILIKE '%radiograph%'   THEN 'X-Ray'
-                WHEN item_name ILIKE '%MRI%'          THEN 'MRI'
-                ELSE 'Other Imaging'
-            END                                       AS modality,
-            COUNT(*)                                  AS sessions,
-            SUM(item_amount)                          AS revenue,
-            ROUND(AVG(item_amount), 0)                AS avg_per_session
-        FROM HOSPITALS.STAGING.stg_procedure_revenue
-        WHERE item_type != 'copay'
-          AND (
-              item_name ILIKE 'CT %'       OR item_name ILIKE 'CT-%'
-           OR item_name ILIKE '% CT %'     OR item_name ILIKE '% CT-%'
-           OR item_name ILIKE '% CT'       OR item_name ILIKE 'HRCT%'
-           OR item_name ILIKE '%HRCT %'    OR item_name ILIKE '%computed%'
-           OR (item_name ILIKE '%angio%' AND item_name NOT ILIKE '%angiotensin%')
-           OR item_name ILIKE '%echo%'
-           OR item_name ILIKE '%ultrasound%' OR item_name ILIKE '%USS%'
-           OR item_name ILIKE '%sonograph%'
-           OR item_name ILIKE '%x-ray%' OR item_name ILIKE '%xray%'
-           OR item_name ILIKE '%radiograph%'
-           OR item_name ILIKE '%MRI%'
-          )
-          {fac_filter}
-        GROUP BY
-            DATE_TRUNC('month', invoice_date)::DATE,
-            CASE
-                WHEN (   item_name ILIKE 'CT %'
-                      OR item_name ILIKE 'CT-%'
-                      OR item_name ILIKE '% CT %'
-                      OR item_name ILIKE '% CT-%'
-                      OR item_name ILIKE '% CT'
-                      OR item_name ILIKE 'HRCT%'
-                      OR item_name ILIKE '%HRCT %'
-                      OR item_name ILIKE '%computed%'
-                      OR (item_name ILIKE '%angio%'
-                          AND item_name NOT ILIKE '%angiotensin%'))
-                                                      THEN 'CT / Angio'
-                WHEN item_name ILIKE '%echo%'         THEN 'ECHO / Cardiac'
-                WHEN item_name ILIKE '%ultrasound%'
-                  OR item_name ILIKE '%USS%'
-                  OR item_name ILIKE '%sonograph%'    THEN 'Ultrasound'
-                WHEN item_name ILIKE '%x-ray%'
-                  OR item_name ILIKE '%xray%'
-                  OR item_name ILIKE '%radiograph%'   THEN 'X-Ray'
-                WHEN item_name ILIKE '%MRI%'          THEN 'MRI'
-                ELSE 'Other Imaging'
-            END
+        SELECT revenue_month, modality, sessions, revenue, avg_per_session
+        FROM HOSPITALS.REPORTING.rpt_imaging_ops
+        WHERE 1=1 {fac_filter}
         ORDER BY revenue_month, revenue DESC
     """)
 
@@ -781,23 +586,14 @@ def q_ward_admissions_monthly(facility=None):
 
 
 def q_ward_los_monthly(facility=None):
-    """Monthly median LOS per ward — from stg_inpatient_admissions (silver exception, G9 pending).
-    Median required — avg is unreliable due to extreme outliers (max 139d Maternity, Inv 22)."""
+    """Monthly median LOS per ward. Source: rpt_ward_los (gold). Silver exception removed.
+    Median used — avg unreliable due to extreme outliers (max 139d Maternity, Inv 22)."""
     f_val = facility if facility in _VALID_FACILITIES else None
-    flt = f"AND source_schema = '{f_val}'" if f_val else ""
+    flt = f"AND facility = '{f_val}'" if f_val else ""
     return run_query_df(f"""
-        SELECT
-            source_schema                              AS facility,
-            ward_category,
-            DATE_TRUNC('month', ADMITTED_AT)::DATE     AS admission_month,
-            MEDIAN(LOS_DAYS)                           AS median_los_days,
-            COUNT(*)                                   AS admissions
-        FROM HOSPITALS.STAGING.stg_inpatient_admissions
-        WHERE LOS_DAYS IS NOT NULL
-          AND ADMITTED_AT >= '2000-01-01'
-          {flt}
-        GROUP BY source_schema, ward_category,
-                 DATE_TRUNC('month', ADMITTED_AT)::DATE
+        SELECT facility, ward_category, admission_month, median_los_days, admissions
+        FROM HOSPITALS.REPORTING.rpt_ward_los
+        WHERE 1=1 {flt}
         ORDER BY ward_category, admission_month
     """)
 
@@ -828,222 +624,124 @@ def q_ward_discharge_monthly(facility=None):
 
 def q_doctor_workload_monthly():
     """KSH only: monthly evaluation visits per doctor — burnout + concentration rules (Inv 24).
-    created_at is VARCHAR — uses TRY_TO_TIMESTAMP. IS_EMPLOYEE not populated for KSH."""
+    Source: rpt_doctor_performance (gold). Silver: STG_EVAL_VISITS."""
     return run_query_df("""
         SELECT
-            DATE_TRUNC('month', TRY_TO_TIMESTAMP(ev.created_at))::DATE AS visit_month,
-            u.username,
-            COUNT(*) AS monthly_visits
-        FROM HOSPITALS.KISUMU_CLEAN.EVALUATION_VISITS ev
-        JOIN HOSPITALS.KISUMU_CLEAN.USERS u ON ev.user = u.id
-        WHERE ev.deleted_at IS NULL
-          AND u.active = 1
-          AND u.username NOT REGEXP '.*[0-9].*'
-          AND u.username NOT IN ('sudo', 'Billclinton')
-          AND TRY_TO_TIMESTAMP(ev.created_at) >= '2024-01-01'
-        GROUP BY
-            DATE_TRUNC('month', TRY_TO_TIMESTAMP(ev.created_at))::DATE,
-            u.username
+            visit_month,
+            username,
+            evaluations AS monthly_visits
+        FROM HOSPITALS.REPORTING.rpt_doctor_performance
+        WHERE visit_month >= '2024-01-01'
         ORDER BY visit_month, monthly_visits DESC
     """)
 
 
 def q_doctor_conversion_monthly():
     """KSH only: monthly evaluation-to-admission conversion rate per doctor.
-    Join path: EVALUATION_VISITS.id → INPATIENT_ADMISSIONS.visit_id (confirmed Inv 31 / CD6).
-    admitted CTE deduplicates INPATIENT_ADMISSIONS to avoid fan-out (same pattern as q_cd12_monthly_rate).
-    Columns: visit_month, username, evaluations, admissions, conversion_rate_pct."""
+    Source: rpt_doctor_performance (gold). Silver: STG_EVAL_VISITS."""
     return run_query_df("""
-        WITH admitted AS (
-            SELECT DISTINCT visit_id
-            FROM HOSPITALS.KISUMU_CLEAN.INPATIENT_ADMISSIONS
-            WHERE ward_name IS NOT NULL
-        )
         SELECT
-            DATE_TRUNC('month', TRY_TO_TIMESTAMP(ev.created_at))::DATE  AS visit_month,
-            u.username,
-            COUNT(*)                                                     AS evaluations,
-            COUNT(a.visit_id)                                            AS admissions,
-            ROUND(COUNT(a.visit_id) * 100.0
-                  / NULLIF(COUNT(*), 0), 1)                              AS conversion_rate_pct
-        FROM HOSPITALS.KISUMU_CLEAN.EVALUATION_VISITS ev
-        JOIN HOSPITALS.KISUMU_CLEAN.USERS u ON ev.user = u.id
-        LEFT JOIN admitted a ON a.visit_id = ev.id
-        WHERE ev.deleted_at IS NULL
-          AND u.active = 1
-          AND u.username NOT REGEXP '.*[0-9].*'
-          AND u.username NOT IN ('sudo', 'Billclinton')
-          AND TRY_TO_TIMESTAMP(ev.created_at) >= '2024-09-01'
-        GROUP BY
-            DATE_TRUNC('month', TRY_TO_TIMESTAMP(ev.created_at))::DATE,
-            u.username
+            visit_month,
+            username,
+            evaluations,
+            admissions,
+            conversion_rate_pct
+        FROM HOSPITALS.REPORTING.rpt_doctor_performance
+        WHERE visit_month >= '2024-09-01'
         ORDER BY visit_month, evaluations DESC
     """)
 
 
 def q_visit_summary():
-    """KSH only: monthly total visit count from EVALUATION_VISITS (Inv 27 confirmed table + column).
-    created_at is VARCHAR — uses TRY_TO_TIMESTAMP. Filtered to active clean doctors (matches CD11
-    methodology — excludes test accounts and inactive staff). Inpatient derived in dashboard from ward_adm."""
+    """KSH only: monthly total visit count across all tracked doctors.
+    Source: rpt_doctor_performance (gold). Silver: STG_EVAL_VISITS."""
     return run_query_df("""
         SELECT
-            DATE_TRUNC('month', TRY_TO_TIMESTAMP(ev.created_at))::DATE AS visit_month,
-            COUNT(*) AS total_visits
-        FROM HOSPITALS.KISUMU_CLEAN.EVALUATION_VISITS ev
-        JOIN HOSPITALS.KISUMU_CLEAN.USERS u ON ev.user = u.id
-        WHERE ev.deleted_at IS NULL
-          AND u.active = 1
-          AND u.username NOT REGEXP '.*[0-9].*'
-          AND u.username NOT IN ('sudo', 'Billclinton')
-          AND TRY_TO_TIMESTAMP(ev.created_at) >= '2024-09-01'
-        GROUP BY DATE_TRUNC('month', TRY_TO_TIMESTAMP(ev.created_at))::DATE
+            visit_month,
+            SUM(evaluations) AS total_visits
+        FROM HOSPITALS.REPORTING.rpt_doctor_performance
+        WHERE visit_month >= '2024-09-01'
+        GROUP BY visit_month
         ORDER BY visit_month
     """)
 
 
 def q_peak_ward_dist():
-    """KSH only: ward admission distribution during Monday 14-18h peak vs off-peak (CD5).
-    Join: EVALUATION_VISITS (visit time → peak classification) → STG_INPATIENT_ADMISSIONS (WARD_CATEGORY).
-    STG used for clean WARD_CATEGORY + proper ADMITTED_AT timestamp. Sep 2024 cutoff.
+    """KSH only: ward admission distribution during Monday 14-17h peak vs off-peak (CD5).
+    Source: rpt_peak_performance (gold). time_bucket = Mon 14-17h vs Off-Peak.
     Columns: time_bucket, ward_category, admissions."""
     return run_query_df("""
         SELECT
-            CASE WHEN DAYOFWEEKISO(TRY_TO_TIMESTAMP(ev.created_at)) = 1
-                      AND HOUR(TRY_TO_TIMESTAMP(ev.created_at)) BETWEEN 14 AND 17
-                 THEN 'Peak'
-                 ELSE 'Off-Peak'
-            END                                    AS time_bucket,
-            ia.ward_category,
-            COUNT(DISTINCT ia.original_id)         AS admissions
-        FROM HOSPITALS.KISUMU_CLEAN.EVALUATION_VISITS ev
-        JOIN HOSPITALS.STAGING.STG_INPATIENT_ADMISSIONS ia ON ia.visit_id = ev.id
-        WHERE ev.deleted_at IS NULL
-          AND ia.ward_category IS NOT NULL
-          AND ia.source_schema = 'KISUMU_CLEAN'
-          AND TRY_TO_TIMESTAMP(ev.created_at) IS NOT NULL
-          AND TRY_TO_TIMESTAMP(ev.created_at) >= '2024-09-01'
-        GROUP BY 1, 2
-        ORDER BY 1, 3 DESC
+            time_bucket,
+            ward_category,
+            COUNT(visit_id) AS admissions
+        FROM HOSPITALS.REPORTING.rpt_peak_performance
+        WHERE ward_category IS NOT NULL
+        GROUP BY time_bucket, ward_category
+        ORDER BY time_bucket, admissions DESC
     """)
 
 
 def q_doctor_ward_share():
     """KSH only: doctor share of admissions per ward per month (CD6 — physician concentration).
-    Joins INPATIENT_ADMISSIONS → EVALUATION_VISITS → USERS to get username (eawando format).
-    INPATIENT_ADMISSIONS.doctor_username is a different field — not the canonical username.
-    Sep 2024 cutoff via ADMITTED_AT.
+    Source: rpt_peak_performance (gold). admission_month from ADMITTED_AT in silver.
     Columns: admission_month, username, ward_name, admissions."""
     return run_query_df("""
         SELECT
-            DATE_TRUNC('month', TRY_TO_TIMESTAMP(ia.admitted_at))::DATE AS admission_month,
-            u.username                         AS username,
-            ia.ward_name,
-            COUNT(DISTINCT ia.id)              AS admissions
-        FROM HOSPITALS.KISUMU_CLEAN.INPATIENT_ADMISSIONS ia
-        JOIN HOSPITALS.KISUMU_CLEAN.EVALUATION_VISITS ev ON ev.id = ia.visit_id
-        JOIN HOSPITALS.KISUMU_CLEAN.USERS u ON u.id = ev.user
-        WHERE ia.ward_name IS NOT NULL
-          AND ev.deleted_at IS NULL
-          AND u.active = 1
-          AND u.username NOT REGEXP '.*[0-9].*'
-          AND u.username NOT IN ('sudo', 'Billclinton')
-          AND TRY_TO_TIMESTAMP(ia.admitted_at) >= '2024-09-01'
-        GROUP BY 1, 2, 3
-        ORDER BY 4 DESC
+            admission_month,
+            username,
+            ward_name,
+            COUNT(visit_id) AS admissions
+        FROM HOSPITALS.REPORTING.rpt_peak_performance
+        WHERE ward_name IS NOT NULL
+          AND admission_month IS NOT NULL
+        GROUP BY admission_month, username, ward_name
+        ORDER BY admissions DESC
     """)
 
 
 def q_peak_breakdown():
-    """KSH only: monthly peak (09-12h) vs off-peak visit counts from EVALUATION_VISITS.
-    Peak = hours 9,10,11,12 — confirmed highest volume window (Inv 29 Q2). Sep 2024 cutoff.
+    """KSH only: monthly peak (09-12h) vs off-peak visit counts. Source: rpt_peak_performance (gold).
+    Peak = hours 9,10,11,12 — confirmed highest volume window (Inv 29 Q2).
     Columns: visit_month, peak_visits, offpeak_visits, total_visits, peak_vs_offpeak_pct."""
     return run_query_df("""
         SELECT
-            DATE_TRUNC('month', TRY_TO_TIMESTAMP(created_at))::DATE  AS visit_month,
-            SUM(CASE WHEN HOUR(TRY_TO_TIMESTAMP(created_at)) BETWEEN 9 AND 12
-                     THEN 1 ELSE 0 END)                              AS peak_visits,
-            SUM(CASE WHEN HOUR(TRY_TO_TIMESTAMP(created_at)) NOT BETWEEN 9 AND 12
-                     THEN 1 ELSE 0 END)                              AS offpeak_visits,
-            COUNT(*)                                                 AS total_visits,
+            visit_month,
+            SUM(CASE WHEN visit_hour BETWEEN 9 AND 12 THEN 1 ELSE 0 END)     AS peak_visits,
+            SUM(CASE WHEN visit_hour NOT BETWEEN 9 AND 12 THEN 1 ELSE 0 END)  AS offpeak_visits,
+            COUNT(*)                                                           AS total_visits,
             ROUND(
-                SUM(CASE WHEN HOUR(TRY_TO_TIMESTAMP(created_at)) BETWEEN 9 AND 12
-                         THEN 1 ELSE 0 END)
-                / NULLIF(SUM(CASE WHEN HOUR(TRY_TO_TIMESTAMP(created_at)) NOT BETWEEN 9 AND 12
-                                  THEN 1 ELSE 0 END), 0) * 100
-            , 1)                                                     AS peak_vs_offpeak_pct
-        FROM HOSPITALS.KISUMU_CLEAN.EVALUATION_VISITS
-        WHERE deleted_at IS NULL
-          AND TRY_TO_TIMESTAMP(created_at) >= '2024-09-01'
-          AND TRY_TO_TIMESTAMP(created_at) IS NOT NULL
-        GROUP BY DATE_TRUNC('month', TRY_TO_TIMESTAMP(created_at))::DATE
+                SUM(CASE WHEN visit_hour BETWEEN 9 AND 12 THEN 1 ELSE 0 END)
+                / NULLIF(SUM(CASE WHEN visit_hour NOT BETWEEN 9 AND 12 THEN 1 ELSE 0 END), 0) * 100
+            , 1)                                                               AS peak_vs_offpeak_pct
+        FROM HOSPITALS.REPORTING.rpt_peak_performance
+        GROUP BY visit_month
         ORDER BY visit_month
     """)
 
 
 def q_cd12_monthly_rate():
     """KSH only: monthly critical creatinine non-admission rate (Rule 29 / CD12).
-    Source: KISUMU_RAW.EVENTS_RAW. Critical flags stored as HTML strings: CL/CH.
+    Source: rpt_cd12_monthly_rate (gold). Raw exception resolved 2026-06-27.
+    Chain: KISUMU_RAW.EVENTS_RAW → KISUMU_CLEAN.EVENTS_LAB_FLAGS → stg_lab_events → gold.
     Data available from Jul 2025 onward (CL/CH flag format introduced mid-2025).
-    QUALIFY deduplicates same visit flagged multiple times in a month.
-    admitted CTE uses DISTINCT to flatten INPATIENT_ADMISSIONS fan-out.
     Columns: critical_month, total_critical, admitted, not_admitted, non_admission_rate_pct."""
     return run_query_df("""
-        WITH critical_cr AS (
-            SELECT
-                DATE_TRUNC('month', TRY_TO_TIMESTAMP(payload:created_at::STRING))::DATE
-                                                             AS critical_month,
-                TRY_TO_NUMBER(payload:visit_id::STRING)      AS visit_id
-            FROM HOSPITALS.KISUMU_RAW.EVENTS_RAW
-            WHERE payload:test::STRING = 'Creatinine'
-              AND (   CONTAINS(payload:flag::STRING, '(CL)')
-                   OR CONTAINS(payload:flag::STRING, '(CH)'))
-              AND TRY_TO_TIMESTAMP(payload:created_at::STRING) >= '2024-09-01'
-            QUALIFY ROW_NUMBER() OVER (
-                PARTITION BY TRY_TO_NUMBER(payload:visit_id::STRING),
-                             DATE_TRUNC('month', TRY_TO_TIMESTAMP(payload:created_at::STRING))
-                ORDER BY TRY_TO_TIMESTAMP(payload:created_at::STRING)
-            ) = 1
-        ),
-        admitted AS (
-            SELECT DISTINCT visit_id
-            FROM HOSPITALS.KISUMU_CLEAN.INPATIENT_ADMISSIONS
-        )
         SELECT
-            cc.critical_month,
-            COUNT(DISTINCT cc.visit_id)                                          AS total_critical,
-            COUNT(DISTINCT adm.visit_id)                                         AS admitted,
-            COUNT(DISTINCT cc.visit_id) - COUNT(DISTINCT adm.visit_id)          AS not_admitted,
-            ROUND(
-                100.0 * (COUNT(DISTINCT cc.visit_id) - COUNT(DISTINCT adm.visit_id))
-                / NULLIF(COUNT(DISTINCT cc.visit_id), 0), 1
-            )                                                                    AS non_admission_rate_pct
-        FROM critical_cr cc
-        LEFT JOIN admitted adm ON adm.visit_id = cc.visit_id
-        GROUP BY cc.critical_month
-        ORDER BY cc.critical_month
+            critical_month, total_critical, admitted, not_admitted, non_admission_rate_pct
+        FROM HOSPITALS.REPORTING.rpt_cd12_monthly_rate
+        ORDER BY critical_month
     """)
 
 
 def q_lab_monthly():
     """KSH only: monthly lab/imaging volume + abnormal rate — for lab rules (Inv 25b).
-    Source: KISUMU_RAW.EVENTS_RAW. All fields inside JSON payload: column.
-    Reliable from Sep 2024. flag IN ('H','L') = abnormal."""
+    Source: rpt_lab_monthly (gold). Raw exception resolved 2026-06-27.
+    Chain: KISUMU_RAW.EVENTS_RAW → KISUMU_CLEAN.EVENTS_LAB_FLAGS → stg_lab_events → gold.
+    Columns: lab_month, distinct_visits, total_components, abnormal_count, abnormal_pct."""
     return run_query_df("""
-        SELECT
-            DATE_TRUNC('month', TRY_TO_TIMESTAMP(payload:created_at::STRING))::DATE
-                                      AS lab_month,
-            COUNT(DISTINCT payload:visit_id::STRING) AS distinct_visits,
-            COUNT(*)                  AS total_components,
-            SUM(CASE WHEN payload:flag::STRING IN ('H', 'L') THEN 1 ELSE 0 END)
-                                      AS abnormal_count,
-            ROUND(
-                100.0 * SUM(CASE WHEN payload:flag::STRING IN ('H', 'L') THEN 1 ELSE 0 END)
-                / NULLIF(COUNT(*), 0), 2
-            )                         AS abnormal_pct
-        FROM HOSPITALS.KISUMU_RAW.EVENTS_RAW
-        WHERE payload:test IS NOT NULL
-          AND TRY_TO_TIMESTAMP(payload:created_at::STRING) >= '2024-09-01'
-        GROUP BY DATE_TRUNC('month', TRY_TO_TIMESTAMP(payload:created_at::STRING))::DATE
+        SELECT lab_month, distinct_visits, total_components, abnormal_count, abnormal_pct
+        FROM HOSPITALS.REPORTING.rpt_lab_monthly
         ORDER BY lab_month
     """)
 
@@ -1104,106 +802,31 @@ def q_btr_bti_monthly():
 
 def q_admission_tat_bimodal():
     """KSH only: admission TAT by day of week — fast-track % + evaluation volume (B2 / P16-2).
-    TAT = minutes from evaluation visit creation to first admission record.
-    Dedup CTE required: 97% of INPATIENT_ADMISSIONS visit_ids have multiple rows (C2 confirmed).
-    Fast-track: TAT < 60 min. Slow pathway: TAT 60-480 min. Cap at 480 min (>8h = data quality zone).
-    visits CTE counts ALL evaluation visits per day (no admission join) — volume context.
-    Sep 2024+ data window (reliable per Inv 25b/29). No doctor filter — full population.
+    Source: rpt_admission_tat_bimodal (gold). Silver exception resolved 2026-06-27.
     Columns: day_num, day_name, total_admissions, fast_track, slow_pathway, fast_pct,
              p50_tat_min, p75_tat_min, total_evaluations."""
     return run_query_df("""
-        WITH ia_dedup AS (
-            SELECT
-                visit_id,
-                MIN(created_at) AS admission_at
-            FROM HOSPITALS.KISUMU_CLEAN.INPATIENT_ADMISSIONS
-            WHERE DELETED_AT IS NULL
-            GROUP BY visit_id
-        ),
-        tat AS (
-            SELECT
-                DAYOFWEEK(TRY_TO_TIMESTAMP(ev.CREATED_AT))         AS day_num,
-                DAYNAME(TRY_TO_TIMESTAMP(ev.CREATED_AT))           AS day_name,
-                DATEDIFF('minute',
-                    TRY_TO_TIMESTAMP(ev.CREATED_AT),
-                    ia.admission_at)                                AS tat_min
-            FROM HOSPITALS.KISUMU_CLEAN.EVALUATION_VISITS ev
-            JOIN ia_dedup ia ON ia.visit_id = ev.ID
-            WHERE ev.DELETED_AT IS NULL
-              AND TRY_TO_TIMESTAMP(ev.CREATED_AT) >= '2024-09-01'
-              AND DATEDIFF('minute',
-                    TRY_TO_TIMESTAMP(ev.CREATED_AT),
-                    ia.admission_at) BETWEEN 1 AND 480
-        ),
-        visits AS (
-            SELECT
-                DAYOFWEEK(TRY_TO_TIMESTAMP(created_at))            AS day_num,
-                COUNT(*)                                            AS total_evaluations
-            FROM HOSPITALS.KISUMU_CLEAN.EVALUATION_VISITS
-            WHERE DELETED_AT IS NULL
-              AND TRY_TO_TIMESTAMP(created_at) >= '2024-09-01'
-            GROUP BY 1
-        )
         SELECT
-            t.day_num,
-            t.day_name,
-            COUNT(*)                                                                AS total_admissions,
-            SUM(CASE WHEN t.tat_min < 60 THEN 1 ELSE 0 END)                        AS fast_track,
-            SUM(CASE WHEN t.tat_min >= 60 THEN 1 ELSE 0 END)                       AS slow_pathway,
-            ROUND(SUM(CASE WHEN t.tat_min < 60 THEN 1 ELSE 0 END)
-                  * 100.0 / COUNT(*), 1)                                            AS fast_pct,
-            ROUND(MEDIAN(t.tat_min), 0)                                             AS p50_tat_min,
-            ROUND(PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY t.tat_min), 0)      AS p75_tat_min,
-            v.total_evaluations
-        FROM tat t
-        JOIN visits v ON v.day_num = t.day_num
-        GROUP BY t.day_num, t.day_name, v.total_evaluations
-        ORDER BY t.day_num
+            day_num, day_name, total_admissions, fast_track, slow_pathway,
+            fast_pct, p50_tat_min, p75_tat_min, total_evaluations
+        FROM HOSPITALS.REPORTING.rpt_admission_tat_bimodal
+        ORDER BY day_num
     """)
 
 
 def q_admission_tat_monthly():
     """KSH only: monthly fast-track % and p50/p75 TAT for admission TAT alert (Rule 30 / Inv 47).
-    TAT = minutes from evaluation visit creation to first inpatient admission record.
-    Dedup CTE required: 97% of INPATIENT_ADMISSIONS visit_ids have multiple rows.
-    Fast-track: TAT < 60 min. Cap at 480 min (data quality zone).
-    Window: Oct 2024+ (Sep 2024 excluded — confirmed partial first month, Inv 47).
-    Oct 2025 excluded (pipeline gap, Inv 32). Current partial month excluded.
+    Source: rpt_admission_tat (gold). Silver: stg_admission_tat.
     Columns: tat_month, total_admissions, fast_track, fast_pct, p50_tat_min, p75_tat_min."""
     return run_query_df("""
-        WITH ia_dedup AS (
-            SELECT
-                visit_id,
-                MIN(created_at) AS admission_at
-            FROM HOSPITALS.KISUMU_CLEAN.INPATIENT_ADMISSIONS
-            WHERE DELETED_AT IS NULL
-            GROUP BY visit_id
-        ),
-        tat AS (
-            SELECT
-                DATE_TRUNC('month', TRY_TO_TIMESTAMP(ev.CREATED_AT))::DATE AS tat_month,
-                DATEDIFF('minute',
-                    TRY_TO_TIMESTAMP(ev.CREATED_AT),
-                    ia.admission_at)                                        AS tat_min
-            FROM HOSPITALS.KISUMU_CLEAN.EVALUATION_VISITS ev
-            JOIN ia_dedup ia ON ia.visit_id = ev.ID
-            WHERE ev.DELETED_AT IS NULL
-              AND TRY_TO_TIMESTAMP(ev.CREATED_AT) >= '2024-10-01'
-              AND TRY_TO_TIMESTAMP(ev.CREATED_AT) <  DATE_TRUNC('month', CURRENT_DATE)
-              AND DATE_TRUNC('month', TRY_TO_TIMESTAMP(ev.CREATED_AT))::DATE != '2025-10-01'
-              AND DATEDIFF('minute',
-                    TRY_TO_TIMESTAMP(ev.CREATED_AT),
-                    ia.admission_at) BETWEEN 1 AND 480
-        )
         SELECT
             tat_month,
-            COUNT(*)                                                                        AS total_admissions,
-            SUM(CASE WHEN tat_min < 60 THEN 1 ELSE 0 END)                                  AS fast_track,
-            ROUND(SUM(CASE WHEN tat_min < 60 THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 1)    AS fast_pct,
-            ROUND(MEDIAN(tat_min), 0)                                                       AS p50_tat_min,
-            ROUND(PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY tat_min), 0)                AS p75_tat_min
-        FROM tat
-        GROUP BY tat_month
+            total_admissions,
+            fast_track,
+            fast_pct,
+            p50_tat_min,
+            p75_tat_min
+        FROM HOSPITALS.REPORTING.rpt_admission_tat
         ORDER BY tat_month
     """)
 
@@ -1233,50 +856,20 @@ def q_revpab_private_monthly():
 
 def q_peak_tat_conversion():
     """KSH only: conversion rate + TAT during Monday 14-17h peak vs off-peak (Inv 58).
-    Conversion = admitted / evaluated. TAT = ev.created_at → first admission. Cap 1–480 min.
+    Source: rpt_peak_performance (gold). tat_min from stg_admission_tat (1-480 min range).
     Columns: time_bucket, total_evaluations, admissions, conversion_pct, valid_tat_n,
              p50_tat_min, p75_tat_min."""
     return run_query_df("""
-        WITH ia_dedup AS (
-            SELECT visit_id, MIN(created_at) AS admission_at
-            FROM HOSPITALS.KISUMU_CLEAN.INPATIENT_ADMISSIONS
-            WHERE DELETED_AT IS NULL
-            GROUP BY visit_id
-        ),
-        classified AS (
-            SELECT
-                CASE
-                    WHEN DAYOFWEEKISO(TRY_TO_TIMESTAMP(ev.CREATED_AT)) = 1
-                     AND HOUR(TRY_TO_TIMESTAMP(ev.CREATED_AT)) BETWEEN 14 AND 17
-                    THEN 'Peak (Mon 14-17h)'
-                    ELSE 'Off-Peak'
-                END                                                         AS time_bucket,
-                ia.admission_at IS NOT NULL                                 AS admitted,
-                DATEDIFF('minute',
-                    TRY_TO_TIMESTAMP(ev.CREATED_AT),
-                    ia.admission_at)                                        AS tat_raw
-            FROM HOSPITALS.KISUMU_CLEAN.EVALUATION_VISITS ev
-            LEFT JOIN ia_dedup ia ON ia.visit_id = ev.ID
-            WHERE ev.DELETED_AT IS NULL
-              AND TRY_TO_TIMESTAMP(ev.CREATED_AT) >= '2024-09-01'
-        ),
-        tat_filtered AS (
-            SELECT
-                time_bucket,
-                admitted,
-                CASE WHEN admitted AND tat_raw BETWEEN 1 AND 480 THEN tat_raw END AS tat_min
-            FROM classified
-        )
         SELECT
             time_bucket,
-            COUNT(*)                                                        AS total_evaluations,
-            SUM(CASE WHEN admitted THEN 1 ELSE 0 END)                       AS admissions,
-            ROUND(SUM(CASE WHEN admitted THEN 1 ELSE 0 END) * 100.0
-                  / COUNT(*), 1)                                            AS conversion_pct,
-            COUNT(tat_min)                                                  AS valid_tat_n,
-            ROUND(MEDIAN(tat_min), 0)                                       AS p50_tat_min,
-            ROUND(PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY tat_min), 0) AS p75_tat_min
-        FROM tat_filtered
+            COUNT(*)                                                         AS total_evaluations,
+            SUM(CASE WHEN is_admitted THEN 1 ELSE 0 END)                     AS admissions,
+            ROUND(SUM(CASE WHEN is_admitted THEN 1 ELSE 0 END) * 100.0
+                  / COUNT(*), 1)                                             AS conversion_pct,
+            COUNT(tat_min)                                                   AS valid_tat_n,
+            ROUND(MEDIAN(tat_min), 0)                                        AS p50_tat_min,
+            ROUND(PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY tat_min), 0)  AS p75_tat_min
+        FROM HOSPITALS.REPORTING.rpt_peak_performance
         GROUP BY time_bucket
         ORDER BY time_bucket
     """)
@@ -1284,32 +877,16 @@ def q_peak_tat_conversion():
 
 def q_peak_doctor_load():
     """KSH only: doctor evaluation share during Monday 14-17h peak vs off-peak (Inv 58).
+    Source: rpt_peak_performance (gold).
     Columns: time_bucket, username, evaluations, pct_of_bucket."""
     return run_query_df("""
-        WITH classified AS (
-            SELECT
-                u.username,
-                CASE
-                    WHEN DAYOFWEEKISO(TRY_TO_TIMESTAMP(ev.CREATED_AT)) = 1
-                     AND HOUR(TRY_TO_TIMESTAMP(ev.CREATED_AT)) BETWEEN 14 AND 17
-                    THEN 'Peak (Mon 14-17h)'
-                    ELSE 'Off-Peak'
-                END AS time_bucket
-            FROM HOSPITALS.KISUMU_CLEAN.EVALUATION_VISITS ev
-            JOIN HOSPITALS.KISUMU_CLEAN.USERS u ON ev.user = u.id
-            WHERE ev.DELETED_AT IS NULL
-              AND u.active = 1
-              AND u.username NOT REGEXP '.*[0-9].*'
-              AND u.username NOT IN ('sudo', 'Billclinton')
-              AND TRY_TO_TIMESTAMP(ev.CREATED_AT) >= '2024-09-01'
-        )
         SELECT
             time_bucket,
             username,
-            COUNT(*)                                                        AS evaluations,
+            COUNT(*)                                                         AS evaluations,
             ROUND(COUNT(*) * 100.0
-                  / SUM(COUNT(*)) OVER (PARTITION BY time_bucket), 1)      AS pct_of_bucket
-        FROM classified
+                  / SUM(COUNT(*)) OVER (PARTITION BY time_bucket), 1)       AS pct_of_bucket
+        FROM HOSPITALS.REPORTING.rpt_peak_performance
         GROUP BY time_bucket, username
         ORDER BY time_bucket, evaluations DESC
     """)
@@ -1317,62 +894,24 @@ def q_peak_doctor_load():
 
 def q_peak_patient_funnel():
     """KSH only: non-admitted patient return pathway after Monday 14-17h peak (Inv 58).
-    Cohort: Sep 2024–present. Columns: total_non_admitted_peak, returned, never_returned,
-    return_pct, later_admitted, admitted_of_returned_pct, median_days_to_return."""
+    Source: rpt_patient_return_funnel (gold). Single aggregate row — funnel pre-computed.
+    Columns: total_non_admitted_peak, returned, never_returned, return_pct,
+             later_admitted, admitted_of_returned_pct, median_days_to_return."""
     return run_query_df("""
-        WITH peak_evals AS (
-            SELECT
-                ev.ID                                   AS visit_id,
-                ev.PATIENT                              AS patient_id,
-                TRY_TO_TIMESTAMP(ev.CREATED_AT)         AS visit_time
-            FROM HOSPITALS.KISUMU_CLEAN.EVALUATION_VISITS ev
-            WHERE ev.DELETED_AT IS NULL
-              AND DAYOFWEEKISO(TRY_TO_TIMESTAMP(ev.CREATED_AT)) = 1
-              AND HOUR(TRY_TO_TIMESTAMP(ev.CREATED_AT)) BETWEEN 14 AND 17
-              AND TRY_TO_TIMESTAMP(ev.CREATED_AT) >= '2024-09-01'
-        ),
-        peak_non_admitted AS (
-            SELECT pe.*
-            FROM peak_evals pe
-            WHERE NOT EXISTS (
-                SELECT 1 FROM HOSPITALS.KISUMU_CLEAN.INPATIENT_ADMISSIONS ia
-                WHERE ia.visit_id = pe.visit_id AND ia.DELETED_AT IS NULL
-            )
-        ),
-        return_visits AS (
-            SELECT
-                pna.patient_id,
-                pna.visit_time                              AS index_time,
-                MIN(TRY_TO_TIMESTAMP(ev2.CREATED_AT))       AS next_visit_time
-            FROM peak_non_admitted pna
-            JOIN HOSPITALS.KISUMU_CLEAN.EVALUATION_VISITS ev2
-                ON ev2.PATIENT = pna.patient_id
-               AND TRY_TO_TIMESTAMP(ev2.CREATED_AT) > pna.visit_time
-               AND ev2.DELETED_AT IS NULL
-            GROUP BY pna.patient_id, pna.visit_time
-        ),
-        later_admissions AS (
-            SELECT DISTINCT pna.patient_id
-            FROM peak_non_admitted pna
-            JOIN HOSPITALS.KISUMU_CLEAN.EVALUATION_VISITS ev2
-                ON ev2.PATIENT = pna.patient_id
-               AND TRY_TO_TIMESTAMP(ev2.CREATED_AT) > pna.visit_time
-               AND ev2.DELETED_AT IS NULL
-            JOIN HOSPITALS.KISUMU_CLEAN.INPATIENT_ADMISSIONS ia2
-                ON ia2.visit_id = ev2.ID
-               AND ia2.DELETED_AT IS NULL
-        )
-        SELECT
-            COUNT(DISTINCT pna.patient_id)                                          AS total_non_admitted_peak,
-            COUNT(DISTINCT rv.patient_id)                                           AS returned,
-            COUNT(DISTINCT pna.patient_id) - COUNT(DISTINCT rv.patient_id)         AS never_returned,
-            ROUND(COUNT(DISTINCT rv.patient_id) * 100.0
-                  / NULLIF(COUNT(DISTINCT pna.patient_id), 0), 1)                  AS return_pct,
-            COUNT(DISTINCT la.patient_id)                                           AS later_admitted,
-            ROUND(COUNT(DISTINCT la.patient_id) * 100.0
-                  / NULLIF(COUNT(DISTINCT rv.patient_id), 0), 1)                   AS admitted_of_returned_pct,
-            ROUND(MEDIAN(DATEDIFF('day', rv.index_time, rv.next_visit_time)), 0)   AS median_days_to_return
-        FROM peak_non_admitted pna
-        LEFT JOIN return_visits rv    ON rv.patient_id = pna.patient_id
-        LEFT JOIN later_admissions la ON la.patient_id = pna.patient_id
+        SELECT * FROM HOSPITALS.REPORTING.rpt_patient_return_funnel
+    """)
+
+
+def q_data_freshness():
+    """Last recorded date per facility — used in sidebar data range label.
+    KSH: MAX(visit_ts) from STG_EVAL_VISITS (visit-level, actual date).
+    TENRI: MAX(ADMISSION_MONTH) from rpt_bed_occupancy (month-grain, first of month).
+    Returns one row per facility with max_date as a calendar date."""
+    return run_query_df("""
+        SELECT 'KISUMU_CLEAN' AS facility, MAX(visit_ts)::DATE AS max_date
+        FROM HOSPITALS.STAGING.STG_EVAL_VISITS
+        UNION ALL
+        SELECT 'TENRI', MAX(ADMISSION_MONTH)::DATE
+        FROM HOSPITALS.REPORTING.rpt_bed_occupancy
+        WHERE facility = 'TENRI'
     """)

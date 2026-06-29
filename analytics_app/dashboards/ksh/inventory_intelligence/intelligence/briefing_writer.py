@@ -1,13 +1,23 @@
-"""AI-powered daily briefing generator with rule-based fallback."""
+"""
+AI-powered daily briefing generator and insight narrator with rule-based fallback.
+
+Public functions:
+  generate()         — 2–4 sentence daily briefing paragraph for Today's Briefing header.
+  narrate_insight()  — One-sentence plain-English narration of a single InsightRow.
+                       Used by Phase 2 InsightCards. LLM path if configured; template fallback.
+"""
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import pandas as pd
 
 from intelligence import ai_client
 from intelligence.priority_scorer import ORDER_NOW, ORDER_THIS_WEEK
+
+if TYPE_CHECKING:
+    from intelligence.insight_engine import InsightRow
 
 
 # ── Public entry point ────────────────────────────────────────────────────────
@@ -188,3 +198,96 @@ def _oxford_list(items: list[str]) -> str:
     if len(items) == 2:
         return f"{items[0]} and {items[1]}"
     return ", ".join(items[:-1]) + f", and {items[-1]}"
+
+
+# ── Phase 2: Insight narrator ─────────────────────────────────────────────────
+
+def narrate_insight(row: "InsightRow") -> str:
+    """
+    Return a one-sentence plain-English narration of a single InsightRow.
+    Tries the configured LLM first; falls back to a rule-based template.
+
+    LLM contract (from ROADMAP Phase 2.3):
+      - Receives only structured fields, never raw query data
+      - System prompt: pharmacy intelligence system, one direct sentence per insight
+      - Starts with drug name, ends with a specific recommended action
+      - Never invents figures
+
+    Args:
+        row: An InsightRow produced by insight_engine.detect_all()
+
+    Returns:
+        A single sentence string, max ~180 characters.
+    """
+    if ai_client.get_provider() != "none":
+        result = _narrate_llm(row)
+        if result:
+            return result
+    return _narrate_template(row)
+
+
+def _narrate_llm(row: "InsightRow") -> Optional[str]:
+    """LLM-powered single-sentence narration."""
+    facts_block = "\n".join(f"  - {f}" for f in row.supporting_facts)
+    prompt = (
+        f"Narrate this pharmacy inventory insight in exactly one direct sentence.\n"
+        f"Start with the drug name. End with a specific recommended action.\n"
+        f"Never invent figures — use only the facts below.\n\n"
+        f"Drug: {row.drug}\n"
+        f"Rule: {row.rule_id}\n"
+        f"Severity: {row.severity}\n"
+        f"Headline: {row.headline}\n"
+        f"Supporting facts:\n{facts_block}\n"
+        f"Recommended action: {row.recommended_action}\n\n"
+        f"Write the narration now:"
+    )
+    return ai_client.complete(
+        prompt,
+        system_prompt=(
+            "You are a pharmacy intelligence system writing direct clinical alerts. "
+            "Write exactly one sentence per insight. "
+            "Start with the drug name. End with a specific recommended action. "
+            "Never invent numbers — only use the pre-computed facts provided. "
+            "Be direct and specific: name the drug, state the risk, state the action."
+        ),
+        max_tokens=80,
+    )
+
+
+def _narrate_template(row: "InsightRow") -> str:
+    """Rule-based fallback narrator. One template per rule_id."""
+    from intelligence.insight_engine import (
+        RULE_STOCKOUT, RULE_DEMAND_SPIKE, RULE_DEAD_STOCK, RULE_REFILL_OVERDUE
+    )
+    m = row.metadata
+
+    if row.rule_id == RULE_STOCKOUT:
+        dos = m.get("dos")
+        if dos is None or dos <= 0:
+            return f"{row.drug} is stocked out — place an emergency order immediately."
+        return f"{row.drug} has {dos:.0f} days of cover remaining — order now before stock runs out."
+
+    if row.rule_id == RULE_DEMAND_SPIKE:
+        mag = m.get("magnitude_pct", 0)
+        return (
+            f"{row.drug} consumption is +{mag:.0f}% above its 90-day baseline — "
+            f"review order quantity before placing a standard reorder."
+        )
+
+    if row.rule_id == RULE_DEAD_STOCK:
+        days = m.get("days_idle", 0)
+        return (
+            f"{row.drug} has had no dispenses in {days} days with stock on hand — "
+            f"review for redistribution or return."
+        )
+
+    if row.rule_id == RULE_REFILL_OVERDUE:
+        count = m.get("patient_count", 0)
+        avg   = m.get("avg_days_overdue", 0)
+        return (
+            f"{row.drug}: {count} patient{'s' if count != 1 else ''} "
+            f"overdue for refill by avg {avg:.0f} days — contact patients and verify cover."
+        )
+
+    # Fallback for unknown rule
+    return row.headline

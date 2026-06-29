@@ -249,3 +249,4 @@ __marimo__/
 *.csv
 rsa_key*
 service_account.json
+**/DATA_QUALITY.md

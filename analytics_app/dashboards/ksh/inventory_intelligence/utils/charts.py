@@ -290,22 +290,31 @@ def demand_forecast_chart(
 
 # ── Dead stock scatter ────────────────────────────────────────────────────────
 
-def dead_stock_scatter(df: pd.DataFrame) -> go.Figure:
+def dead_stock_scatter(df: pd.DataFrame, color_col: str = "THERAPEUTIC_CLASS") -> go.Figure:
     """
-    Scatter: days idle (x) vs historical dispensing value (y).
-    Expects: CANONICAL_NAME, DAYS_IDLE, TOTAL_HISTORICAL_VALUE, THERAPEUTIC_CLASS
+    Scatter: days idle (x) vs units on hand (y = CURRENT_SOH — always available).
+    Bubble size = STOCK_VALUE when available, else uniform.
+    Items in the top-right quadrant (high SOH, long idle) are the highest priority.
     """
     df = df.copy()
-    df["DAYS_IDLE"]              = pd.to_numeric(df["DAYS_IDLE"],              errors="coerce")
-    df["TOTAL_HISTORICAL_VALUE"] = pd.to_numeric(df["TOTAL_HISTORICAL_VALUE"], errors="coerce")
+    df["DAYS_IDLE"]    = pd.to_numeric(df["DAYS_IDLE"],    errors="coerce")
+    df["CURRENT_SOH"]  = pd.to_numeric(df.get("CURRENT_SOH", 0), errors="coerce").fillna(0)
+    _val_col = "STOCK_VALUE" if "STOCK_VALUE" in df.columns else None
+    if _val_col:
+        df[_val_col] = pd.to_numeric(df[_val_col], errors="coerce").fillna(0)
+    _color = color_col if color_col in df.columns else "THERAPEUTIC_CLASS"
+    _size  = _val_col if (_val_col and df[_val_col].sum() > 0) else None
     fig = px.scatter(
         df,
         x="DAYS_IDLE",
-        y="TOTAL_HISTORICAL_VALUE",
-        color="THERAPEUTIC_CLASS",
+        y="CURRENT_SOH",
+        color=_color,
+        size=_size,
+        size_max=30,
         hover_name="CANONICAL_NAME",
-        hover_data={"DAYS_IDLE": True, "TOTAL_HISTORICAL_VALUE": ":,.0f"},
-        labels={"DAYS_IDLE": "Days since last dispense", "TOTAL_HISTORICAL_VALUE": "KES (historical value)"},
+        hover_data={"DAYS_IDLE": True, "CURRENT_SOH": True,
+                    **({_val_col: ":,.0f"} if _val_col else {})},
+        labels={"DAYS_IDLE": "Days since last dispense", "CURRENT_SOH": "Units on shelf (SOH)"},
         color_discrete_sequence=px.colors.qualitative.Set2,
     )
     fig.update_traces(marker_size=9, opacity=0.8)
@@ -317,6 +326,161 @@ def dead_stock_scatter(df: pd.DataFrame) -> go.Figure:
     )
     fig.add_vline(x=30, line_dash="dash", line_color=COLOR_AMBER, annotation_text="30d slow")
     fig.add_vline(x=90, line_dash="dash", line_color=COLOR_RED,   annotation_text="90d dead")
+    return fig
+
+
+# ── Dead stock capital action bars ────────────────────────────────────────────
+
+_ACTION_COLORS = {
+    "Write off / Return":  "#7F1D1D",   # dark red
+    "Return to supplier":  "#C2410C",   # burnt orange
+    "Reduce next order":   "#D97706",   # amber
+    "Monitor":             "#9CA3AF",   # grey
+}
+_ACTION_ORDER = ["Write off / Return", "Return to supplier", "Reduce next order", "Monitor"]
+
+
+def dead_stock_action_bars(df: pd.DataFrame, top_n: int = 25) -> go.Figure:
+    """
+    Horizontal bar chart: top dead stock items by days idle, coloured by action tier.
+    Bar length = days idle (universally available). Stock value shown in hover when available.
+    Most urgent (longest idle) items at top.
+    """
+    df = df.copy()
+    df["DAYS_IDLE"]      = pd.to_numeric(df.get("DAYS_IDLE"),   errors="coerce").fillna(0)
+    _val_col             = "STOCK_VALUE" if "STOCK_VALUE" in df.columns else "TOTAL_HISTORICAL_VALUE"
+    df[_val_col]         = pd.to_numeric(df.get(_val_col),       errors="coerce").fillna(0)
+    df["ACTION"]         = df.get("ACTION", "Monitor").fillna("Monitor")
+    # Apply name formatting so numeric product IDs don't render as a continuous axis
+    from utils.formatting import fmt_drug_name as _fmt
+    df["CANONICAL_NAME"] = df["CANONICAL_NAME"].astype(str).map(_fmt)
+
+    plot_df = (
+        df.nlargest(top_n, "DAYS_IDLE")
+        .sort_values("DAYS_IDLE", ascending=True)  # ascending → top of chart = most urgent
+    )
+    if plot_df.empty:
+        return go.Figure()
+
+    fig = go.Figure()
+    for action in _ACTION_ORDER:
+        sub = plot_df[plot_df["ACTION"] == action]
+        if sub.empty:
+            continue
+        _val_texts = sub[_val_col].map(
+            lambda v: f"KES {v:,.0f}" if v > 0 else "Value unknown"
+        )
+        fig.add_trace(go.Bar(
+            y=sub["CANONICAL_NAME"],
+            x=sub["DAYS_IDLE"],
+            orientation="h",
+            name=action,
+            marker_color=_ACTION_COLORS[action],
+            customdata=_val_texts,
+            hovertemplate=(
+                "<b>%{y}</b><br>"
+                "%{x:.0f} days idle · %{customdata}<br>"
+                f"Action: {action}<extra></extra>"
+            ),
+        ))
+
+    fig.update_layout(
+        **_LAYOUT,
+        barmode="stack",
+        height=max(320, len(plot_df) * 24 + 80),
+        xaxis=dict(title="Days idle", gridcolor=_GRIDLINE["color"], tickformat=",.0f"),
+        yaxis=dict(automargin=True, autorange="reversed"),
+        showlegend=True,
+    )
+    return fig
+
+
+# ── Depletion runway chart ────────────────────────────────────────────────────
+
+def depletion_timeline(df: pd.DataFrame, top_n: int = 20) -> go.Figure:
+    """
+    Horizontal bar chart showing days of stock remaining per drug.
+    X-axis auto-scales to the data range so critical items don't appear as slivers.
+    P90 (high-demand scenario) rendered as a lighter background bar.
+    Stockout items (DOS = 0) shown as thin red markers at x=0.
+    Threshold vlines only drawn when they fall within the visible x range.
+    """
+    df = df.copy()
+    p50_col = next((c for c in ["DAYS_OF_STOCK_P50", "DAYS_OF_STOCK", "DAYS_REMAINING"] if c in df.columns), None)
+    p90_col = next((c for c in ["DAYS_OF_STOCK_P90"] if c in df.columns), None)
+    name_col = "CANONICAL_NAME" if "CANONICAL_NAME" in df.columns else df.columns[0]
+
+    if p50_col is None:
+        return go.Figure()
+
+    df[p50_col] = pd.to_numeric(df[p50_col], errors="coerce").fillna(0).clip(lower=0)
+    if p90_col:
+        df[p90_col] = pd.to_numeric(df[p90_col], errors="coerce").fillna(0).clip(lower=0)
+
+    plot_df = (
+        df[df[p50_col].notna()]
+        .nsmallest(top_n, p50_col)
+        .sort_values(p50_col, ascending=False)
+    )
+    if plot_df.empty:
+        return go.Figure()
+
+    # X-axis ceiling: max of P90 or P50, padded 15%, minimum 10d so bars are always readable
+    _x_max = max(
+        plot_df[p90_col].max() if p90_col else 0,
+        plot_df[p50_col].max(),
+        10,
+    ) * 1.15
+
+    def _urgency_color(d: float) -> str:
+        if d <= 0: return "#991B1B"
+        if d < 7:  return "#991B1B"
+        if d < 14: return "#D97706"
+        if d < 30: return "#F59E0B"
+        return COLOR_PRIMARY
+
+    bar_colors = [_urgency_color(float(d)) for d in plot_df[p50_col]]
+
+    fig = go.Figure()
+
+    # P90 background bars
+    if p90_col:
+        fig.add_trace(go.Bar(
+            y=plot_df[name_col],
+            x=plot_df[p90_col],
+            orientation="h",
+            marker_color="rgba(209,213,219,0.4)",
+            name="High demand (P90)",
+            hovertemplate="<b>%{y}</b><br>P90: %{x:.1f}d<extra></extra>",
+        ))
+
+    # P50 main bars — minimum visible width of 0.3d so stockout items show as a thin sliver
+    fig.add_trace(go.Bar(
+        y=plot_df[name_col],
+        x=plot_df[p50_col].clip(lower=0.3),
+        orientation="h",
+        marker_color=bar_colors,
+        name="Avg demand (P50)",
+        hovertemplate="<b>%{y}</b><br>P50: %{x:.1f}d<extra></extra>",
+    ))
+
+    # Threshold vlines — only when within visible range
+    for thresh, color, label in [(7, "#991B1B", "7d critical"), (14, "#D97706", "14d low")]:
+        if thresh <= _x_max:
+            fig.add_vline(
+                x=thresh, line_dash="dash", line_color=color,
+                annotation_text=label, annotation_position="top right",
+                annotation_font_size=10,
+            )
+
+    fig.update_layout(
+        **_LAYOUT,
+        barmode="overlay",
+        height=max(320, len(plot_df) * 26 + 70),
+        xaxis=dict(title="Days of stock remaining", gridcolor=_GRIDLINE["color"], range=[0, _x_max]),
+        yaxis=dict(automargin=True, autorange="reversed"),
+        showlegend=True,
+    )
     return fig
 
 
@@ -364,7 +528,140 @@ def abc_pareto(df: pd.DataFrame) -> go.Figure:
     return fig
 
 
-# ── Stockout timeline (Gantt-style) ───────────────────────────────────────────
+# ── DOS urgency chart (replaces Gantt for Stockout Watch) ────────────────────
+
+def stockout_risk_gantt(
+    df: pd.DataFrame,
+    anchor_date: pd.Timestamp,
+    top_n: int = 25,
+    window_days: int = 45,
+) -> go.Figure:
+    """
+    Horizontal bar chart of days-of-stock remaining, sorted by urgency.
+    Zero-DOS items shown as a labelled stub. Threshold lines at 7d and 30d.
+    Colors: dark red = stocked out, red = <7d, amber = 7-30d, teal = >30d.
+    """
+    df = df.copy()
+    df.columns = df.columns.str.upper()
+    dos_col  = "DAYS_OF_STOCK_P50" if "DAYS_OF_STOCK_P50" in df.columns else "DAYS_OF_STOCK"
+    name_col = "CANONICAL_NAME"
+
+    if dos_col not in df.columns or name_col not in df.columns:
+        return go.Figure()
+
+    df[dos_col] = pd.to_numeric(df[dos_col], errors="coerce").fillna(0).clip(lower=0)
+    # Show at most 5 already-stocked-out items (ranked by repeat episode count if available,
+    # else by most recently dispensed). Fill remaining slots with about-to-stock-out items
+    # sorted by urgency — these are the actionable ones.
+    _ep_col = "STOCKOUT_EPISODE_COUNT" if "STOCKOUT_EPISODE_COUNT" in df.columns else None
+    _so = df[df[dos_col] == 0].copy()
+    if _ep_col:
+        _so = _so.sort_values(_ep_col, ascending=False)
+    _at_risk = df[(df[dos_col] > 0)].nsmallest(max(top_n - min(5, len(_so)), 1), dos_col)
+    _so_cap  = _so.head(min(5, max(top_n - len(_at_risk), 0)))
+    plot_df  = pd.concat([_at_risk, _so_cap], ignore_index=True).sort_values(dos_col, ascending=False)
+
+    if plot_df.empty:
+        return go.Figure()
+
+    def _color(d):
+        if d == 0:   return "#7F1D1D"
+        if d < 7:    return "#DC2626"
+        if d < 30:   return "#D97706"
+        return COLOR_PRIMARY
+
+    def _label(d):
+        if d == 0:  return "Stocked out"
+        return f"{int(round(d))}d"
+
+    names    = plot_df[name_col].tolist()
+    dos_vals = plot_df[dos_col].tolist()
+    # Zero-DOS items get a stub of 0.4d so the bar is visible
+    bar_vals = [max(d, 0.4) for d in dos_vals]
+    colors   = [_color(d) for d in dos_vals]
+    labels   = [_label(d) for d in dos_vals]
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=bar_vals,
+        y=names,
+        orientation="h",
+        marker_color=colors,
+        text=labels,
+        textposition="outside",
+        textfont=dict(size=10),
+        hovertemplate="<b>%{y}</b><br>Days of stock: %{customdata:.1f}<extra></extra>",
+        customdata=dos_vals,
+        showlegend=False,
+    ))
+
+    x_max = max(max(bar_vals) * 1.15, window_days)
+    for thresh, color, label in [(7, "#DC2626", "7d"), (30, "#D97706", "30d")]:
+        if thresh <= x_max:
+            fig.add_vline(x=thresh, line_dash="dot", line_color=color, line_width=1.5)
+            fig.add_annotation(
+                x=thresh, y=1.01, xref="x", yref="paper",
+                text=label, showarrow=False,
+                font=dict(size=9, color=color), xanchor="center",
+            )
+
+    fig.update_layout(
+        **_LAYOUT,
+        height=max(380, len(plot_df) * 26 + 80),
+        xaxis=dict(
+            title="Days of stock remaining",
+            range=[0, x_max],
+            gridcolor=_GRIDLINE["color"],
+        ),
+        yaxis=dict(automargin=True),
+        bargap=0.3,
+    )
+    return fig
+
+
+# ── Stockout volume-at-risk by therapeutic class ─────────────────────────────
+
+def stockout_class_risk(df: pd.DataFrame, top_n: int = 10) -> go.Figure:
+    """
+    Horizontal bar: monthly units unmet per therapeutic class for stocked-out items.
+    Expects: THERAPEUTIC_CLASS, AVG_DAILY_UNITS, CANONICAL_NAME (all from DOS watchlist).
+    """
+    df = df.copy()
+    df.columns = df.columns.str.upper()
+    if "THERAPEUTIC_CLASS" not in df.columns or "AVG_DAILY_UNITS" not in df.columns:
+        return go.Figure()
+    df["_monthly"] = pd.to_numeric(df["AVG_DAILY_UNITS"], errors="coerce").fillna(0) * 30
+    _agg = (
+        df.groupby("THERAPEUTIC_CLASS")
+        .agg(SKUs=("CANONICAL_NAME", "count"), Monthly_units=("_monthly", "sum"))
+        .reset_index()
+        .sort_values("Monthly_units", ascending=False)
+        .head(top_n)
+    )
+    if _agg.empty:
+        return go.Figure()
+    fig = go.Figure(go.Bar(
+        x=_agg["Monthly_units"],
+        y=_agg["THERAPEUTIC_CLASS"],
+        orientation="h",
+        marker_color="#991B1B",
+        opacity=0.8,
+        text=_agg["SKUs"].map(lambda n: f"{n} SKU{'s' if n != 1 else ''}"),
+        textposition="outside",
+        hovertemplate="<b>%{y}</b><br>%{x:,.0f} units/month unmet<extra></extra>",
+    ))
+    fig.update_layout(
+        **_LAYOUT,
+        height=max(280, len(_agg) * 28 + 80),
+        title=dict(text="Monthly demand unmet — stocked-out items by class", font=dict(size=13)),
+        xaxis=dict(title="Units/month", gridcolor=_GRIDLINE["color"]),
+        yaxis=dict(automargin=True, autorange="reversed"),
+        bargap=0.3,
+    )
+    return fig
+
+
+# ── Historical stockout timeline (Gantt-style) ────────────────────────────────
 
 def stockout_timeline(df: pd.DataFrame, top_n: int = 15) -> go.Figure:
     """

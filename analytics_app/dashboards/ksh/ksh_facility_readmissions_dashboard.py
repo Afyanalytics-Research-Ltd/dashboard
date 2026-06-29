@@ -3237,6 +3237,297 @@ elif page == "Capacity & Operations":
                         f"but hold only <strong>{_rpvt_pct:.0f}%</strong> of admissions. "
                         "Filling private capacity is the highest-yield lever available."
                     )
+        # ── Ward Revenue Utilization — Demand · Efficiency · Output (KSH only / Inv 81) ──
+        if _is_ksh_p3 and len(P["beds_monthly"]):
+            _bm_rv = P["beds_monthly"].copy()
+            _bm_rv.columns = _bm_rv.columns.str.upper()
+            if "TOTAL_ADMISSION_REVENUE" in _bm_rv.columns:
+                st.markdown("<div style='margin-top:28px'></div>", unsafe_allow_html=True)
+                section_header("Ward Revenue Utilization — Demand · Efficiency · Output")
+
+                # Collapse 5 ward categories → 2 groups for ops readability
+                _bm_rv["_GRP"] = _bm_rv["WARD_CATEGORY"].apply(
+                    lambda c: "Private" if c == "Private / Amenity" else "General"
+                )
+                _bm_grp = (
+                    _bm_rv.groupby(["_GRP", "ADMISSION_MONTH"], as_index=False)
+                    .agg(
+                        admissions=("TOTAL_ADMISSIONS",        "sum"),
+                        bed_days=  ("TOTAL_BED_DAYS",          "sum"),
+                        discharged=("DISCHARGED_ADMISSIONS",   "sum"),
+                        revenue=   ("TOTAL_ADMISSION_REVENUE", "sum"),
+                    )
+                )
+                _bm_grp["avg_los"] = (
+                    _bm_grp["bed_days"] / _bm_grp["discharged"].clip(lower=0.01)
+                ).round(1)
+                _bm_grp["revpab"] = (
+                    _bm_grp["revenue"] / _bm_grp["bed_days"].clip(lower=0.01)
+                ).round(0)
+                _bm_grp = _bm_grp.sort_values(["_GRP", "ADMISSION_MONTH"])
+
+                # ── Current-month KPI cards (General | Private) ──────────────
+                _mo_sorted = sorted(_bm_grp["ADMISSION_MONTH"].unique())
+                if len(_mo_sorted) >= 2:
+                    _cur_mo = _mo_sorted[-1]
+                    _prv_mo = _mo_sorted[-2]
+
+                    # Rule 36 thresholds (tunable — hysteresis band prevents flip-flopping)
+                    _R36_REV_WARN  = 0.08   # warning band starts at 8% drop
+                    _R36_REV_ALERT = 0.15   # significant alert at 15% drop
+                    _R36_ADM_SIG   = 0.10   # admissions drop signal threshold
+                    _R36_LOS_SIG   = 0.10   # LOS increase signal threshold
+                    _R36_MIX_SIG   = 0.05   # private share drop signal threshold
+
+                    def _grp_latest(grp, mo):
+                        r = _bm_grp[(_bm_grp["_GRP"] == grp) & (_bm_grp["ADMISSION_MONTH"] == mo)]
+                        return r.iloc[0] if len(r) else None
+
+                    # Private share calculated directly — not inferred by elimination
+                    _pvt_adm_c = _bm_grp[
+                        (_bm_grp["_GRP"] == "Private") & (_bm_grp["ADMISSION_MONTH"] == _cur_mo)
+                    ]["admissions"].sum()
+                    _pvt_adm_p = _bm_grp[
+                        (_bm_grp["_GRP"] == "Private") & (_bm_grp["ADMISSION_MONTH"] == _prv_mo)
+                    ]["admissions"].sum()
+                    _tot_adm_c = _bm_grp[_bm_grp["ADMISSION_MONTH"] == _cur_mo]["admissions"].sum()
+                    _tot_adm_p = _bm_grp[_bm_grp["ADMISSION_MONTH"] == _prv_mo]["admissions"].sum()
+                    _pvt_share_cur = _pvt_adm_c / max(_tot_adm_c, 1)
+                    _pvt_share_prv = _pvt_adm_p / max(_tot_adm_p, 1)
+
+                    def _rev_delta_html(cur_val, prv_val, invert=False, unit="pct"):
+                        if not prv_val or prv_val == 0:
+                            return ""
+                        pct  = (cur_val - prv_val) / abs(prv_val) * 100
+                        diff = cur_val - prv_val
+                        if abs(pct) < 3:
+                            clr = "#6B8CAE"
+                        elif (pct > 0 and not invert) or (pct < 0 and invert):
+                            clr = COLORS["success"]
+                        else:
+                            clr = COLORS["danger"]
+                        if unit == "days":
+                            # LOS: show absolute day change — color communicates good/bad, no arrow needed
+                            sign = "+" if diff > 0 else ""
+                            label = f"{sign}{diff:.1f}d vs prior"
+                        else:
+                            arrow = "↑" if pct > 0 else "↓"
+                            sign  = "+" if pct > 0 else ""
+                            label = f"{arrow} {sign}{pct:.0f}%"
+                        return (
+                            f'<span style="color:{clr};font-size:11px">{label}</span>'
+                        )
+
+                    def _rule36_diagnose(grp_lbl, cur, prv):
+                        """Rule 36 multi-signal engine: fires when revenue drops >8% MoM.
+                        All contributing signals fire — not stop-at-first-match.
+                        Returns None (no alert) or dict {group, rev_pct, severity, signals}."""
+                        if cur is None or prv is None:
+                            return None
+                        if not prv["revenue"] or prv["revenue"] == 0:
+                            return None
+                        rev_pct = (cur["revenue"] - prv["revenue"]) / abs(prv["revenue"])
+                        if rev_pct > -_R36_REV_WARN:
+                            return None
+                        severity = "significant" if rev_pct < -_R36_REV_ALERT else "warning"
+                        signals = []
+                        # Signal 1 — admissions (measured)
+                        if prv["admissions"] > 0:
+                            adm_pct = (cur["admissions"] - prv["admissions"]) / prv["admissions"]
+                            if adm_pct < -_R36_ADM_SIG:
+                                signals.append({
+                                    "obs": f"Admissions declined {abs(adm_pct):.0%} vs prior month.",
+                                    "action": "CI conversion metrics may provide additional context.",
+                                    "confidence": "High (measured)",
+                                })
+                        # Signal 2 — LOS (measured)
+                        if prv["avg_los"] > 0:
+                            los_pct = (cur["avg_los"] - prv["avg_los"]) / prv["avg_los"]
+                            if los_pct > _R36_LOS_SIG:
+                                los_abs = cur["avg_los"] - prv["avg_los"]
+                                signals.append({
+                                    "obs": f"Average LOS increased {los_abs:+.1f}d vs prior month.",
+                                    "action": "Admission TAT metrics below may provide additional context.",
+                                    "confidence": "High (measured)",
+                                })
+                        return {
+                            "group": grp_lbl, "rev_pct": rev_pct,
+                            "severity": severity, "signals": signals,
+                        }
+
+                    _col_gen, _col_prv = st.columns(2)
+                    for _col_ui, _grp_lbl in [(_col_gen, "General"), (_col_prv, "Private")]:
+                        _cur = _grp_latest(_grp_lbl, _cur_mo)
+                        _prv = _grp_latest(_grp_lbl, _prv_mo)
+                        if _cur is not None and _prv is not None:
+                            _mo_lbl = pd.to_datetime(_cur_mo).strftime("%b %Y")
+                            with _col_ui:
+                                st.markdown(
+                                    f'<div style="border:1px solid #e0e8f0;border-radius:8px;'
+                                    f'padding:14px 18px;background:#f8fbff;margin-bottom:12px">'
+                                    f'<div style="font-size:12px;font-weight:700;color:#003467;'
+                                    f'margin-bottom:10px">{_grp_lbl} Wards — {_mo_lbl}</div>'
+                                    f'<div style="display:flex;gap:28px">'
+                                    f'<div><div style="font-size:11px;color:#6B8CAE">Admissions</div>'
+                                    f'<div style="font-size:20px;font-weight:700;color:#003467">'
+                                    f'{int(_cur["admissions"])}</div>'
+                                    f'{_rev_delta_html(_cur["admissions"], _prv["admissions"])}</div>'
+                                    f'<div><div style="font-size:11px;color:#6B8CAE">Avg LOS</div>'
+                                    f'<div style="font-size:20px;font-weight:700;color:#003467">'
+                                    f'{_cur["avg_los"]:.1f}d</div>'
+                                    f'{_rev_delta_html(_cur["avg_los"], _prv["avg_los"], invert=True, unit="days")}</div>'
+                                    f'<div><div style="font-size:11px;color:#6B8CAE">Ward Revenue</div>'
+                                    f'<div style="font-size:20px;font-weight:700;color:#003467">'
+                                    f'KES {_cur["revenue"]/1000:.0f}K</div>'
+                                    f'{_rev_delta_html(_cur["revenue"], _prv["revenue"])}</div>'
+                                    f'</div></div>',
+                                    unsafe_allow_html=True,
+                                )
+
+                    # ── Rule 36 — Revenue Drop Multi-Signal Alert ─────────────
+                    _r36_fired = []
+                    for _r36_lbl in ["General", "Private"]:
+                        _r36c = _grp_latest(_r36_lbl, _cur_mo)
+                        _r36p = _grp_latest(_r36_lbl, _prv_mo)
+                        _diag = _rule36_diagnose(_r36_lbl, _r36c, _r36p)
+                        if _diag:
+                            # Signal 3 — private share (measured directly, added if mix shift present)
+                            _mix_d = _pvt_share_cur - _pvt_share_prv
+                            if _mix_d < -_R36_MIX_SIG:
+                                _diag["signals"].append({
+                                    "obs": (
+                                        f"Private ward share declined {abs(_mix_d):.0%} "
+                                        f"({_pvt_share_prv:.0%} → {_pvt_share_cur:.0%})."
+                                    ),
+                                    "action": "Private ward admission funnel may require review.",
+                                    "confidence": "High (measured)",
+                                })
+                            _r36_fired.append(_diag)
+                    for _diag in _r36_fired:
+                        _r36_clr = (
+                            COLORS["danger"] if _diag["severity"] == "significant"
+                            else "#b45309"
+                        )
+                        _r36_sev = (
+                            "Significant decline" if _diag["severity"] == "significant"
+                            else "Moderate decline"
+                        )
+                        _rev_drop = f"{abs(_diag['rev_pct']):.0%}"
+                        if _diag["signals"]:
+                            _obs  = " ".join(s["obs"] for s in _diag["signals"])
+                            _acts = list(dict.fromkeys(s["action"] for s in _diag["signals"]))
+                            _body = f"{_obs} {' '.join(_acts)}"
+                            _conf = "".join(
+                                f'<tr>'
+                                f'<td style="padding:2px 12px 2px 0;font-size:11px">'
+                                f'{s["obs"].split(".")[0]}</td>'
+                                f'<td style="font-size:11px;color:#6B8CAE">'
+                                f'{s["confidence"]}</td></tr>'
+                                for s in _diag["signals"]
+                            )
+                            _conf_tbl = (
+                                f'<table style="margin-top:8px;border-collapse:collapse">'
+                                f'{_conf}</table>'
+                            )
+                        else:
+                            _body = (
+                                "No single measured cause identified — verify data completeness "
+                                "and check for partial-month records."
+                            )
+                            _conf_tbl = ""
+                        st.markdown(
+                            f'<div style="border-left:3px solid {_r36_clr};background:#fff8f0;'
+                            f'padding:12px 16px;border-radius:0 6px 6px 0;margin:8px 0 12px 0">'
+                            f'<div style="font-size:12px;font-weight:700;color:{_r36_clr};'
+                            f'margin-bottom:4px">'
+                            f'Rule 36 — {_diag["group"]} Ward Revenue '
+                            f'({_r36_sev}: {_rev_drop})</div>'
+                            f'<div style="font-size:12px;color:#334155">{_body}</div>'
+                            f'{_conf_tbl}</div>',
+                            unsafe_allow_html=True,
+                        )
+
+                # ── Trend charts: Demand | Efficiency | Revenue ───────────────
+                _bm_trend = _filter_epoch(_bm_grp.copy(), "ADMISSION_MONTH")
+                if len(_bm_trend):
+                    _GRP_COLORS = {
+                        "General": COLORS["primary"],
+                        "Private": COLORS["warning"],
+                    }
+                    _tc1, _tc2, _tc3 = st.columns(3)
+
+                    # Panel 1 — Demand
+                    with _tc1:
+                        _fig_dem = go.Figure()
+                        for _g in ["General", "Private"]:
+                            _gs = _bm_trend[_bm_trend["_GRP"] == _g].sort_values("ADMISSION_MONTH")
+                            _fig_dem.add_scatter(
+                                x=_gs["ADMISSION_MONTH"], y=_gs["admissions"],
+                                mode="lines+markers", name=_g,
+                                line=dict(color=_GRP_COLORS[_g], width=2),
+                                marker=dict(size=5),
+                                hovertemplate="%{x|%b %Y}: %{y} admissions<extra></extra>",
+                            )
+                        _fig_dem.update_layout(**cl(
+                            height=230, title_text="Demand — Admissions",
+                            yaxis_title="Admissions",
+                            margin=dict(l=0, r=0, t=36, b=30),
+                            legend=dict(orientation="h", y=-0.25),
+                        ))
+                        st.plotly_chart(_fig_dem, use_container_width=True,
+                                        config={"displayModeBar": False})
+
+                    # Panel 2 — Efficiency
+                    with _tc2:
+                        _fig_eff = go.Figure()
+                        for _g in ["General", "Private"]:
+                            _gs = _bm_trend[_bm_trend["_GRP"] == _g].sort_values("ADMISSION_MONTH")
+                            _fig_eff.add_scatter(
+                                x=_gs["ADMISSION_MONTH"], y=_gs["avg_los"],
+                                mode="lines+markers", name=_g,
+                                line=dict(color=_GRP_COLORS[_g], width=2),
+                                marker=dict(size=5),
+                                hovertemplate="%{x|%b %Y}: %{y:.1f}d avg LOS<extra></extra>",
+                            )
+                        _fig_eff.update_layout(**cl(
+                            height=230, title_text="Efficiency — Avg LOS",
+                            yaxis_title="Days",
+                            margin=dict(l=0, r=0, t=36, b=30),
+                            legend=dict(orientation="h", y=-0.25),
+                        ))
+                        st.plotly_chart(_fig_eff, use_container_width=True,
+                                        config={"displayModeBar": False})
+
+                    # Panel 3 — Revenue Output
+                    with _tc3:
+                        _fig_rev = go.Figure()
+                        for _g in ["General", "Private"]:
+                            _gs = _bm_trend[_bm_trend["_GRP"] == _g].sort_values("ADMISSION_MONTH")
+                            _fig_rev.add_bar(
+                                x=_gs["ADMISSION_MONTH"], y=_gs["revenue"] / 1000,
+                                name=f"{_g}",
+                                marker_color=_GRP_COLORS[_g],
+                                opacity=0.80,
+                                hovertemplate="%{x|%b %Y}: KES %{y:.0f}K<extra></extra>",
+                            )
+                        _fig_rev.update_layout(**cl(
+                            height=230, title_text="Output — Revenue (KES K)",
+                            yaxis_title="KES (thousands)",
+                            barmode="group",
+                            margin=dict(l=0, r=0, t=36, b=30),
+                            legend=dict(orientation="h", y=-0.25),
+                        ))
+                        st.plotly_chart(_fig_rev, use_container_width=True,
+                                        config={"displayModeBar": False})
+
+                    dq_note(
+                        "Revenue = ward accommodation fee only (KES 6,000 standard · KES 12,000 private). "
+                        "Excludes procedures, lab, imaging, and pharmacy. "
+                        "LOS rising → same flat fee spread over more days → lower RevPAB. "
+                        "Admissions falling → total revenue falls even if LOS is stable. "
+                        "Follow the trail: revenue drop → check Demand panel first, then Efficiency."
+                    )
+
         if facility == "KISUMU_CLEAN":
             st.markdown("<div style='margin-top:20px'></div>", unsafe_allow_html=True)
             section_header("Private Ward Under-Billing — Rate Differential Confirmed")
@@ -3272,7 +3563,6 @@ elif page == "Capacity & Operations":
                     _admissions_ytd = int(_adm_total[_adm_total["ADMISSION_MONTH"] >= _ytd_start]["ADMISSIONS"].sum())
                     _admissions_3mo = int(_adm_total.tail(3)["ADMISSIONS"].sum())
                     fig_adm = go.Figure()
-                    # Connected dots — actual monthly path IS the trendline
                     fig_adm.add_scatter(
                         x=_adm12["ADMISSION_MONTH"],
                         y=_adm12["ADMISSIONS"],
@@ -3283,7 +3573,6 @@ elif page == "Capacity & Operations":
                         showlegend=False,
                         name="",
                     )
-                    # Dashed projection: EMA(3) next month extending from last actual point
                     _adm_proj    = _ema_next(_adm_total["ADMISSIONS"])
                     _adm_last_dt = pd.to_datetime(_adm12["ADMISSION_MONTH"].iloc[-1])
                     if _adm_proj is not None:

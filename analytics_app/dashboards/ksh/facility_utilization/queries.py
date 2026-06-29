@@ -313,22 +313,28 @@ def q_beds_los(facility=None):
 
 
 def q_beds_monthly():
-    """G1: monthly bed days + admissions + LOS per ward_name — KSH only.
-    Groups by ward_name (7 distinct wards) not ward_category (5 groups) — Inv 36."""
+    """G1: monthly bed days + admissions + LOS + revenue per ward_name — KSH only.
+    Grain: ward_name × admission_month. ward_category added for operational chain grouping.
+    Revenue = ward accommodation fee only (KES 6,000/12,000 flat) — excludes procedures/ancillary.
+    Inv 81: revenue columns added 2026-06-29 after fan-out + sufficiency validation."""
     return run_query_df("""
         SELECT
+            ward_category,
             ward_name,
             admission_month,
             SUM(total_admissions)                                                AS total_admissions,
             SUM(discharged_admissions)                                           AS discharged_admissions,
             SUM(total_bed_days)                                                  AS total_bed_days,
             ROUND(SUM(total_bed_days)
-                  / NULLIF(SUM(discharged_admissions), 0), 2)                   AS avg_los_days
+                  / NULLIF(SUM(discharged_admissions), 0), 2)                   AS avg_los_days,
+            SUM(total_admission_revenue)                                         AS total_admission_revenue,
+            ROUND(SUM(total_admission_revenue)
+                  / NULLIF(SUM(total_bed_days), 0), 2)                          AS revpab
         FROM HOSPITALS.REPORTING.rpt_bed_occupancy
         WHERE facility = 'KISUMU_CLEAN'
           AND ward_name IS NOT NULL
-        GROUP BY ward_name, admission_month
-        ORDER BY ward_name, admission_month
+        GROUP BY ward_category, ward_name, admission_month
+        ORDER BY ward_category, ward_name, admission_month
     """)
 
 

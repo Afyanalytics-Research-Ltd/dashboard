@@ -9,7 +9,7 @@ import json
 import urllib.parse
 from pathlib import Path
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.abspath('__file__')))
 
 import requests as _requests
 
@@ -23,10 +23,10 @@ from streamlit_option_menu import option_menu
 import warnings
 warnings.filterwarnings("ignore")
 
-from facility_utilization.m1_ward_forecast import get_forecast
+from ksh.facility_utilization.m1_ward_forecast import get_forecast
 from facility_utilization.forecasting.adapter import build_contract as _build_forecast_contract
-from notifier import send_digest, get_recipients, write_current_notices
-from facility_utilization.queries import (
+from ksh.facility_utilization.notifier import send_digest, get_recipients, write_current_notices
+from ksh.facility_utilization.queries import (
     q_overview_gap, q_overview_alerts,
     q_leakage_gap, q_leakage_submission_rate, q_leakage_ksh_dispatch_trend,
     q_leakage_aging_dist, q_leakage_recovery_priority,
@@ -6331,7 +6331,7 @@ elif page == "Predictive Analytics":
             meta.columns = ["Series", "Model", "Holdout MAPE", "Status"]
             st.dataframe(meta, hide_index=True, use_container_width=True)
 
-            from facility_utilization.m1_ward_forecast import VALIDATED_DATE, RETRAIN_DATE
+            from ksh.facility_utilization.m1_ward_forecast import VALIDATED_DATE, RETRAIN_DATE
             dq_note(
                 f"Last validated: {VALIDATED_DATE.strftime('%Y-%m-%d')}  ·  "
                 f"Retrain recommended by: {RETRAIN_DATE.strftime('%Y-%m-%d')}  ·  "

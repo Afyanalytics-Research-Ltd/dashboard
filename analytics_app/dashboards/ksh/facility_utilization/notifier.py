@@ -5,19 +5,26 @@ Usage:
     ok, msg = send_digest("KSH", notices, stats)
 """
 
+import json
 import os
 from datetime import datetime
+
 import django
 from django.conf import settings
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'airflow_dashboard.settings')
 django.setup()
-from django.conf import settings
+
 from django.core.mail import send_mail  # noqa: E402
 
 
-def _build_html(facility_name: str, notices: list, stats: str) -> str:
+def _build_html(facility_name: str, notices: list, stats: str,
+                clinical_notes: list = None) -> str:
     today = datetime.now().strftime("%d %b %Y")
+    _notices_json = json.dumps(
+        {"facility": facility_name, "date": today, "count": len(notices), "notices": notices},
+        separators=(",", ":"),
+    )
 
     notice_rows = ""
     for n in notices:
@@ -52,6 +59,30 @@ def _build_html(facility_name: str, notices: list, stats: str) -> str:
           <td style="padding:14px 24px;background:#F4F8FC;
             font-size:11px;color:#6B8CAE;border-top:2px solid #EBF3FB">
             {stats}
+          </td>
+        </tr>"""
+
+    clinical_rows = ""
+    if clinical_notes:
+        clinical_rows = """
+        <tr>
+          <td style="padding:14px 24px 6px;font-size:9px;font-weight:800;
+            color:#6B8CAE;text-transform:uppercase;letter-spacing:2px;
+            border-top:2px solid #EBF3FB">
+            Clinical Safety Monitor
+          </td>
+        </tr>"""
+        for c in clinical_notes:
+            clinical_rows += f"""
+        <tr>
+          <td style="padding:10px 24px 14px;border-bottom:1px solid #EBF3FB">
+            <span style="font-size:13px;font-weight:700;color:#003467">{c["title"]}</span><br>
+            <span style="font-size:12px;color:#003467;margin-top:4px;display:block">
+              {c["metric"]}
+            </span>
+            <span style="font-size:11px;color:#6B8CAE;margin-top:4px;display:block">
+              &#8594; {c["note"]}
+            </span>
           </td>
         </tr>"""
 
@@ -96,6 +127,8 @@ def _build_html(facility_name: str, notices: list, stats: str) -> str:
 
         {stats_row}
 
+        {clinical_rows}
+
         <!-- Footer -->
         <tr>
           <td style="padding:14px 24px;border-top:1px solid #EBF3FB;
@@ -107,6 +140,7 @@ def _build_html(facility_name: str, notices: list, stats: str) -> str:
       </table>
     </td></tr>
   </table>
+<!-- NOTICES_JSON: {_notices_json} -->
 </body>
 </html>"""
 
@@ -118,14 +152,17 @@ def get_recipients() -> list:
 
 
 def send_digest(facility_name: str, notices: list, stats: str = "",
-                recipients: list = None) -> tuple:
+                recipients: list = None, clinical_notes: list = None) -> tuple:
     """
     Send an executive digest email via Django send_mail (Gmail SMTP).
 
-    notices:    list of dicts — {level, title, metric, action}
-    stats:      optional one-line plain text
-    recipients: list of email addresses; defaults to DIGEST_RECIPIENTS env var
-    Returns:    (success: bool, message: str)
+    notices:        list of dicts — {level, title, metric, action}
+    stats:          optional one-line plain text footer
+    clinical_notes: optional list of dicts — {title, metric, note}
+                    rendered as a separate Clinical Safety Monitor section,
+                    no badge colouring — for findings requiring clinical review
+    recipients:     list of email addresses; defaults to DIGEST_RECIPIENTS env var
+    Returns:        (success: bool, message: str)
     """
     host_user = os.getenv("EMAIL_HOST_USER", "")
     if not host_user:
@@ -142,12 +179,25 @@ def send_digest(facility_name: str, notices: list, stats: str = "",
     try:
         send_mail(
             subject=f"{facility_name} — {tag} | {today}",
-            message="ok",
+            message="",
             from_email=settings.DEFAULT_FROM_EMAIL,
             recipient_list=to_list,
-            html_message=_build_html(facility_name, notices, stats),
+            html_message=_build_html(facility_name, notices, stats, clinical_notes),
             fail_silently=False,
         )
+        write_current_notices(facility_name, notices)
         return True, "sent"
     except Exception as e:
         return False, str(e)
+
+
+def write_current_notices(facility_name: str, notices: list) -> None:
+    """Write per-facility notices JSON so multiple facilities don't overwrite each other."""
+    slug = facility_name.replace(" ", "_").upper()
+    path = os.path.join(os.path.dirname(__file__), f"current_notices_{slug}.json")
+    today = datetime.now().strftime("%d %b %Y")
+    with open(path, "w") as f:
+        json.dump(
+            {"facility": facility_name, "date": today, "count": len(notices), "notices": notices},
+            f, indent=2,
+        )

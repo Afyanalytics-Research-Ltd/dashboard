@@ -355,7 +355,7 @@ def _filter_epoch(df, date_col):
 # ── ML platform paths ─────────────────────────────────────────────────────────
 
 _ML_PLATFORM         = Path(os.environ.get("ML_PLATFORM_PATH",
-                            str(Path(os.path.abspath(__file__)).parent / "ml_platform")))
+                            str(Path(__file__).resolve().parent.parent / "facility_utilization" / "ml_platform")))
 _FORECAST_CACHE      = _ML_PLATFORM / "forecast_cache.json"
 _RETRAIN_STATUS_FILE = _ML_PLATFORM / "retrain_status.json"
 _DJANGO_RETRAIN_URL  = f"{os.getenv('APP_URL','http://127.0.0.1:8000')}/forecast/retrain/"

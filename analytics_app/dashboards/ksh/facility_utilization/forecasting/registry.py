@@ -31,7 +31,7 @@ try:
 except ImportError:
     _MLFLOW_AVAILABLE = False
 
-_ML_PLATFORM      = Path(os.environ.get("ML_PLATFORM_PATH", "ml_platform"))
+_ML_PLATFORM      = Path(os.environ.get("ML_PLATFORM_PATH", str(Path(__file__).resolve().parent.parent / "ml_platform")))
 _MLFLOW_DB        = _ML_PLATFORM / "mlflow" / "mlflow.db"
 _EXPERIMENT_NAME  = "ksh_admission_forecasting"
 _CHAMPION_TAG_KEY = "is_champion"

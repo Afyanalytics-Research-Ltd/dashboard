@@ -73,7 +73,7 @@ _SCHEMA_VERSION  = 1
 _DRIFT_THRESHOLD = 0.15
 
 import os as _os
-_ML_PLATFORM = Path(_os.environ.get("ML_PLATFORM_PATH", "ml_platform"))
+_ML_PLATFORM = Path(_os.environ.get("ML_PLATFORM_PATH", str(Path(__file__).resolve().parent.parent / "ml_platform")))
 _REPORTS_DIR = _ML_PLATFORM / "evidently" / "reports"
 
 

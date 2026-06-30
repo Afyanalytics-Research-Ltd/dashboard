@@ -35,8 +35,8 @@ from django.views.decorators.http import require_POST
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render
 
-_ML_PLATFORM   = Path(os.environ.get("ML_PLATFORM_PATH",
-                       str(Path(__file__).resolve().parent.parent / "ml_platform")))
+_FACILITY_UTIL = Path(__file__).resolve().parent.parent / "analytics_app" / "dashboards" / "ksh" / "facility_utilization"
+_ML_PLATFORM   = Path(os.environ.get("ML_PLATFORM_PATH", str(_FACILITY_UTIL / "ml_platform")))
 _CACHE_FILE    = _ML_PLATFORM / "forecast_cache.json"
 _STATUS_FILE   = _ML_PLATFORM / "retrain_status.json"
 _DRIFT_FILE    = _ML_PLATFORM / "evidently" / "latest_drift.json"

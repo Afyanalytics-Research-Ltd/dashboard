@@ -75,7 +75,12 @@
       "Bash(python3 -c \"import sys; print\\(sys.version\\)\")",
       "Bash(wsl mkdir *)",
       "Bash(wsl find *)",
-      "Bash(wsl ls *)"
+      "Bash(wsl ls *)",
+      "Skill(claude-api)",
+      "Skill(claude-api:*)",
+      "Read(//mnt/wsl/wslg/distro/home/luther/dashboard/**)",
+      "Bash(wslpath '\\\\\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\luther\\\\dashboard')",
+      "Bash(ls -la \"$\\(wslpath '\\\\\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\luther\\\\dashboard'\\)/.env\")"
     ],
     "additionalDirectories": [
       "\\home\\luther\\dashboard\\templates\\analytics",

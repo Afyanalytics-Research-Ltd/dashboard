@@ -320,20 +320,38 @@ def inject_facility_filter(query: dict, facility_key: str) -> dict:
 
     cube_prefix = all_members[0].rsplit(".", 1)[0]
 
-    # Find which facility dimension this cube exposes
+    # Find which facility dimension this cube actually exposes.
+    # Strategy (in priority order):
+    #   1. The dimension is explicitly listed in query["dimensions"] — most reliable.
+    #   2. Cube naming convention: rpt_* → "facility", fact_* → "source_schema".
+    # The old "dim_suffix in FACILITY_DIMENSION_NAMES" fallback matched both keys
+    # unconditionally and always chose the first one (source_schema), which broke
+    # rpt_ cubes that only expose "facility".
     matched_dim: str | None = None
     matched_value: str | None = None
 
+    query_dims = set(query.get("dimensions", []))
+
+    # Pass 1 — prefer a dimension that is explicitly selected in this query
     for dim_suffix, filter_value in schema_map.items():
         candidate = f"{cube_prefix}.{dim_suffix}"
-        if candidate in query.get("dimensions", []) or dim_suffix in FACILITY_DIMENSION_NAMES:
+        if candidate in query_dims:
             matched_dim = candidate
             matched_value = filter_value
             break
 
+    # Pass 2 — infer from cube naming convention when no dimension was selected
     if not matched_dim:
+        if cube_prefix.startswith("rpt_"):
+            matched_dim = f"{cube_prefix}.facility"
+            matched_value = schema_map.get("facility")
+        elif cube_prefix.startswith("fact_"):
+            matched_dim = f"{cube_prefix}.source_schema"
+            matched_value = schema_map.get("source_schema")
+
+    if not matched_dim or not matched_value:
         logger.debug(
-            "inject_facility_filter: no facility dimension in %s — skipping",
+            "inject_facility_filter: no facility dimension resolved for %s — skipping",
             cube_prefix,
         )
         return query

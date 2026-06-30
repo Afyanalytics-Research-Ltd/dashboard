@@ -29,9 +29,11 @@ from pathlib import Path
 
 _LOG = logging.getLogger(__name__)
 
-from django.http import JsonResponse
+from django.http import HttpResponse, HttpResponseForbidden, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
+from django.contrib.auth.decorators import login_required
+from django.shortcuts import render
 
 _ML_PLATFORM   = Path(os.environ.get("ML_PLATFORM_PATH",
                        str(Path(__file__).resolve().parent.parent / "ml_platform")))
@@ -257,3 +259,131 @@ def drift(request):
             return JsonResponse(json.load(f))
     except Exception as exc:
         return JsonResponse({"error": f"Drift read error: {exc}"}, status=500)
+
+
+@login_required
+def admin_monitor(request):
+    """Internal admin page — staff/superuser only."""
+    if not (request.user.is_staff or request.user.is_superuser):
+        return HttpResponseForbidden("Admin access only.")
+
+    # Cache info
+    cache_info = None
+    if _CACHE_FILE.exists():
+        try:
+            with open(_CACHE_FILE, encoding="utf-8") as f:
+                raw = json.load(f)
+            cache_info = {
+                "model_version": raw.get("model_version", "—"),
+                "generated_at":  raw.get("generated_at", "—"),
+                "wmape":         raw.get("wmape", "—"),
+                "coverage":      raw.get("coverage", "—"),
+                "record_count":  len(raw.get("forecast", [])),
+            }
+        except Exception:
+            pass
+
+    # Last retrain status
+    retrain_info = None
+    if _STATUS_FILE.exists():
+        try:
+            with open(_STATUS_FILE, encoding="utf-8") as f:
+                retrain_info = json.load(f)
+        except Exception:
+            retrain_info = {"status": "unreadable"}
+
+    # Drift summary
+    drift_info = None
+    if _DRIFT_FILE.exists():
+        try:
+            with open(_DRIFT_FILE, encoding="utf-8") as f:
+                drift_info = json.load(f)
+        except Exception:
+            pass
+
+    # MLflow recent runs (graceful — mlflow may not be installed)
+    mlflow_runs = None
+    if _MLFLOW_DB.exists():
+        try:
+            import mlflow as _mlflow
+            _mlflow.set_tracking_uri(f"sqlite:///{_MLFLOW_DB}")
+            df = _mlflow.search_runs(
+                experiment_names=["ksh_admission_forecast"],
+                order_by=["start_time DESC"],
+                max_results=5,
+                output_format="pandas",
+            )
+            mlflow_runs = []
+            for _, row in df.iterrows():
+                wmape    = row.get("metrics.wmape")
+                cov      = row.get("metrics.coverage_90")
+                mlflow_runs.append({
+                    "run_id":   str(row.get("run_id", ""))[:14],
+                    "wmape":    round(float(wmape), 4) if wmape is not None else "—",
+                    "coverage": round(float(cov) * 100, 1) if cov is not None else "—",
+                    "started":  str(row.get("start_time", ""))[:19],
+                    "status":   str(row.get("status", "—")),
+                })
+        except Exception:
+            mlflow_runs = None
+
+    # Does the Evidently HTML report file exist?
+    has_drift_report = False
+    if drift_info and drift_info.get("report_id"):
+        has_drift_report = (_ML_PLATFORM / "evidently" / "reports" / drift_info["report_id"]).exists()
+
+    context = {
+        "cache_ok":         _CACHE_FILE.exists(),
+        "cache_info":       cache_info,
+        "mlflow_ok":        _MLFLOW_DB.exists(),
+        "retrain_info":     retrain_info,
+        "drift_info":       drift_info,
+        "mlflow_runs":      mlflow_runs,
+        "has_drift_report": has_drift_report,
+    }
+    return render(request, "forecasting/admin_monitor.html", context)
+
+
+@login_required
+def drift_report(request):
+    """Serve the latest Evidently HTML drift report (staff/superuser only)."""
+    if not (request.user.is_staff or request.user.is_superuser):
+        return HttpResponseForbidden("Admin access only.")
+
+    reports_dir = _ML_PLATFORM / "evidently" / "reports"
+    report_path = None
+
+    # Prefer the report_id recorded in the drift JSON
+    if _DRIFT_FILE.exists():
+        try:
+            with open(_DRIFT_FILE, encoding="utf-8") as f:
+                drift = json.load(f)
+            rid = drift.get("report_id")
+            if rid:
+                candidate = reports_dir / rid
+                if candidate.exists():
+                    report_path = candidate
+        except Exception:
+            pass
+
+    # Fallback: newest .html in reports dir
+    if report_path is None and reports_dir.exists():
+        html_files = sorted(reports_dir.glob("*.html"), key=lambda p: p.stat().st_mtime, reverse=True)
+        if html_files:
+            report_path = html_files[0]
+
+    if report_path is None:
+        return HttpResponse(
+            "<h2>No drift report found</h2>"
+            "<p>Trigger a retrain to generate one. "
+            "Evidently must be installed and the retrain must complete successfully.</p>",
+            status=404,
+            content_type="text/html",
+        )
+
+    try:
+        content = report_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        return HttpResponse(f"Error reading report: {exc}", status=500, content_type="text/plain")
+
+    return HttpResponse(content, content_type="text/html")

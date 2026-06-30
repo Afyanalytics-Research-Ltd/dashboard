@@ -1,0 +1,360 @@
+{% extends "base.html" %}
+
+{% block title %}ML Monitor{% endblock %}
+{% block page_title %}ML Monitor — KSH Admission Forecast{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+
+  <!-- ── Header ─────────────────────────────────────────────────── -->
+  <div class="d-flex align-items-center justify-content-between mb-4">
+    <div>
+      <h4 class="mb-0 fw-semibold">
+        <i class="bi bi-robot me-2" style="color:var(--afya-blue);"></i>
+        ML Monitor
+      </h4>
+      <p class="text-muted small mb-0">KSH Admission Forecast — Prophet pipeline</p>
+    </div>
+    <a href="/forecast/health/" target="_blank" class="btn btn-sm btn-outline-secondary">
+      <i class="bi bi-activity me-1"></i> Raw health JSON
+    </a>
+  </div>
+
+  <!-- ── System Health ──────────────────────────────────────────── -->
+  <div class="row g-3 mb-4">
+
+    <!-- Cache -->
+    <div class="col-md-4">
+      <div class="card h-100 border-0 shadow-sm">
+        <div class="card-body">
+          <div class="d-flex align-items-center gap-2 mb-2">
+            {% if cache_ok %}
+              <span class="badge bg-success">OK</span>
+            {% else %}
+              <span class="badge bg-danger">Missing</span>
+            {% endif %}
+            <span class="fw-semibold small text-uppercase text-muted">Forecast Cache</span>
+          </div>
+          {% if cache_info %}
+            <div class="small">
+              <div><span class="text-muted">Model:</span> <code>{{ cache_info.model_version }}</code></div>
+              <div><span class="text-muted">Generated:</span> {{ cache_info.generated_at|truncatechars:19 }}</div>
+              <div><span class="text-muted">WMAPE:</span> {{ cache_info.wmape }}</div>
+              <div><span class="text-muted">90% coverage:</span> {{ cache_info.coverage }}%</div>
+              <div><span class="text-muted">Records:</span> {{ cache_info.record_count }}</div>
+            </div>
+          {% else %}
+            <p class="text-muted small mb-0">No cache file. Trigger a retrain to generate one.</p>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <!-- MLflow DB -->
+    <div class="col-md-4">
+      <div class="card h-100 border-0 shadow-sm">
+        <div class="card-body">
+          <div class="d-flex align-items-center gap-2 mb-2">
+            {% if mlflow_ok %}
+              <span class="badge bg-success">OK</span>
+            {% else %}
+              <span class="badge bg-warning text-dark">Missing</span>
+            {% endif %}
+            <span class="fw-semibold small text-uppercase text-muted">MLflow DB</span>
+          </div>
+          {% if mlflow_ok %}
+            <p class="text-muted small mb-1">SQLite tracking store present.</p>
+            <p class="text-muted small mb-0">
+              <i class="bi bi-info-circle me-1"></i>
+              Run <code>mlflow ui --backend-store-uri sqlite:///&lt;ML_PLATFORM_PATH&gt;/mlflow/mlflow.db</code>
+              to browse experiments.
+            </p>
+          {% else %}
+            <p class="text-muted small mb-0">
+              MLflow DB will be created automatically on first retrain.
+            </p>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <!-- Last Retrain -->
+    <div class="col-md-4">
+      <div class="card h-100 border-0 shadow-sm">
+        <div class="card-body">
+          <div class="d-flex align-items-center gap-2 mb-2">
+            {% if retrain_info %}
+              {% if retrain_info.status == "success" %}
+                <span class="badge bg-success">Success</span>
+              {% elif retrain_info.status == "running" %}
+                <span class="badge bg-primary">Running</span>
+              {% elif retrain_info.status == "error" %}
+                <span class="badge bg-danger">Error</span>
+              {% else %}
+                <span class="badge bg-secondary">{{ retrain_info.status }}</span>
+              {% endif %}
+            {% else %}
+              <span class="badge bg-secondary">Never run</span>
+            {% endif %}
+            <span class="fw-semibold small text-uppercase text-muted">Last Retrain</span>
+          </div>
+          {% if retrain_info %}
+            <div class="small">
+              {% if retrain_info.started_at %}
+                <div><span class="text-muted">Started:</span> {{ retrain_info.started_at|truncatechars:19 }}</div>
+              {% endif %}
+              {% if retrain_info.completed_at %}
+                <div><span class="text-muted">Completed:</span> {{ retrain_info.completed_at|truncatechars:19 }}</div>
+              {% endif %}
+              {% if retrain_info.run_id %}
+                <div><span class="text-muted">Run ID:</span> <code>{{ retrain_info.run_id|truncatechars:14 }}</code></div>
+              {% endif %}
+              {% if retrain_info.error %}
+                <div class="mt-1 text-danger" style="font-size:11px;word-break:break-all;">
+                  {{ retrain_info.error|truncatechars:120 }}
+                </div>
+              {% endif %}
+            </div>
+          {% else %}
+            <p class="text-muted small mb-0">No retrain has been triggered yet.</p>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /health row -->
+
+  <!-- ── Controls + Drift ───────────────────────────────────────── -->
+  <div class="row g-3 mb-4">
+
+    <!-- Retrain Controls -->
+    <div class="col-md-5">
+      <div class="card border-0 shadow-sm h-100">
+        <div class="card-header bg-transparent border-0 pb-0">
+          <span class="fw-semibold small text-uppercase text-muted">
+            <i class="bi bi-arrow-repeat me-1"></i> Retrain Controls
+          </span>
+        </div>
+        <div class="card-body">
+          <p class="small text-muted mb-3">
+            Triggers a full Prophet retrain: Snowflake pull → fit → evaluate → write cache.
+            Drift report is generated afterwards (best-effort). Allow 60–90 s.
+          </p>
+          <button id="retrainBtn" class="btn btn-sm btn-primary" onclick="triggerRetrain()">
+            <i class="bi bi-play-fill me-1"></i> Trigger Retrain
+          </button>
+          <div id="retrainStatus" class="mt-3 small" style="display:none;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Drift Monitor -->
+    <div class="col-md-7">
+      <div class="card border-0 shadow-sm h-100">
+        <div class="card-header bg-transparent border-0 pb-0 d-flex align-items-center justify-content-between">
+          <span class="fw-semibold small text-uppercase text-muted">
+            <i class="bi bi-graph-up-arrow me-1"></i> Drift Monitor
+          </span>
+          {% if has_drift_report %}
+            <a href="/forecast/drift/report/" target="_blank" class="btn btn-xs btn-outline-secondary btn-sm" style="font-size:11px;">
+              <i class="bi bi-file-earmark-code me-1"></i> View HTML Report
+            </a>
+          {% endif %}
+        </div>
+        <div class="card-body">
+          {% if drift_info %}
+            <div class="row g-3">
+              <div class="col-6 col-lg-3">
+                <div class="text-muted small">Drift detected</div>
+                {% if drift_info.drift_detected %}
+                  <div class="fw-semibold text-danger">
+                    <i class="bi bi-exclamation-triangle-fill me-1"></i>Yes
+                  </div>
+                {% else %}
+                  <div class="fw-semibold text-success">
+                    <i class="bi bi-check-circle-fill me-1"></i>No
+                  </div>
+                {% endif %}
+              </div>
+              <div class="col-6 col-lg-3">
+                <div class="text-muted small">KS score (D)</div>
+                <div class="fw-semibold">{{ drift_info.drift_score }}</div>
+                <div class="text-muted" style="font-size:10px;">threshold 0.15</div>
+              </div>
+              <div class="col-6 col-lg-3">
+                <div class="text-muted small">p-value</div>
+                <div class="fw-semibold">{{ drift_info.diagnostics.p_value }}</div>
+              </div>
+              <div class="col-6 col-lg-3">
+                <div class="text-muted small">Window</div>
+                <div class="fw-semibold">{{ drift_info.window.size_days }}d holdout</div>
+              </div>
+              <div class="col-12">
+                <div class="text-muted small">Reference / Current rows</div>
+                <div class="fw-semibold">{{ drift_info.reference_rows }} / {{ drift_info.current_rows }}</div>
+              </div>
+              <div class="col-12">
+                <div class="text-muted small">Last generated</div>
+                <div class="fw-semibold small">{{ drift_info.generated_at|truncatechars:19 }}</div>
+              </div>
+            </div>
+            {% if not has_drift_report %}
+              <p class="text-muted small mt-2 mb-0">
+                <i class="bi bi-info-circle me-1"></i>
+                HTML report unavailable (Evidently not installed or report not generated yet).
+              </p>
+            {% endif %}
+          {% else %}
+            <p class="text-muted small mb-0">
+              No drift data yet. Drift is computed automatically after each successful retrain.
+            </p>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /controls + drift row -->
+
+  <!-- ── MLflow Experiment Runs ─────────────────────────────────── -->
+  <div class="card border-0 shadow-sm mb-4">
+    <div class="card-header bg-transparent border-0 pb-0">
+      <span class="fw-semibold small text-uppercase text-muted">
+        <i class="bi bi-clock-history me-1"></i> Recent Experiment Runs
+      </span>
+    </div>
+    <div class="card-body p-0">
+      {% if mlflow_runs %}
+        <div class="table-responsive">
+          <table class="table table-sm table-hover mb-0" style="font-size:13px;">
+            <thead class="table-light">
+              <tr>
+                <th class="ps-3">Run ID</th>
+                <th>WMAPE</th>
+                <th>90% Coverage</th>
+                <th>Started</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for run in mlflow_runs %}
+              <tr>
+                <td class="ps-3"><code>{{ run.run_id }}</code></td>
+                <td>{{ run.wmape }}</td>
+                <td>
+                  {% if run.coverage != "—" %}
+                    {{ run.coverage }}%
+                  {% else %}
+                    —
+                  {% endif %}
+                </td>
+                <td>{{ run.started }}</td>
+                <td>
+                  {% if run.status == "FINISHED" %}
+                    <span class="badge bg-success">Finished</span>
+                  {% elif run.status == "RUNNING" %}
+                    <span class="badge bg-primary">Running</span>
+                  {% elif run.status == "FAILED" %}
+                    <span class="badge bg-danger">Failed</span>
+                  {% else %}
+                    <span class="badge bg-secondary">{{ run.status }}</span>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% elif mlflow_ok %}
+        <p class="text-muted small p-3 mb-0">
+          MLflow DB is present but no runs found for <code>ksh_admission_forecast</code>.
+          Trigger a retrain to log the first run.
+        </p>
+      {% else %}
+        <p class="text-muted small p-3 mb-0">
+          MLflow DB not found. It will be created on first retrain.
+        </p>
+      {% endif %}
+    </div>
+  </div>
+
+</div><!-- /container -->
+{% endblock %}
+
+{% block extra_css %}
+<style>
+  .card { border-radius: 10px; }
+</style>
+{% endblock %}
+
+{% block page_header %}
+<script>
+function triggerRetrain() {
+  const btn = document.getElementById("retrainBtn");
+  const statusDiv = document.getElementById("retrainStatus");
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Starting…';
+  statusDiv.style.display = "none";
+
+  fetch("/forecast/retrain/", { method: "POST" })
+    .then(r => r.json())
+    .then(data => {
+      if (data.status === "accepted" || data.status === "already_running") {
+        statusDiv.style.display = "block";
+        statusDiv.innerHTML = '<i class="bi bi-hourglass-split me-1 text-primary"></i> ' +
+          'Retrain in progress — polling for status…';
+        pollStatus(0);
+      } else {
+        statusDiv.style.display = "block";
+        statusDiv.innerHTML = '<span class="text-danger"><i class="bi bi-x-circle me-1"></i>' +
+          JSON.stringify(data) + '</span>';
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-play-fill me-1"></i> Trigger Retrain';
+      }
+    })
+    .catch(err => {
+      statusDiv.style.display = "block";
+      statusDiv.innerHTML = '<span class="text-danger">Request failed: ' + err + '</span>';
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-play-fill me-1"></i> Trigger Retrain';
+    });
+}
+
+function pollStatus(attempt) {
+  const btn = document.getElementById("retrainBtn");
+  const statusDiv = document.getElementById("retrainStatus");
+
+  if (attempt > 36) {  // 3 min max (36 × 5s)
+    statusDiv.innerHTML = '<span class="text-warning"><i class="bi bi-clock me-1"></i>' +
+      'Still running after 3 min — check /forecast/retrain/status/ directly.</span>';
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-play-fill me-1"></i> Trigger Retrain';
+    return;
+  }
+
+  fetch("/forecast/retrain/status/")
+    .then(r => r.json())
+    .then(data => {
+      if (data.status === "success") {
+        statusDiv.innerHTML = '<span class="text-success"><i class="bi bi-check-circle-fill me-1"></i>' +
+          'Retrain complete. Reload the page to see updated stats.</span>' +
+          ' <a href="" class="btn btn-xs btn-sm btn-outline-success" style="font-size:11px;" onclick="location.reload()">Reload</a>';
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-play-fill me-1"></i> Trigger Retrain';
+      } else if (data.status === "error") {
+        statusDiv.innerHTML = '<span class="text-danger"><i class="bi bi-x-circle-fill me-1"></i>' +
+          'Retrain failed: ' + (data.error || "unknown error") + '</span>';
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-play-fill me-1"></i> Trigger Retrain';
+      } else {
+        statusDiv.innerHTML = '<i class="bi bi-hourglass-split me-1 text-primary"></i>' +
+          ' Running… (' + (attempt * 5) + 's elapsed)';
+        setTimeout(() => pollStatus(attempt + 1), 5000);
+      }
+    })
+    .catch(() => {
+      setTimeout(() => pollStatus(attempt + 1), 5000);
+    });
+}
+</script>
+{% endblock %}

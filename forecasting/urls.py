@@ -7,4 +7,6 @@ urlpatterns = [
     path("retrain/",        views.retrain,         name="forecast_retrain"),
     path("retrain/status/", views.retrain_status,  name="forecast_retrain_status"),
     path("drift/",          views.drift,           name="forecast_drift"),
+    path("drift/report/",   views.drift_report,    name="forecast_drift_report"),
+    path("admin/",          views.admin_monitor,   name="forecast_admin"),
 ]

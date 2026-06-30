@@ -24,6 +24,7 @@ import warnings
 warnings.filterwarnings("ignore")
 
 from ksh.facility_utilization.m1_ward_forecast import get_forecast
+from ksh.facility_utilization.forecasting.adapter import build_contract as _build_forecast_contract
 from ksh.facility_utilization.notifier import send_digest, get_recipients, write_current_notices
 from ksh.facility_utilization.queries import (
     q_overview_gap, q_overview_alerts,
@@ -353,7 +354,8 @@ def _filter_epoch(df, date_col):
 
 # ── ML platform paths ─────────────────────────────────────────────────────────
 
-_ML_PLATFORM         = Path(os.path.abspath('__file__')).parent / "ml_platform"
+_ML_PLATFORM         = Path(os.environ.get("ML_PLATFORM_PATH",
+                            str(Path(__file__).resolve().parent / "facility_utilization" / "ml_platform")))
 _FORECAST_CACHE      = _ML_PLATFORM / "forecast_cache.json"
 _RETRAIN_STATUS_FILE = _ML_PLATFORM / "retrain_status.json"
 _DJANGO_RETRAIN_URL  = f"{os.getenv('APP_URL','http://127.0.0.1:8000')}/forecast/retrain/"
@@ -5858,29 +5860,36 @@ elif page == "Predictive Analytics":
 
         # Load contract once per session (facility-keyed cache)
         _contract_error = None
+        if not st.session_state.p6_ksh:
+            with st.spinner("Loading forecast…"):
+                try:
+                    st.session_state.p6_ksh = _build_forecast_contract(_FORECAST_CACHE)
+                except Exception as _e:
+                    _contract_error = str(_e)
+
         if _contract_error:
             st.warning(_contract_error)
             st.info("Use **Model Controls → Trigger Retrain**, wait ~60–90s, then click **Reload Forecast**.")
             st.stop()
 
-        # _ct      = st.session_state.p6_ksh
-        # _fc_rows = _ct["forecast"]
-        # _metrics = _ct["metrics"]
-        # _wmape    = _metrics.get("wmape")
-        # _coverage = _metrics.get("coverage")
-        # _wmape_str    = f"{_wmape:.1f}%" if _wmape is not None else "—"
-        # _coverage_str = f"{_coverage:.0f}%" if _coverage is not None else "—"
-        # _gen_date = str(_ct.get("generated_at", ""))[:10]
+        _ct      = st.session_state.p6_ksh
+        _fc_rows = _ct["forecast"]
+        _metrics = _ct["metrics"]
+        _wmape    = _metrics.get("wmape")
+        _coverage = _metrics.get("coverage")
+        _wmape_str    = f"{_wmape:.1f}%" if _wmape is not None else "—"
+        _coverage_str = f"{_coverage:.0f}%" if _coverage is not None else "—"
+        _gen_date = str(_ct.get("generated_at", ""))[:10]
 
-        # # ── Model quality badge (inline, not a card) ───────────────────────────
-        # st.markdown(
-        #     f'<div style="font-size:10px;color:#6B8CAE;margin-bottom:20px">'
-        #     f'Probabilistic · {_ct.get("model_version", "—")} &nbsp;·&nbsp; '
-        #     f'Coverage {_coverage_str} &nbsp;·&nbsp; WMAPE {_wmape_str} &nbsp;·&nbsp; '
-        #     f'Updated {_gen_date}'
-        #     f'</div>',
-        #     unsafe_allow_html=True,
-        # )
+        # ── Model quality badge (inline, not a card) ───────────────────────────
+        st.markdown(
+            f'<div style="font-size:10px;color:#6B8CAE;margin-bottom:20px">'
+            f'Probabilistic · {_ct.get("model_version", "—")} &nbsp;·&nbsp; '
+            f'Coverage {_coverage_str} &nbsp;·&nbsp; WMAPE {_wmape_str} &nbsp;·&nbsp; '
+            f'Updated {_gen_date}'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
 
         # ── Three month trajectory cards ───────────────────────────────────────
         _TREND_THRESHOLD = 0.05   # <5% = Stable; ≥5% = Rising / Falling
@@ -5896,38 +5905,38 @@ elif page == "Predictive Analytics":
             else:
                 return f"Falling {pct*100:.0f}%", pct, "#5DADE2"
 
-        # _mc = st.columns(len(_fc_rows)) if _fc_rows else []
-        # _prior_pt = None
-        # for _col, _row in zip(_mc, _fc_rows):
-        #     _pt     = _row["point"]
-        #     _mo_lbl = pd.Timestamp(_row["forecast_month"]).strftime("%b %Y").upper()
-        #     _lo     = _row.get("low_approx")
-        #     _hi     = _row.get("high_approx")
-        #     _range_html = (
-        #         f'<div style="font-size:10px;color:#6B8CAE;margin-top:4px">'
-        #         f'~{int(_lo):,} – {int(_hi):,}</div>'
-        #         if _lo is not None and _hi is not None else ""
-        #     )
-        #     _trend_lbl, _trend_pct, _trend_color = _trend(_pt, _prior_pt)
-        #     _trend_html = (
-        #         f'<div style="font-size:11px;font-weight:700;color:{_trend_color};margin-top:6px">'
-        #         f'{_trend_lbl}</div>'
-        #         if _trend_lbl else ""
-        #     )
-        #     with _col:
-        #         st.markdown(
-        #             f'<div style="background:#F4F8FC;border:1px solid #D6E4F0;border-radius:8px;'
-        #             f'padding:20px 16px;text-align:center">'
-        #             f'<div style="font-size:10px;font-weight:700;color:#6B8CAE;text-transform:uppercase;'
-        #             f'letter-spacing:1.5px;margin-bottom:10px">{_mo_lbl}</div>'
-        #             f'<div style="font-size:36px;font-weight:800;color:{COLORS["primary"]};line-height:1">'
-        #             f'{int(round(_pt)):,}</div>'
-        #             f'{_trend_html}'
-        #             f'{_range_html}'
-        #             f'</div>',
-        #             unsafe_allow_html=True,
-        #         )
-        #     _prior_pt = _pt
+        _mc = st.columns(len(_fc_rows)) if _fc_rows else []
+        _prior_pt = None
+        for _col, _row in zip(_mc, _fc_rows):
+            _pt     = _row["point"]
+            _mo_lbl = pd.Timestamp(_row["forecast_month"]).strftime("%b %Y").upper()
+            _lo     = _row.get("low_approx")
+            _hi     = _row.get("high_approx")
+            _range_html = (
+                f'<div style="font-size:10px;color:#6B8CAE;margin-top:4px">'
+                f'~{int(_lo):,} – {int(_hi):,}</div>'
+                if _lo is not None and _hi is not None else ""
+            )
+            _trend_lbl, _trend_pct, _trend_color = _trend(_pt, _prior_pt)
+            _trend_html = (
+                f'<div style="font-size:11px;font-weight:700;color:{_trend_color};margin-top:6px">'
+                f'{_trend_lbl}</div>'
+                if _trend_lbl else ""
+            )
+            with _col:
+                st.markdown(
+                    f'<div style="background:#F4F8FC;border:1px solid #D6E4F0;border-radius:8px;'
+                    f'padding:20px 16px;text-align:center">'
+                    f'<div style="font-size:10px;font-weight:700;color:#6B8CAE;text-transform:uppercase;'
+                    f'letter-spacing:1.5px;margin-bottom:10px">{_mo_lbl}</div>'
+                    f'<div style="font-size:36px;font-weight:800;color:{COLORS["primary"]};line-height:1">'
+                    f'{int(round(_pt)):,}</div>'
+                    f'{_trend_html}'
+                    f'{_range_html}'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+            _prior_pt = _pt
 
         st.markdown("<div style='margin-bottom:4px'></div>", unsafe_allow_html=True)
         dq_note(
@@ -5939,60 +5948,60 @@ elif page == "Predictive Analytics":
 
         # ── Bar chart — 3-month trajectory ────────────────────────────────────
 
-        # _bar_labels = [
-        #     pd.Timestamp(r["forecast_month"]).strftime("%b %Y") for r in _fc_rows
-        # ]
-        # _bar_vals   = [int(round(r["point"])) for r in _fc_rows]
+        _bar_labels = [
+            pd.Timestamp(r["forecast_month"]).strftime("%b %Y") for r in _fc_rows
+        ]
+        _bar_vals   = [int(round(r["point"])) for r in _fc_rows]
 
-        # _bar_colors = []
-        # _prev = None
-        # for _v in _bar_vals:
-        #     if _prev is None:
-        #         _bar_colors.append(COLORS["primary"])
-        #     elif (_v - _prev) / max(_prev, 1) >= _TREND_THRESHOLD:
-        #         _bar_colors.append(COLORS["warning"])
-        #     elif (_v - _prev) / max(_prev, 1) <= -_TREND_THRESHOLD:
-        #         _bar_colors.append("#5DADE2")
-        #     else:
-        #         _bar_colors.append(COLORS["primary"])
-        #     _prev = _v
+        _bar_colors = []
+        _prev = None
+        for _v in _bar_vals:
+            if _prev is None:
+                _bar_colors.append(COLORS["primary"])
+            elif (_v - _prev) / max(_prev, 1) >= _TREND_THRESHOLD:
+                _bar_colors.append(COLORS["warning"])
+            elif (_v - _prev) / max(_prev, 1) <= -_TREND_THRESHOLD:
+                _bar_colors.append("#5DADE2")
+            else:
+                _bar_colors.append(COLORS["primary"])
+            _prev = _v
 
-        # _fig_bar = go.Figure()
-        # _fig_bar.add_bar(
-        #     x=_bar_labels,
-        #     y=_bar_vals,
-        #     marker_color=_bar_colors,
-        #     text=[f"{v:,}" for v in _bar_vals],
-        #     textposition="outside",
-        #     textfont=dict(size=13, color=COLORS["primary"], family="Montserrat"),
-        #     hovertemplate="%{x}: %{y:,} admissions<extra></extra>",
-        #     width=0.45,
-        # )
-        # _fig_bar.update_layout(**cl(
-        #     height=260,
-        #     yaxis=dict(visible=False),
-        #     xaxis=dict(tickfont=dict(size=12, family="Montserrat", color=COLORS["primary"])),
-        #     showlegend=False,
-        #     margin=dict(l=0, r=0, t=30, b=20),
-        #     plot_bgcolor="#FFFFFF",
-        # ))
-        # st.plotly_chart(_fig_bar, use_container_width=True, config={"displayModeBar": False})
+        _fig_bar = go.Figure()
+        _fig_bar.add_bar(
+            x=_bar_labels,
+            y=_bar_vals,
+            marker_color=_bar_colors,
+            text=[f"{v:,}" for v in _bar_vals],
+            textposition="outside",
+            textfont=dict(size=13, color=COLORS["primary"], family="Montserrat"),
+            hovertemplate="%{x}: %{y:,} admissions<extra></extra>",
+            width=0.45,
+        )
+        _fig_bar.update_layout(**cl(
+            height=260,
+            yaxis=dict(visible=False),
+            xaxis=dict(tickfont=dict(size=12, family="Montserrat", color=COLORS["primary"])),
+            showlegend=False,
+            margin=dict(l=0, r=0, t=30, b=20),
+            plot_bgcolor="#FFFFFF",
+        ))
+        st.plotly_chart(_fig_bar, use_container_width=True, config={"displayModeBar": False})
 
         # ── Model health expander ──────────────────────────────────────────────
 
-        # st.markdown("<div style='margin-top:4px'></div>", unsafe_allow_html=True)
-        # with st.expander("Model Health", expanded=False):
-        #     _mh_rows = [
-        #         {"Series": "KSH · Facility", "Model": "Prophet (probabilistic)",
-        #          "WMAPE": _wmape_str, "Coverage (90%)": _coverage_str,
-        #          "Grain": "Daily", "Status": "✓ Champion"},
-        #     ]
-        #     st.dataframe(pd.DataFrame(_mh_rows), hide_index=True, use_container_width=True)
-        #     dq_note(
-        #         f"Model version: {_ct.get('model_version', '—')}  ·  "
-        #         f"Contract version: {_ct.get('contract_version', '—')}  ·  "
-        #         f"Generated: {str(_ct.get('generated_at', '—'))[:19]}"
-        #     )
+        st.markdown("<div style='margin-top:4px'></div>", unsafe_allow_html=True)
+        with st.expander("Model Health", expanded=False):
+            _mh_rows = [
+                {"Series": "KSH · Facility", "Model": "Prophet (probabilistic)",
+                 "WMAPE": _wmape_str, "Coverage (90%)": _coverage_str,
+                 "Grain": "Daily", "Status": "✓ Champion"},
+            ]
+            st.dataframe(pd.DataFrame(_mh_rows), hide_index=True, use_container_width=True)
+            dq_note(
+                f"Model version: {_ct.get('model_version', '—')}  ·  "
+                f"Contract version: {_ct.get('contract_version', '—')}  ·  "
+                f"Generated: {str(_ct.get('generated_at', '—'))[:19]}"
+            )
 
     # ══════════════════════════════════════════════════════════════════════════
     # TENRI — Holt's Linear Trend (deterministic, monthly grain) — unchanged

@@ -257,3 +257,15 @@ ksh_clinicals_dashboard_copy.py
 preprocessing/*.jsonl
 *.tmp.*
 **/DATA_QUALITY.md
+
+# ML platform runtime artifacts — never commit (MLflow DB, Evidently reports, lock files)
+# forecast_cache.json is the seed file and IS committed
+**/ml_platform/mlflow/
+**/ml_platform/evidently/
+**/ml_platform/retrain.lock
+**/ml_platform/retrain_status.json
+**/ml_platform/*.tmp
+ml_platform/mlflow/
+ml_platform/evidently/
+ml_platform/retrain.lock
+ml_platform/retrain_status.json

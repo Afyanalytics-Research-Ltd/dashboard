@@ -79,7 +79,8 @@ INSTALLED_APPS = [
     'self_service',
     'agents',
     'corsheaders',
-    'catalog'
+    'catalog',
+    'forecasting',
 ]
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,1629 @@
+{
+  "schema_version": 1,
+  "model_version": "prophet_v1",
+  "generated_at": "2026-06-23T11:29:49.671617+00:00",
+  "wmape": 51.4516,
+  "coverage": 85.0,
+  "forecast": [
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-04-22",
+      "point": 5.24,
+      "low_90": 1.37,
+      "high_90": 9.05,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-04-23",
+      "point": 5.35,
+      "low_90": 1.76,
+      "high_90": 8.91,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-04-24",
+      "point": 4.6,
+      "low_90": 0.86,
+      "high_90": 8.45,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-04-25",
+      "point": 3.23,
+      "low_90": 0.0,
+      "high_90": 7.28,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-04-26",
+      "point": 2.59,
+      "low_90": 0.0,
+      "high_90": 6.64,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-04-27",
+      "point": 5.13,
+      "low_90": 1.07,
+      "high_90": 9.03,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-04-28",
+      "point": 5.51,
+      "low_90": 1.65,
+      "high_90": 9.3,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-04-29",
+      "point": 5.21,
+      "low_90": 1.3,
+      "high_90": 9.09,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-04-30",
+      "point": 5.39,
+      "low_90": 1.42,
+      "high_90": 9.24,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-05-01",
+      "point": 2.08,
+      "low_90": 0.0,
+      "high_90": 5.71,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-05-02",
+      "point": 7.27,
+      "low_90": 3.54,
+      "high_90": 11.18,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-05-03",
+      "point": 2.87,
+      "low_90": 0.0,
+      "high_90": 6.67,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-05-04",
+      "point": 5.49,
+      "low_90": 1.74,
+      "high_90": 9.43,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-05-05",
+      "point": 5.94,
+      "low_90": 2.21,
+      "high_90": 9.61,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-05-06",
+      "point": 5.69,
+      "low_90": 1.83,
+      "high_90": 9.52,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-05-07",
+      "point": 5.92,
+      "low_90": 2.38,
+      "high_90": 9.75,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-05-08",
+      "point": 5.29,
+      "low_90": 1.51,
+      "high_90": 9.01,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-05-09",
+      "point": 4.02,
+      "low_90": 0.41,
+      "high_90": 7.74,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-05-10",
+      "point": 3.46,
+      "low_90": 0.0,
+      "high_90": 7.49,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-05-11",
+      "point": 6.07,
+      "low_90": 2.16,
+      "high_90": 9.72,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-05-12",
+      "point": 6.5,
+      "low_90": 2.61,
+      "high_90": 10.36,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-05-13",
+      "point": 6.22,
+      "low_90": 2.37,
+      "high_90": 10.12,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-05-14",
+      "point": 6.39,
+      "low_90": 2.39,
+      "high_90": 10.4,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-05-15",
+      "point": 5.69,
+      "low_90": 1.7,
+      "high_90": 9.3,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-05-16",
+      "point": 4.34,
+      "low_90": 0.56,
+      "high_90": 8.1,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-05-17",
+      "point": 3.69,
+      "low_90": 0.0,
+      "high_90": 7.59,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-05-18",
+      "point": 6.2,
+      "low_90": 2.32,
+      "high_90": 9.93,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-05-19",
+      "point": 6.52,
+      "low_90": 2.39,
+      "high_90": 10.18,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-05-20",
+      "point": 6.12,
+      "low_90": 2.16,
+      "high_90": 9.68,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-05-21",
+      "point": 6.18,
+      "low_90": 2.16,
+      "high_90": 9.94,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-05-22",
+      "point": 5.36,
+      "low_90": 1.79,
+      "high_90": 9.41,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-05-23",
+      "point": 3.9,
+      "low_90": 0.0,
+      "high_90": 7.68,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-05-24",
+      "point": 3.14,
+      "low_90": 0.0,
+      "high_90": 6.79,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-05-25",
+      "point": 5.54,
+      "low_90": 1.7,
+      "high_90": 9.35,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-05-26",
+      "point": 5.77,
+      "low_90": 1.73,
+      "high_90": 9.6,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-05-27",
+      "point": 5.29,
+      "low_90": 1.45,
+      "high_90": 9.07,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-05-28",
+      "point": 5.28,
+      "low_90": 1.33,
+      "high_90": 9.18,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-05-29",
+      "point": 4.41,
+      "low_90": 0.54,
+      "high_90": 8.2,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-05-30",
+      "point": 2.91,
+      "low_90": 0.0,
+      "high_90": 6.68,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-05-31",
+      "point": 2.13,
+      "low_90": 0.0,
+      "high_90": 6.03,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-06-01",
+      "point": 5.22,
+      "low_90": 1.59,
+      "high_90": 8.99,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-06-02",
+      "point": 4.92,
+      "low_90": 0.94,
+      "high_90": 8.5,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-06-03",
+      "point": 4.33,
+      "low_90": 0.6,
+      "high_90": 8.19,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-06-04",
+      "point": 4.36,
+      "low_90": 0.91,
+      "high_90": 8.45,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-06-05",
+      "point": 3.56,
+      "low_90": 0.0,
+      "high_90": 7.35,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-06-06",
+      "point": 2.13,
+      "low_90": 0.0,
+      "high_90": 5.82,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-06-07",
+      "point": 1.44,
+      "low_90": 0.0,
+      "high_90": 5.42,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-06-08",
+      "point": 3.93,
+      "low_90": 0.0,
+      "high_90": 7.89,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-06-09",
+      "point": 4.27,
+      "low_90": 0.34,
+      "high_90": 8.04,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-06-10",
+      "point": 3.93,
+      "low_90": 0.0,
+      "high_90": 7.76,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-06-11",
+      "point": 4.07,
+      "low_90": 0.31,
+      "high_90": 7.99,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-06-12",
+      "point": 3.37,
+      "low_90": 0.0,
+      "high_90": 7.35,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-06-13",
+      "point": 2.04,
+      "low_90": 0.0,
+      "high_90": 5.96,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-06-14",
+      "point": 1.44,
+      "low_90": 0.0,
+      "high_90": 5.29,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-06-15",
+      "point": 4.02,
+      "low_90": 0.03,
+      "high_90": 7.82,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-06-16",
+      "point": 4.44,
+      "low_90": 0.74,
+      "high_90": 8.03,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-06-17",
+      "point": 4.16,
+      "low_90": 0.33,
+      "high_90": 8.09,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-06-18",
+      "point": 4.36,
+      "low_90": 0.19,
+      "high_90": 8.02,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-06-19",
+      "point": 3.7,
+      "low_90": 0.0,
+      "high_90": 7.75,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-06-20",
+      "point": 2.4,
+      "low_90": 0.0,
+      "high_90": 6.39,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-06-21",
+      "point": 1.82,
+      "low_90": 0.0,
+      "high_90": 5.54,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-06-22",
+      "point": 4.4,
+      "low_90": 0.57,
+      "high_90": 8.29,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-06-23",
+      "point": 4.8,
+      "low_90": 1.27,
+      "high_90": 8.75,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-06-24",
+      "point": 4.5,
+      "low_90": 0.42,
+      "high_90": 8.01,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-06-25",
+      "point": 4.66,
+      "low_90": 1.03,
+      "high_90": 8.2,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-06-26",
+      "point": 3.95,
+      "low_90": 0.18,
+      "high_90": 7.53,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-06-27",
+      "point": 2.6,
+      "low_90": 0.0,
+      "high_90": 6.71,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-06-28",
+      "point": 1.96,
+      "low_90": 0.0,
+      "high_90": 5.85,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-06-29",
+      "point": 4.49,
+      "low_90": 0.73,
+      "high_90": 8.68,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-06-30",
+      "point": 4.83,
+      "low_90": 0.83,
+      "high_90": 8.52,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-07-01",
+      "point": 4.47,
+      "low_90": 0.4,
+      "high_90": 8.5,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-07-02",
+      "point": 4.58,
+      "low_90": 1.05,
+      "high_90": 8.53,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-07-03",
+      "point": 3.82,
+      "low_90": 0.0,
+      "high_90": 7.49,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-07-04",
+      "point": 2.43,
+      "low_90": 0.0,
+      "high_90": 6.53,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-07-05",
+      "point": 1.75,
+      "low_90": 0.0,
+      "high_90": 5.7,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-07-06",
+      "point": 4.25,
+      "low_90": 0.18,
+      "high_90": 8.31,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-07-07",
+      "point": 4.58,
+      "low_90": 0.85,
+      "high_90": 8.48,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-07-08",
+      "point": 4.22,
+      "low_90": 0.38,
+      "high_90": 8.32,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-07-09",
+      "point": 4.34,
+      "low_90": 0.42,
+      "high_90": 8.12,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-07-10",
+      "point": 3.61,
+      "low_90": 0.08,
+      "high_90": 7.28,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-07-11",
+      "point": 2.25,
+      "low_90": 0.0,
+      "high_90": 6.01,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-07-12",
+      "point": 1.63,
+      "low_90": 0.0,
+      "high_90": 5.69,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-07-13",
+      "point": 4.18,
+      "low_90": 0.5,
+      "high_90": 8.04,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-07-14",
+      "point": 4.58,
+      "low_90": 0.81,
+      "high_90": 8.25,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-07-15",
+      "point": 4.29,
+      "low_90": 0.57,
+      "high_90": 8.32,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-07-16",
+      "point": 4.49,
+      "low_90": 0.66,
+      "high_90": 8.29,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-07-17",
+      "point": 3.84,
+      "low_90": 0.24,
+      "high_90": 7.81,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-07-18",
+      "point": 2.56,
+      "low_90": 0.0,
+      "high_90": 6.47,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-07-19",
+      "point": 2.02,
+      "low_90": 0.0,
+      "high_90": 5.66,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-07-20",
+      "point": 4.66,
+      "low_90": 0.46,
+      "high_90": 8.56,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-07-21",
+      "point": 5.13,
+      "low_90": 1.56,
+      "high_90": 9.01,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-07-22",
+      "point": 4.91,
+      "low_90": 0.97,
+      "high_90": 8.9,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-07-23",
+      "point": 5.17,
+      "low_90": 1.26,
+      "high_90": 9.01,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-07-24",
+      "point": 4.56,
+      "low_90": 0.76,
+      "high_90": 8.41,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-07-25",
+      "point": 3.32,
+      "low_90": 0.0,
+      "high_90": 7.29,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-07-26",
+      "point": 2.81,
+      "low_90": 0.0,
+      "high_90": 6.62,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-07-27",
+      "point": 5.45,
+      "low_90": 1.58,
+      "high_90": 9.27,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-07-28",
+      "point": 5.92,
+      "low_90": 2.1,
+      "high_90": 9.72,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-07-29",
+      "point": 5.68,
+      "low_90": 1.85,
+      "high_90": 9.55,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-07-30",
+      "point": 5.91,
+      "low_90": 2.06,
+      "high_90": 9.84,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-07-31",
+      "point": 5.26,
+      "low_90": 1.55,
+      "high_90": 9.16,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-08-01",
+      "point": 3.97,
+      "low_90": 0.35,
+      "high_90": 7.87,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-08-02",
+      "point": 3.38,
+      "low_90": 0.0,
+      "high_90": 7.2,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-08-03",
+      "point": 5.95,
+      "low_90": 2.01,
+      "high_90": 9.75,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-08-04",
+      "point": 6.34,
+      "low_90": 2.44,
+      "high_90": 10.03,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-08-05",
+      "point": 6.01,
+      "low_90": 2.39,
+      "high_90": 10.1,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-08-06",
+      "point": 6.14,
+      "low_90": 2.18,
+      "high_90": 9.86,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-08-07",
+      "point": 5.4,
+      "low_90": 1.48,
+      "high_90": 9.09,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-08-08",
+      "point": 4.01,
+      "low_90": 0.14,
+      "high_90": 8.15,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-08-09",
+      "point": 3.33,
+      "low_90": 0.0,
+      "high_90": 7.02,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-08-10",
+      "point": 5.81,
+      "low_90": 2.23,
+      "high_90": 9.41,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-08-11",
+      "point": 6.1,
+      "low_90": 2.46,
+      "high_90": 10.11,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-08-12",
+      "point": 5.7,
+      "low_90": 1.88,
+      "high_90": 9.93,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-08-13",
+      "point": 5.76,
+      "low_90": 2.1,
+      "high_90": 9.39,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-08-14",
+      "point": 4.95,
+      "low_90": 1.1,
+      "high_90": 8.79,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-08-15",
+      "point": 3.51,
+      "low_90": 0.0,
+      "high_90": 7.37,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-08-16",
+      "point": 2.79,
+      "low_90": 0.0,
+      "high_90": 6.47,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-08-17",
+      "point": 5.24,
+      "low_90": 1.51,
+      "high_90": 9.2,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-08-18",
+      "point": 5.52,
+      "low_90": 1.91,
+      "high_90": 9.23,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-08-19",
+      "point": 5.1,
+      "low_90": 1.18,
+      "high_90": 9.27,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-08-20",
+      "point": 5.17,
+      "low_90": 1.37,
+      "high_90": 8.83,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-08-21",
+      "point": 4.37,
+      "low_90": 0.69,
+      "high_90": 8.08,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-08-22",
+      "point": 2.95,
+      "low_90": 0.0,
+      "high_90": 6.76,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-08-23",
+      "point": 2.26,
+      "low_90": 0.0,
+      "high_90": 6.16,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-08-24",
+      "point": 4.74,
+      "low_90": 0.82,
+      "high_90": 8.54,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-08-25",
+      "point": 5.06,
+      "low_90": 1.33,
+      "high_90": 8.78,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-08-26",
+      "point": 4.69,
+      "low_90": 0.87,
+      "high_90": 8.53,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-08-27",
+      "point": 4.8,
+      "low_90": 0.81,
+      "high_90": 8.35,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-08-28",
+      "point": 4.06,
+      "low_90": 0.14,
+      "high_90": 8.16,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-08-29",
+      "point": 2.68,
+      "low_90": 0.0,
+      "high_90": 6.55,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-08-30",
+      "point": 2.04,
+      "low_90": 0.0,
+      "high_90": 5.93,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-08-31",
+      "point": 4.57,
+      "low_90": 0.53,
+      "high_90": 8.42,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-09-01",
+      "point": 4.93,
+      "low_90": 1.05,
+      "high_90": 8.42,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-09-02",
+      "point": 4.59,
+      "low_90": 0.66,
+      "high_90": 8.31,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-09-03",
+      "point": 4.74,
+      "low_90": 1.06,
+      "high_90": 8.29,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-09-04",
+      "point": 4.02,
+      "low_90": 0.18,
+      "high_90": 8.12,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-09-05",
+      "point": 2.67,
+      "low_90": 0.0,
+      "high_90": 6.4,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-09-06",
+      "point": 2.04,
+      "low_90": 0.0,
+      "high_90": 5.89,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-09-07",
+      "point": 4.59,
+      "low_90": 0.75,
+      "high_90": 8.38,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-09-08",
+      "point": 4.96,
+      "low_90": 1.15,
+      "high_90": 8.6,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-09-09",
+      "point": 4.63,
+      "low_90": 1.17,
+      "high_90": 8.33,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-09-10",
+      "point": 4.78,
+      "low_90": 1.04,
+      "high_90": 8.71,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-09-11",
+      "point": 4.07,
+      "low_90": 0.26,
+      "high_90": 8.03,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-09-12",
+      "point": 2.72,
+      "low_90": 0.0,
+      "high_90": 6.75,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-09-13",
+      "point": 2.1,
+      "low_90": 0.0,
+      "high_90": 5.99,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-09-14",
+      "point": 4.64,
+      "low_90": 0.84,
+      "high_90": 8.39,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-09-15",
+      "point": 5.02,
+      "low_90": 1.21,
+      "high_90": 8.64,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-09-16",
+      "point": 4.69,
+      "low_90": 0.81,
+      "high_90": 8.48,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-09-17",
+      "point": 4.85,
+      "low_90": 1.31,
+      "high_90": 8.33,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-09-18",
+      "point": 4.14,
+      "low_90": 0.63,
+      "high_90": 8.13,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-09-19",
+      "point": 2.81,
+      "low_90": 0.0,
+      "high_90": 6.67,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-09-20",
+      "point": 2.19,
+      "low_90": 0.0,
+      "high_90": 5.93,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-09-21",
+      "point": 4.76,
+      "low_90": 0.73,
+      "high_90": 8.75,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-09-22",
+      "point": 5.15,
+      "low_90": 1.5,
+      "high_90": 8.77,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-09-23",
+      "point": 4.85,
+      "low_90": 1.06,
+      "high_90": 8.4,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-09-24",
+      "point": 5.02,
+      "low_90": 1.45,
+      "high_90": 8.78,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-09-25",
+      "point": 4.34,
+      "low_90": 0.65,
+      "high_90": 7.81,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-09-26",
+      "point": 3.02,
+      "low_90": 0.0,
+      "high_90": 7.05,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-09-27",
+      "point": 2.43,
+      "low_90": 0.0,
+      "high_90": 6.22,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-09-28",
+      "point": 5.01,
+      "low_90": 1.39,
+      "high_90": 9.35,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-09-29",
+      "point": 5.42,
+      "low_90": 1.64,
+      "high_90": 9.22,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-09-30",
+      "point": 5.13,
+      "low_90": 1.38,
+      "high_90": 9.02,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-10-01",
+      "point": 5.31,
+      "low_90": 1.43,
+      "high_90": 8.99,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-10-02",
+      "point": 4.63,
+      "low_90": 0.64,
+      "high_90": 8.14,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-10-03",
+      "point": 3.31,
+      "low_90": 0.0,
+      "high_90": 7.12,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-10-04",
+      "point": 2.71,
+      "low_90": 0.0,
+      "high_90": 6.48,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-10-05",
+      "point": 5.27,
+      "low_90": 1.32,
+      "high_90": 9.37,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-10-06",
+      "point": 5.66,
+      "low_90": 1.69,
+      "high_90": 9.74,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-10-07",
+      "point": 5.34,
+      "low_90": 1.28,
+      "high_90": 9.27,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-10-08",
+      "point": 5.48,
+      "low_90": 1.61,
+      "high_90": 9.32,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-10-09",
+      "point": 4.75,
+      "low_90": 0.85,
+      "high_90": 8.64,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-10-10",
+      "point": 3.39,
+      "low_90": 0.0,
+      "high_90": 6.88,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-10-11",
+      "point": 2.73,
+      "low_90": 0.0,
+      "high_90": 6.49,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-10-12",
+      "point": 5.23,
+      "low_90": 1.81,
+      "high_90": 9.05,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-10-13",
+      "point": 5.56,
+      "low_90": 1.79,
+      "high_90": 9.78,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-10-14",
+      "point": 5.17,
+      "low_90": 1.54,
+      "high_90": 9.07,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-10-15",
+      "point": 5.26,
+      "low_90": 1.27,
+      "high_90": 9.36,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-10-16",
+      "point": 4.47,
+      "low_90": 0.69,
+      "high_90": 8.23,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-10-17",
+      "point": 3.04,
+      "low_90": 0.0,
+      "high_90": 6.8,
+      "model_version": "prophet_v1"
+    },
+    {
+      "facility": "KSH",
+      "ward": null,
+      "forecast_date": "2026-10-18",
+      "point": 2.34,
+      "low_90": 0.0,
+      "high_90": 6.2,
+      "model_version": "prophet_v1"
+    }
+  ]
+}

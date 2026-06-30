@@ -1,16 +1,17 @@
 import sys
 import os
-# Add dashboards/ to path so 'import ksh.clinical_module.X' resolves correctly
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_DASHBOARD_DIR = os.path.dirname(os.path.abspath(__file__))       # dashboards/tenri/
+_DASHBOARDS_DIR = os.path.dirname(_DASHBOARD_DIR)                  # dashboards/
+sys.path.insert(0, _DASHBOARDS_DIR)   # needed for ksh and other sibling packages
+sys.path.insert(0, _DASHBOARD_DIR)    # needed for tenri_clinical_module
 import streamlit as st
 import plotly.graph_objects as go
 import pandas as pd
 from datetime import date, timedelta
 
-import ksh.clinical_module.queries as Q
-import ksh.clinical_module.views as V
-from ksh.clinical_module.queries import run_query
-from ksh.clinical_module.ui_template import inject_global_css
+import tenri_clinical_module.tenri_views as V
+from tenri_clinical_module.tenri_queries import run_query
+from tenri_clinical_module.tenri_ui_template import inject_global_css
 
 st.set_page_config(
     page_title="Afya Clinical Analytics",
@@ -257,7 +258,7 @@ if "selected_schema" not in st.session_state:
     st.session_state["selected_schema"] = None
 
 # ── CONSTANTS ─────────────────────────────────────────────────────────────────
-DATA_START = "2024-09-01"
+DATA_START = "2018-03-01"
 
 SCHEMA_DISPLAY = {
     "kisumu": "Kisumu Specialists",
@@ -335,7 +336,7 @@ def render_sidebar():
             '<div style="background:#F0FAF6;border:1px solid #A7F3D0;border-radius:6px;'
             'padding:7px 10px;margin:2px 0 12px;">'
             '<div style="font-size:12px;font-weight:700;color:#0F6E56;font-family:Inter,-apple-system,sans-serif;">'
-            '🏥 Kisumu Specialists</div>'
+            '🏥 Tendri</div>'
             '<div style="font-size:11px;color:#6B7280;margin-top:1px;font-family:Inter,-apple-system,sans-serif;">'
             'Sep 2024 – present</div>'
             '</div>',
@@ -368,7 +369,7 @@ def render_sidebar():
         # ── Hospital filter ───────────────────────────────────────────────
         with st.expander("🏥 Hospital", expanded=True):
             schema_opts = list(dict.fromkeys(SCHEMA_DISPLAY.values()))
-            _hosp_default = ["Kisumu Specialists"] if "Kisumu Specialists" in schema_opts else []
+            _hosp_default = ["Tendri"] if "Tendri" in schema_opts else []
             selected_display = st.multiselect(
                 "Select hospital", options=schema_opts,
                 default=_hosp_default, placeholder="All hospitals",
@@ -395,7 +396,7 @@ def render_sidebar():
             if st.button(
                 "Head of Clinician",
                 key="btn_hoc",
-                use_container_width=True,
+                width='stretch',
                 type="primary" if role == "Head of Clinician" else "secondary",
             ):
                 st.session_state["role"] = "Head of Clinician"
@@ -405,7 +406,7 @@ def render_sidebar():
             if st.button(
                 "Clinician",
                 key="btn_clin",
-                use_container_width=True,
+                width='stretch',
                 type="primary" if role == "Clinician" else "secondary",
             ):
                 st.session_state["role"] = "Clinician"
@@ -414,7 +415,7 @@ def render_sidebar():
 
         st.markdown('<hr style="margin:10px 0;border:none;border-top:1px solid #E5E7EB">', unsafe_allow_html=True)
 
-        if st.button("↺ Refresh data", use_container_width=True, type="secondary"):
+        if st.button("↺ Refresh data", width='stretch', type="secondary"):
             st.cache_data.clear()
             st.rerun()
 
@@ -445,7 +446,7 @@ st.session_state["helpers"] = {
     "gap":      lambda px=10: st.markdown(f'<div style="margin:{px}px 0"></div>', unsafe_allow_html=True),
     "sh":       lambda t, mt=0: st.markdown(f'<div class="sh" style="margin-top:{mt}px">{t}</div>', unsafe_allow_html=True),
     "kpi_card": kpi_card,
-    "pc":       lambda f: st.plotly_chart(f, use_container_width=True, config={"responsive": True, "displayModeBar": False, "useResizeHandler": True}),
+    "pc":       lambda f: st.plotly_chart(f, width='stretch', config={"responsive": True, "displayModeBar": False, "useResizeHandler": True}),
     "note":     lambda t, warn=False: st.markdown(
                     f'<div style="background:{"#FFFBEB" if warn else "#F4F8FC"};'
                     f'border-left:3px solid {"#D97706" if warn else "#0072CE"};'
@@ -457,8 +458,6 @@ st.session_state["helpers"] = {
 }
 
 # ── MAIN ─────────────────────────────────────────────────────────────────────
-import importlib
-importlib.reload(V)
 
 filters, page = render_sidebar()
 role  = st.session_state.get("role", "Head of Clinician")

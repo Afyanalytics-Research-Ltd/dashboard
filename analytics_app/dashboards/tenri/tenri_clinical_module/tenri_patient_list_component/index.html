@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body{height:100%;background:#f8fafc;font-family:'Montserrat',-apple-system,sans-serif;color:#111827;overflow:hidden;}
+.wrap{display:flex;flex-direction:column;height:100%;position:absolute;inset:0;}
+.hdr{display:flex;justify-content:space-between;align-items:center;padding:12px 14px 10px;background:#fff;border-bottom:1px solid #f3f4f6;}
+.hdr-title{font-size:13px;font-weight:700;color:#111827;}
+.badge{font-size:10px;background:#f3f4f6;border:1px solid #e5e7eb;padding:2px 8px;border-radius:20px;color:#6b7280;font-weight:600;}
+.pills{display:flex;gap:5px;padding:8px 12px;background:#fff;border-bottom:1px solid #f3f4f6;}
+.pill{font-size:10px;padding:3px 10px;border-radius:20px;border:1px solid #e5e7eb;cursor:pointer;font-weight:600;color:#6b7280;background:#fff;user-select:none;transition:all 0.1s;}
+.pill:hover{border-color:#d1d5db;color:#374151;}
+.pill.a-all{background:#111827;border-color:#111827;color:#fff;}
+.pill.a-high{background:#ef4444;border-color:#ef4444;color:#fff;}
+.pill.a-medium{background:#f59e0b;border-color:#f59e0b;color:#fff;}
+.pill.a-monitor{background:#10b981;border-color:#10b981;color:#fff;}
+.srch-wrap{padding:8px 12px;background:#fff;border-bottom:1px solid #f3f4f6;}
+.srch{width:100%;border:1px solid #e5e7eb;border-radius:8px;padding:7px 11px;font-size:11px;font-family:inherit;color:#374151;outline:none;background:#f9fafb;}
+.srch::placeholder{color:#9ca3af;}
+.srch:focus{border-color:#0072CE;background:#fff;box-shadow:0 0 0 2px rgba(0,114,206,0.08);}
+.list{flex:1;overflow-y:auto;background:#f8fafc;}
+.list::-webkit-scrollbar{width:3px;}
+.list::-webkit-scrollbar-thumb{background:#e5e7eb;border-radius:3px;}
+.pat-row{display:flex;align-items:flex-start;gap:9px;padding:9px 14px;cursor:pointer;border-left:3px solid transparent;border-bottom:1px solid #f3f4f6;background:#fff;margin-bottom:1px;transition:background 0.1s;}
+.pat-row:hover{background:#f0f7ff;}
+.pat-row.sel{background:#EBF5FB;border-left-color:#0072CE;}
+.dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;margin-top:4px;}
+.d-high{background:#ef4444;}
+.d-medium{background:#f59e0b;}
+.d-monitor{background:#10b981;}
+.inf{flex:1;min-width:0;}
+.pid{font-size:12px;font-weight:700;color:#111827;}
+.cnd{font-size:10px;color:#9ca3af;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.sig-pills{display:flex;flex-wrap:wrap;gap:3px;margin-top:4px;}
+.sp{font-size:8px;font-weight:600;padding:2px 6px;border-radius:10px;white-space:nowrap;}
+.sp-red{background:#FCEBEB;color:#A32D2D;}
+.sp-amber{background:#FAEEDA;color:#854F0B;}
+.rgt{text-align:right;flex-shrink:0;}
+.days{font-size:11px;font-weight:700;}
+.days.hi{color:#ef4444;}
+.days.md{color:#f59e0b;}
+.days.ok{color:#6b7280;}
+.empty{display:flex;align-items:center;justify-content:center;padding:32px 16px;font-size:11px;color:#9ca3af;}
+.footer{padding:7px 14px;font-size:9px;color:#9ca3af;border-top:1px solid #f3f4f6;background:#fff;line-height:1.4;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hdr">
+    <span class="hdr-title">Priority patients</span>
+    <span class="badge" id="badge">—</span>
+  </div>
+  <div class="pills">
+    <span class="pill a-all" data-f="all"     onclick="setFilter('all',this)">All</span>
+    <span class="pill"       data-f="high"    onclick="setFilter('high',this)">High</span>
+    <span class="pill"       data-f="medium"  onclick="setFilter('medium',this)">Medium</span>
+    <span class="pill"       data-f="monitor" onclick="setFilter('monitor',this)">Monitor</span>
+  </div>
+  <div class="srch-wrap">
+    <input class="srch" id="srch" type="text" placeholder="Search ID or condition..." oninput="renderList()">
+  </div>
+  <div class="list" id="list"></div>
+  <div class="footer">Showing patients seen in the last 12 months. Patients beyond this window are in Flow &amp; Retention.</div>
+</div>
+
+<script>
+// ── Inline Streamlit component protocol ───────────────────────────────────────
+const _listeners = {};
+const Streamlit = {
+  RENDER_EVENT: "streamlit:render",
+  events: {
+    addEventListener(t, fn) { (_listeners[t] = _listeners[t]||[]).push(fn); }
+  },
+  setComponentValue(v) {
+    window.parent.postMessage({isStreamlitMessage:true, type:"streamlit:setComponentValue", value:v, dataType:"json"}, "*");
+  },
+  setFrameHeight(h) {
+    window.parent.postMessage({isStreamlitMessage:true, type:"streamlit:setFrameHeight", height:h||document.documentElement.scrollHeight}, "*");
+  },
+  setComponentReady() {
+    window.parent.postMessage({isStreamlitMessage:true, type:"streamlit:componentReady", apiVersion:1}, "*");
+  }
+};
+window.addEventListener("message", ev => {
+  if (ev.data && ev.data.type === "streamlit:render") {
+    (_listeners["streamlit:render"]||[]).forEach(fn => fn({detail:{args: ev.data.args||{}}}));
+  }
+});
+
+// ── Component logic ───────────────────────────────────────────────────────────
+let patients=[], curFilter="all", selectedId=null;
+
+const RED_SIGNALS   = new Set(["NCD undetected", "Vitals worsening"]);
+const AMBER_SIGNALS = new Set(["Med change", "Long gap"]);
+
+function pillClass(sig) {
+  return RED_SIGNALS.has(sig) ? "sp sp-red" : "sp sp-amber";
+}
+
+function setFilter(f, el) {
+  curFilter = f;
+  const cls = {all:"a-all", high:"a-high", medium:"a-medium", monitor:"a-monitor"};
+  document.querySelectorAll(".pill").forEach(p => {
+    p.className = "pill" + (p.dataset.f === f ? " " + cls[f] : "");
+  });
+  renderList();
+}
+
+function renderList() {
+  const q = (document.getElementById("srch").value || "").toLowerCase();
+  const ul = document.getElementById("list");
+  ul.innerHTML = "";
+  const rows = patients.filter(p => {
+    if (curFilter !== "all" && p.priority !== curFilter) return false;
+    if (q && !String(p.id).toLowerCase().includes(q) && !p.condition.toLowerCase().includes(q)) return false;
+    return true;
+  });
+  document.getElementById("badge").textContent = rows.length + " total";
+  if (!rows.length) {
+    ul.innerHTML = '<div class="empty">No patients match filter</div>';
+    return;
+  }
+  rows.forEach(p => {
+    const row = document.createElement("div");
+    row.className = "pat-row" + (String(p.id) === String(selectedId) ? " sel" : "");
+    const dc  = p.days >= 90 ? "hi" : p.days >= 30 ? "md" : "ok";
+    const sigs = Array.isArray(p.signals) ? p.signals : (p.signal ? [p.signal] : []);
+    const pillsHtml = sigs.map(s =>
+      `<span class="${pillClass(s)}">${s}</span>`
+    ).join("");
+
+    row.innerHTML =
+      `<span class="dot d-${p.priority}"></span>` +
+      `<div class="inf">` +
+        `<div class="pid">${p.id}</div>` +
+        `<div class="cnd">${p.condition}</div>` +
+        (pillsHtml ? `<div class="sig-pills">${pillsHtml}</div>` : "") +
+      `</div>` +
+      `<div class="rgt"><div class="days ${dc}">${p.days}d</div></div>`;
+
+    row.onclick = () => {
+      selectedId = String(p.id);
+      renderList();
+      Streamlit.setComponentValue(String(p.id));
+    };
+    ul.appendChild(row);
+  });
+}
+
+Streamlit.events.addEventListener("streamlit:render", ev => {
+  const args = ev.detail.args;
+  if (args.patients) patients = args.patients;
+  if (args.selected_id) selectedId = String(args.selected_id);
+  renderList();
+});
+
+Streamlit.setComponentReady();
+</script>
+</body>
+</html>

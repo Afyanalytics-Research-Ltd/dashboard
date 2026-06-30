@@ -158,10 +158,10 @@ def get_kpi_summary(facility_filter: str) -> pd.DataFrame:
         patient_risk AS (
             SELECT
                 COUNT_IF(has_chronic_drug = 1
-                    AND last_dispensed_at >= DATEADD('day', -60, CURRENT_DATE)
+                    AND last_dispensed_at >= DATEADD('day', -90, CURRENT_DATE)
                 )                                                       AS chronic_patients_active,
                 COUNT_IF(has_opioid = 1
-                    AND last_dispensed_at >= DATEADD('day', -60, CURRENT_DATE)
+                    AND last_dispensed_at >= DATEADD('day', -90, CURRENT_DATE)
                 )                                                       AS opioid_patients_active
             FROM HOSPITALS.REPORTING.fact_patient_dispensing
             WHERE source_schema IN {facility_filter}

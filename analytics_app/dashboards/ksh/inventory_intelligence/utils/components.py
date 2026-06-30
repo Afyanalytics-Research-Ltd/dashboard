@@ -6,7 +6,7 @@ Call inject_css() once per page before rendering any components.
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Optional
 
 import streamlit as st
 
@@ -39,17 +39,17 @@ section[data-testid="stSidebarNav"],
     border-bottom: 1px solid #E5E7EB;
 }
 .page-title {
-    font-size: 26px;
+    font-size: 28px;
     font-weight: 800;
     color: #111827;
     margin: 0 0 4px;
     line-height: 1.2;
 }
-.page-subtitle { font-size: 13px; color: #9CA3AF; margin: 0; line-height: 1.5; }
+.page-subtitle { font-size: 14px; color: #9CA3AF; margin: 0; line-height: 1.5; }
 
 /* ── Section header ────────────────────────────────── */
 .section-header {
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.07em;
@@ -68,7 +68,7 @@ section[data-testid="stSidebarNav"],
     padding: 14px 14px 12px;
 }
 .kpi-label {
-    font-size: 10px;
+    font-size: 11px;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.06em;
@@ -77,14 +77,14 @@ section[data-testid="stSidebarNav"],
     line-height: 1.4;              /* allow wrapping — no truncation */
 }
 .kpi-value {
-    font-size: 24px;
+    font-size: 26px;
     font-weight: 700;
     color: #111827;
     line-height: 1.1;
     word-break: break-word;        /* allow wrapping — no truncation */
 }
 .kpi-delta {
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 600;
     margin-top: 4px;
 }
@@ -109,14 +109,14 @@ section[data-testid="stSidebarNav"],
 .action-body { flex: 1; min-width: 0; }
 .action-drug {
     font-weight: 600;
-    font-size: 13px;
+    font-size: 14px;
     color: #111827;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 .action-reason {
-    font-size: 12px;
+    font-size: 13px;
     color: #9CA3AF;
     margin-top: 2px;
     overflow: hidden;
@@ -131,7 +131,7 @@ section[data-testid="stSidebarNav"],
     flex-shrink: 0;
 }
 .action-badge {
-    font-size: 10px;
+    font-size: 11px;
     font-weight: 700;
     padding: 3px 8px;
     border-radius: 4px;
@@ -141,7 +141,7 @@ section[data-testid="stSidebarNav"],
     letter-spacing: 0.03em;
 }
 .priority-badge {
-    font-size: 9px;
+    font-size: 10px;
     font-weight: 700;
     padding: 2px 6px;
     border-radius: 3px;
@@ -157,13 +157,13 @@ section[data-testid="stSidebarNav"],
     border-left: 4px solid #0F6E56;
     border-radius: 0 10px 10px 0;
     padding: 14px 18px;
-    font-size: 14px;
+    font-size: 15px;
     line-height: 1.65;
     color: #111827;
     margin-bottom: 16px;
 }
 .ai-label {
-    font-size: 10px;
+    font-size: 11px;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.08em;
@@ -182,7 +182,7 @@ section[data-testid="stSidebarNav"],
 }
 .anomaly-title {
     font-weight: 700;
-    font-size: 12px;
+    font-size: 13px;
     color: #92400E;
     margin-bottom: 3px;
 }
@@ -202,7 +202,7 @@ section[data-testid="stSidebarNav"],
 /* ── Inline badges ─────────────────────────────────── */
 .badge {
     display: inline-block;
-    font-size: 10px;
+    font-size: 11px;
     font-weight: 700;
     padding: 2px 7px;
     border-radius: 4px;
@@ -247,7 +247,7 @@ section[data-testid="stSidebarNav"],
 }
 .stat-item:last-child { border-right: none; }
 .stat-label {
-    font-size: 9px;
+    font-size: 10px;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.07em;
@@ -258,13 +258,13 @@ section[data-testid="stSidebarNav"],
     text-overflow: ellipsis;
 }
 .stat-value {
-    font-size: 22px;
+    font-size: 24px;
     font-weight: 700;
     color: #111827;
     line-height: 1.1;
 }
 .stat-hint {
-    font-size: 10px;
+    font-size: 11px;
     font-weight: 600;
     margin-top: 2px;
 }
@@ -279,25 +279,25 @@ section[data-testid="stSidebarNav"],
     margin-bottom: 2px;
 }
 .decision-drug {
-    font-size: 13px;
+    font-size: 15px;
     font-weight: 700;
     color: #111827;
     margin-bottom: 3px;
 }
 .decision-meta {
-    font-size: 11px;
+    font-size: 12px;
     color: #6B7280;
     margin-bottom: 6px;
     line-height: 1.4;
 }
 .decision-narrative {
-    font-size: 12px;
+    font-size: 13px;
     color: #374151;
     line-height: 1.55;
     margin-bottom: 0;
 }
 .decision-ai-badge {
-    font-size: 9px;
+    font-size: 10px;
     font-weight: 700;
     color: #0F6E56;
     text-transform: uppercase;
@@ -312,17 +312,178 @@ section[data-testid="stSidebarNav"],
     border-radius: 0 8px 8px 0;
     padding: 12px 16px;
     margin-top: 4px;
-    font-size: 12px;
+    font-size: 13px;
     color: #374151;
     line-height: 1.65;
 }
 .anomaly-analysis-label {
-    font-size: 9px;
+    font-size: 10px;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.07em;
     color: #D97706;
     margin-bottom: 5px;
+}
+
+/* ── Traceability card ─────────────────────────────── */
+.trace-card {
+    background: #FAFBFF;
+    border: 1px solid #C7D2FE;
+    border-left: 4px solid #3730A3;
+    border-radius: 0 10px 10px 0;
+    padding: 16px 20px;
+    margin-top: 8px;
+}
+.trace-header-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.10em;
+    color: #3730A3;
+    margin-bottom: 6px;
+}
+.trace-drug-name {
+    font-size: 15px;
+    font-weight: 700;
+    color: #1E1B4B;
+    margin-bottom: 14px;
+}
+.trace-cols {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    /* retained for future use if 2-col layout is re-enabled */
+}
+.trace-section {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #6B7280;
+    margin: 10px 0 5px;
+    padding-bottom: 3px;
+    border-bottom: 1px solid #E5E7EB;
+}
+.trace-section:first-child { margin-top: 0; }
+.trace-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 13px;
+    padding: 2px 0;
+    border-bottom: 1px dotted #F3F4F6;
+}
+.trace-key  { color: #6B7280; }
+.trace-val  { font-weight: 600; color: #111827; text-align: right; }
+.trace-formula-line {
+    font-size: 12.5px;
+    font-family: 'Consolas', 'Courier New', monospace;
+    color: #374151;
+    background: #EEF2FF;
+    border-radius: 4px;
+    padding: 4px 8px;
+    margin: 4px 0 2px;
+}
+.trace-formula-step {
+    font-size: 12px;
+    color: #6B7280;
+    font-family: 'Consolas', 'Courier New', monospace;
+    padding: 1px 8px;
+}
+.trace-formula-answer {
+    font-size: 14px;
+    font-weight: 700;
+    color: #1E1B4B;
+    font-family: 'Consolas', 'Courier New', monospace;
+    padding: 4px 8px;
+    background: #C7D2FE;
+    border-radius: 4px;
+    margin-top: 4px;
+    display: inline-block;
+}
+.trace-confidence-pill {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+/* ── Data quality banner ────────────────────────────── */
+.dq-banner {
+    background: #FFFBEB;
+    border: 1px solid #FDE68A;
+    border-left: 4px solid #D97706;
+    border-radius: 0 8px 8px 0;
+    padding: 10px 16px;
+    margin-bottom: 12px;
+    font-size: 13px;
+}
+.dq-banner-title {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: #92400E;
+    margin-bottom: 4px;
+}
+.dq-banner-item { color: #78350F; padding: 1px 0; }
+
+/* ── Insight cards (Phase 2) ────────────────────────── */
+.insight-card {
+    background: #FFFFFF;
+    border: 1px solid #E5E7EB;
+    border-left: 4px solid #E5E7EB;   /* accent overridden inline */
+    border-radius: 0 10px 10px 0;
+    padding: 12px 16px 10px;
+    margin-bottom: 8px;
+}
+.insight-severity {
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 5px;
+}
+.insight-headline {
+    font-size: 13px;
+    font-weight: 700;
+    color: #111827;
+    line-height: 1.4;
+    margin-bottom: 4px;
+}
+.insight-narration {
+    font-size: 12px;
+    color: #374151;
+    line-height: 1.5;
+    margin-bottom: 6px;
+    font-style: italic;
+}
+.insight-facts {
+    margin: 0 0 8px;
+    padding: 0;
+    list-style: none;
+}
+.insight-facts li {
+    font-size: 11px;
+    color: #6B7280;
+    padding: 1px 0;
+}
+.insight-facts li::before {
+    content: "· ";
+    color: #9CA3AF;
+}
+.insight-action-chip {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 3px 10px;
+    border-radius: 4px;
+    background: #F0FDF4;
+    color: #166534;
+    border: 1px solid #86EFAC;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
 }
 
 /* ── Sidebar ───────────────────────────────────────── */
@@ -499,9 +660,11 @@ def decision_card_ai(
     narrative: str,
     is_ai: bool,
     color: str,
+    confidence: Optional[str] = None,
 ) -> None:
     """
     Compact AI decision card: first sentence visible, full reasoning behind expander.
+    confidence: HIGH | MEDIUM | LOW — shown as a coloured badge if provided.
     """
     from utils.formatting import fmt_int
     dos_str  = f"{dos_remaining:.0f}d remaining" if (dos_remaining and dos_remaining > 0) else "Stocked out"
@@ -509,6 +672,24 @@ def decision_card_ai(
     cost_str = f" · ~KES {cost_estimate_kes:,.0f}" if cost_estimate_kes else ""
     gap_str  = f" · {stockout_gap_days}d gap during delivery" if stockout_gap_days > 0 else ""
     ai_badge = '<span class="decision-ai-badge">✦ AI</span>' if is_ai else ""
+
+    # Confidence badge — coloured chip showing forecast data quality.
+    # Prefixed with "CONF:" so it can't be mistaken for clinical priority.
+    # HIGH=green (reliable forecast), MEDIUM=amber, LOW=red (sparse/stocked-out data).
+    _conf_styles = {
+        "HIGH":   "background:#DCFCE7;color:#166534;border:1px solid #86EFAC",
+        "MEDIUM": "background:#FEF3C7;color:#92400E;border:1px solid #FDE68A",
+        "LOW":    "background:#FEE2E2;color:#991B1B;border:1px solid #FECACA",
+    }
+    conf_badge = ""
+    if confidence:
+        _lvl = confidence.upper()
+        _style = _conf_styles.get(_lvl, "background:#F3F4F6;color:#6B7280;border:1px solid #E5E7EB")
+        conf_badge = (
+            f'<span style="display:inline-block;{_style};border-radius:4px;'
+            f'padding:1px 7px;font-size:9px;font-weight:700;letter-spacing:0.05em;'
+            f'margin-left:6px;vertical-align:middle">CONF: {_lvl}</span>'
+        )
 
     # First sentence only for the compact view
     dot_idx = narrative.find(".")
@@ -519,19 +700,17 @@ def decision_card_ai(
         first_sentence = narrative
         remainder      = ""
 
-    st.markdown(
-        f"""
-        <div class="decision-card" style="border-left-color:{color}">
-          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:3px">
-            <div class="decision-drug">{canonical_name}</div>
-            {ai_badge}
-          </div>
-          <div class="decision-meta">{dos_str} · {qty_str}{cost_str}{gap_str}</div>
-          <div class="decision-narrative">{first_sentence}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
+    _card_html = (
+        f'<div class="decision-card" style="border-left-color:{color}">'
+        f'<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:3px">'
+        f'<div class="decision-drug">{canonical_name}{conf_badge}</div>'
+        f'{ai_badge}'
+        f'</div>'
+        f'<div class="decision-meta">{dos_str} · {qty_str}{cost_str}{gap_str}</div>'
+        f'<div class="decision-narrative">{first_sentence}</div>'
+        f'</div>'
     )
+    st.markdown(_card_html, unsafe_allow_html=True)
     if remainder:
         with st.expander("Full reasoning →"):
             st.markdown(
@@ -571,6 +750,51 @@ def anomaly_banner(canonical_name: str, message: str) -> None:
         """,
         unsafe_allow_html=True,
     )
+
+
+# ── Insight cards (Phase 2) ──────────────────────────────────────────────────
+
+# Severity → left-border colour
+_INSIGHT_SEV_COLORS = {
+    "CRITICAL": "#DC2626",   # red-600
+    "HIGH":     "#D97706",   # amber-600
+    "MEDIUM":   "#0F6E56",   # Afya teal
+}
+_INSIGHT_SEV_LABEL_COLORS = {
+    "CRITICAL": "#991B1B",
+    "HIGH":     "#92400E",
+    "MEDIUM":   "#065F46",
+}
+
+
+def insight_card(row: "Any") -> None:
+    """
+    Render a compact Phase 2 InsightCard for Today's Briefing.
+    Shows: severity badge · headline · top 2 facts · action chip.
+
+    Args:
+        row: An InsightRow from intelligence.insight_engine.detect_all()
+    """
+    sev    = str(getattr(row, "severity", "MEDIUM")).upper()
+    head   = str(getattr(row, "headline", ""))
+    facts  = list(getattr(row, "supporting_facts", []))[:2]   # max 2 bullets
+    action = str(getattr(row, "recommended_action", "Review"))
+
+    border_col = _INSIGHT_SEV_COLORS.get(sev, "#9CA3AF")
+    label_col  = _INSIGHT_SEV_LABEL_COLORS.get(sev, "#374151")
+
+    facts_items = "".join(f"<li>{f}</li>" for f in facts)
+    facts_block = f'<ul class="insight-facts">{facts_items}</ul>' if facts_items else ""
+
+    card_html = (
+        f'<div class="insight-card" style="border-left-color:{border_col}">'
+        + f'<div class="insight-severity" style="color:{label_col}">{sev}</div>'
+        + f'<div class="insight-headline">{head}</div>'
+        + facts_block
+        + f'<span class="insight-action-chip">{action}</span>'
+        + '</div>'
+    )
+    st.markdown(card_html, unsafe_allow_html=True)
 
 
 # ── Empty state ───────────────────────────────────────────────────────────────
@@ -676,6 +900,180 @@ def sidebar_nav(fac=None) -> None:
         ):
             st.cache_data.clear()
             st.rerun()
+
+
+# ── Traceability card ─────────────────────────────────────────────────────────
+
+def traceability_card(
+    drug_name: str,
+    clinical_priority: str,
+    # Demand inputs
+    avg_daily_units: float,
+    std_daily_units: float,
+    cv: float,
+    demand_type: str = "UNKNOWN",
+    adi: float = 0.0,
+    cv_nz: float = 0.0,
+    data_months: int = 0,
+    confidence: str = "LOW",
+    trend_direction: str = "STABLE",
+    # Lead time inputs
+    lt_mean: float = 14.0,
+    lt_std: float = 0.0,
+    lt_source: str = "",
+    # Safety stock & order
+    safety_stock_units: float = 0.0,
+    z_value: float = 1.645,
+    service_level: float = 0.95,
+    rop: float = 0.0,
+    current_soh: float = 0.0,
+    target_cover_days: int = 30,
+    order_qty: float = 0.0,
+) -> None:
+    """
+    Full calculation trace panel for an order recommendation.
+    Shows every labeled input and every formula step — nothing hidden.
+    """
+    import math
+
+    # Derived values
+    lt_p90 = lt_mean + 1.645 * lt_std
+    trend_arrow = {"UP": "↑", "DOWN": "↓", "STABLE": "→"}.get(trend_direction.upper(), "→")
+    trend_color = {"UP": "#D97706", "DOWN": "#DC2626", "STABLE": "#6B7280"}.get(trend_direction.upper(), "#6B7280")
+
+    conf_colors = {"HIGH": ("#166534", "#DCFCE7"), "MEDIUM": ("#92400E", "#FEF3C7"), "LOW": ("#991B1B", "#FEE2E2")}
+    cc, cbg = conf_colors.get(confidence.upper(), ("#6B7280", "#F3F4F6"))
+
+    cp_colors = {"CRITICAL": "#A32D2D", "HIGH": "#854F0B", "STANDARD": "#0C447C"}
+    cp_color = cp_colors.get(clinical_priority.upper(), "#6B7280")
+
+    dt_colors = {
+        "SMOOTH":       ("#166534", "#DCFCE7"),
+        "ERRATIC":      ("#854F0B", "#FEF3C7"),
+        "INTERMITTENT": ("#1D4ED8", "#EFF6FF"),
+        "LUMPY":        ("#991B1B", "#FEE2E2"),
+    }
+    dt_c, dt_bg = dt_colors.get(demand_type.upper(), ("#6B7280", "#F3F4F6"))
+    dt_desc = {
+        "SMOOTH":       "frequent · stable quantity",
+        "ERRATIC":      "frequent · variable quantity",
+        "INTERMITTENT": "infrequent · stable quantity",
+        "LUMPY":        "infrequent · variable quantity",
+    }.get(demand_type.upper(), "")
+    adi_label = f"{adi:.1f}d avg between dispenses" if adi > 0 else "—"
+
+    # Formula components
+    ss_var1 = lt_mean * std_daily_units ** 2
+    ss_var2 = avg_daily_units ** 2 * lt_std ** 2
+    ss_inner = math.sqrt(max(0.0, ss_var1 + ss_var2))
+    cover_units = (target_cover_days + lt_mean) * avg_daily_units
+    order_calc = max(0.0, cover_units - current_soh)  # SS sets WHEN to order (ROP), not HOW MUCH
+
+    lt_obs_label = f"({lt_source})" if lt_source else ""
+
+    inputs_html = f"""
+<div class="trace-section">Demand</div>
+<div class="trace-row"><span class="trace-key">Avg daily (μ)</span>
+  <span class="trace-val">{avg_daily_units:.2f} units/day</span></div>
+<div class="trace-row"><span class="trace-key">Demand σ</span>
+  <span class="trace-val">{std_daily_units:.2f} units</span></div>
+<div class="trace-row"><span class="trace-key">Demand pattern</span>
+  <span class="trace-val">
+    <span class="trace-confidence-pill" style="background:{dt_bg};color:{dt_c}">{demand_type}</span>
+    &nbsp;<span style="color:#6B7280;font-weight:400;font-size:11px">{dt_desc}</span>
+  </span></div>
+<div class="trace-row"><span class="trace-key">Demand interval</span>
+  <span class="trace-val">{adi_label}</span></div>
+<div class="trace-row"><span class="trace-key">Trend</span>
+  <span class="trace-val" style="color:{trend_color}">{trend_arrow} {trend_direction}</span></div>
+<div class="trace-row"><span class="trace-key">Data history</span>
+  <span class="trace-val">{data_months} months &nbsp;
+    <span class="trace-confidence-pill" style="background:{cbg};color:{cc}">{confidence}</span>
+  </span></div>
+
+<div class="trace-section" style="margin-top:12px">Lead Time</div>
+<div class="trace-row"><span class="trace-key">P50 (used in calc)</span>
+  <span class="trace-val">{lt_mean:.1f}d &nbsp;<span style="color:#9CA3AF;font-size:10px">{lt_obs_label}</span></span></div>
+<div class="trace-row"><span class="trace-key">P90 worst case</span>
+  <span class="trace-val">{lt_p90:.1f}d</span></div>
+<div class="trace-row"><span class="trace-key">Lead time σ</span>
+  <span class="trace-val">{lt_std:.1f}d</span></div>
+
+<div class="trace-section" style="margin-top:12px">Service Level</div>
+<div class="trace-row"><span class="trace-key">Target</span>
+  <span class="trace-val">{int(service_level * 100)}%</span></div>
+<div class="trace-row"><span class="trace-key">Z-value</span>
+  <span class="trace-val">{z_value:.3f}</span></div>
+<div class="trace-row"><span class="trace-key">Current SOH</span>
+  <span class="trace-val">{current_soh:,.0f} units</span></div>
+<div class="trace-row"><span class="trace-key">Target cover</span>
+  <span class="trace-val">{target_cover_days}d</span></div>
+"""
+
+    formula_html = f"""
+<div class="trace-section">Safety Stock</div>
+<div class="trace-formula-line">SS = Z × √(LT × σ²_d + μ² × σ²_LT)</div>
+<div class="trace-formula-step">= {z_value:.3f} × √({lt_mean:.1f}×{std_daily_units:.2f}² + {avg_daily_units:.2f}²×{lt_std:.1f}²)</div>
+<div class="trace-formula-step">= {z_value:.3f} × √({ss_var1:.0f} + {ss_var2:.0f})</div>
+<div class="trace-formula-step">= {z_value:.3f} × {ss_inner:.1f}</div>
+<div class="trace-formula-answer">SS = {safety_stock_units:.0f} units</div>
+
+<div class="trace-section" style="margin-top:14px">Reorder Point</div>
+<div class="trace-formula-line">ROP = μ × LT + SS</div>
+<div class="trace-formula-step">= {avg_daily_units:.1f} × {lt_mean:.0f} + {safety_stock_units:.0f}</div>
+<div class="trace-formula-answer">ROP = {rop:.0f} units</div>
+
+<div class="trace-section" style="margin-top:14px">Order Quantity</div>
+<div class="trace-formula-line">Qty = (Cover + LT) × μ − SOH</div>
+<div class="trace-formula-step" style="color:#9CA3AF;font-size:10px">SS determines <em>when</em> to order (via ROP), not how much</div>
+<div class="trace-formula-step">= ({target_cover_days} + {lt_mean:.1f}) × {avg_daily_units:.2f} − {current_soh:.0f}</div>
+<div class="trace-formula-step">= {cover_units:.1f} − {current_soh:.0f} = {order_calc:.1f} → ceil</div>
+<div class="trace-formula-answer">Order = {order_qty:.0f} units ✓</div>
+"""
+
+    # Always-visible: header + demand/LT inputs
+    # NOTE: no blank lines inside the f-string — Streamlit markdown parser treats
+    # blank lines before closing tags as paragraph breaks, rendering </div> as literal text.
+    _drug_header = (
+        f'<div class="trace-card">'
+        f'<div class="trace-header-label">▸ Calculation trace</div>'
+        f'<div class="trace-drug-name">{drug_name}'
+        f'<span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:3px;'
+        f'color:#fff;background:{cp_color};margin-left:8px">{clinical_priority}</span>'
+        f'</div>'
+        + inputs_html.strip()
+        + '</div>'
+    )
+    st.markdown(_drug_header, unsafe_allow_html=True)
+
+    # Formula steps: collapsed by default — one click to verify the maths
+    with st.expander("Show formula breakdown →", expanded=False):
+        st.markdown(
+            '<div style="padding:4px 8px">' + formula_html.strip() + '</div>',
+            unsafe_allow_html=True,
+        )
+
+
+# ── Data quality banner ────────────────────────────────────────────────────────
+
+def data_quality_banner(flags: list[str]) -> None:
+    """
+    Render a collapsible data quality warning banner.
+    flags: list of human-readable issue strings.
+    Show nothing if flags is empty.
+    """
+    if not flags:
+        return
+    items_html = "".join(f'<div class="dq-banner-item">· {f}</div>' for f in flags)
+    st.markdown(
+        f"""
+        <div class="dq-banner">
+          <div class="dq-banner-title">⚠ Data quality flags ({len(flags)} issue{'s' if len(flags) != 1 else ''})</div>
+          {items_html}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 # ── Historical data notice ────────────────────────────────────────────────────

@@ -1,0 +1,644 @@
+# Metric Catalog — HOSPITALS.REPORTING schema
+#
+# All cube names, measure names, and dimension names are verified against
+# GET /cubejs-api/v1/meta output. Do NOT add members that are not listed here.
+#
+# Facility dimension values: KISUMU | KAKAMEGA | LODWAR | TENRI
+# (stored as source_schema in fact_ tables, facility in rpt_ tables)
+
+metrics:
+
+  # ════════════════════════════════════════════════════════════════════════
+  # DISPENSING
+  # ════════════════════════════════════════════════════════════════════════
+
+  - id: dispensing_volume
+    name: Dispensing Volume
+    description: >
+      Total drug dispense line items, drug cost, and dispensing event totals
+      by facility and month. Use when asked about dispensing activity, pharmacy
+      output, how many drugs were dispensed, dispensing at a specific hospital,
+      or total pharmacy volumes. Facility stored in source_schema.
+    cube_query:
+      measures:
+        - fact_dispensing.count
+        - fact_dispensing.line_total
+        - fact_dispensing.dispensing_event_total
+      dimensions:
+        - fact_dispensing.source_schema
+      timeDimensions:
+        - dimension: fact_dispensing.dispensing_month
+          granularity: month
+      filters: []
+      limit: 500
+
+  - id: dispensing_financials
+    name: Dispensing Financials
+    description: >
+      Financial breakdown of dispensing — line total, event total, unit price,
+      and discounts. Use when asked about cost of drugs dispensed, dispensing
+      spend, pharmacy revenue, average unit price, or discount amounts.
+    cube_query:
+      measures:
+        - fact_dispensing.line_total
+        - fact_dispensing.dispensing_event_total
+        - fact_dispensing.unit_price
+        - fact_dispensing.discount
+      dimensions:
+        - fact_dispensing.source_schema
+      timeDimensions:
+        - dimension: fact_dispensing.dispensing_month
+          granularity: month
+      filters: []
+      limit: 500
+
+  - id: dispensing_stockouts
+    name: Dispensing Stockouts
+    description: >
+      Dispense events where stock hit zero (is_stockout_dispense = true).
+      Use when asked about stockouts, drug shortages, out-of-stock dispensing,
+      or how often dispensing caused a stockout at a facility.
+    cube_query:
+      measures:
+        - fact_dispensing.count
+        - fact_dispensing.line_total
+      dimensions:
+        - fact_dispensing.source_schema
+      timeDimensions:
+        - dimension: fact_dispensing.dispensing_month
+          granularity: month
+      filters:
+        - member: fact_dispensing.is_stockout_dispense
+          operator: equals
+          values: ["true"]
+      limit: 500
+
+  - id: dispensing_negative_stock
+    name: Dispensing from Negative Stock
+    description: >
+      Dispenses made when stock was already negative before the event.
+      More severe than a regular stockout — indicates IOUs to patients or
+      data entry errors. Use when asked about negative stock dispensing,
+      dispensing programme alerts, or critical inventory issues.
+    cube_query:
+      measures:
+        - fact_dispensing.count
+        - fact_dispensing.line_total
+      dimensions:
+        - fact_dispensing.source_schema
+      timeDimensions:
+        - dimension: fact_dispensing.dispensing_month
+          granularity: month
+      filters:
+        - member: fact_dispensing.dispensed_from_negative_stock
+          operator: equals
+          values: ["true"]
+      limit: 500
+
+  - id: dispensing_trends
+    name: Dispensing Trends by Drug
+    description: >
+      Dispensing counts and value broken down by canonical drug name,
+      therapeutic class, and facility over time. Use when asked about
+      top dispensed drugs, drug consumption trends, dispensing by therapeutic
+      class, or which medicines are used most at a facility.
+    cube_query:
+      measures:
+        - rpt_dispensing_trends.count
+        - rpt_dispensing_trends.total_dispensing_value
+      dimensions:
+        - rpt_dispensing_trends.facility
+        - rpt_dispensing_trends.canonical_name
+        - rpt_dispensing_trends.inn_name
+        - rpt_dispensing_trends.therapeutic_class
+        - rpt_dispensing_trends.therapeutic_subclass
+      timeDimensions:
+        - dimension: rpt_dispensing_trends.dispensing_month
+          granularity: month
+      filters: []
+      limit: 500
+
+  - id: patient_dispensing_summary
+    name: Patient Dispensing Summary
+    description: >
+      Per-visit dispensing summary — visit count, distinct patients, total
+      drug cost, drugs per visit, and unclassified drug count. Use when asked
+      about how many patients received medication, pharmacy visit volumes,
+      drug cost per patient, or unclassified drugs dispensed.
+    cube_query:
+      measures:
+        - fact_patient_dispensing.count
+        - fact_patient_dispensing.drugs_dispensed_count
+        - fact_patient_dispensing.total_drug_cost
+        - fact_patient_dispensing.unclassified_drug_count
+      dimensions:
+        - fact_patient_dispensing.source_schema
+      timeDimensions:
+        - dimension: fact_patient_dispensing.dispensing_month
+          granularity: month
+      filters: []
+      limit: 500
+
+  # ════════════════════════════════════════════════════════════════════════
+  # STOCK STATUS & ALERTS
+  # ════════════════════════════════════════════════════════════════════════
+
+  - id: stock_status
+    name: Current Stock Status
+    description: >
+      Current stock status per drug and facility — in stock, low stock, or
+      out of stock. Use when asked about current stock levels, which drugs
+      are out of stock, stock availability, or inventory status by facility
+      or therapeutic class.
+    cube_query:
+      measures:
+        - rpt_stock_status.count
+      dimensions:
+        - rpt_stock_status.facility
+        - rpt_stock_status.canonical_name
+        - rpt_stock_status.inn_name
+        - rpt_stock_status.therapeutic_class
+        - rpt_stock_status.stock_status
+        - rpt_stock_status.product_category
+      timeDimensions: []
+      filters: []
+      limit: 500
+
+  - id: stockout_alerts
+    name: Stockout Alerts
+    description: >
+      Active stockout alerts by drug, facility, and clinical priority. Use
+      when asked about current stockouts, which drugs have stockout alerts,
+      critical drug shortages, or stockout history by first/last occurrence.
+    cube_query:
+      measures:
+        - rpt_stockout_alerts.count
+      dimensions:
+        - rpt_stockout_alerts.facility
+        - rpt_stockout_alerts.canonical_name
+        - rpt_stockout_alerts.inn_name
+        - rpt_stockout_alerts.therapeutic_class
+        - rpt_stockout_alerts.clinical_priority
+      timeDimensions:
+        - dimension: rpt_stockout_alerts.last_stockout_dispense
+          granularity: month
+      filters: []
+      limit: 500
+
+  - id: dos_watchlist
+    name: Days of Stock Watchlist
+    description: >
+      Drugs flagged on the days-of-stock watchlist with reorder urgency.
+      Use when asked about drugs running low, reorder alerts, days of stock
+      remaining, urgency of restocking, or which drugs need redistribution.
+    cube_query:
+      measures:
+        - rpt_dos_watchlist.count
+      dimensions:
+        - rpt_dos_watchlist.facility
+        - rpt_dos_watchlist.canonical_name
+        - rpt_dos_watchlist.inn_name
+        - rpt_dos_watchlist.therapeutic_class
+        - rpt_dos_watchlist.reorder_urgency
+      timeDimensions: []
+      filters: []
+      limit: 500
+
+  - id: drug_redistribution
+    name: Drug Redistribution Recommendations
+    description: >
+      Suggested stock transfers between facilities — surplus facility,
+      deficit facility, drug name, and transfer quantity. Use when asked
+      about inter-facility stock transfers, redistribution recommendations,
+      which facility has surplus/deficit, or drug rebalancing across sites.
+    cube_query:
+      measures:
+        - rpt_redistribution.count
+        - rpt_redistribution.suggested_transfer_qty
+      dimensions:
+        - rpt_redistribution.surplus_facility
+        - rpt_redistribution.deficit_facility
+        - rpt_redistribution.canonical_name
+        - rpt_redistribution.inn_name
+        - rpt_redistribution.therapeutic_class
+        - rpt_redistribution.clinical_priority
+      timeDimensions: []
+      filters: []
+      limit: 500
+
+  # ════════════════════════════════════════════════════════════════════════
+  # DRUG CATALOG / TAXONOMY
+  # ════════════════════════════════════════════════════════════════════════
+
+  - id: drug_catalog_count
+    name: Drug Catalog Size
+    description: >
+      Total number of canonical drugs in the formulary. Use when asked about
+      how many drugs are in the system, formulary size, or total products.
+    cube_query:
+      measures:
+        - canonical_keys.count
+      dimensions:
+        - canonical_keys.therapeutic_class
+        - canonical_keys.therapeutic_subclass
+      timeDimensions: []
+      filters: []
+      limit: 500
+
+  - id: drug_taxonomy_lookup
+    name: Drug Taxonomy Lookup
+    description: >
+      Look up a drug by INN or canonical name to get its therapeutic class,
+      subclass, strength, and form. Use when asked about a specific drug's
+      classification, what category a medicine belongs to, or drug reference
+      information.
+    cube_query:
+      measures:
+        - canonical_keys.count
+      dimensions:
+        - canonical_keys.canonical_name
+        - canonical_keys.inn_name
+        - canonical_keys.strength_canonical
+        - canonical_keys.form_canonical
+        - canonical_keys.therapeutic_class
+        - canonical_keys.therapeutic_subclass
+      timeDimensions: []
+      filters: []
+      limit: 200
+
+  - id: product_taxonomy_by_facility
+    name: Product Taxonomy by Facility
+    description: >
+      Drug product mapping quality and coverage per facility — total products,
+      duplicate counts, map status, and match type. Use when asked about drug
+      catalogue coverage at a facility, unmapped products, INN mapping quality,
+      or product taxonomy data completeness.
+    cube_query:
+      measures:
+        - canonical_product_taxonomy.count
+        - canonical_product_taxonomy.facility_dup_count
+      dimensions:
+        - canonical_product_taxonomy.facility
+        - canonical_product_taxonomy.therapeutic_class
+        - canonical_product_taxonomy.inn_map_status
+        - canonical_product_taxonomy.match_type
+      timeDimensions: []
+      filters: []
+      limit: 500
+
+  # ════════════════════════════════════════════════════════════════════════
+  # INPATIENT ADMISSIONS
+  # ════════════════════════════════════════════════════════════════════════
+
+  - id: inpatient_admissions
+    name: Inpatient Admissions
+    description: >
+      Count of inpatient admissions and total visit count by facility and sex.
+      Use when asked about admissions, hospitalizations, inpatient volume,
+      patients admitted, or bed demand by gender.
+    cube_query:
+      measures:
+        - fact_inpatient_admissions.count
+        - fact_inpatient_admissions.total_visits_count
+      dimensions:
+        - fact_inpatient_admissions.source_schema
+        - fact_inpatient_admissions.sex
+      timeDimensions: []
+      filters: []
+      limit: 500
+
+  - id: bed_occupancy
+    name: Bed Occupancy
+    description: >
+      Bed occupancy counts and average admission cost by facility, ward
+      category, ward name, and age group. Use when asked about bed occupancy,
+      ward utilisation, inpatient ward load, or admission costs by ward.
+    cube_query:
+      measures:
+        - rpt_bed_occupancy.count
+        - rpt_bed_occupancy.avg_admission_cost
+      dimensions:
+        - rpt_bed_occupancy.facility
+        - rpt_bed_occupancy.ward_category
+        - rpt_bed_occupancy.ward_name
+        - rpt_bed_occupancy.ward_age_group
+      timeDimensions:
+        - dimension: rpt_bed_occupancy.admission_month
+          granularity: month
+      filters: []
+      limit: 500
+
+  - id: admissions_profile
+    name: Admissions Profile
+    description: >
+      Detailed admission profile — admission type, payment mode, sex, cost,
+      and open admission status. Use when asked about admission demographics,
+      private vs public admissions, payment mode for inpatients, admission
+      costs, or currently open admissions.
+    cube_query:
+      measures:
+        - upd_admissions_profile.count
+        - upd_admissions_profile.admission_cost
+      dimensions:
+        - upd_admissions_profile.admission_type
+        - upd_admissions_profile.payment_mode
+        - upd_admissions_profile.sex
+      timeDimensions:
+        - dimension: upd_admissions_profile.admission_date
+          granularity: month
+      filters: []
+      limit: 500
+
+  - id: readmissions
+    name: Readmissions
+    description: >
+      Readmission counts and 30-day readmission approximations by facility,
+      ward category, payment mode, and discharge type. Use when asked about
+      readmissions, patients returning within 30 days, discharge outcomes,
+      or readmission rates.
+    cube_query:
+      measures:
+        - rpt_readmissions.count
+        - rpt_readmissions.approx_gap_30day_count
+      dimensions:
+        - rpt_readmissions.facility
+        - rpt_readmissions.ward_category
+        - rpt_readmissions.payment_mode
+        - rpt_readmissions.discharge_type
+      timeDimensions:
+        - dimension: rpt_readmissions.admission_month
+          granularity: month
+      filters: []
+      limit: 500
+
+  - id: specialty_admissions
+    name: Specialty Admissions
+    description: >
+      Admissions broken down by specialty ward, payment mode, and facility.
+      Use when asked about admissions by specialty, which wards admit the
+      most patients, specialty utilisation, or ward-level admission breakdown.
+    cube_query:
+      measures:
+        - rpt_specialty_admissions.count
+      dimensions:
+        - rpt_specialty_admissions.facility
+        - rpt_specialty_admissions.ward_name
+        - rpt_specialty_admissions.payment_mode
+      timeDimensions:
+        - dimension: rpt_specialty_admissions.admission_month
+          granularity: month
+      filters: []
+      limit: 500
+
+  # ════════════════════════════════════════════════════════════════════════
+  # FINANCE & REVENUE
+  # ════════════════════════════════════════════════════════════════════════
+
+  - id: finance_events
+    name: Patient Finance Events
+    description: >
+      Financial events (payments, invoices, credits) by event type, payment
+      mode, and facility. Use when asked about revenue collected, payment
+      events, collections by payment method, cash vs insurance payments,
+      or financial transaction volumes.
+    cube_query:
+      measures:
+        - fact_patient_finance_events.count
+        - fact_patient_finance_events.amount
+      dimensions:
+        - fact_patient_finance_events.source_schema
+        - fact_patient_finance_events.event_type
+        - fact_patient_finance_events.payment_mode
+      timeDimensions:
+        - dimension: fact_patient_finance_events.event_date
+          granularity: month
+      filters: []
+      limit: 500
+
+  - id: procedure_revenue
+    name: Procedure Revenue
+    description: >
+      Revenue from procedures broken down by revenue category, payment mode,
+      insurer, and facility. Use when asked about procedure revenue, income by
+      service category, revenue by payment mode, or insurer-based billing.
+    cube_query:
+      measures:
+        - rpt_procedure_revenue.count
+        - rpt_procedure_revenue.avg_item_amount
+      dimensions:
+        - rpt_procedure_revenue.facility
+        - rpt_procedure_revenue.revenue_category
+        - rpt_procedure_revenue.payment_mode
+        - rpt_procedure_revenue.insurer
+      timeDimensions:
+        - dimension: rpt_procedure_revenue.revenue_month
+          granularity: month
+      filters: []
+      limit: 500
+
+  - id: patient_invoices
+    name: Patient Invoice Summary
+    description: >
+      Patient invoice counts and event counts by facility. Use when asked
+      about invoices raised, billing volumes, number of invoiced patients,
+      or invoice event activity.
+    cube_query:
+      measures:
+        - fact_patient_invoice.count
+        - fact_patient_invoice.event_count
+      dimensions:
+        - fact_patient_invoice.facility_key
+      timeDimensions:
+        - dimension: fact_patient_invoice.first_event_date
+          granularity: month
+      filters: []
+      limit: 500
+
+  - id: ar_aging
+    name: Accounts Receivable Aging
+    description: >
+      Outstanding receivables grouped by aging bucket, facility, and insurer.
+      Use when asked about AR aging, overdue invoices, how long invoices have
+      been outstanding, accounts receivable breakdown, or insurer debt aging.
+    cube_query:
+      measures:
+        - rpt_ar_aging.count
+      dimensions:
+        - rpt_ar_aging.facility
+        - rpt_ar_aging.aging_bucket
+        - rpt_ar_aging.insurer
+      timeDimensions:
+        - dimension: rpt_ar_aging.invoice_month
+          granularity: month
+      filters: []
+      limit: 500
+
+  - id: insurance_ar
+    name: Insurance Accounts Receivable
+    description: >
+      Insurance AR by insurer and facility. Use when asked about insurance
+      debt, outstanding insurance claims, which insurer owes the most,
+      or NHIF/corporate receivables.
+    cube_query:
+      measures:
+        - rpt_insurance_ar.count
+      dimensions:
+        - rpt_insurance_ar.facility
+        - rpt_insurance_ar.insurer
+      timeDimensions:
+        - dimension: rpt_insurance_ar.invoice_month
+          granularity: month
+      filters: []
+      limit: 500
+
+  # ════════════════════════════════════════════════════════════════════════
+  # CLINICAL / DISEASE BURDEN
+  # ════════════════════════════════════════════════════════════════════════
+
+  - id: disease_burden
+    name: Disease Burden
+    description: >
+      Disease signal counts and prescription counts by disease group and
+      facility. Use when asked about disease burden, common diagnoses,
+      top conditions treated, disease trends, or illness patterns at a
+      facility.
+    cube_query:
+      measures:
+        - rpt_disease_burden.count
+        - rpt_disease_burden.rx_count
+      dimensions:
+        - rpt_disease_burden.facility
+        - rpt_disease_burden.disease_group
+      timeDimensions:
+        - dimension: rpt_disease_burden.signal_month
+          granularity: month
+      filters: []
+      limit: 500
+
+  - id: doctor_note_terms
+    name: Doctor Note Clinical Terms
+    description: >
+      Clinical terms extracted from doctor notes — canonical term, raw term,
+      clinical syndrome, and disease burden group. Use when asked about
+      diagnoses from doctor notes, clinical syndromes recorded, common terms
+      in clinical notes, or disease burden classification.
+    cube_query:
+      measures:
+        - dim_doctor_note_terms.count
+      dimensions:
+        - dim_doctor_note_terms.canonical_term
+        - dim_doctor_note_terms.clinical_syndrome
+        - dim_doctor_note_terms.disease_burden_group
+        - dim_doctor_note_terms.status
+      timeDimensions: []
+      filters: []
+      limit: 500
+
+  # ════════════════════════════════════════════════════════════════════════
+  # DIALYSIS
+  # ════════════════════════════════════════════════════════════════════════
+
+  - id: dialysis_sessions
+    name: Dialysis Sessions
+    description: >
+      Dialysis session counts by facility and dialysis ward. Use when asked
+      about dialysis activity, renal unit volumes, dialysis sessions conducted,
+      or dialysis ward utilisation.
+    cube_query:
+      measures:
+        - rpt_dialysis.count
+      dimensions:
+        - rpt_dialysis.facility
+        - rpt_dialysis.dialysis_ward
+      timeDimensions:
+        - dimension: rpt_dialysis.session_month
+          granularity: month
+      filters: []
+      limit: 500
+
+  # ════════════════════════════════════════════════════════════════════════
+  # THEATRE
+  # ════════════════════════════════════════════════════════════════════════
+
+  - id: theatre_utilization
+    name: Theatre Utilization
+    description: >
+      Theatre booking and utilisation counts by theatre name, type, booking
+      status, and facility. Use when asked about theatre utilisation, operating
+      theatre bookings, theatre throughput, surgery volumes, or theatre
+      efficiency.
+    cube_query:
+      measures:
+        - rpt_theatre_utilization.count
+      dimensions:
+        - rpt_theatre_utilization.facility
+        - rpt_theatre_utilization.theatre_name
+        - rpt_theatre_utilization.theatre_type
+        - rpt_theatre_utilization.booking_status
+      timeDimensions:
+        - dimension: rpt_theatre_utilization.session_month
+          granularity: month
+      filters: []
+      limit: 500
+
+  # ════════════════════════════════════════════════════════════════════════
+  # POPULATION & WARD UTILISATION
+  # ════════════════════════════════════════════════════════════════════════
+
+  - id: kakamega_population_visits
+    name: Kakamega Population Visits
+    description: >
+      Patient visit counts by sub-county for Kakamega catchment area. Use
+      when asked about Kakamega patient catchment, sub-county visit breakdown,
+      population served by sub-county, or geographic visit distribution.
+    cube_query:
+      measures:
+        - rpt_kakamega_population.count
+        - rpt_kakamega_population.visit_count
+      dimensions:
+        - rpt_kakamega_population.facility
+        - rpt_kakamega_population.sub_county
+      timeDimensions:
+        - dimension: rpt_kakamega_population.visit_month
+          granularity: month
+      filters: []
+      limit: 500
+
+  - id: lodwar_ward_utilisation
+    name: Lodwar Ward Utilisation
+    description: >
+      Ward utilisation counts and percentage share of total for Lodwar
+      facility. Use when asked about Lodwar ward usage, which wards are
+      busiest at Lodwar, or ward utilisation percentages.
+    cube_query:
+      measures:
+        - rpt_lodwar_ward_utilisation.count
+        - rpt_lodwar_ward_utilisation.pct_of_total
+      dimensions:
+        - rpt_lodwar_ward_utilisation.facility
+        - rpt_lodwar_ward_utilisation.ward_name
+      timeDimensions: []
+      filters: []
+      limit: 500
+
+  # ════════════════════════════════════════════════════════════════════════
+  # INVENTORY PROFILE
+  # ════════════════════════════════════════════════════════════════════════
+
+  - id: inventory_profile
+    name: Inventory Profile
+    description: >
+      Lifetime drug cost and inventory item count per facility. Use when
+      asked about total inventory value, lifetime dispensing cost by facility,
+      or overall inventory size.
+    cube_query:
+      measures:
+        - upd_inventory_profile.count
+        - upd_inventory_profile.lifetime_drug_cost
+      dimensions:
+        - upd_inventory_profile.source_schema
+      timeDimensions:
+        - dimension: upd_inventory_profile.last_dispensed_at
+          granularity: month
+      filters: []
+      limit: 500

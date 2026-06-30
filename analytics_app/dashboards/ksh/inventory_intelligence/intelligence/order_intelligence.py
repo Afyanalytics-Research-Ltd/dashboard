@@ -35,7 +35,10 @@ class OrderBrief:
 _SYSTEM = (
     "You are a pharmacy procurement assistant in a Kenyan hospital. "
     "Write exactly 2 sentences. Sentence 1: the specific stock position and what it means for procurement timing. "
-    "Sentence 2: one non-obvious consideration — lead time risk, demand trend implication, or ordering strategy. "
+    "Sentence 2: one non-obvious consideration — if SEASONAL URGENCY is given, explain that the peak arrives "
+    "before the order and tell the pharmacist to expedite or use cross-facility redistribution; "
+    "if SEASONAL CONTEXT is given (normal), explain the seasonal sizing and that ordering now ensures "
+    "stock arrives before the peak; otherwise use lead time risk, demand trend, or ordering strategy. "
     "Rules: reference the exact numbers given. Never write generic filler like 'it is essential', "
     "'critical nature', 'patient care may be compromised', 'it is crucial', or 'vulnerable to stockouts' — "
     "these are obvious from the data and add no value. If you cannot say something specific and useful, "
@@ -57,10 +60,22 @@ def generate(
     confidence: str = "MEDIUM",
     lead_time_days: int = DEFAULT_LEAD_TIME_DAYS,
     avg_unit_value_kes: Optional[float] = None,
+    seasonal_disease: Optional[str] = None,
+    seasonal_weeks_to_peak: Optional[int] = None,
+    seasonal_demand_mult: Optional[float] = None,
+    seasonal_too_late: bool = False,
 ) -> OrderBrief:
     """
     Generate an AI order brief for a single drug.
     Falls back to rule-based narrative if no LLM is configured or the call fails.
+
+    When seasonal context is provided (seasonal_disease, seasonal_weeks_to_peak,
+    seasonal_demand_mult), the AI narrative explains that the order quantity is
+    sized for a disease peak, not the current baseline demand rate.
+
+    When seasonal_too_late=True, lead time exceeds the weeks remaining to the peak.
+    The order quantity is still sized at peak rate (covers the peak tail), but the
+    narrative escalates to urgency: expedite or source from a surplus facility.
     """
     cost_est: Optional[float] = None
     if avg_unit_value_kes and avg_unit_value_kes > 0 and order_qty > 0:
@@ -72,6 +87,7 @@ def generate(
         canonical_name, dos_remaining, avg_daily_units, current_soh,
         order_qty, target_cover_days, clinical_priority, therapeutic_class,
         patients_at_risk, trend_direction, confidence, lead_time_days, cost_est, gap,
+        seasonal_disease, seasonal_weeks_to_peak, seasonal_demand_mult, seasonal_too_late,
     )
     text = ai_client.complete(prompt, system_prompt=_SYSTEM, max_tokens=160)
 
@@ -97,6 +113,7 @@ def generate(
         narrative=_rule_based(
             canonical_name, dos_remaining, order_qty, lead_time_days,
             gap, patients_at_risk, clinical_priority, cost_est, trend_direction,
+            seasonal_disease, seasonal_weeks_to_peak, seasonal_demand_mult, seasonal_too_late,
         ),
         is_ai=False,
     )
@@ -107,6 +124,10 @@ def _build_prompt(
     cover: int, priority: str, t_class: str, patients: int,
     trend: str, confidence: str, lead_time: int,
     cost: Optional[float], gap: int,
+    seasonal_disease: Optional[str] = None,
+    seasonal_weeks_to_peak: Optional[int] = None,
+    seasonal_demand_mult: Optional[float] = None,
+    seasonal_too_late: bool = False,
 ) -> str:
     cost_str = f"~KES {cost:,.0f}" if cost else "cost data unavailable"
     gap_str = (
@@ -119,16 +140,45 @@ def _build_prompt(
         "STABLE": "demand stable",
     }.get(trend, "demand stable")
 
-    qty_line = (
-        f"Recommended order: {qty:,} units to cover {cover} days at {adc:.1f} u/day | {cost_str}"
-        if qty > 0 and adc > 0
-        else f"Recommended order: UNKNOWN — no dispensing history available; pharmacist must estimate from clinical need | {cost_str}"
-    )
+    if confidence.upper() == "LOW":
+        qty_line = (
+            f"Recommended order: UNKNOWN — dispensing history too sparse for a reliable demand estimate "
+            f"(LOW confidence); pharmacist must estimate quantity from clinical need and formulary guidance | {cost_str}"
+        )
+    elif qty > 0 and adc > 0:
+        qty_line = f"Recommended order: {qty:,} units to cover {cover} days at {adc:.1f} u/day | {cost_str}"
+    else:
+        qty_line = f"Recommended order: UNKNOWN — no dispensing history available; pharmacist must estimate from clinical need | {cost_str}"
 
     patients_line = (
         f"Patients on this drug at risk of stockout: {patients:,}"
         if patients > 0 else ""
     )
+
+    # Seasonal context block — two modes:
+    # Normal: stock will arrive before or during the peak → explain uplift sizing.
+    # Too late: lead time exceeds peak window → escalate to urgency/expedite.
+    seasonal_line = ""
+    if seasonal_disease and seasonal_demand_mult and seasonal_demand_mult > 1.0:
+        _uplift_pct = round((seasonal_demand_mult - 1) * 100)
+        if seasonal_weeks_to_peak == 0:
+            _timing = "currently at peak"
+        else:
+            _timing = f"peak in {seasonal_weeks_to_peak} week{'s' if seasonal_weeks_to_peak != 1 else ''}"
+        if seasonal_too_late:
+            seasonal_line = (
+                f"SEASONAL URGENCY: {seasonal_disease} season — {_timing} in Kisumu but lead time is {lead_time} days. "
+                f"Standard order will not arrive before the peak. "
+                f"Quantity is still sized at +{_uplift_pct}% above baseline to cover the peak tail. "
+                f"ACTION REQUIRED: expedite procurement or check cross-facility surplus to cover the peak onset."
+            )
+        else:
+            seasonal_line = (
+                f"SEASONAL CONTEXT: {seasonal_disease} season — {_timing} in Kisumu. "
+                f"Demand expected +{_uplift_pct}% above baseline (facility dispensing data). "
+                f"Order quantity is sized for peak demand, not the current baseline rate of {adc:.1f} u/day. "
+                f"Order now so stock arrives before the peak."
+            )
 
     return f"""Drug: {name}
 Priority: {priority} | Class: {t_class or "unclassified"}
@@ -137,6 +187,7 @@ Stockout gap if ordered today: {gap} days ({gap_str})
 {qty_line}
 Demand trend: {trend_str} | Confidence: {confidence}
 {patients_line}
+{seasonal_line}
 
 Write 2 sentences about this specific drug's procurement situation. Be precise about timing and risk."""
 
@@ -286,6 +337,10 @@ Write ONE sentence — the most important action. Use the pre-calculated qty ({_
 def _rule_based(
     name: str, dos: float, qty: int, lead_time: int, gap: int,
     patients: int, priority: str, cost: Optional[float], trend: str,
+    seasonal_disease: Optional[str] = None,
+    seasonal_weeks_to_peak: Optional[int] = None,
+    seasonal_demand_mult: Optional[float] = None,
+    seasonal_too_late: bool = False,
 ) -> str:
     cost_str = f" (~KES {cost:,.0f})" if cost else ""
     if dos <= 0:
@@ -304,14 +359,31 @@ def _rule_based(
     s2 = f"Order {qty:,} units{cost_str} to cover the next {30 + lead_time} days including lead time."
 
     extras = []
-    if patients > 0:
+    if seasonal_disease and seasonal_demand_mult and seasonal_demand_mult > 1.0:
+        _uplift_pct = round((seasonal_demand_mult - 1) * 100)
+        _timing = (
+            "currently at peak" if seasonal_weeks_to_peak == 0
+            else f"peak in {seasonal_weeks_to_peak}w"
+        )
+        if seasonal_too_late:
+            extras.append(
+                f"{seasonal_disease} season peak arrives in {seasonal_weeks_to_peak}w but lead time is {lead_time}d "
+                f"— order will not arrive before the peak. Quantity still sized at +{_uplift_pct}% for the peak tail; "
+                f"check cross-facility surplus or expedite to cover the onset."
+            )
+        else:
+            extras.append(
+                f"Quantity sized for {seasonal_disease} season ({_timing}, "
+                f"+{_uplift_pct}% expected demand) — order now so stock arrives before the peak."
+            )
+    elif patients > 0:
         extras.append(
             f"{patients:,} patient{'s' if patients != 1 else ''} at the facility "
             f"may be affected by a stockout."
         )
-    if trend == "UP":
+    elif trend == "UP":
         extras.append("Upward demand trend — consider a larger buffer if budget allows.")
-    if priority == "CRITICAL":
+    elif priority == "CRITICAL":
         extras.append("This is a critical-priority drug — escalate procurement immediately.")
 
     return " ".join(filter(None, [s1, s2] + extras[:1]))

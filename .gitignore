@@ -253,6 +253,7 @@ service_account.json
 
 # exclude for personal development files
 *.ipynb
+!preprocessing/doctors_notes_cleaning_V2.ipynb
 ksh_clinicals_dashboard_copy.py
 preprocessing/*.jsonl
 *.tmp.*

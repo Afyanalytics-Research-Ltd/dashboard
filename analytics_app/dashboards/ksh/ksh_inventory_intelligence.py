@@ -700,22 +700,31 @@ if page == "Today's Briefing":
             except Exception:
                 pass
             _pr_count = int(_pr_count_row.get("total_patients_at_risk", 0) or 0)
+            # Use engine-derived stock counts (same source as the briefing KPI strip)
+            # supplemented by SQL kpi for value/chronic fields.
+            _digest_kpi = {
+                "active_stockouts":       _engine_kpis["active_stockouts"],
+                "critical_count":         _engine_kpis["critical_count"],
+                "low_count":              _engine_kpis["low_count"],
+                "chronic_patients_active": kpi.get("CHRONIC_PATIENTS_ACTIVE") or kpi.get("chronic_patients_active", 0),
+            }
             with st.spinner("Sending digest…"):
                 try:
                     sent = send_daily_digest(
                         facility_name=fac.label,
                         insights=_insights,
-                        kpi=kpi,
+                        kpi=_digest_kpi,
                         order_count=_order_now_count,
                         patient_risk_count=_pr_count,
                         facility_slug=fac.schema,
                         force=True,
                         clinical_alerts=_novel_insights,
+                        seasonal_signals=_actionable_summaries or [],
                     )
                     if sent:
                         st.success("Digest sent ✓")
                     else:
-                        st.warning("Email not configured — add NOTIFY_EMAIL_TO, SMTP_HOST, etc. to .env")
+                        st.warning("Email not configured — add NOTIFY_EMAIL_TO and EMAIL_HOST_USER to .env")
                 except Exception as _e:
                     st.error(f"Send failed: {_e}")
 
@@ -1342,7 +1351,12 @@ elif page == "Dead Stock":
     _ds_h: pd.DataFrame = pd.DataFrame()
     _anchor_ds = (
         pd.Timestamp(_ref_date.strip("'"))
-        if _ref_date != "CURRENT_DATE" else pd.Timestamp.now().normalize()
+        if _ref_date != "CURRENT_DATE"
+        else (
+            pd.to_datetime(_ds_history["dispensed_at"]).max().normalize()
+            if not _ds_history.empty and "dispensed_at" in _ds_history.columns
+            else pd.Timestamp.now().normalize()
+        )
     )
 
     if not _ds_history.empty:
@@ -1410,7 +1424,6 @@ elif page == "Dead Stock":
     # Months-to-clear: uses RECENT demand rate, not peak — shows real clearance horizon.
 
     _root_cause_map:       dict = {}
-    _months_clear_map:     dict = {}   # at recent demand rate
     _recent_monthly_map:   dict = {}
     _smoothed_peak_map:    dict = {}
 
@@ -1434,8 +1447,16 @@ elif page == "Dead Stock":
             _smoothed_peak = float(_top3.mean()) if not _top3.empty else 0.0
             _smoothed_peak_map[_drug] = _smoothed_peak
 
-            _recent_qty     = float(_grp[_grp["DISPENSED_AT"] >= _cutoff_90]["QUANTITY_DISPENSED"].sum())
-            _recent_monthly = _recent_qty / 3.0
+            _recent_qty = float(_grp[_grp["DISPENSED_AT"] >= _cutoff_90]["QUANTITY_DISPENSED"].sum())
+
+            # Divide by the window the drug was actually active, not the full 90 days.
+            # A drug idle for N days was only dispensed during the first (90-N) days of the
+            # window — dividing by 3 months deflates the rate and inflates months-to-clear.
+            # Floor at 14 days (~a fortnight) to avoid runaway extrapolation from a single
+            # dispensing event in the last few days before a drug went idle.
+            _min_idle       = int(_days_idle_lookup.get(_drug, 0))
+            _active_days    = max(14, 90 - _min_idle)
+            _recent_monthly = _recent_qty / (_active_days / 30.0)
             _recent_monthly_map[_drug] = _recent_monthly
 
             _recent_itr     = _ds_recent_itr_map.get(_drug, 0.0)
@@ -1454,13 +1475,14 @@ elif page == "Dead Stock":
             else:
                 _root_cause_map[_drug] = "Over-ordered"
 
-    # Months to clear at RECENT demand rate (realistic) and at smoothed peak (best case)
+    # Months to clear computed per-row so different SOH values for the same canonical name
+    # each get their own figure rather than the last row overwriting the map.
     if not dead_df.empty and "CURRENT_SOH" in dead_df.columns:
-        for _, _r in dead_df.iterrows():
-            _n   = _r.get("CANONICAL_NAME")
-            _soh = float(_r.get("CURRENT_SOH") or 0)
-            _rm  = _recent_monthly_map.get(_n, 0)
-            _months_clear_map[_n] = round(_soh / _rm, 1) if _rm > 0 and _soh > 0 else None
+        def _calc_months(row):
+            _soh = float(row.get("CURRENT_SOH") or 0)
+            _rm  = _recent_monthly_map.get(row.get("CANONICAL_NAME"), 0)
+            return round(_soh / _rm, 1) if _rm > 0 and _soh > 0 else None
+        dead_df["MONTHS_TO_CLEAR"] = dead_df.apply(_calc_months, axis=1)
 
     # Items whose root cause history comes from before the 730d window are "Dormant"
     # (dead stock query has no date cap on MAX(dispensed_at); _ds_h only covers 730d)
@@ -1531,7 +1553,23 @@ elif page == "Dead Stock":
             dead_df["ROOT_CAUSE"] = dead_df["_override_cause"].combine_first(dead_df["ROOT_CAUSE"])
             dead_df = dead_df.drop(columns=["_override_cause"])
         dead_df["ROOT_CAUSE"]      = dead_df["ROOT_CAUSE"].fillna("No history")
-        dead_df["MONTHS_TO_CLEAR"] = dead_df["CANONICAL_NAME"].map(_months_clear_map)
+        # Override 1: procurement gap rows whose own DAYS_IDLE >= 90 — the canonical-name
+        # lookup uses min(days_idle) so a high-idle sibling can get a false tag.
+        _pg_mask = (dead_df["ROOT_CAUSE"] == "Procurement gap") & (pd.to_numeric(dead_df["DAYS_IDLE"], errors="coerce") >= 90)
+        dead_df.loc[_pg_mask, "ROOT_CAUSE"] = "Over-ordered"
+
+        # Override 2: procurement gap rows where corrected MTC > 12 months — ITR was measured
+        # over 180 days but current 90-day demand is near-zero, indicating genuine over-stock
+        # rather than a temporary order gap.  (Stress-tested: this catches only true outliers
+        # — RIVAROXABAN 10MG at 107 mo — and creates zero false positives.)
+        _pg_mtc_mask = (
+            (dead_df["ROOT_CAUSE"] == "Procurement gap")
+            & (pd.to_numeric(dead_df["MONTHS_TO_CLEAR"], errors="coerce") > 12)
+        )
+        dead_df.loc[_pg_mtc_mask, "ROOT_CAUSE"] = "Over-ordered"
+
+        if "MONTHS_TO_CLEAR" not in dead_df.columns:
+            dead_df["MONTHS_TO_CLEAR"] = None
 
     # Procurement gap items stay in dead_df and stat strip counts — they are visible to the
     # pharmacist but labelled so they understand these are likely self-resolving.
@@ -1579,7 +1617,7 @@ elif page == "Dead Stock":
             .agg(
                 SKUs=("CANONICAL_NAME", "count"),
                 Value=(_rc_val_col, "sum"),
-                Avg_months_to_clear=("MONTHS_TO_CLEAR", "mean"),
+                Avg_months_to_clear=("MONTHS_TO_CLEAR", "median"),
             )
             .reset_index()
         )
@@ -1609,7 +1647,7 @@ elif page == "Dead Stock":
                   <div style="font-size:10px;font-weight:600;color:#6B7280;text-transform:uppercase;letter-spacing:0.05em;">{_cause}</div>
                   <div style="font-size:26px;font-weight:700;color:{_clr};margin:4px 0 2px;">{_skus}</div>
                   <div style="font-size:11px;color:#374151;">SKUs · {fmt_kes_millions(_val)}</div>
-                  {"<div style='font-size:10px;color:#9CA3AF;margin-top:3px;'>Clears in ~" + str(round(_months, 1)) + " mo</div>" if _show_clear else ""}
+                  {"<div style='font-size:10px;color:#9CA3AF;margin-top:3px;'>Clears in " + (">3yr" if _months > 36 else "~" + str(round(_months, 1)) + " mo") + "</div>" if _show_clear else ""}
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -1672,6 +1710,11 @@ elif page == "Dead Stock":
         if "CANONICAL_NAME" in _disp_detail.columns:
             _disp_detail["CANONICAL_NAME"] = _disp_detail["CANONICAL_NAME"].map(fmt_drug_name)
 
+        # Cap display at 36 months (>3yr) — underlying value stays intact for sorting/export
+        if "MONTHS_TO_CLEAR" in _disp_detail.columns:
+            _mtc_num = pd.to_numeric(_disp_detail["MONTHS_TO_CLEAR"], errors="coerce")
+            _disp_detail["MONTHS_TO_CLEAR"] = _mtc_num.where(_mtc_num <= 36, other=None)
+
         st.dataframe(
             _disp_detail.rename(columns={
                 "CANONICAL_NAME": "Drug", "DRUG_GROUP": "Group",
@@ -1688,7 +1731,7 @@ elif page == "Dead Stock":
                 "Stock value (KES)": st.column_config.NumberColumn(format="KES %,.0f"),
                 "SOH":               st.column_config.NumberColumn(format="%,.1f"),
                 "Months to clear":   st.column_config.NumberColumn(format="%.1f mo",
-                                        help="At current (recent 90d) demand rate"),
+                                        help="At current 90-day demand rate · blank = >3yr or no recent demand"),
                 "Recent ITR (6mo)":  st.column_config.NumberColumn(format="%.1f×",
                                         help="Inventory turns in last 6 months — 0 = no recent dispensing"),
                 "Hist. ITR (2yr)":   st.column_config.NumberColumn(format="%.1f×",

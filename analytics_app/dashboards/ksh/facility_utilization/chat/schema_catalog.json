@@ -1,0 +1,431 @@
+{
+  "version": "1.0",
+  "last_updated": "2026-07-01",
+  "description": "Semantic layer — gold table definitions for the AI chat layer. Every table entry encodes grain, facility scope, mandatory filters, conditional filters, column semantics, and known pitfalls. text_to_sql.py reads this before generating any SQL. Do not query gold tables without reading the relevant entry first.",
+  "facility_slugs": {
+    "KSH": "KISUMU_CLEAN",
+    "TENRI": "TENRI"
+  },
+  "split_trigger": "Split into schema/ directory when: >5 facilities OR >50 metrics. When splitting, split by concern not by table: tables.json, relationships.json, filters.json, business_rules.json, domains.json",
+  "default_behavior": {
+    "default_facility": "KISUMU_CLEAN",
+    "exclude_partial_current_month": true,
+    "prefer_precomputed_metrics": true,
+    "notes": [
+      "default_facility: apply facility = 'KISUMU_CLEAN' on multi-facility tables unless question explicitly spans facilities or names another facility.",
+      "exclude_partial_current_month: always add admission_month < DATE_TRUNC('month', CURRENT_DATE) or equivalent on time-series tables unless question asks for in-progress current month.",
+      "prefer_precomputed_metrics: use pre-computed columns (completion_rate_pct, median_los_days, fast_pct, etc.) instead of recomputing from raw columns. Only recompute when aggregating across table grain."
+    ]
+  },
+  "tables": [
+    {
+      "table": "HOSPITALS.REPORTING.rpt_theatre_utilization",
+      "alias": "theatre_utilization",
+      "description": "Monthly theatre sessions, completion rate, and revenue. KSH only — no facility column.",
+      "facility_scope": "KSH_ONLY",
+      "facility_column": null,
+      "grain": "session_month x theatre_name x booking_status",
+      "mandatory_filters": [],
+      "conditional_filters": [
+        {
+          "context": "per-theatre breakdown (by theatre_name)",
+          "filter": "booking_status = 'booked'",
+          "reason": "Unbooked rows inflate per-theatre session counts. Omit this filter only when explicitly counting all statuses."
+        }
+      ],
+      "fan_out_risk": "none — grain is session_month x theatre_name x booking_status, no known duplicates at gold level",
+      "columns": {
+        "session_month": {"type": "DATE", "note": "First of month"},
+        "theatre_name": {"type": "VARCHAR"},
+        "booking_status": {"type": "VARCHAR", "values": ["booked", "unbooked"]},
+        "total_sessions": {"type": "INTEGER"},
+        "completed_sessions": {"type": "INTEGER"},
+        "completion_rate_pct": {"type": "FLOAT", "note": "Pre-computed — do not recompute from total/completed"},
+        "total_revenue": {"type": "FLOAT", "note": "KES. Confirmed FLOAT not NUMERIC (Inv 76) — no TRY_TO_NUMBER()"},
+        "emergency_sessions": {"type": "INTEGER"},
+        "elective_sessions": {"type": "INTEGER"},
+        "insured_revenue": {"type": "FLOAT"},
+        "cash_revenue": {"type": "FLOAT"}
+      },
+      "computed_metrics": {
+        "completion_rate_pct": "100.0 * SUM(completed_sessions) / NULLIF(SUM(total_sessions), 0)",
+        "emergency_pct": "100.0 * SUM(emergency_sessions) / NULLIF(SUM(emergency_sessions) + SUM(elective_sessions), 0)"
+      },
+      "domains": ["theatre"],
+      "domain_aliases": ["theatre", "operating theatre", "OR", "theatre completion", "theatre utilisation", "theatre utilization", "surgical sessions", "theatre rate"],
+      "advisory_notes": [
+        "Revenue columns are FLOAT, not NUMERIC (Inv 76). No TRY_TO_NUMBER() needed.",
+        "KSH only — TENRI has no theatre data. Do not add a facility filter; it will fail."
+      ]
+    },
+    {
+      "table": "HOSPITALS.REPORTING.rpt_bed_occupancy",
+      "alias": "bed_occupancy",
+      "description": "Monthly ward admissions, bed days, LOS, and revenue by ward. Multi-facility. Primary source for ward traffic and ward LOS domains.",
+      "facility_scope": "MULTI_FACILITY",
+      "facility_column": "facility",
+      "facility_values": {"KSH": "KISUMU_CLEAN", "TENRI": "TENRI"},
+      "grain": "admission_month x facility x ward_name x ward_category",
+      "mandatory_filters": [
+        {
+          "column": "ward_name",
+          "operator": "IS NOT NULL",
+          "when": "ward-level analysis — always filter ward_name IS NOT NULL when grouping by ward"
+        }
+      ],
+      "conditional_filters": [
+        {
+          "context": "KSH-only analysis",
+          "filter": "facility = 'KISUMU_CLEAN'",
+          "reason": "Default to KSH unless question explicitly spans facilities"
+        },
+        {
+          "context": "private ward revenue analysis",
+          "filter": "ward_name IN ('Private Female', 'Private Male')",
+          "reason": "Private Maternity excluded — admission volume too sparse for a stable baseline"
+        },
+        {
+          "context": "pipeline gap exclusion",
+          "filter": "admission_month != '2025-10-01'",
+          "reason": "Oct 2025 pipeline gap (Inv 32) — exclude when computing rolling averages"
+        }
+      ],
+      "fan_out_risk": "none at gold level — fan-out fixes applied in silver views",
+      "columns": {
+        "admission_month": {"type": "DATE", "note": "First of month"},
+        "facility": {"type": "VARCHAR", "values": ["KISUMU_CLEAN", "TENRI"]},
+        "ward_category": {"type": "VARCHAR"},
+        "ward_name": {"type": "VARCHAR"},
+        "total_admissions": {"type": "INTEGER"},
+        "discharged_admissions": {"type": "INTEGER"},
+        "total_bed_days": {"type": "INTEGER"},
+        "total_admission_revenue": {"type": "FLOAT", "note": "Ward accommodation fee only — excludes procedures and ancillary"}
+      },
+      "computed_metrics": {
+        "avg_los_days": "SUM(total_bed_days) / NULLIF(SUM(discharged_admissions), 0)",
+        "revpab": "SUM(total_admission_revenue) / NULLIF(SUM(total_bed_days), 0)"
+      },
+      "domains": ["ward_traffic", "ward_los"],
+      "domain_aliases": ["ward", "bed", "admissions", "ward traffic", "occupancy", "bed occupancy", "length of stay", "LOS", "stay duration", "hospital stay", "ward LOS", "ward admissions", "discharges", "bed days"],
+      "hardcoded_values": {
+        "bed_count_per_ward": {
+          "General Female": 7,
+          "General Maternity": 7,
+          "Pediatric General": 6,
+          "General Male": 4,
+          "Private Male": 3,
+          "Private Female": 3,
+          "Private Maternity": 2,
+          "total": 32,
+          "source": "Inv 54",
+          "warning": "Do NOT query INPATIENT_BEDS for bed counts — Snowflake inflates to 161 via flatten duplicates and orphaned ward IDs. Use these hardcoded values only."
+        }
+      },
+      "advisory_notes": [
+        "Revenue = ward accommodation fee only (KES 6,000/12,000 flat). Does not include procedure or ancillary revenue.",
+        "For median LOS by ward use rpt_ward_los — it has pre-computed median_los_days. This table only supports avg LOS via SUM(total_bed_days)/SUM(discharged_admissions)."
+      ]
+    },
+    {
+      "table": "HOSPITALS.REPORTING.rpt_ward_los",
+      "alias": "ward_los",
+      "description": "Monthly median LOS per ward by facility. Use for LOS domain — median is pre-computed and preferred over avg.",
+      "facility_scope": "MULTI_FACILITY",
+      "facility_column": "facility",
+      "facility_values": {"KSH": "KISUMU_CLEAN", "TENRI": "TENRI"},
+      "grain": "admission_month x facility x ward_category",
+      "mandatory_filters": [],
+      "conditional_filters": [
+        {
+          "context": "KSH-only analysis",
+          "filter": "facility = 'KISUMU_CLEAN'"
+        }
+      ],
+      "fan_out_risk": "none",
+      "columns": {
+        "facility": {"type": "VARCHAR"},
+        "ward_category": {"type": "VARCHAR"},
+        "admission_month": {"type": "DATE"},
+        "median_los_days": {"type": "FLOAT", "note": "Pre-computed median — use this, not avg"},
+        "admissions": {"type": "INTEGER"}
+      },
+      "computed_metrics": {},
+      "domains": ["ward_los"],
+      "domain_aliases": ["length of stay", "LOS", "stay duration", "hospital stay", "ward LOS", "median LOS", "average stay"],
+      "advisory_notes": [
+        "Always use median_los_days — average LOS is unreliable due to extreme outliers (max 139d in Maternity, Inv 22).",
+        "Silver exception previously used — now resolved. Gold table is authoritative for median LOS."
+      ]
+    },
+    {
+      "table": "HOSPITALS.REPORTING.rpt_readmissions",
+      "alias": "readmissions",
+      "description": "30-day readmission rates by discharge type, ward, and payment mode. Multi-facility. Also the source for Patient Request discharge domain via conditional filter.",
+      "facility_scope": "MULTI_FACILITY",
+      "facility_column": "facility",
+      "facility_values": {"KSH": "KISUMU_CLEAN", "TENRI": "TENRI"},
+      "grain": "admission_month x facility x ward_category x discharge_type x payment_mode",
+      "mandatory_filters": [
+        {
+          "column": "discharge_type",
+          "operator": "IS NOT NULL",
+          "when": "any analysis grouped by discharge_type — NULL rows represent unclassified discharges"
+        }
+      ],
+      "conditional_filters": [
+        {
+          "context": "patient_request domain",
+          "filter": "discharge_type ILIKE '%patient request%'",
+          "reason": "Isolates patient-initiated discharges — the Patient Request discharge domain"
+        },
+        {
+          "context": "insured revenue at risk",
+          "filter": "payment_mode = 'insured'",
+          "reason": "Revenue at risk applies to insured patients only"
+        },
+        {
+          "context": "KSH-only analysis",
+          "filter": "facility = 'KISUMU_CLEAN'"
+        }
+      ],
+      "fan_out_risk": "none at gold level",
+      "columns": {
+        "facility": {"type": "VARCHAR"},
+        "ward_category": {"type": "VARCHAR"},
+        "admission_month": {"type": "DATE"},
+        "discharge_type": {"type": "VARCHAR", "note": "NULL = unclassified. 'Patient Request' is the patient-initiated discharge type."},
+        "payment_mode": {"type": "VARCHAR", "values": ["insured", "cash"]},
+        "total_admissions": {"type": "INTEGER"},
+        "readmissions_30day": {"type": "INTEGER"},
+        "readmission_30day_rate_pct": {"type": "FLOAT", "note": "Pre-computed"},
+        "insured_30day_revenue_at_risk": {"type": "FLOAT"},
+        "approx_gap_30day_count": {"type": "INTEGER"}
+      },
+      "computed_metrics": {
+        "readmission_30day_rate_pct": "100.0 * SUM(readmissions_30day) / NULLIF(SUM(total_admissions), 0)"
+      },
+      "domains": ["readmissions", "patient_request"],
+      "domain_aliases": ["readmission", "readmissions", "30-day readmission", "patient return", "bounce back", "patient request", "patient-initiated discharge", "discharge against advice", "DAMA", "AOR"],
+      "advisory_notes": [
+        "readmission_30day_rate_pct is pre-computed — use it directly."
+      ]
+    },
+    {
+      "table": "HOSPITALS.REPORTING.rpt_doctor_performance",
+      "alias": "doctor_performance",
+      "description": "Monthly evaluation visits and admission conversion rate per doctor. KSH only.",
+      "facility_scope": "KSH_ONLY",
+      "facility_column": null,
+      "grain": "visit_month x username",
+      "mandatory_filters": [],
+      "conditional_filters": [
+        {
+          "context": "workload analysis (monthly visit volume)",
+          "filter": "visit_month >= '2024-01-01'",
+          "reason": "Data quality before 2024 is sparse"
+        },
+        {
+          "context": "conversion rate analysis",
+          "filter": "visit_month >= '2024-09-01'",
+          "reason": "Conversion rate data reliable from Sep 2024 onwards"
+        }
+      ],
+      "fan_out_risk": "none",
+      "columns": {
+        "visit_month": {"type": "DATE"},
+        "username": {"type": "VARCHAR", "note": "Doctor identifier — do not use as a current-state name in responses"},
+        "evaluations": {"type": "INTEGER", "alias": "monthly_visits"},
+        "admissions": {"type": "INTEGER"},
+        "conversion_rate_pct": {"type": "FLOAT", "note": "Pre-computed: admissions / evaluations * 100"}
+      },
+      "computed_metrics": {
+        "concentration_pct": "100.0 * MAX(evaluations) / NULLIF(SUM(evaluations), 0)",
+        "conversion_rate_pct": "100.0 * SUM(admissions) / NULLIF(SUM(evaluations), 0)"
+      },
+      "domains": ["doctor_workload"],
+      "domain_aliases": ["doctor", "physician", "doctor workload", "doctor load", "doctor visits", "evaluation visits", "doctor concentration", "physician concentration", "burnout", "conversion rate", "admission conversion"],
+      "advisory_notes": [
+        "KSH only — do not add a facility filter.",
+        "username reflects current doctor — do not cite a specific username in a chat response. Report concentration % and rank only."
+      ]
+    },
+    {
+      "table": "HOSPITALS.REPORTING.rpt_lab_monthly",
+      "alias": "lab_monthly",
+      "description": "Monthly lab visit volume and abnormal rate. KSH only. Data from Jul 2025.",
+      "facility_scope": "KSH_ONLY",
+      "facility_column": null,
+      "grain": "lab_month",
+      "mandatory_filters": [],
+      "conditional_filters": [
+        {
+          "context": "reliable data window",
+          "filter": "lab_month >= '2025-07-01'",
+          "reason": "CL/CH flag format introduced mid-2025. Earlier data is incomplete."
+        }
+      ],
+      "fan_out_risk": "none",
+      "columns": {
+        "lab_month": {"type": "DATE"},
+        "distinct_visits": {"type": "INTEGER", "note": "Unique patient visits with lab activity"},
+        "total_components": {"type": "INTEGER"},
+        "abnormal_count": {"type": "INTEGER"},
+        "abnormal_pct": {"type": "FLOAT", "note": "Pre-computed: abnormal_count / total_components * 100"}
+      },
+      "computed_metrics": {
+        "abnormal_pct": "100.0 * SUM(abnormal_count) / NULLIF(SUM(total_components), 0)"
+      },
+      "domains": ["lab"],
+      "domain_aliases": ["lab", "laboratory", "lab visits", "lab volume", "lab results", "abnormal results", "lab abnormal", "test results", "diagnostics"],
+      "advisory_notes": [
+        "Data available from Jul 2025 only — CL/CH flag format introduced mid-2025. Earlier months undercount."
+      ]
+    },
+    {
+      "table": "HOSPITALS.REPORTING.rpt_dialysis_ops",
+      "alias": "dialysis_ops",
+      "description": "Monthly dialysis throughput, revenue, and machine utilisation. KSH only.",
+      "facility_scope": "KSH_ONLY",
+      "facility_column": null,
+      "grain": "invoice_month",
+      "mandatory_filters": [],
+      "conditional_filters": [
+        {
+          "context": "complete-month analysis",
+          "filter": "is_partial_month = FALSE",
+          "reason": "Partial months undercount sessions and revenue — exclude for trend analysis"
+        }
+      ],
+      "fan_out_risk": "none at gold level. Silver stg_dialysis_billing deduped both FINANCE_INVOICE_ITEMS and FINANCE_INVOICES — both had exact-duplicate rows from ingestion (Inv 80). Gold is clean.",
+      "columns": {
+        "invoice_month": {"type": "DATE"},
+        "sessions_billed": {"type": "INTEGER"},
+        "sessions_insured": {"type": "INTEGER"},
+        "sessions_cash": {"type": "INTEGER"},
+        "session_fee_revenue": {"type": "FLOAT"},
+        "total_dialysis_revenue": {"type": "FLOAT"},
+        "ancillary_revenue": {"type": "FLOAT"},
+        "avg_session_fee": {"type": "FLOAT"},
+        "utilisation_pct_theoretical": {"type": "FLOAT", "note": "Pre-computed: sessions / (machines x sessions_per_day x days)"},
+        "is_partial_month": {"type": "BOOLEAN"}
+      },
+      "computed_metrics": {},
+      "domains": ["dialysis"],
+      "domain_aliases": ["dialysis", "dialysis sessions", "renal dialysis", "kidney dialysis", "dialysis utilisation", "dialysis utilization", "dialysis revenue"],
+      "advisory_notes": [
+        "Descriptive metrics only — no threshold alerts for this table. Report utilisation_pct_theoretical and sessions_billed trend.",
+        "Silver dedup applied (Inv 80) — gold is clean. Do not add dedup logic at query time."
+      ]
+    },
+    {
+      "table": "HOSPITALS.REPORTING.rpt_cd12_monthly_rate",
+      "alias": "cd12_monthly_rate",
+      "description": "Monthly rate of critical creatinine patients who were not admitted. KSH only. Data from Jul 2025.",
+      "facility_scope": "KSH_ONLY",
+      "facility_column": null,
+      "grain": "critical_month",
+      "mandatory_filters": [],
+      "conditional_filters": [
+        {
+          "context": "reliable data window",
+          "filter": "critical_month >= '2025-07-01'",
+          "reason": "CL/CH flag format introduced mid-2025. Earlier data is incomplete."
+        }
+      ],
+      "fan_out_risk": "none",
+      "columns": {
+        "critical_month": {"type": "DATE"},
+        "total_critical": {"type": "INTEGER", "note": "Patients with critically high creatinine"},
+        "admitted": {"type": "INTEGER"},
+        "not_admitted": {"type": "INTEGER"},
+        "non_admission_rate_pct": {"type": "FLOAT", "note": "Pre-computed: not_admitted / total_critical * 100"}
+      },
+      "computed_metrics": {
+        "non_admission_rate_pct": "100.0 * SUM(not_admitted) / NULLIF(SUM(total_critical), 0)"
+      },
+      "domains": ["dialysis"],
+      "domain_aliases": ["CD12", "critical creatinine", "critical renal", "creatinine non-admission", "renal non-admission", "critical lab non-admission"],
+      "advisory_notes": [
+        "CD12 = critical creatinine non-admission alert. High non_admission_rate_pct = critical renal patients discharged without dialysis referral.",
+        "Data from Jul 2025 only — same chain as rpt_lab_monthly."
+      ]
+    },
+    {
+      "table": "HOSPITALS.REPORTING.rpt_imaging_ops",
+      "alias": "imaging_ops",
+      "description": "Monthly imaging sessions and revenue by modality. Multi-facility.",
+      "facility_scope": "MULTI_FACILITY",
+      "facility_column": "facility",
+      "facility_values": {"KSH": "KISUMU_CLEAN", "TENRI": "TENRI"},
+      "grain": "revenue_month x facility x modality",
+      "mandatory_filters": [],
+      "conditional_filters": [
+        {
+          "context": "CT imaging domain",
+          "filter": "modality = 'CT'",
+          "reason": "Imaging CT domain tracks CT sessions only"
+        },
+        {
+          "context": "KSH-only analysis",
+          "filter": "facility = 'KISUMU_CLEAN'"
+        }
+      ],
+      "fan_out_risk": "none",
+      "columns": {
+        "revenue_month": {"type": "DATE"},
+        "facility": {"type": "VARCHAR"},
+        "modality": {"type": "VARCHAR", "values": ["CT", "MRI", "ECHO", "Ultrasound", "X-Ray"]},
+        "sessions": {"type": "INTEGER"},
+        "revenue": {"type": "FLOAT"},
+        "avg_per_session": {"type": "FLOAT"}
+      },
+      "computed_metrics": {
+        "avg_per_session": "SUM(revenue) / NULLIF(SUM(sessions), 0)"
+      },
+      "domains": ["imaging_ct"],
+      "domain_aliases": ["CT", "CT scan", "CT imaging", "computed tomography", "imaging", "radiology", "scan sessions", "CT sessions", "CT revenue"],
+      "advisory_notes": [
+        "Other modalities (MRI, ECHO, Ultrasound, X-Ray) exist in this table but are outside the 24-metric registry scope."
+      ]
+    },
+    {
+      "table": "HOSPITALS.REPORTING.rpt_admission_tat",
+      "alias": "admission_tat",
+      "description": "Monthly admission TAT — fast-track rate and P50/P75 wait times. KSH only.",
+      "facility_scope": "KSH_ONLY",
+      "facility_column": null,
+      "grain": "tat_month",
+      "mandatory_filters": [],
+      "conditional_filters": [
+        {
+          "context": "recent trend analysis",
+          "filter": "tat_month >= DATEADD('month', -6, DATE_TRUNC('month', CURRENT_DATE))",
+          "reason": "Rolling 6-month window gives stable trend without historical noise"
+        }
+      ],
+      "fan_out_risk": "none",
+      "columns": {
+        "tat_month": {"type": "DATE"},
+        "total_admissions": {"type": "INTEGER"},
+        "fast_track": {"type": "INTEGER", "note": "Admissions completing within fast-track threshold"},
+        "fast_pct": {"type": "FLOAT", "note": "Pre-computed: fast_track / total_admissions * 100"},
+        "p50_tat_min": {"type": "FLOAT", "note": "Median TAT in minutes"},
+        "p75_tat_min": {"type": "FLOAT", "note": "75th percentile TAT in minutes"}
+      },
+      "computed_metrics": {
+        "fast_pct": "100.0 * SUM(fast_track) / NULLIF(SUM(total_admissions), 0)"
+      },
+      "domains": ["admission_tat"],
+      "domain_aliases": ["admission TAT", "TAT", "turnaround time", "admission wait", "admission time", "fast track", "fast-track", "admission speed", "time to admit"],
+      "query_restrictions": [
+        {
+          "restriction": "Do not use PERCENTILE_CONT or MEDIAN() against this table at query time.",
+          "reason": "p50_tat_min and p75_tat_min are pre-computed in gold. Re-computing at query time requires row-level data that is not in this aggregated table."
+        }
+      ],
+      "advisory_notes": [
+        "KSH only — do not add a facility filter."
+      ]
+    }
+  ]
+}

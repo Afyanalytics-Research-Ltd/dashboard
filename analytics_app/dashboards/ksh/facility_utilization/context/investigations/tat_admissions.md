@@ -8,87 +8,40 @@
 
 ---
 
-## Admission Rate
+## Finding 1 — Admission TAT is Bimodal
 
-- **Total visits (Jan 2024–Apr 2026, 65 weeks):** 34,405
-- **Inpatient admissions:** 1,994 (4.9%)
-- **Outpatient (no admission):** 32,716 (95.1%)
-- Outpatient lab TAT is clean — only 5 tests over 2h across the entire outpatient cohort. All lab delay issues below are inpatient-specific.
+Investigation Inv 27 found that admission TAT follows two distinct pathways: a fast-track pathway (under 60 min) and a slow pathway (2–8 hours). The slow pathway is not randomly distributed — it concentrates in specific day/hour combinations.
 
----
+Morning slots (9–11am, Monday and Thursday) produce the worst admission TAT in the facility. The mechanism is peak-load: the same staff cannot simultaneously triage high-acuity inpatient admissions and process outpatient evaluations during the facility's morning surge. This is a demand bottleneck, not a capacity or staffing shortfall.
 
-## Admission TAT Distribution (n = 1,994)
+**Shift-change hours (14:00, 22:00) are not the driver.** Shift-change does not appear in the slow-admission slot list. Do not treat shift-change as the source of admission TAT delays — the investigation found no supporting evidence.
 
-| Bucket | Count | Share |
-|--------|-------|-------|
-| 0–30 min | 734 | 37% |
-| 31–60 min | 211 | 11% |
-| 1–2 h | 269 | 13% |
-| 2–4 h | 381 | 19% |
-| 4–8 h | 344 | 17% |
-| 8–24 h | 55 | 3% |
-
-**Pattern:** Bimodal. 48% fast-track (under 60 min). 36% slow pathway (2–8h). The slow pathway is not random — it concentrates at specific day/hour combinations.
+Outpatient lab TAT is clean — all lab delay issues are inpatient-specific.
 
 ---
 
-## Slow Admission Slots (worst by case count × avg TAT)
+## Finding 2 — Renal and GXM Delays Are Workflow-Specific, Not System-Wide
 
-| Slot | Cases | Avg TAT |
-|------|-------|---------|
-| Mon 10:00 | 22 | 304 min |
-| Thu 09:00 | 17 | 295 min |
+Lab TAT is healthy across most hours and test categories. The exceptions are test-type-specific:
 
-**Root cause confirmed:** Morning peak-load. Shift-change hours (14:00, 22:00) do NOT dominate the slow list. Triage and admission staff face the highest simultaneous demand in the 9–11am window on Mon and Thu.
+**Renal panel batching:** Renal results show extreme delays at early-morning and evening hours — consistent with samples being held for batch processing rather than processed on receipt. This is an inpatient-only issue; outpatient renal TAT is clean.
 
----
+**GXM / Blood Bank:** Group and cross-match samples show extreme delays at early-morning hours — a structural process failure, not a workload peak. If GXM is required for urgent transfusion, extended processing delays are a patient safety risk.
 
-## Lab TAT by Hour (all tests, inpatient)
-
-- **Healthy range:** Median 5–18 min across most hours.
-- **Outlier hours (avg TAT):**
-  - H12: avg 50.5 min, max 1,759 min
-  - H18: avg 96.5 min, max 2,611 min
-  - H20: avg 171.2 min, max 1,277 min
-
-These outliers are driven by specific test categories (see below), not system-wide slowdowns.
-
----
-
-## Lab TAT by Test Category (inpatient)
-
-### Renal Panel
-| Hour | Avg TAT |
-|------|---------|
-| H7 | 216 min |
-| H18 | 1,383 min |
-
-**Pattern:** Renal results are being batched — not processed on receipt. H7 = early morning batch held from overnight. H18 = evening batch. This is an inpatient-only issue (outpatient renal TAT is clean).
-
-### GXM / Blood Bank (Group & Cross-Match)
-| Hour | Avg TAT |
-|------|---------|
-| H7 | 3,716 min (62 hours) |
-
-**This is a critical outlier.** A 62-hour average for blood bank matching at H7 indicates a structural process failure — either samples are held overnight without processing, or a system/logging delay exists. This is not a workload peak; it is a blood bank workflow issue.
+These are not system-wide slowdowns. They affect specific test categories at specific hours and require targeted workflow interventions, not facility-wide lab investment.
 
 ---
 
 ## Recommended Actions
 
-**For slow admissions (Mon 10am, Thu 9am):**
-- Add one dedicated triage support resource to Mon 10:00–11:00 and Thu 09:00–10:00 slots.
-- Target: bring slow-pathway cases (currently 304 min avg on Mon 10am) below 120 min avg.
+**For elevated admission TAT:**
+- Identify whether the slow pathway concentrates in morning slots (9–11am Monday and Thursday) — if yes, the intervention is a dedicated admission coordinator for those slots, not additional evaluating doctors. The goal is to decouple triage from outpatient evaluation throughput.
 
-**For Renal batch TAT (H7: 216 min, H18: 1,383 min):**
-- Investigate whether Renal panels are held for batch processing or processed individually.
-- If batching: set a maximum batch-hold window of 60 min regardless of sample count.
-- H18 is the priority — 1,383 min avg is a 23-hour delay on evening draws.
+**For Renal panel delays:**
+- Investigate whether Renal panels are being held for batch processing or processed individually on receipt.
+- If batching: set a maximum batch-hold window regardless of sample count.
+- Evening draws are the higher-risk batch window — escalate if turnaround on evening Renal panels is elevated.
 
-**For GXM/Blood Bank (H7: 3,716 min):**
-- Escalate to lab director: 62-hour average is a patient safety risk if GXM is required for urgent transfusions.
-- Determine if the delay is in processing, in result logging, or in sample transport overnight.
-- A policy fix (no overnight sample holds for GXM) is likely the intervention.
-
-**For broad lab monitoring:**
-- H12, H18, and H20 are the three highest-risk lab hours for delayed results. These slots should be staffed for lab review.
+**For GXM / Blood Bank delays:**
+- Escalate to lab director when GXM turnaround is elevated — extended delays for blood bank matching are a patient safety risk for urgent transfusions.
+- Determine whether the delay is in processing, result logging, or overnight sample transport. A policy fix (no overnight sample holds for GXM) is the likely intervention.

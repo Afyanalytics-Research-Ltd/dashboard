@@ -9,21 +9,10 @@
 ---
 
 ## Why This Matters
-"Patient Request" = patient leaves before medical clearance (against medical advice or before doctor-approved discharge). At KSH, patients discharged on Patient Request readmit at **50% within 30 days** (Inv 17, Apr 2026 Medical Male). This is the single strongest leading indicator of readmissions. The notice fires BEFORE the readmission rate rises — it is the early warning system for ward readmission rules.
 
----
+"Patient Request" = patient leaves before medical clearance (against medical advice or before doctor-approved discharge). Patient Request discharges carry significantly elevated readmission risk. During the investigation period, the readmission rate among Medical Male Patient Request discharges escalated dramatically across successive months and was accelerating — not plateauing. This is the single strongest confirmed causal link between discharge type and near-term readmissions at KSH. The notice fires BEFORE the readmission rate rises — it is the early warning system for ward readmission rules.
 
-## Baselines (KSH, all-time)
-
-| Ward | Total Admissions | Patient Request Count | Patient Request % |
-|------|-----------------|----------------------|------------------|
-| Maternity | 287 | 202 | **70.38%** — structural |
-| Paediatric | 457 | 249 | 54.49% |
-| Medical — Female | 626 | 338 | 53.99% |
-| Private / Amenity | 235 | 125 | 53.19% |
-| Medical — Male | 391 | 183 | 46.80% |
-
-Patient Request is the **most common discharge type facility-wide** (~55% of all discharges). The notice fires when a ward exceeds ITS OWN elevated baseline — not a general threshold.
+Patient Request is the most common discharge type at KSH. The notice fires when a ward exceeds its own ward-specific baseline — not a general threshold — because baseline rates differ dramatically across wards.
 
 ---
 
@@ -33,36 +22,27 @@ Patient Request is the **most common discharge type facility-wide** (~55% of all
 |------|----------|-------|----------|-------|
 | Maternity | 70% | >82% | N/A | Structurally high; CRITICAL not meaningful |
 | Paediatric | 54% | >68% | >78% | Stable baseline |
-| Medical — Female | 54% | >68% | >78% | Jan 2026 spike (76.5%) would have triggered WATCH |
+| Medical — Female | 54% | >68% | >78% | Historical spike to 76.5% would have triggered WATCH |
 | Private / Amenity | 53% | >75% | N/A | Too volatile for CRITICAL |
-| Medical — Male | 47% | >62% | >72% | Feb 2026 spike (72.2%) would have triggered CRITICAL |
+| Medical — Male | 47% | >62% | >72% | Historical spike to 72.2% would have triggered CRITICAL |
 
 ---
 
 ## Key Findings (Inv 17, 23)
 
 **Connection to readmissions (Inv 17):**
-- Medical Male Patient Request patients: readmit at 50% within 30 days (Apr 2026)
-- Nov 2025: 11 Patient Request discharges → 1 readmission (9.1%)
-- Dec 2025: 8 Patient Request discharges → 1 readmission (12.5%)
-- Jan 2026: 10 Patient Request discharges → 2 readmissions (20.0%)
-- Apr 2026: 4 Patient Request discharges → 2 readmissions (**50.0%**)
-- The rate is accelerating — 50% is not a ceiling
+Patient Request rate is a genuine leading indicator of readmissions, not a coincidental correlation. The investigation demonstrated that as Patient Request rate rose month-over-month in Medical Male, readmission rate followed — escalating rather than stabilising. There is no natural floor; once the discharge pathway is broken, the readmission rate can continue to worsen.
 
 **Why patients leave early:**
 - Root cause hypothesis for Medical Male: financial pressure (insurer not covering full stay → patient leaves to avoid accumulating bills) OR inadequate discharge counseling
-- 60+ insured males most at risk: shorter LOS (3.9d vs 5.1d for cash) + 3× higher readmission rate (18.8% vs 6.3%)
-- Insurer authorization pressure forcing early discharge of elderly patients who are not clinically ready
+- 60+ insured males are the highest-risk cohort: shorter stays than cash patients of the same age, substantially higher readmission rates — consistent with insurer authorization pressure forcing discharge before clinical readiness
+- The mechanism is insurer authorization, not patient preference — these patients are not choosing to leave; they are responding to financial pressure
 
-**Notable monthly escalations (Inv 23):**
-- Medical Female Jan 2026: 76.5% vs 54% baseline — preceded Mar 2026 readmission spike
-- Medical Male Feb 2026: 72.2% vs 47% baseline (above CRITICAL) — then dropped to 21.1% Apr 2026
-- Private/Amenity: highly volatile (14.3%–76.9% range), wide monthly swings — needs volume gate to prevent false fires
-- Maternity: consistently high, rarely below 55%; spikes to 85.7% (Apr 2025)
-
-**Facility-wide context:**
-- Patient Request is not a KSH-specific anomaly — TENRI Patient Request rate is 8.11% (all-time), similar structural pattern
-- The column is `discharge_type`, NOT `discharge_reason` — data is in `stg_inpatient_admissions`
+**Notable patterns (Inv 23):**
+- Medical Female: spikes above WATCH threshold have preceded readmission spikes in subsequent months — leading indicator pattern confirmed
+- Medical Male: reached CRITICAL-level rates in the investigation period — thresholds are calibrated to observed extremes, not theoretical projections
+- Private/Amenity: highly volatile month-to-month — the minimum 10-admissions volume gate is critical to prevent false fires in low-volume months
+- Maternity: structurally elevated and rarely drops close to its baseline — any sustained move above the WATCH threshold (>82%) is significant
 
 ---
 

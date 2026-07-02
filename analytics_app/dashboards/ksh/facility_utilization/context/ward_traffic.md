@@ -9,19 +9,10 @@
 ---
 
 ## Why This Matters
-Sustained high admission volume signals capacity pressure before it becomes a staffing or bed crisis. True occupancy rate is not computable (no available beds denominator in data) — admission count is the best available proxy. Private/Amenity surged 3–4× its baseline for 2 consecutive months (Jan–Feb 2026) with zero automated detection.
 
----
+Sustained high admission volume signals demand pressure before it becomes a staffing or clinical strain. At KSH, occupancy across all wards is well below physical capacity (confirmed via CD8 — beds are not the bottleneck). A volume surge signals increased demand, not a physical capacity constraint. Admission count is the primary demand signal available in the data — it moves before staffing or clinical quality metrics do.
 
-## Baselines (KSH all-time)
-
-| Ward | Avg Monthly Admissions | Peak | Avg Bed Days | Avg LOS |
-|------|----------------------|------|-------------|---------|
-| Medical — Female | 31.3 | 45 (Apr 2025) | 113 | 3.8d |
-| Paediatric | 22.9 | 37 (May 2025) | 60 | 2.7d |
-| Medical — Male | 19.6 | 27 | 70.5 | 3.8d |
-| Maternity | 8.4 | 29 (May 2025) | 29.5 | 3.5d |
-| Private / Amenity | 6.0 | 26 (Jan 2026) | 22.8 | 3.7d |
+A ward can surge 3–4× above its baseline for consecutive months without triggering any alert under manual monitoring. This notice was built to catch that pattern automatically.
 
 ---
 
@@ -39,30 +30,22 @@ Sustained high admission volume signals capacity pressure before it becomes a st
 
 ## Key Findings (Inv 21)
 
-**Private/Amenity Jan–Feb 2026 surge (the missed signal):**
-- Jan 2026: 26 admissions (4.3× baseline avg of 6) — revenue KES 306K vs avg KES 138K/month
-- Feb 2026: 22 admissions (3.7× baseline) — revenue KES 252K
-- Two consecutive months of extreme pressure — would have triggered both WATCH and CRITICAL
-- Went completely undetected under previous monitoring
-- Likely cause: overflow from other wards or a specific clinical event driving demand
+**Private/Amenity surge — the rule's origin:**
+A sustained surge at 3–4× baseline for two consecutive months went completely undetected under previous monitoring. This is the primary evidence that automated volume monitoring is necessary. Current Private/Amenity position comes from the snapshot.
 
-**Paediatric Q1 2026 rising trend:**
-- Mar 2026: 32 admissions — second highest on record
-- Jan (20) → Feb (22) → Mar (32) → Apr (21) — volatility but upward pressure
-- Not yet sustained above threshold but trending toward WATCH boundary
+**Paediatric:**
+Admission count is volatile month to month. The WATCH threshold is reachable — the investigation period showed the trend approaching the boundary. Current position from the snapshot.
 
-**Medical Female declining:**
-- Volume peaked Apr 2025 (45 admissions) and has been falling
-- Apr 2026 at 22 — below average; no current pressure signal
+**Medical Female:**
+Volume is volatile across seasons. Current position from the snapshot — do not treat any prior period as the current state.
 
-**Data quality flags:**
-- Maternity Nov 2025: 12 admissions, 164 bed days (avg LOS 9.8d) — 1–2 very long-stay patients distorting monthly average; not a data error
-- Medical Female Oct 2025: 17 admissions, 144 bed days (avg LOS 9.6d) — same outlier pattern
+**Demand vs capacity:**
+Ward traffic surges are demand signals, not capacity failures. When a ward fires WATCH or CRITICAL, the response is clinical coordination and staffing review — not bed activation or overflow planning (CD8 confirmed beds are not the constraint at KSH).
 
 ---
 
 ## Recommended Actions
-- When WATCH fires on a ward: check staffing roster for the firing month — ward surges without staffing adjustment create burnout risk
-- For Private/Amenity surge: investigate source of the demand spike — referrals, seasonal pattern, or overflow from a busier ward
-- For any ward sustaining above WATCH: escalate to ward lead for bed management review; assess whether auxiliary space (overflow beds, step-down beds) can be activated
-- Cross-reference with doctor workload data — a ward traffic spike should correlate with higher evaluation visit volumes for the same period
+- When WATCH fires on a ward: check staffing roster for the firing month — a demand surge without staffing adjustment creates clinical workload pressure
+- For Private/Amenity surge: investigate the source of the demand spike — referral pattern change, seasonal effect, or a specific clinical driver. Do not assume overflow from another ward without confirming it in the data.
+- For any ward sustaining above WATCH: escalate to ward lead for clinical coordination review; check whether evaluation visit volume also increased in the same period (snapshot — doctor workload data)
+- Cross-reference with readmission data: a sustained volume surge that precedes a readmission spike may indicate the ward was absorbing more acuity than staffing could support

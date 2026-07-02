@@ -1,5 +1,5 @@
 # Notice Type: Ward Readmissions
-**keywords:** readmission, readmit, return, ward readmission
+**keywords:** readmission, readmit, return, ward readmission, readmission rate, coming back, patients coming back, coming back after discharge, discharged and returning, patients returning, returning after discharge, re-admitted, readmitted, patients leaving and returning, discharge quality, patients who came back
 **last_updated:** 2026-06-04
 **decay_days:** 30
 **Covers:** Rules 1 (Medical Male), 5 (Medical Female), 6 (Maternity), 7 (Private/Amenity), 8 (Paediatric)
@@ -9,19 +9,7 @@
 ---
 
 ## Why This Matters
-30-day readmissions signal premature discharge or failed discharge planning. At KSH, Patient Request discharges (patients leaving before medical clearance) readmit at 50% within 30 days (Inv 17). Rising readmission rates are a direct revenue loss AND a clinical safety issue — the same patient consuming two admissions for one recoverable episode.
-
----
-
-## Baselines (KSH, all-time)
-
-| Ward | Admissions | Baseline Rate | Avg LOS |
-|------|-----------|--------------|---------|
-| Medical — Male | 391 | 7.93% | 3.8d |
-| Medical — Female | 626 | 4.31% | 3.7d |
-| Maternity | 287 | 4.18% | 3.6d |
-| Private / Amenity | 235 | 3.40% | 3.8d |
-| Paediatric | 457 | 2.84% | 2.7d |
+30-day readmissions signal premature discharge or failed discharge planning. At KSH, Medical Male Patient Request discharges demonstrated the highest readmission rate of any ward-discharge type combination observed during the investigation period (Inv 17). Rising readmission rates are a direct revenue loss AND a clinical safety issue — the same patient consuming two admissions for one recoverable episode.
 
 ---
 
@@ -40,28 +28,23 @@
 ## Key Findings
 
 **Medical Male structural escalation (Inv 3, 17, 17d):**
-- Trend: Sep 2024 5.3% → Jan 2026 16.7% → Apr 2026 **26.3%**
-- Primary driver: Patient Request discharges — 50% readmit rate (Apr 2026)
-- Cohort most at risk: **60+ insured males** — 18.8% readmission rate vs 6.3% for cash patients same age, shorter LOS (3.9d vs 5.1d)
+- Primary driver: Patient Request discharges — demonstrated the highest readmit rate of any ward-discharge type combination in the investigation period
+- Cohort most at risk: **60+ insured males** — substantially higher readmission rate and shorter LOS than cash patients of the same age, consistent with insurer authorization pressure forcing discharge before clinical readiness
 - Root cause hypothesis: insurers authorising early discharge for elderly patients who are not clinically ready
-- Feb 2026 dip (0%) is outlier — 18 admissions, 0 readmissions; not evidence of resolution
-- No cycling patients — 8 unique patients readmit twice max; this is systemic, not a few repeat cases
+- Single-month dips to near-zero are outliers, not evidence of resolution — look for sustained improvement across 2+ months
 
 **Medical Female (Inv 20):**
-- Mar 2026 spike: 11.11% — single month, not yet structural
-- Jan 2026 Patient Request rate spike (76.5%) preceded Mar 2026 readmission spike — leading indicator
+- Patient Request rate spikes above WATCH threshold have preceded readmission spikes in the following month — leading indicator pattern confirmed (Inv 20)
+- Readmission spikes in Medical Female were not sustained during the investigation period — monitor for consecutive months above threshold
 
 **Maternity (Inv 20, 23):**
-- Nov 2025 spike: 16.67% (12 admissions) — isolated, not sustained
 - 70% of Maternity discharges are Patient Request — baseline structural pattern, not an anomaly
+- Single-month spikes occur; look for consecutive months above threshold before escalating
 - When Maternity readmissions fire, look at Patient Request rate first
 
-**Private/Amenity (Inv 20):**
-- Apr 2026: 14.29% but only 7 admissions — gate prevents false firing
-- High rate volatility is expected at low volume
-
-**Paediatric (Inv 20):**
-- Mar 2026: 9.38% — above WATCH but isolated single month
+**Private/Amenity and Paediatric:**
+- Both wards show sporadic single-month spikes above WATCH — gate (min 10 admissions) prevents false firing at low volumes
+- High rate volatility at low volume is expected — consecutive-month rule is critical for these wards
 
 ---
 
@@ -71,7 +54,7 @@
 - Immediate: review all Patient Request discharges in the firing month — flag for social work follow-up
 - Targeted intervention: 60+ insured male patients — extend discharge planning, challenge early insurer authorisations
 - Protocol: discharge counseling mandatory before any Medical Male Patient Request discharge
-- Financial: KES 30,000 revenue at risk per month at Apr 2026 levels (direct cost of repeat admissions)
+- Financial: each readmission is direct revenue loss (duplicate admission cost for one unresolved episode)
 
 **If any ward fires:**
 - Pull discharge type breakdown for the firing month — Patient Request vs Stable vs Referral

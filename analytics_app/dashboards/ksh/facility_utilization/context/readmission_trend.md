@@ -1,5 +1,5 @@
 # Notice Type: Facility-Wide Readmission Trend
-**keywords:** trend, readmission trend, facility readmission, cross-ward
+**keywords:** trend, readmission trend, facility readmission, cross-ward, readmission rate, coming back, returning patients, is this everywhere, all wards, facility wide, happening everywhere, ward problem, is it getting worse, readmission getting worse, readmissions rising
 **last_updated:** 2026-06-04
 **decay_days:** 30
 **Covers:** Rule 2
@@ -9,16 +9,7 @@
 ---
 
 ## Why This Matters
-Facility-wide rising trend fires before any single ward hits its WATCH threshold. It catches cross-ward spreading patterns (as happened Mar–Apr 2026 when Medical Male pressure spread to Medical Female, Paediatric, and Private/Amenity simultaneously).
-
----
-
-## Baselines
-
-| Facility | All-time Rate | Data range |
-|----------|--------------|------------|
-| KSH | 4.46% | Sep 2024–Apr 2026 |
-| TENRI | 6.97% | 2020–2022 |
+Facility-wide rising trend fires before any single ward hits its WATCH threshold. It catches cross-ward spreading patterns — where one ward's pressure propagates to Medical Female, Paediatric, and Private/Amenity simultaneously — signalling a systemic discharge quality issue rather than a ward-specific problem.
 
 ---
 
@@ -30,15 +21,14 @@ Facility-wide rising trend fires before any single ward hits its WATCH threshold
 ## Key Findings (Inv 3, 17)
 
 **KSH trajectory:**
-- Sep 2024–Oct 2025: stable, fluctuating around 4–5%
-- Jan 2026: 16.7% Medical Male triggered initial concern
-- Mar–Apr 2026: spreading — Medical Female 11.1%, Paediatric 9.4%, Private/Amenity 11.8% simultaneously
-- Cross-ward spread is the signature of a systemic discharge quality issue, not ward-specific acuity
+- When the trajectory spreads beyond Medical Male — multiple wards simultaneously above their baselines — that is the signature of a systemic discharge quality issue, not ward-specific acuity
+- Cross-ward simultaneous elevation = escalate to clinical governance, not just ward leads
+- Current facility-wide rate is in the snapshot
 
 **TENRI:**
-- All-time 6.97% — consistently higher than KSH
-- TENRI Referral 10.53%, Patient Request 8.11%, Stable 6.55% — all 1.5–2× KSH equivalent rates
+- TENRI readmission rates run consistently above KSH equivalents across all discharge types — the gap is structural, not situational
 - Systemic post-discharge gap confirmed — TENRI patients leave without adequate follow-up planning
+- Current rates from the snapshot
 
 ---
 

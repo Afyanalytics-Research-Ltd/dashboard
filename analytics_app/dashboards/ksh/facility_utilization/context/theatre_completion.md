@@ -1,5 +1,5 @@
 # Notice Type: Theatre Completion Rate
-**keywords:** theatre, completion, session, surgery, operating, theatre rate
+**keywords:** theatre, completion, session, surgery, operating, theatre rate, surgical, surgeries, operations, operation, procedure, procedures, operating room, theatre utilisation, theatre performance, elective, how many surgeries, how many operations, completed sessions
 **last_updated:** 2026-06-10
 **decay_days:** 60
 **Covers:** Rule 3

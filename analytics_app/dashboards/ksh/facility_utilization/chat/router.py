@@ -117,7 +117,7 @@ def _get_ctx_kw_index() -> list:
                         for k in line.replace("**keywords:**", "").split(",")
                         if k.strip()
                     ]
-                    index.append((kwds, f.stem))
+                    index.append((kwds, str(f.relative_to(ctx_dir))))
                     break
         _ctx_kw_index = index
         _ctx_kw_mtime = latest
@@ -141,11 +141,16 @@ def _score(text: str, keywords: list) -> int:
 _SQL_SIGNALS = re.compile(
     r"\b("
     r"last\s+year|last\s+month|last\s+quarter"
+    r"|last\s+\d+\s+months?|last\s+\d+\s+years?"
+    r"|over\s+the\s+last|over\s+the\s+past|in\s+the\s+last|in\s+the\s+past"
+    r"|past\s+\d+\s+months?|past\s+\d+\s+years?"
     r"|january|february|march|april|may|june|july|august|september|october|november|december"
     r"|q[1-4]\b|quarter"
     r"|in\s+\d{4}|since\s+\d{4}|\d{4}\s*[-–]\s*\d{4}"
-    r"|trend|over\s+time|over\s+the\s+past|history|historical"
-    r"|compare|versus|\bvs\b|breakdown|which\s+ward|by\s+ward|per\s+ward"
+    r"|trend|over\s+time|history|historical"
+    r"|compare|versus|\bvs\b|breakdown"
+    r"|each\s+ward|which\s+ward|by\s+ward|per\s+ward|ward.level|ward\s+by\s+ward"
+    r"|each\s+doctor|by\s+doctor|per\s+doctor"
     r"|how\s+many\s+total|total\s+across|across\s+all|sum\s+of"
     r"|highest|lowest|most|least|ranking|rank"
     r")\b",

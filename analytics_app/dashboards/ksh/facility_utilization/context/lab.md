@@ -1,5 +1,5 @@
 # Notice Type: Lab / Diagnostics
-**keywords:** lab, abnormal, diagnostic, test, results, laboratory, radiology, imaging
+**keywords:** lab, abnormal, diagnostic, test, results, laboratory, radiology, imaging, blood test, bloodwork, pathology, specimen, specimens, sample, test volume, tests ordered, investigations ordered, lab volume, lab count, how many tests
 **last_updated:** 2026-06-10
 **decay_days:** 90
 **Covers:** Rule 27 (lab volume drop), Rule 28 (abnormal rate spike)

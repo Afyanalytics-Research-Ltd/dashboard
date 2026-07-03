@@ -10,8 +10,11 @@ from django.utils.safestring import mark_safe
 from django.views.decorators.http import require_POST
 
 from . import prompt_builder, router, sql_executor
+from .chat_logger import log_event
 
-GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+GROQ_URL      = "https://api.groq.com/openai/v1/chat/completions"
+ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
+_CLAUDE_MODEL = "claude-haiku-4-5-20251001"
 
 # facility_utilization/ — two levels up from chat/views.py
 _PRIVATE = Path(__file__).resolve().parent.parent
@@ -72,9 +75,10 @@ def chat_api(request):
         if not message:
             return JsonResponse({"error": "Empty message"}, status=400)
 
-        groq_key = os.getenv("GROQ_API", "")
-        if not groq_key:
-            return JsonResponse({"reply": "GROQ_API key not configured in .env"})
+        groq_key      = os.getenv("GROQ_API", "")
+        anthropic_key = os.getenv("ANTHROPIC_API", "")
+        if not groq_key and not anthropic_key:
+            return JsonResponse({"reply": "No LLM API key configured — set GROQ_API or ANTHROPIC_API in .env"})
 
         notices_data = _load_notices()
         notices  = notices_data.get("notices", [])
@@ -83,19 +87,66 @@ def chat_api(request):
 
         history      = request.session.get("chat_history", [])
         route_result = router.route(message)
-        sql_result   = sql_executor.execute(message, route_result) if route_result.get("use_sql") else None
-        msgs         = prompt_builder.build_messages(message, route_result, notices, facility, date, history, sql_result)
+        if not route_result.get("context_keys"):
+            log_event("context_gap", {
+                "question":     message,
+                "use_snapshot": route_result.get("use_snapshot"),
+                "use_sql":      route_result.get("use_sql"),
+            })
+        sql_result = sql_executor.execute(message, route_result) if route_result.get("use_sql") else None
+        msgs       = prompt_builder.build_messages(message, route_result, notices, facility, date, history, sql_result)
+
+        # Pre-seed: push LLM toward standard template when SQL has data.
+        has_sql_data = bool(sql_result and sql_result.get("confidence") == "validated")
+        if has_sql_data:
+            msgs.append({"role": "assistant", "content": "Status: "})
 
         with httpx.Client() as client:
-            resp = client.post(
-                GROQ_URL,
-                headers={"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"},
-                json={"model": "llama-3.3-70b-versatile", "messages": msgs,
-                      "max_tokens": 512, "temperature": 0.1},
-                timeout=30,
-            )
-            resp.raise_for_status()
-            reply = resp.json()["choices"][0]["message"]["content"]
+            if anthropic_key:
+                # Anthropic requires system messages in a single "system" field.
+                # Returns continuation only (not the prefill) — prepend below if missing.
+                system_parts = [m["content"] for m in msgs if m["role"] == "system"]
+                conv_msgs    = [m for m in msgs if m["role"] != "system"]
+                resp = client.post(
+                    ANTHROPIC_URL,
+                    headers={
+                        "x-api-key":         anthropic_key,
+                        "anthropic-version": "2023-06-01",
+                        "content-type":      "application/json",
+                    },
+                    json={
+                        "model":       _CLAUDE_MODEL,
+                        "max_tokens":  512,
+                        "temperature": 0.1,
+                        "system":      "\n\n---\n\n".join(system_parts),
+                        "messages":    conv_msgs,
+                    },
+                    timeout=30,
+                )
+                resp.raise_for_status()
+                reply = resp.json()["content"][0]["text"]
+                if has_sql_data and not reply.startswith("Status:"):
+                    reply = "Status: " + reply
+            else:
+                resp = client.post(
+                    GROQ_URL,
+                    headers={"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"},
+                    json={"model": "llama-3.3-70b-versatile", "messages": msgs,
+                          "max_tokens": 512, "temperature": 0.1},
+                    timeout=30,
+                )
+                resp.raise_for_status()
+                reply = resp.json()["choices"][0]["message"]["content"]
+                # Groq post-processing: strip rule echoes, prepend Status if missing
+                if has_sql_data and not reply.startswith("Status:"):
+                    match = re.search(
+                        r'(?:^|\n)(Key finding|Evidence)\s*\n',
+                        reply,
+                        flags=re.IGNORECASE,
+                    )
+                    if match:
+                        reply = reply[match.start():].lstrip('\n')
+                    reply = "Status: Attention Required\n\n" + reply
 
         # Strip FOLLOW-UPS block before storing — chips are a UI feature, not history
         clean_reply = re.sub(r'\s*FOLLOW-UPS:[\s\S]*$', '', reply, flags=re.IGNORECASE).strip()
@@ -114,7 +165,7 @@ def chat_api(request):
             detail = e.response.json().get("error", {}).get("message", e.response.text[:200])
         except Exception:
             detail = e.response.text[:200]
-        return JsonResponse({"reply": f"Groq error {e.response.status_code}: {detail}"})
+        return JsonResponse({"reply": f"API error {e.response.status_code}: {detail}"})
     except Exception as e:
         return JsonResponse({"reply": f"Something went wrong: {str(e)}"})
 

@@ -16,6 +16,9 @@ Message order:
 import threading
 from pathlib import Path
 
+from .chat_logger import log_event
+from .sql_executor import SQLState
+
 _CHAT = Path(__file__).resolve().parent        # chat/
 _PRIVATE = _CHAT.parent                        # facility_utilization/
 
@@ -53,7 +56,7 @@ def _get_context_content() -> dict:
             return _content_cache
         content = {}
         for f in ctx_dir.rglob("*.md"):
-            content[f.stem] = f.read_text(encoding="utf-8")
+            content[str(f.relative_to(ctx_dir))] = f.read_text(encoding="utf-8")
         _content_cache = content
         _content_mtime = latest
     return _content_cache
@@ -77,6 +80,14 @@ def _fmt(value, unit: str) -> str:
         return "N/A"
     suffix = _UNIT_SUFFIX.get(unit, f" {unit}")
     return f"{round(value, 2)}{suffix}"
+
+
+def _fmt_sql_val(v) -> str:
+    try:
+        f = float(v)
+        return f"{f:.2f}"
+    except (TypeError, ValueError):
+        return str(v) if v is not None else ""
 
 
 # ---------------------------------------------------------------------------
@@ -117,10 +128,10 @@ def _format_snapshot_block(matches: list) -> str:
         return ""
 
     lines = [
-        "LIVE METRIC DATA — cite these values only; "
-        "do not calculate, extrapolate, or invent figures.\n"
-        "Alert status below is indicative; active alerts listed in the "
-        "system prompt are authoritative.\n"
+        "LIVE METRIC DATA\n"
+        "Source: metrics_snapshot.json\n"
+        "Cite these values only — do not calculate, extrapolate, or invent figures.\n"
+        "Alert status below is indicative; active alerts in the system prompt are authoritative.\n"
     ]
 
     for m in matches:
@@ -159,9 +170,13 @@ def _format_snapshot_block(matches: list) -> str:
             thresh_parts.append(f"CRITICAL {direction} {_fmt(crit_v, unit)}")
         thresh_str = " | ".join(thresh_parts)
 
-        # History (newest first, up to 6 months)
+        # History — length controlled by per-metric history_prompt_months in registry
+        prompt_months = reg.get(
+            "history_prompt_months",
+            min(reg.get("history_months", 6), 6),
+        )
         hist_parts = []
-        for h in history[:6]:
+        for h in history[:prompt_months]:
             month = h.get("month", "")[:7]
             val   = h.get("value")
             if val is not None:
@@ -200,67 +215,91 @@ def _format_snapshot_block(matches: list) -> str:
 def _format_sql_result_block(sql_result: dict) -> str:
     """
     Format a SQLResult dict into a structured block for the LLM.
-    Only called when confidence is "validated" or "partial".
-    Returns empty string for not_required, failed, or None.
+    Handles all five SQLState values explicitly.
     """
     if not sql_result:
         return ""
-    confidence = sql_result.get("confidence", "failed")
-    if confidence not in ("validated", "partial"):
+    confidence = sql_result.get("confidence")
+
+    if confidence in (SQLState.NOT_REQUIRED, SQLState.FAILED, None):
         return ""
 
     rows    = sql_result.get("returned_rows", 0)
     columns = sql_result.get("columns", [])
     data    = sql_result.get("data", [])
 
-    if confidence == "partial" or rows == 0:
+    header_line = (
+        f"QUERY RESULT — {rows} ROWS OF REAL DATA\n"
+        f"Source: Snowflake | Validation: {confidence}\n"
+        f"This data directly answers the question.\n"
+        f"REQUIRED: Use the Standard response template (Status: OK / WATCH / CRITICAL / "
+        f"Attention Required). Do NOT use No Evidence Found — data is present.\n"
+    )
+
+    if confidence == SQLState.EMPTY:
         return (
-            "QUERY RESULT — direct database query returned no rows.\n"
-            "This means no data matched the filters for this question. "
-            "Do not invent values — state that the database query found no matching records."
+            header_line
+            + "Database query executed successfully but returned no matching rows for this question.\n"
+            "Do not invent values — state that no data matched the filters."
         )
 
-    # Render as a compact table (up to 20 rows for prompt budget)
-    header = " | ".join(columns)
-    sep    = " | ".join("-" * max(len(c), 4) for c in columns)
-    row_lines = []
-    for row in data[:20]:
-        row_lines.append(" | ".join(str(row.get(c, "")) for c in columns))
-    table = "\n".join([header, sep] + row_lines)
+    # Render table (up to 20 rows)
+    tbl_header = " | ".join(columns)
+    tbl_sep    = " | ".join("-" * max(len(c), 4) for c in columns)
+    row_lines  = [" | ".join(_fmt_sql_val(row.get(c)) for c in columns) for row in data[:20]]
+    table      = "\n".join([tbl_header, tbl_sep] + row_lines)
     if rows > 20:
         table += f"\n... ({rows - 20} more rows not shown)"
 
+    caveat = (
+        "\nNote: result may be incomplete — LIMIT enforced or payload truncated.\n"
+        if confidence == SQLState.PARTIAL else ""
+    )
+
     return (
-        f"QUERY RESULT — cite these database values directly; do not calculate or extrapolate.\n"
-        f"Returned {rows} row(s).\n\n"
-        f"{table}"
+        header_line
+        + "Cite these database values directly — do not calculate or extrapolate.\n"
+        + caveat + "\n"
+        + table
     )
 
 
 # ---------------------------------------------------------------------------
 # Context block
 # ---------------------------------------------------------------------------
-def _format_context_block(context_keys: list) -> str:
+def _format_context_block(context_keys: list) -> tuple:
     """
-    Load context file content for the given stems, concatenated up to
-    _CONTEXT_CHAR_BUDGET chars. First match is always included even if large.
-    Falls back to all context files when context_keys is empty.
-    """
-    content_map = _get_context_content()
-    keys = context_keys if context_keys else list(content_map.keys())
+    Load context file content for the given keys, budget-aware.
+    Returns (block_text, keys_included).
 
-    parts     = []
-    char_used = 0
-    for key in keys:
+    No fallback — empty context_keys returns ("", []).
+    Oversized files are skipped (continue) not truncating (break),
+    so smaller high-value files after a large one still get included.
+    """
+    if not context_keys:
+        return "", []
+
+    content_map = _get_context_content()
+    parts        = []
+    keys_included = []
+    char_used    = 0
+
+    for key in context_keys:
         text = content_map.get(key)
         if not text:
             continue
-        if char_used > 0 and char_used + len(text) > _CONTEXT_CHAR_BUDGET:
-            break
+        if char_used + len(text) > _CONTEXT_CHAR_BUDGET:
+            log_event("context_skip", {
+                "file":   key,
+                "chars":  len(text),
+                "budget": _CONTEXT_CHAR_BUDGET,
+            })
+            continue
         parts.append(text)
+        keys_included.append(key)
         char_used += len(text)
 
-    return "\n\n---\n\n".join(parts)
+    return "\n\n---\n\n".join(parts), keys_included
 
 
 # ---------------------------------------------------------------------------
@@ -286,8 +325,8 @@ def _build_system_prompt(facility: str, notice_date: str, notices: list) -> str:
         f"2. Present findings as analytical outputs, not operational prescriptions. Do not"
         f" recommend hiring, redistribution, or specific management actions. State what the"
         f" data shows and who should review it.\n"
-        f"3. Use doctor usernames exactly as written in context (e.g. eawando, jogutu)."
-        f" Never swap roles.\n"
+        f"3. Use doctor usernames exactly as written in context (use the username as shown,"
+        f" never a full name or invented identifier). Never swap roles.\n"
         f"4. NEVER tell the user to 'check the dashboard' for operational questions — answer"
         f" directly from context. Exception: for causal or investigation questions, apply Rule 14.\n"
         f"5. When answering 'why' questions about operational metrics (volume, LOS, readmissions,"
@@ -330,8 +369,18 @@ def _build_system_prompt(facility: str, notice_date: str, notices: list) -> str:
         f"12. If the question cannot be answered from context or active alerts, use this structure:\n"
         f"Status: No Evidence Found\n\n"
         f"What's available\n"
-        f"• [Closest confirmed finding from the investigation on this topic]\n"
-        f"• [Second related finding if available]\n"
+        f"• [Closest confirmed finding or metric the system DOES have on this topic — be specific]\n"
+        f"• [Second related item if available]\n\n"
+        f"FOLLOW-UPS:\n"
+        f"• [disambiguation question]\n"
+        f"• [second follow-up]\n\n"
+        f"CRITICAL — FOLLOW-UPS is REQUIRED in every No Evidence Found response. Never omit it."
+        f" When a closely related metric exists, the first follow-up MUST be a yes/no"
+        f" disambiguation question the user can confirm with a single word. Concrete example:\n"
+        f"  Bad:  'What is the theatre completion rate?'  (forces the user to rephrase)\n"
+        f"  Good: 'Did you mean the theatre completion rate? It is currently at [value from"
+        f" LIVE METRIC DATA].'  (user can reply 'yes' and get the full answer immediately)\n"
+        f"  Never use a number from this instruction as the value — read it from LIVE METRIC DATA.\n"
         f"Do not say 'the investigation did not test', 'the data does not show', or"
         f" 'we never investigated'. Do not explain what is missing. State only what IS available."
         f" Do not attempt to answer from general medical knowledge. No Evidence Found applies"
@@ -356,7 +405,21 @@ def _build_system_prompt(facility: str, notice_date: str, notices: list) -> str:
         f"• This chat answers live operational questions — ward activity, staffing workload,"
         f" theatre completion, lab volume, readmission rates.\n"
         f"• For investigation findings and causal analysis, open the Causal Intelligence page"
-        f" on the dashboard."
+        f" on the dashboard.\n"
+        f"15. SCOPE BOUNDARY — financial data: This system holds operational and clinical data"
+        f" only (beds, theatres, labs, doctors, readmissions). Do not infer, estimate, or"
+        f" speculate about revenue, cost, or financial impact unless a KES figure appears"
+        f" explicitly in LIVE METRIC DATA or QUERY RESULT. If asked about revenue or cost"
+        f" without that data present, respond with:\n"
+        f"Status: No Evidence Found\n\n"
+        f"What's available\n"
+        f"• Revenue and billing data is not available in this system.\n"
+        f"• I can show operational metrics (completion rates, volumes, utilisation) but cannot"
+        f" quantify financial impact.\n"
+        f"16. QUERY RESULT priority: If a QUERY RESULT block appears with Rows > 0, that data"
+        f" IS the answer — you MUST use the standard response template (Status: OK / WATCH /"
+        f" CRITICAL / Attention Required) and build the Evidence section from the QUERY RESULT"
+        f" table. 'No Evidence Found' is prohibited when QUERY RESULT contains data rows."
     )
 
 
@@ -389,10 +452,23 @@ def build_messages(
     """
     msgs: list[dict] = []
 
-    # 1. System prompt
+    # 1. System prompt (rules + active alerts)
     msgs.append({
         "role":    "system",
         "content": _build_system_prompt(facility, notice_date, notices),
+    })
+
+    # 1b. Evidence precedence
+    msgs.append({
+        "role":    "system",
+        "content": (
+            "Evidence precedence when blocks contain the same metric:\n"
+            "1. QUERY RESULT — answers the specific question asked (request-specific live query)\n"
+            "2. LIVE METRIC DATA — current operational context (cached snapshot)\n"
+            "3. INVESTIGATION CONTEXT — mechanisms and background interpretation\n"
+            "When QUERY RESULT and LIVE METRIC DATA both contain the same metric, "
+            "prefer QUERY RESULT for the requested time period."
+        ),
     })
 
     # 2. Snapshot block (use_snapshot=True)
@@ -401,19 +477,69 @@ def build_messages(
         if snap_block:
             msgs.append({"role": "system", "content": snap_block})
 
-    # 3. Query result block (use_sql=True, validated/partial only)
+    # 3. Query result block
     if sql_result:
         sql_block = _format_sql_result_block(sql_result)
         if sql_block:
             msgs.append({"role": "system", "content": sql_block})
 
-    # 4. Context block (both paths)
-    ctx_block = _format_context_block(route_result.get("context_keys", []))
+    # 4. Context block — no fallback; empty context_keys → no block injected
+    ctx_block, keys_used = _format_context_block(route_result.get("context_keys", []))
     if ctx_block:
+        attribution = "Sources:\n" + "\n".join(f"- {k}" for k in keys_used)
         msgs.append({
             "role":    "system",
-            "content": f"INVESTIGATION CONTEXT:\n{ctx_block}",
+            "content": f"INVESTIGATION CONTEXT\n{attribution}\n\n{ctx_block}",
         })
+
+    # 4b-gate. When SQL returned rows, state the template choice explicitly right
+    #          before the template — most recency-biased position for this guard.
+    if sql_result and sql_result.get("confidence") == SQLState.VALIDATED:
+        msgs.append({
+            "role":    "system",
+            "content": (
+                f"DATA GATE: QUERY RESULT above has "
+                f"{sql_result.get('returned_rows', 0)} data rows. "
+                f"Use the Standard response template below. "
+                f"No Evidence Found is INCORRECT when QUERY RESULT contains data."
+            ),
+        })
+
+    # 4b. Response template — placed LAST before history so it is the most recent
+    #     instruction when the model starts generating. Recency bias means this
+    #     position produces more reliable format compliance than injecting early.
+    msgs.append({
+        "role":    "system",
+        "content": (
+            "RESPONSE TEMPLATE — follow this structure exactly.\n\n"
+            "Standard response — use this when QUERY RESULT has rows OR LIVE METRIC DATA"
+            " has a relevant metric:\n"
+            "Status: [WATCH / CRITICAL / OK / Attention Required]\n\n"
+            "Key finding\n"
+            "[One sentence.]\n\n"
+            "Evidence\n"
+            "• [Value or fact from LIVE METRIC DATA / QUERY RESULT — cite numbers]\n"
+            "• [Second if genuinely distinct — trailing avg, prior avg, threshold]\n\n"
+            "FOLLOW-UPS:\n"
+            "• [Most valuable next question]\n"
+            "• [Second angle]\n\n"
+            "No Evidence Found response — use ONLY when QUERY RESULT has 0 rows or is"
+            " absent AND LIVE METRIC DATA has no relevant metric. NEVER use this when"
+            " QUERY RESULT contains data rows:\n"
+            "Status: No Evidence Found\n\n"
+            "What's available\n"
+            "[What's available is the FIRST section after Status — no prose, no Key"
+            " finding, no explanation between Status and What's available.]\n"
+            "• [Closest metric from LIVE METRIC DATA — include its current value]\n"
+            "• [Second if available]\n\n"
+            "FOLLOW-UPS:\n"
+            "• [Yes/no disambiguation: 'Did you mean [metric]? It is currently at "
+            "[value from LIVE METRIC DATA].' Do not invent the value — read it from "
+            "the LIVE METRIC DATA block above.]\n"
+            "• [Second follow-up]\n\n"
+            "FOLLOW-UPS is the final section of every response without exception."
+        ),
+    })
 
     # 5. Conversation history
     msgs.extend(history[-_MAX_HISTORY_TURNS:])

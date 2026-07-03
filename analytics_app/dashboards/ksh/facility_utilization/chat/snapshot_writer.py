@@ -248,6 +248,28 @@ def _fetch_dialysis(metric: dict, entry: dict, history_months: int) -> pd.DataFr
     return _norm(run_query_df(sql))
 
 
+def _fetch_bor(metric: dict, entry: dict, history_months: int) -> pd.DataFrame:
+    """
+    BOR = 100 * SUM(total_bed_days) / (32 beds * days_in_month).
+    Hardcoded bed count 32 from Inv 54 — do NOT query INPATIENT_BEDS (inflates to 161).
+    """
+    table      = entry["table"]
+    dc         = _date_col(entry)
+    total_beds = 32  # Inv 54
+
+    sql = (
+        f"SELECT {dc} AS month, "
+        f"  100.0 * SUM(total_bed_days) / NULLIF(SUM({total_beds} * DAY(LAST_DAY({dc}))), 0) AS value "
+        f"FROM {table} "
+        f"WHERE {dc} < DATE_TRUNC('month', CURRENT_DATE) "
+        f"  AND ward_name IS NOT NULL "
+        f"  AND facility = 'KISUMU_CLEAN' "
+        f"GROUP BY {dc} "
+        f"ORDER BY {dc} DESC LIMIT {history_months}"
+    )
+    return _norm(run_query_df(sql))
+
+
 # ─── Strategy maps (populated after function definitions) ─────────────────────
 
 FETCH_STRATEGIES = {
@@ -258,6 +280,7 @@ FETCH_STRATEGIES = {
     "doctor_concentration_grouped": _fetch_doctor_concentration,
     "doctor_per_person":            _fetch_doctor_per_person,
     "dialysis_idle":                _fetch_dialysis,
+    "bed_occupancy_rate":           _fetch_bor,
 }
 
 

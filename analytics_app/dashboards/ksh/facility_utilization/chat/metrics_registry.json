@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "last_updated": "2026-07-01",
-  "total_entries": 25,
+  "total_entries": 26,
   "alerting_enabled_count": 24,
   "note": "25 registry entries. 24 have alerting enabled. 1 descriptive entry (lab_abnormal_rate) has alerting disabled — no facility-approved clinical standard exists for this threshold. Rule 28 thresholds are data-derived approximations only.",
   "schema_note": "table field references alias in schema_catalog.json. table_filter keys must match column names in that table. Rec templates use {value}, {watch}, {critical}, {ward}, {avg}, {pct_of_avg} as placeholders populated at runtime by prompt_builder.py.",
@@ -20,7 +20,7 @@
       },
       "grain": "monthly",
       "unit": "pct",
-      "keywords": ["theatre", "completion", "operating theatre", "surgical", "OR", "theatre rate", "theatre sessions"],
+      "keywords": ["theatre", "completion", "operating theatre", "surgical", "OR", "theatre rate", "theatre sessions", "surgery", "surgeries", "procedure", "procedures", "operations", "how many surgeries", "how many operations", "completed sessions"],
       "fetch_strategy": "theatre_grouped",
       "compute_strategy": "theatre",
       "history_months": 12,
@@ -636,6 +636,7 @@
       "fetch_strategy": "doctor_per_person",
       "compute_strategy": "doctor_per_person",
       "history_months": 24,
+      "history_prompt_months": 6,
       "data_start": null,
       "gate_denominator_column": null,
       "alerting": {
@@ -670,6 +671,7 @@
       "fetch_strategy": "doctor_per_person",
       "compute_strategy": "doctor_per_person",
       "history_months": 24,
+      "history_prompt_months": 6,
       "data_start": null,
       "gate_denominator_column": null,
       "alerting": {
@@ -705,7 +707,7 @@
       "table_filter": null,
       "grain": "monthly",
       "unit": "count",
-      "keywords": ["lab", "laboratory", "lab visits", "lab volume", "diagnostic visits", "lab activity"],
+      "keywords": ["lab", "laboratory", "lab visits", "lab volume", "diagnostic visits", "lab activity", "bloodwork", "blood test", "blood work", "specimens", "test volume", "tests ordered", "pathology", "lab count", "how many tests"],
       "fetch_strategy": "standard",
       "compute_strategy": "standard",
       "history_months": 12,
@@ -768,6 +770,7 @@
       "metric_id": "dialysis_idle",
       "domain": "dialysis",
       "label": "Dialysis Sessions Idle",
+      "history_prompt_months": 6,
       "table": "dialysis_ops",
       "column": "sessions_billed",
       "table_filter": null,
@@ -903,6 +906,42 @@
       "rec_template": {
         "watch": "Admission fast-track rate at {value}% — below 45% for 2 consecutive months. More than half of admissions are taking over 60 minutes. Review evaluation-to-ward handoff process. Flag to operations lead.",
         "critical": "Admission fast-track rate at {value}% — CRITICAL below 35%. The majority of patients waiting over 60 minutes for admission. Immediate review of the admission process required. Escalate to operations lead."
+      }
+    },
+
+    {
+      "metric_id": "bed_occupancy_rate",
+      "domain": "ward",
+      "label": "Bed Occupancy Rate",
+      "table": "bed_occupancy",
+      "column": null,
+      "table_filter": {
+        "facility": "KISUMU_CLEAN"
+      },
+      "grain": "monthly",
+      "unit": "pct",
+      "keywords": ["bed occupancy", "occupancy rate", "BOR", "ward occupancy", "beds occupied", "how full", "bed utilization", "occupancy", "beds full", "capacity utilization"],
+      "fetch_strategy": "bed_occupancy_rate",
+      "compute_strategy": "standard",
+      "history_months": 12,
+      "data_start": null,
+      "gate_denominator_column": null,
+      "alerting": {
+        "enabled": true,
+        "watch": 85,
+        "critical": 95,
+        "direction": "above",
+        "method": "trailing_3mo_avg",
+        "watch_consecutive": 2,
+        "critical_consecutive": 1,
+        "min_gate": null,
+        "requires_data_months": 3,
+        "rule": 31,
+        "note": "BOR = total_bed_days / (32 beds × days_in_month). Hardcoded 32 beds (Inv 54). High BOR signals capacity pressure. WATCH at 85% for 2 consecutive months; CRITICAL at 95% single month."
+      },
+      "rec_template": {
+        "watch": "Bed occupancy at {value}% (3-month average) — above the 85% WATCH threshold for 2 consecutive months. Ward capacity is under sustained pressure. Review admissions flow and discharge planning. Flag to operations lead.",
+        "critical": "Bed occupancy at {value}% (3-month average) — CRITICAL above 95%. Hospital is at or near full capacity. Immediate review of admissions, discharge bottlenecks, and overflow options required. Escalate to operations lead."
       }
     }
 

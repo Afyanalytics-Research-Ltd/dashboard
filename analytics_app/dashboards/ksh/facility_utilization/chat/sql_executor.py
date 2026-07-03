@@ -11,7 +11,7 @@ Flow:
   5. Validate with sql_validator.py — one retry on validation failure.
   6. Execute on Snowflake read-only connection.
   7. Return SQLResult dict.
-  8. Append full audit record to sql_requests.jsonl.
+  8. Append full audit record to sql_requests.jsonl via chat_logger.
 
 SQLResult schema:
   {
@@ -20,9 +20,16 @@ SQLResult schema:
     "returned_rows": int,
     "columns":       list[str],
     "data":          list[dict],
-    "confidence":    "validated" | "partial" | "failed" | "not_required",
+    "confidence":    SQLState value,
     "error":         str | None,
   }
+
+SQLState values:
+  validated    — executed successfully, rows returned
+  partial      — executed with caveats (LIMIT enforced, payload truncated)
+  empty        — executed successfully, zero rows matched
+  failed       — error at any stage (validation, LLM, execution)
+  not_required — SQL skipped; snapshot already answers the question
 """
 
 import hashlib
@@ -31,35 +38,48 @@ import logging
 import os
 import re
 import time
-from datetime import datetime, timezone
+from enum import Enum
 from pathlib import Path
 from typing import Optional
 
 import httpx
 
 from . import sql_validator
+from .chat_logger import log_event
 from .snowflake_db import run_query_df
+
+
+class SQLState(str, Enum):
+    VALIDATED    = "validated"
+    PARTIAL      = "partial"
+    EMPTY        = "empty"
+    FAILED       = "failed"
+    NOT_REQUIRED = "not_required"
 
 logger = logging.getLogger(__name__)
 
 _CHAT         = Path(__file__).resolve().parent
 _CATALOG_PATH = _CHAT / "schema_catalog.json"
 _PROMPT_PATH  = _CHAT / "sql_prompt.md"
-_LOG_PATH     = _CHAT / "sql_requests.jsonl"
 
 GROQ_URL  = "https://api.groq.com/openai/v1/chat/completions"
 _SQL_MODEL = "llama-3.3-70b-versatile"
 
-# Hard SQL-signal patterns — if any match, not_required fast-exit is suppressed
+# Hard SQL-signal patterns — if any match, not_required fast-exit is suppressed.
+# Must stay in sync with _SQL_SIGNALS in router.py.
 _HARD_SQL_SIGNALS = re.compile(
-    r"\b(trend|historical|history|over\s+time|over\s+the\s+past"
-    r"|last\s+year|last\s+quarter"
+    r"\b(trend|historical|history|over\s+time"
+    r"|over\s+the\s+past|over\s+the\s+last|in\s+the\s+last|in\s+the\s+past"
+    r"|last\s+year|last\s+quarter|last\s+month"
+    r"|last\s+\d+\s+months?|last\s+\d+\s+years?"
+    r"|past\s+\d+\s+months?|past\s+\d+\s+years?"
     r"|compare|versus|ranking|rank"
     r"|january|february|march|april|may|june"
     r"|july|august|september|october|november|december"
     r"|quarter|q1|q2|q3|q4|in\s+\d{4}|since\s+\d{4}"
     r"|how\s+many\s+total|total\s+across|across\s+all|sum\s+of"
-    r"|breakdown|by\s+ward|per\s+ward|which\s+ward"
+    r"|breakdown|each\s+ward|by\s+ward|per\s+ward|which\s+ward|ward.level|ward\s+by\s+ward"
+    r"|each\s+doctor|by\s+doctor|per\s+doctor"
     r"|highest|lowest|most|least"
     r")\b",
     re.IGNORECASE,
@@ -88,6 +108,11 @@ def _derive_schema_summary(catalog: dict) -> str:
         conditional = t.get("conditional_filters", [])
         for cf in conditional:
             lines.append(f"  Conditional [{cf.get('context', '')}]: {cf.get('filter', '')}")
+        computed = t.get("computed_metrics", {})
+        if computed:
+            lines.append("  Computed metric formulas (expand inline in SELECT — these are NOT column names):")
+            for k, v in computed.items():
+                lines.append(f"    {k} → {v}")
         for note in t.get("advisory_notes", []):
             lines.append(f"  Advisory: {note}")
         lines.append("")
@@ -125,15 +150,6 @@ def _call_llm(system_prompt: str) -> str:
         resp.raise_for_status()
         return resp.json()["choices"][0]["message"]["content"].strip()
 
-
-# ─── Audit logging ────────────────────────────────────────────────────────────
-
-def _log(record: dict) -> None:
-    try:
-        with open(_LOG_PATH, "a", encoding="utf-8") as f:
-            f.write(json.dumps(record, default=str) + "\n")
-    except Exception as exc:
-        logger.warning("sql_executor: audit log write failed — %s", exc)
 
 
 # ─── SQLResult builder ────────────────────────────────────────────────────────
@@ -181,9 +197,9 @@ def execute(question: str, route_result: dict) -> dict:
         catalog_version = catalog.get("version", "unknown")
     except Exception as exc:
         err = f"catalog_load_error:{exc}"
-        _log({"ts": datetime.now(timezone.utc).isoformat(), "question": question,
-              "outcome": "failed", "error": err, "elapsed_s": 0})
-        return _result(question, None, 0, [], [], "failed", err)
+        log_event("sql_request", {"question": question, "outcome": SQLState.FAILED,
+                                   "error": err, "elapsed_s": 0})
+        return _result(question, None, 0, [], [], SQLState.FAILED, err)
 
     schema_summary = _derive_schema_summary(catalog)
 
@@ -198,24 +214,23 @@ def execute(question: str, route_result: dict) -> dict:
             for m in matches
         )
         if all_clean:
-            _log({
-                "ts":              datetime.now(timezone.utc).isoformat(),
+            log_event("sql_request", {
                 "question":        question,
-                "outcome":         "not_required",
+                "outcome":         SQLState.NOT_REQUIRED,
                 "catalog_version": catalog_version,
                 "catalog_hash":    catalog_hash,
                 "elapsed_s":       round(time.monotonic() - t_start, 3),
             })
-            return _result(question, None, 0, [], [], "not_required")
+            return _result(question, None, 0, [], [], SQLState.NOT_REQUIRED)
 
     # ── Build generation prompt ────────────────────────────────────────────────
     try:
         prompt_text = _build_sql_prompt(question, schema_summary)
     except Exception as exc:
         err = f"prompt_build_error:{exc}"
-        _log({"ts": datetime.now(timezone.utc).isoformat(), "question": question,
-              "outcome": "failed", "error": err})
-        return _result(question, None, 0, [], [], "failed", err)
+        log_event("sql_request", {"question": question, "outcome": SQLState.FAILED,
+                                   "error": err})
+        return _result(question, None, 0, [], [], SQLState.FAILED, err)
 
     # ── LLM: generate SQL (with one retry on validation failure) ──────────────
     initial_sql     = None
@@ -244,30 +259,28 @@ def execute(question: str, route_result: dict) -> dict:
 
         except Exception as exc:
             err = f"llm_error:{exc}"
-            _log({
-                "ts":              datetime.now(timezone.utc).isoformat(),
+            log_event("sql_request", {
                 "question":        question,
-                "outcome":         "failed",
+                "outcome":         SQLState.FAILED,
                 "error":           err,
                 "catalog_version": catalog_version,
                 "catalog_hash":    catalog_hash,
                 "elapsed_s":       round(time.monotonic() - t_start, 3),
             })
-            return _result(question, None, 0, [], [], "failed", err)
+            return _result(question, None, 0, [], [], SQLState.FAILED, err)
 
         # Model signalled it cannot answer
         if raw_sql.upper().startswith("NO_SQL:"):
             reason = raw_sql[7:].strip()
-            _log({
-                "ts":              datetime.now(timezone.utc).isoformat(),
+            log_event("sql_request", {
                 "question":        question,
-                "outcome":         "no_sql",
+                "outcome":         SQLState.FAILED,
                 "no_sql_reason":   reason,
                 "catalog_version": catalog_version,
                 "catalog_hash":    catalog_hash,
                 "elapsed_s":       round(time.monotonic() - t_start, 3),
             })
-            return _result(question, None, 0, [], [], "failed", f"no_sql:{reason}")
+            return _result(question, None, 0, [], [], SQLState.FAILED, f"no_sql:{reason}")
 
         if attempt == 0:
             initial_sql = raw_sql
@@ -285,24 +298,24 @@ def execute(question: str, route_result: dict) -> dict:
             logger.info("sql_executor: validation failed (attempt 1) — %s. Retrying.", rejection_reason)
         else:
             # Second failure — give up
-            _log({
-                "ts":               datetime.now(timezone.utc).isoformat(),
-                "question":         question,
-                "outcome":          "validation_failed_after_retry",
-                "initial_sql":      initial_sql,
-                "regenerated_sql":  regenerated_sql,
+            log_event("sql_request", {
+                "question":          question,
+                "outcome":           SQLState.FAILED,
+                "no_sql_reason":     "validation_failed_after_retry",
+                "initial_sql":       initial_sql,
+                "regenerated_sql":   regenerated_sql,
                 "validation_errors": validation_result["errors"],
-                "catalog_version":  catalog_version,
-                "catalog_hash":     catalog_hash,
-                "elapsed_s":        round(time.monotonic() - t_start, 3),
+                "catalog_version":   catalog_version,
+                "catalog_hash":      catalog_hash,
+                "elapsed_s":         round(time.monotonic() - t_start, 3),
             })
             return _result(
                 question, regenerated_sql or initial_sql, 0, [], [],
-                "failed", f"validation_failed:{rejection_reason}"
+                SQLState.FAILED, f"validation_failed:{rejection_reason}"
             )
 
     if final_sql is None:
-        return _result(question, initial_sql, 0, [], [], "failed", "no_valid_sql_generated")
+        return _result(question, initial_sql, 0, [], [], SQLState.FAILED, "no_valid_sql_generated")
 
     # ── Execute on Snowflake ──────────────────────────────────────────────────
     try:
@@ -313,39 +326,37 @@ def execute(question: str, route_result: dict) -> dict:
         columns = list(df.columns)
         data    = df.head(200).to_dict(orient="records")
 
-        # Confidence: validated if rows > 0, partial if empty (valid SQL, no data)
-        confidence = "validated" if rows > 0 else "partial"
+        confidence = SQLState.VALIDATED if rows > 0 else SQLState.EMPTY
 
         elapsed = round(time.monotonic() - t_start, 3)
-        _log({
-            "ts":               datetime.now(timezone.utc).isoformat(),
-            "question":         question,
-            "outcome":          confidence,
-            "initial_sql":      initial_sql,
-            "regenerated_sql":  regenerated_sql,
-            "final_sql":        final_sql,
-            "validation_errors": [],
+        log_event("sql_request", {
+            "question":            question,
+            "outcome":             confidence,
+            "initial_sql":         initial_sql,
+            "regenerated_sql":     regenerated_sql,
+            "final_sql":           final_sql,
+            "validation_errors":   [],
             "validation_warnings": validation_result.get("warnings", []),
-            "tables_used":      validation_result.get("tables_used", []),
-            "returned_rows":    rows,
-            "catalog_version":  catalog_version,
-            "catalog_hash":     catalog_hash,
-            "elapsed_s":        elapsed,
+            "tables_used":         validation_result.get("tables_used", []),
+            "returned_rows":       rows,
+            "catalog_version":     catalog_version,
+            "catalog_hash":        catalog_hash,
+            "elapsed_s":           elapsed,
         })
         return _result(question, final_sql, rows, columns, data, confidence)
 
     except Exception as exc:
         err = f"execution_error:{exc}"
         elapsed = round(time.monotonic() - t_start, 3)
-        _log({
-            "ts":               datetime.now(timezone.utc).isoformat(),
-            "question":         question,
-            "outcome":          "execution_failed",
-            "final_sql":        final_sql,
-            "error":            str(exc),
-            "catalog_version":  catalog_version,
-            "catalog_hash":     catalog_hash,
-            "elapsed_s":        elapsed,
+        log_event("sql_request", {
+            "question":        question,
+            "outcome":         SQLState.FAILED,
+            "no_sql_reason":   "execution_failed",
+            "final_sql":       final_sql,
+            "error":           str(exc),
+            "catalog_version": catalog_version,
+            "catalog_hash":    catalog_hash,
+            "elapsed_s":       elapsed,
         })
         logger.error("sql_executor: execution error — %s", exc, exc_info=True)
-        return _result(question, final_sql, 0, [], [], "failed", err)
+        return _result(question, final_sql, 0, [], [], SQLState.FAILED, err)

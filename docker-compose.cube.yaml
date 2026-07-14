@@ -1,0 +1,18 @@
+services:
+  cube:
+    restart: always
+    image: cubejs/cube
+    container_name: cube-container
+    ports:
+      - "4000:4000"
+      - "15432:15432"
+    volumes:
+      - ./:/cube/conf
+      - ./rsa_key.p8:/cube/conf/rsa_key.p8:ro
+    env_file: .env
+    networks:
+      - dashboard-net
+
+networks:
+  dashboard-net:
+    name: dashboard-net

@@ -1,0 +1,60 @@
+services:
+  marquez-db:
+    restart: always
+    image: postgres:14
+    container_name: marquez-db
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: ${MARQUEZ_DB_USER}
+      POSTGRES_PASSWORD: ${MARQUEZ_DB_PASSWORD}
+      POSTGRES_DB: ${MARQUEZ_DB_NAME}
+    volumes:
+      - marquez-pg-data:/var/lib/postgresql/data
+    networks:
+      - dashboard-net
+
+  marquez:
+    restart: always
+    image: marquezproject/marquez
+    container_name: marquez-api
+    ports:
+      - "5000:5000"
+      - "5001:5001"
+    volumes:
+      - ./marquez/marquez.yml:/usr/src/app/marquez.yml
+    environment:
+      MARQUEZ_CONFIG: /usr/src/app/marquez.yml
+      MARQUEZ_PORT: "5000"
+      MARQUEZ_ADMIN_PORT: "5001"
+      POSTGRES_HOST: marquez-db
+      MARQUEZ_USER: ${MARQUEZ_DB_USER}
+      MARQUEZ_PASSWORD: ${MARQUEZ_DB_PASSWORD}
+      MARQUEZ_DB: ${MARQUEZ_DB_NAME}
+      SEARCH_ENABLED: "false"
+    depends_on:
+      - marquez-db
+    networks:
+      - dashboard-net
+
+  marquez-web:
+    restart: always
+    image: marquezproject/marquez-web
+    container_name: marquez-web
+    ports:
+      - "3000:3000"
+    environment:
+      MARQUEZ_HOST: marquez-api
+      MARQUEZ_PORT: "5000"
+      WEB_PORT: "3000"
+    depends_on:
+      - marquez
+    networks:
+      - dashboard-net
+
+volumes:
+  marquez-pg-data:
+
+networks:
+  dashboard-net:
+    name: dashboard-net

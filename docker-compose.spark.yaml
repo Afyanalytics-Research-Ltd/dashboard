@@ -1,0 +1,47 @@
+services:
+  spark-master:
+    image: apache/spark:3.5.8
+    container_name: spark-master
+    restart: always
+    command:
+      - /opt/spark/bin/spark-class
+      - org.apache.spark.deploy.master.Master
+      - --host
+      - spark-master
+      - --port
+      - "7077"
+      - --webui-port
+      - "8080"
+    ports:
+      - "7077:7077"
+      - "8082:8080"
+    volumes:
+      - ./spark/apps:/opt/spark/apps
+    networks:
+      - dashboard-net
+
+  spark-worker:
+    image: apache/spark:3.5.8
+    container_name: spark-worker
+    restart: always
+    command:
+      - /opt/spark/bin/spark-class
+      - org.apache.spark.deploy.worker.Worker
+      - spark://spark-master:7077
+      - --webui-port
+      - "8081"
+    environment:
+      SPARK_WORKER_MEMORY: 1g
+      SPARK_WORKER_CORES: "1"
+    depends_on:
+      - spark-master
+    ports:
+      - "8081:8081"
+    volumes:
+      - ./spark/apps:/opt/spark/apps
+    networks:
+      - dashboard-net
+
+networks:
+  dashboard-net:
+    name: dashboard-net

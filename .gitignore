@@ -116,6 +116,10 @@ docs/_build/
 .pybuilder/
 target/
 
+# dbt
+dbt/dbt_packages/
+dbt/logs/
+
 # Jupyter Notebook
 .ipynb_checkpoints
 
@@ -271,3 +275,4 @@ ml_platform/retrain.lock
 ml_platform/retrain_status.json
 
 .cubestore/
+config/airflow.cfg

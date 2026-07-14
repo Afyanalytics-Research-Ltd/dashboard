@@ -1,0 +1,69 @@
+x-redash-common:
+  &redash-common
+  image: redash/redash:10.1.0.b50633
+  environment:
+    &redash-common-env
+    REDASH_LOG_LEVEL: "INFO"
+    REDASH_REDIS_URL: redis://redash-redis:6379/0
+    REDASH_DATABASE_URL: postgresql://${REDASH_DB_USER}:${REDASH_DB_PASSWORD}@redash-postgres/${REDASH_DB_NAME}
+    REDASH_COOKIE_SECRET: ${REDASH_COOKIE_SECRET}
+    REDASH_SECRET_KEY: ${REDASH_SECRET_KEY}
+  depends_on:
+    &redash-common-depends-on
+    redash-postgres:
+      condition: service_started
+    redash-redis:
+      condition: service_started
+  networks:
+    - dashboard-net
+
+services:
+  redash-postgres:
+    restart: always
+    image: postgres:16
+    container_name: redash-postgres
+    environment:
+      POSTGRES_USER: ${REDASH_DB_USER}
+      POSTGRES_PASSWORD: ${REDASH_DB_PASSWORD}
+      POSTGRES_DB: ${REDASH_DB_NAME}
+    volumes:
+      - redash-pg-data:/var/lib/postgresql/data
+    networks:
+      - dashboard-net
+
+  redash-redis:
+    restart: always
+    image: redis:latest
+    container_name: redash-redis
+    networks:
+      - dashboard-net
+
+  redash-server:
+    <<: *redash-common
+    container_name: redash-server
+    command: server
+    restart: always
+    ports:
+      - "5050:5000"
+    environment:
+      <<: *redash-common-env
+      REDASH_WEB_WORKERS: 4
+
+  redash-scheduler:
+    <<: *redash-common
+    container_name: redash-scheduler
+    command: scheduler
+    restart: always
+
+  redash-worker:
+    <<: *redash-common
+    container_name: redash-worker
+    command: worker
+    restart: always
+
+volumes:
+  redash-pg-data:
+
+networks:
+  dashboard-net:
+    name: dashboard-net

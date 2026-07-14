@@ -269,3 +269,5 @@ ml_platform/mlflow/
 ml_platform/evidently/
 ml_platform/retrain.lock
 ml_platform/retrain_status.json
+
+.cubestore/

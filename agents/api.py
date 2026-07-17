@@ -203,6 +203,8 @@ def whatsapp_webhook(request):
     if request.method == "GET":
         return JsonResponse({"status": "ok"})
 
+    # if request.method == "POST":
+    #     return JsonResponse({"status":"ok"})
     try:
         body = json.loads(request.body)
     except json.JSONDecodeError:
@@ -227,8 +229,26 @@ def whatsapp_webhook(request):
     if not text_body:
         return JsonResponse({"status": "ignored", "reason": "empty text"}, status=200)
 
-    phone   = msg.get("from", "")           # "254700701209"
-    user_id = msg.get("chat_id") or phone   # "254700701209@s.whatsapp.net"
+    phone   = msg.get("from", "")   
+    try:
+        from authentication.models import UserProfile  # adjust import path if needed
+
+        profile = (
+            UserProfile.objects
+            .select_related("facility")
+            .filter(phone_number=phone)
+            .first()
+            or
+            # Some systems store with country prefix; try both
+            UserProfile.objects
+            .select_related("facility")
+            .filter(phone_number__endswith=phone[-9:])
+            .first()
+        )
+    except Exception as exc:
+        logger.debug("_lookup_by_phone(%s): %s", phone, exc)
+        
+    user_id = str(profile.user.id)  # "254700701209@s.whatsapp.net"
 
     thread_id, initial_state = _build_initial_state(
         question=text_body,
@@ -237,6 +257,7 @@ def whatsapp_webhook(request):
         user_phone=phone,
     )
 
+
     output, err = _run_graph(initial_state, thread_id)
     if err:
         # Still return 200 to Whapi — errors are logged server-side
@@ -244,6 +265,10 @@ def whatsapp_webhook(request):
         return JsonResponse({"status": "error", "thread_id": thread_id}, status=200)
 
     interrupted = bool(output.get("__interrupt__"))
+    
+    # import pdb;pdb.set_trace()
+    from agents.nodes import _send_whatsapp
+    _send_whatsapp(phone=phone, message=output['formatted_result']['summary'])    
     return JsonResponse(
         {"status": "pending" if interrupted else "completed", "thread_id": thread_id},
         status=200,

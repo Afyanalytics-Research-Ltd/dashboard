@@ -32,6 +32,7 @@ ALLOWED_HOSTS = [
     '127.0.0.1',
     '0.0.0.0',
     '2c97-129-222-187-199.ngrok-free.app',
+    '8fa2-105-164-5-177.ngrok-free.app'
 ]
 
 CSRF_TRUSTED_ORIGINS = [
@@ -39,6 +40,7 @@ CSRF_TRUSTED_ORIGINS = [
     'http://localhost:8000',
     'http://127.0.0.1:8000',
     'https://2c97-129-222-187-199.ngrok-free.app',
+    'https://8fa2-105-164-5-177.ngrok-free.app'
 ]
 
 # Add this — CORS was missing the ngrok origin
@@ -47,6 +49,7 @@ CORS_ALLOWED_ORIGINS = [
     'http://localhost:8000',
     'http://127.0.0.1:8000',
     'https://2c97-129-222-187-199.ngrok-free.app',
+    'https://8fa2-105-164-5-177.ngrok-free.app'
 ]
 
 # Or for dev, just allow everything:

@@ -44,6 +44,21 @@ _HISTORY_LIMIT = 20
 # Intents handled by the platform (no Cube.js needed)
 _PLATFORM_INTENTS = frozenset({'help', 'summary', 'facilities', 'dashboards'})
 
+# _is_affirmative / _wants_visualization delegate to agents.charts, which is
+# the single shared definition used by both this websocket chat and the
+# WhatsApp webhook (agents/api.py) — checked BEFORE _detect_intent(), since
+# handlers.py's 'dashboards' pattern also matches "visuali[sz]e" and would
+# otherwise steal these into the dashboard-listing handler.
+
+def _is_affirmative(text):
+    from agents.charts import is_affirmative_reply
+    return is_affirmative_reply(text)
+
+
+def _wants_visualization(text):
+    from agents.charts import wants_visualization
+    return wants_visualization(text)
+
 
 class AnalyticsChatConsumer(AsyncWebsocketConsumer):
 
@@ -55,6 +70,8 @@ class AnalyticsChatConsumer(AsyncWebsocketConsumer):
 
         self.user = user
         self.session_obj = None
+        self.pending_chart_thread_id = None
+        self.last_metric_thread_id = None
 
         self.access_context = await database_sync_to_async(self._load_access_context)()
         self.session_obj = await database_sync_to_async(self._create_session)()
@@ -91,8 +108,24 @@ class AnalyticsChatConsumer(AsyncWebsocketConsumer):
 
         await self._send({'type': 'typing', 'status': True})
 
+        pending_thread_id = self.pending_chart_thread_id
+        self.pending_chart_thread_id = None  # consumed either way — offers don't linger past the next reply
+
+        # Either: a plain "yes" answering a just-made offer, or an explicit
+        # "graph/chart/plot/visualize" request about whatever was last asked
+        # — the latter works even when the prior result was too small to be
+        # proactively offered (e.g. a 0-row answer).
+        chart_thread_id = (
+            pending_thread_id if (pending_thread_id and _is_affirmative(query))
+            else self.last_metric_thread_id if (self.last_metric_thread_id and _wants_visualization(query))
+            else None
+        )
+
         try:
-            response = await self._route(query)
+            if chart_thread_id:
+                response = await database_sync_to_async(self._build_chart_reply)(chart_thread_id)
+            else:
+                response = await self._route(query)
         except Exception:
             logger.exception('Error processing query for user=%s', self.user.username)
             response = {
@@ -101,6 +134,11 @@ class AnalyticsChatConsumer(AsyncWebsocketConsumer):
                 'intent': 'error',
             }
 
+        if response.get('thread_id'):
+            self.last_metric_thread_id = response['thread_id']
+        if response.get('chart_offer') and response.get('thread_id'):
+            self.pending_chart_thread_id = response['thread_id']
+
         await database_sync_to_async(self._save_messages)(query, response)
         await self._send({
             'type': 'message',
@@ -108,6 +146,7 @@ class AnalyticsChatConsumer(AsyncWebsocketConsumer):
             'content': response['content'],
             'data': response.get('data'),
             'intent': response.get('intent', ''),
+            'chart': response.get('chart'),
         })
 
     # ------------------------------------------------------------------
@@ -198,10 +237,50 @@ class AnalyticsChatConsumer(AsyncWebsocketConsumer):
         if not summary:
             return None  # nothing useful — let OpenAI handle it
 
+        result_thread_id = formatted.get('thread_id')
+        content = summary
+        chart = None
+
+        # The user may have already asked for a chart in THIS SAME message
+        # ("can I get a chart for patient admissions?") — that shouldn't
+        # need a follow-up "yes" round-trip; render and attach it right now.
+        from agents.charts import get_chart_for_thread, wants_visualization
+
+        if result_thread_id and wants_visualization(query):
+            chart, chart_error = get_chart_for_thread(result_thread_id)
+            if chart:
+                content += f"\n\nHere's your chart — {chart['caption']}."
+            elif chart_error:
+                content += f"\n\n{chart_error}"
+        elif formatted.get('chart_offer'):
+            content += (
+                f"\n\n📊 This result has **{formatted.get('row_count', 0)} rows** — "
+                f"would you like me to visualize it as a chart? Reply **yes** to see it."
+            )
+
         return {
-            'content': summary,
+            'content': content,
             'data': formatted.get('data'),
             'intent': formatted.get('metric_id', 'metric_query'),
+            # Don't re-offer a chart that's already been shown in this same reply.
+            'chart_offer': formatted.get('chart_offer', False) and not chart,
+            'thread_id': result_thread_id,
+            'chart': chart,
+        }
+
+    def _build_chart_reply(self, thread_id):
+        """Render the chart for a previously-offered result (user replied 'yes')."""
+        from agents.charts import get_chart_for_thread
+
+        chart, error = get_chart_for_thread(thread_id)
+        if error:
+            return {'content': error, 'data': None, 'intent': 'chart_error'}
+
+        return {
+            'content': f"Here's your chart — {chart['caption']}.",
+            'data': None,
+            'intent': 'chart',
+            'chart': chart,
         }
 
     # ------------------------------------------------------------------

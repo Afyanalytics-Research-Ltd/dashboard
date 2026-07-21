@@ -48,6 +48,19 @@ class Dashboard(models.Model):
     )
     category = models.CharField(max_length=50, choices=CATEGORY_CHOICES, default='analytics')
     streamlit_url = models.URLField(blank=True)
+    redash_query_id = models.PositiveIntegerField(
+        null=True, blank=True,
+        help_text='Redash query ID powering this dashboard (used instead of streamlit_url).',
+    )
+    redash_visualization_id = models.PositiveIntegerField(
+        null=True, blank=True,
+        help_text='Redash visualization ID to embed (Query -> visualization -> Embed).',
+    )
+    redash_api_key = models.CharField(
+        max_length=100, blank=True,
+        help_text="Per-query API key from Redash (Query -> More Options -> API Key). "
+                  "Scopes what this specific embed can see.",
+    )
     thumbnail = models.ImageField(upload_to='dashboards/thumbnails/', blank=True, null=True)
     is_active = models.BooleanField(default=True)
     is_public = models.BooleanField(default=False)
@@ -70,6 +83,45 @@ class Dashboard(models.Model):
 
     def __str__(self):
         return self.name
+
+    def get_embed_url(self, user) -> str:
+        """Return the iframe ``src`` for this dashboard's viewer.
+
+        If a Redash query/visualization is configured, builds a chrome-less
+        Redash embed URL and — unless the viewer holds a multi-facility role
+        (Facilities Admin / Client Admin) — pins the ``facility`` query
+        parameter to the viewer's own facility, so ordinary facility users
+        never see a facility picker and can't request another facility's
+        data from the browser. Snowflake-side row access policies remain the
+        actual security boundary; this only shapes the UI.
+
+        Falls back to ``streamlit_url`` for dashboards not yet migrated to
+        Redash, so existing Streamlit embeds keep working unchanged.
+
+        Args:
+            user: The viewing Django user (or ``None``/anonymous).
+
+        Returns:
+            An absolute URL string suitable for an iframe ``src``, or ``''``
+            if no embed is configured.
+        """
+        if self.redash_query_id and self.redash_visualization_id:
+            from urllib.parse import urlencode
+
+            from authentication.roles import is_facilities_admin
+
+            params = {'api_key': self.redash_api_key}
+            facility = getattr(getattr(user, 'profile', None), 'facility', None)
+            if facility and not is_facilities_admin(user):
+                params['p_facility'] = facility.slug
+
+            base = (
+                f"{settings.REDASH_BASE_URL}/embed/query/"
+                f"{self.redash_query_id}/visualization/{self.redash_visualization_id}"
+            )
+            return f"{base}?{urlencode(params)}"
+
+        return self.streamlit_url
 
     def get_absolute_url(self) -> str:
         """Return the canonical URL for viewing this dashboard.

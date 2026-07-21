@@ -216,6 +216,17 @@ STREAMLIT_BASE_URL = os.getenv(
     'http://localhost:8501'
 ).rstrip('/')
 
+# Browser-facing Redash URL (used to build iframe embed src's — must be
+# reachable from the user's browser, not just from inside the docker network).
+REDASH_BASE_URL = os.getenv(
+    'REDASH_BASE_URL',
+    'http://localhost:5050'
+).rstrip('/')
+
+# Admin-user API key used server-side to provision Redash Groups/Data
+# Sources per facility (see analytics_app/management/commands/provision_redash_facility.py).
+REDASH_ADMIN_API_KEY = os.getenv('REDASH_ADMIN_API_KEY', '').strip()
+
 AIRFLOW_BASE_URL = os.getenv('AIRFLOW_BASE_URL', 'http://localhost:8080').rstrip('/')
 AIRFLOW_USERNAME = os.getenv('AIRFLOW_USERNAME', 'airflow').strip()
 AIRFLOW_PASSWORD = os.getenv('AIRFLOW_PASSWORD', 'airflow').strip()

@@ -24,6 +24,7 @@ from django.core.mail import send_mail
 from langgraph.types import interrupt
 from openai import OpenAI
 
+from . import charts
 from .catalog import as_context, get_all, get_by_id, reload as reload_catalog
 from .cube_client import run_query
 from .state import AgentState
@@ -286,6 +287,12 @@ def format_result(state: AgentState) -> dict:
     formatted = json.loads(response.choices[0].message.content)
     formatted["metric_id"] = metric["id"]
     formatted["thread_id"] = state["thread_id"]
+    formatted["row_count"] = len(raw.get("data") or [])
+    # Offer a chart rather than building one eagerly — most results are small
+    # enough that the text summary already suffices, and building unwanted
+    # charts wastes compute. The actual image is only rendered later, on
+    # confirmation, via charts.get_chart_for_thread(thread_id).
+    formatted["chart_offer"] = charts.is_heavy(raw)
 
     return {"formatted_result": formatted}
 
@@ -335,6 +342,48 @@ def _send_whatsapp(phone: str, message: str) -> None:
         logger.info("_send_whatsapp: message sent to %s", phone)
     except Exception as exc:
         logger.error("_send_whatsapp: failed to send to %s — %s", phone, exc)
+
+
+def _send_whatsapp_image(phone: str, image_base64: str, caption: str = "", mime: str = "image/png") -> None:
+    """
+    Send an image message via Whapi (https://whapi.cloud/).
+
+    NOT YET VERIFIED against a live Whapi channel — unlike _send_whatsapp's
+    /messages/text call (already exercised in production here), this repo
+    has no prior working example of Whapi's media-message payload shape.
+    Send one real chart to a test number before relying on this — if it
+    fails, check Whapi's current /messages/image (or /messages/media) schema
+    and adjust the payload below to match.
+
+    Required settings: WHAPI_TOKEN, WHAPI_URL (same as _send_whatsapp).
+    """
+    token = getattr(settings, "WHAPI_TOKEN", os.getenv("WHAPI_TOKEN", ""))
+    base_url = getattr(settings, "WHAPI_URL", os.getenv("WHAPI_URL", "https://gate.whapi.cloud")).rstrip("/")
+
+    if not token:
+        logger.warning("_send_whatsapp_image: WHAPI_TOKEN not configured — skipping image send.")
+        return
+
+    phone_clean = phone.lstrip("+").replace(" ", "")
+    to = f"{phone_clean}@s.whatsapp.net"
+
+    payload = {
+        "to": to,
+        "media": f"data:{mime};base64,{image_base64}",
+        "caption": caption,
+    }
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+
+    try:
+        with httpx.Client(timeout=20) as client:
+            resp = client.post(f"{base_url}/messages/image", json=payload, headers=headers)
+            resp.raise_for_status()
+        logger.info("_send_whatsapp_image: chart sent to %s", phone)
+    except Exception as exc:
+        logger.error("_send_whatsapp_image: failed to send to %s — %s", phone, exc)
 
 
 def _ping_callback(callback_url: str, state: AgentState, user_message: str) -> None:

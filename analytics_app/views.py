@@ -228,6 +228,7 @@ class DashboardDetailView(LoginRequiredMixin, BreadcrumbMixin, LoggingMixin, Det
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx['sidebar_section'] = 'analytics'
+        ctx['embed_url'] = self.object.get_embed_url(self.request.user)
         return ctx
 
 

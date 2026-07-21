@@ -126,6 +126,10 @@
            class="sidebar-subitem {% if 'list' in request.path %}active{% endif %}">
           <i class="bi bi-list-ul"></i> Dashboard List
         </a>
+        <a href="{% url 'analytics:dashboard_create' %}"
+           class="sidebar-subitem {% if 'create' in request.path %}active{% endif %}">
+          <i class="bi bi-plus-circle"></i> Create Dashboard
+        </a>
       </div>
 
       <!-- Warehouse -->

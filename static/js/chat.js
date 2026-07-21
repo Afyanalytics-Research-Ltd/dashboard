@@ -186,6 +186,9 @@
 
     if (data.type === 'message') {
       appendBubble(data.role || 'assistant', data.content || '');
+      if (data.chart && data.chart.image_base64) {
+        appendChartImage(data.chart);
+      }
       if (!panelOpen) bumpUnread();
     }
   }
@@ -221,6 +224,20 @@
     div.className = 'chat-bubble ' + role;
     div.innerHTML = renderMarkdown(content);
     elMessages.appendChild(div);
+    scrollToBottom();
+  }
+
+  function appendChartImage(chart) {
+    var wrap = document.createElement('div');
+    wrap.className = 'chat-bubble assistant chat-chart';
+    var img = document.createElement('img');
+    img.src = 'data:' + (chart.mime || 'image/png') + ';base64,' + chart.image_base64;
+    img.alt = chart.caption || 'Chart';
+    img.style.maxWidth = '100%';
+    img.style.borderRadius = '8px';
+    img.style.display = 'block';
+    wrap.appendChild(img);
+    elMessages.appendChild(wrap);
     scrollToBottom();
   }
 

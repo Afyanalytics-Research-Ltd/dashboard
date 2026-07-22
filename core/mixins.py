@@ -205,6 +205,29 @@ class SuperuserRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
         return super().handle_no_permission()
 
 
+class StaffRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
+    """Restrict a view to Django staff users (``is_staff=True``).
+
+    Any authenticated non-staff user receives a 403 Forbidden response.
+    Unauthenticated visitors are redirected to the login page. Less strict
+    than :class:`SuperuserRequiredMixin` — staff status can be granted to
+    trusted non-superuser accounts via the Django admin.
+    """
+
+    raise_exception = True
+
+    def test_func(self) -> bool:
+        """Return ``True`` only if the requesting user has ``is_staff`` set."""
+        return self.request.user.is_staff  # type: ignore[attr-defined]
+
+    def handle_no_permission(self):
+        """Raise 403 for authenticated non-staff users; redirect others to login."""
+        user = getattr(self.request, 'user', None)
+        if user and user.is_authenticated:
+            raise PermissionDenied('Staff access is required.')
+        return super().handle_no_permission()
+
+
 class PaginationMixin:
     """Adds Django-style pagination helpers to class-based views.
 

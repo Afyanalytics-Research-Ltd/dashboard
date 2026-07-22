@@ -54,6 +54,13 @@ class Facility(models.Model):
     )
     name = models.CharField(max_length=200)
     slug = models.SlugField()
+    reporting_source_schema = models.CharField(
+        max_length=100, blank=True,
+        help_text='The exact value this facility\'s rows use in the '
+                  'HOSPITALS.REPORTING "source_schema" column (e.g. "Kisumu") — '
+                  'not necessarily related to the facility name above. Used to '
+                  'scope synced Redash reporting queries to this facility.',
+    )
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

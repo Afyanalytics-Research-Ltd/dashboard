@@ -61,6 +61,13 @@ class Dashboard(models.Model):
         help_text="Per-query API key from Redash (Query -> More Options -> API Key). "
                   "Scopes what this specific embed can see.",
     )
+    redash_dashboard_url = models.URLField(
+        blank=True,
+        help_text='Full Redash dashboard URL to embed (Dashboard -> Share -> Publish, '
+                  'e.g. ".../public/dashboards/<token>?org_slug=default"). Used instead '
+                  'of redash_query_id/redash_visualization_id when embedding a whole '
+                  'Redash dashboard rather than a single chart.',
+    )
     thumbnail = models.ImageField(upload_to='dashboards/thumbnails/', blank=True, null=True)
     is_active = models.BooleanField(default=True)
     is_public = models.BooleanField(default=False)
@@ -121,6 +128,9 @@ class Dashboard(models.Model):
             )
             return f"{base}?{urlencode(params)}"
 
+        if self.redash_dashboard_url:
+            return self.redash_dashboard_url
+
         return self.streamlit_url
 
     def get_absolute_url(self) -> str:
@@ -164,3 +174,48 @@ class Dashboard(models.Model):
         if not self.slug:
             self.slug = slugify(self.name)[:200]
         super().save(*args, **kwargs)
+
+
+class ReportingQuery(models.Model):
+    """A Redash query provisioned against the Snowflake REPORTING schema.
+
+    Created either by the "sync REPORTING tables" action (one row per table,
+    ``source_table`` set) or ad hoc by a superuser (``source_table`` blank).
+    This is Django's own record of what has been provisioned in Redash, so
+    the DataHub UI can list them without re-querying the Redash API on every
+    page load.
+    """
+
+    name = models.CharField(max_length=200)
+    sql_text = models.TextField()
+    redash_query_id = models.PositiveIntegerField(unique=True)
+    redash_data_source_id = models.PositiveIntegerField()
+    redash_data_source_name = models.CharField(max_length=200, blank=True)
+    source_table = models.CharField(
+        max_length=200, blank=True,
+        help_text='HOSPITALS.REPORTING.<table> this was auto-generated from, blank for custom queries.',
+    )
+    facility = models.ForeignKey(
+        'core.Facility',
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name='reporting_queries',
+        help_text='Facility this query is scoped to (via a source_schema filter), blank for custom queries.',
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True, on_delete=models.SET_NULL,
+        related_name='reporting_queries',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name_plural = 'Reporting queries'
+
+    def __str__(self):
+        return self.name
+
+    def get_redash_url(self) -> str:
+        """Return the URL of this query in the Redash UI."""
+        return f"{settings.REDASH_BASE_URL}/queries/{self.redash_query_id}"

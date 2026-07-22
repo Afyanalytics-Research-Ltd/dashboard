@@ -49,6 +49,7 @@ class FacilityAdmin(admin.ModelAdmin):
 
     fieldsets = (
         (None, {'fields': ('client', 'name', 'slug', 'is_active')}),
+        ('Reporting', {'fields': ('reporting_source_schema',)}),
         ('Timestamps', {'fields': ('created_at', 'updated_at'), 'classes': ('collapse',)}),
     )
 

@@ -54,6 +54,40 @@ def wants_visualization(text: str) -> bool:
     return any(re.search(p, q) for p in _VISUALIZE_PATTERNS)
 
 
+# Words that don't carry analytical content when deciding whether a message
+# is JUST a chart request vs. a new question that happens to mention charts.
+_CHART_KEYWORDS = frozenset({
+    'show', 'graph', 'graphs', 'graphic', 'chart', 'charts', 'charting', 'plot',
+    'visualize', 'visualise', 'visualization', 'visualisation', 'display',
+    'see', 'give', 'send', 'get', 'picture', 'pictures', 'image', 'images',
+    'showcase', 'let',
+})
+_REFERENT_FILLER_WORDS = frozenset({
+    'it', 'that', 'this', 'them', 'those', 'me', 'us', 'the', 'a', 'an', 'of',
+    'as', 'please', 'can', 'you', 'could', 'now', 'ok', 'okay', 'yes', 'here',
+})
+
+
+def is_pure_chart_request(text: str) -> bool:
+    """
+    True if `text` is essentially JUST asking to visualize the most
+    recently computed result — "show me a graph", "can I get a chart",
+    "visualize that" — with no new analytical content.
+
+    False for a new question that happens to mention charting, e.g. "show
+    me the patients by sex" (a real breakdown request) or "show me a graph
+    of drugs dispensed by facility" (names a new subject). Those need to
+    run through the full pipeline and get charted as a FRESH result,
+    rather than silently re-rendering whatever was last computed — which
+    may be a stale, unrelated, or unchartable result from an earlier turn.
+    """
+    words = re.findall(r"[a-z']+", text.lower())
+    if not any(w in _CHART_KEYWORDS for w in words):
+        return False
+    leftover = [w for w in words if w not in _CHART_KEYWORDS and w not in _REFERENT_FILLER_WORDS]
+    return not leftover
+
+
 def is_heavy(raw_result: dict | None) -> bool:
     """True if the result set is large enough that a chart is worth offering."""
     rows = (raw_result or {}).get("data") or []
@@ -97,7 +131,12 @@ def _label(value) -> str:
     return "Unknown" if value is None else str(value)
 
 
-def build_chart(raw_result: dict, metric_name: str = "") -> dict | None:
+def build_chart(
+    raw_result: dict,
+    metric_name: str = "",
+    computed_measure: str | None = None,
+    computed_label: str | None = None,
+) -> dict | None:
     """
     Render a chart image from a Cube API response.
 
@@ -112,6 +151,14 @@ def build_chart(raw_result: dict, metric_name: str = "") -> dict | None:
     "source_schema = KISUMU_CLEAN") carry no visual information, so they're
     skipped in favour of a dimension that actually varies across rows.
 
+    computed_measure: when a derived metric (e.g. a ratio computed
+    client-side after the query ran — see agents/derived_metrics.py)
+    injected an extra field into each row, pass its key here to plot THAT
+    instead of the raw base measures — the user asked about the ratio, not
+    the two inputs that produced it. computed_label names it on the chart;
+    falls back to a prettified version of the key if not given, since a
+    computed field has no Cube annotation to pull a title from.
+
     Returns:
         {"image_base64": "...", "mime": "image/png", "caption": "..."},
         or None if this result's shape doesn't suit a simple chart.
@@ -121,11 +168,11 @@ def build_chart(raw_result: dict, metric_name: str = "") -> dict | None:
     if not rows:
         return None
 
-    measures = query.get("measures") or []
     dimensions = query.get("dimensions") or []
     time_dims = [td["dimension"] for td in (query.get("timeDimensions") or []) if td.get("dimension")]
 
-    if not measures:
+    plot_measures = [computed_measure] if computed_measure else (query.get("measures") or [])
+    if not plot_measures:
         logger.info("build_chart: query has no measures — nothing to chart")
         return None
 
@@ -147,37 +194,42 @@ def build_chart(raw_result: dict, metric_name: str = "") -> dict | None:
     x_values = [_label(r.get(x_key)) for r in rows]
 
     series: dict[str, list[float]] = {}
-    for m in measures:
+    for m in plot_measures:
         try:
             series[m] = [float(r.get(m) or 0) for r in rows]
         except (TypeError, ValueError) as exc:
             logger.warning("build_chart: could not coerce values for %s — %s", m, exc)
             return None
 
-    measure_labels = {m: _clean_label(raw_result, m, "measures") for m in measures}
+    def _measure_label(m: str) -> str:
+        if computed_measure and m == computed_measure:
+            return computed_label or m.replace("_", " ").title()
+        return _clean_label(raw_result, m, "measures")
+
+    measure_labels = {m: _measure_label(m) for m in plot_measures}
 
     fig, ax = plt.subplots(figsize=(7.5, 4.2), dpi=110)
 
     if chart_kind == "line":
-        for i, m in enumerate(measures):
+        for i, m in enumerate(plot_measures):
             ax.plot(x_values, series[m], marker="o", label=measure_labels[m], color=_PALETTE[i % len(_PALETTE)])
     else:
-        n = len(measures)
+        n = len(plot_measures)
         positions = list(range(len(x_values)))
         width = 0.8 / n
-        for i, m in enumerate(measures):
+        for i, m in enumerate(plot_measures):
             offsets = [p + (i - (n - 1) / 2) * width for p in positions]
             ax.bar(offsets, series[m], width=width, label=measure_labels[m], color=_PALETTE[i % len(_PALETTE)])
         ax.set_xticks(positions)
         rotate = len(x_values) > 8
         ax.set_xticklabels(x_values, rotation=45 if rotate else 0, ha="right" if rotate else "center")
 
-    if len(measures) > 1:
+    if len(plot_measures) > 1:
         ax.legend(fontsize=8)
 
     ax.set_xlabel(x_label)
-    ax.set_ylabel(measure_labels[measures[0]] if len(measures) == 1 else "Value")
-    ax.set_title(metric_name or (measure_labels[measures[0]] if len(measures) == 1 else " / ".join(measure_labels.values())))
+    ax.set_ylabel(measure_labels[plot_measures[0]] if len(plot_measures) == 1 else "Value")
+    ax.set_title(metric_name or (measure_labels[plot_measures[0]] if len(plot_measures) == 1 else " / ".join(measure_labels.values())))
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     fig.tight_layout()
@@ -217,7 +269,16 @@ def get_chart_for_thread(thread_id: str) -> tuple[dict | None, str | None]:
         return None, "No result available to chart."
 
     metric = snapshot.values.get("matched_metric") or {}
-    chart = build_chart(raw_result, metric_name=metric.get("name", ""))
+    # derived_metric is a Phase-4 (not-yet-built) state field — absent today,
+    # so this is a no-op until derived metrics land; wired through now so
+    # that feature doesn't also need a charts.py change later.
+    derived = snapshot.values.get("derived_metric") or {}
+    chart = build_chart(
+        raw_result,
+        metric_name=metric.get("name", ""),
+        computed_measure=derived.get("computed_field_name"),
+        computed_label=derived.get("name"),
+    )
     if not chart:
         return None, (
             "This result isn't a good fit for a chart (try asking a follow-up "

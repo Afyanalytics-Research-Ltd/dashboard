@@ -1,0 +1,44 @@
+cubes:
+  - name: rpt_dos_watchlist
+    sql_table: "\"REPORTING\".\"RPT_DOS_WATCHLIST\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: canonical_name
+        sql: "{CUBE}.\"CANONICAL_NAME\""
+        type: string
+
+      - name: facility
+        sql: "{CUBE}.\"FACILITY\""
+        type: string
+
+      - name: inn_name
+        sql: "{CUBE}.\"INN_NAME\""
+        type: string
+
+      - name: product_name
+        sql: "{CUBE}.\"PRODUCT_NAME\""
+        type: string
+
+      - name: reorder_urgency
+        sql: "{CUBE}.\"REORDER_URGENCY\""
+        type: string
+
+      - name: therapeutic_class
+        sql: "{CUBE}.\"THERAPEUTIC_CLASS\""
+        type: string
+
+      - name: last_dispensed_at
+        sql: "{CUBE}.\"LAST_DISPENSED_AT\""
+        type: time
+
+    measures:
+      - name: count
+        type: count
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

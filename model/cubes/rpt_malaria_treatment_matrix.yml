@@ -1,0 +1,40 @@
+cubes:
+  - name: rpt_malaria_treatment_matrix
+    sql_table: "\"REPORTING\".\"RPT_MALARIA_TREATMENT_MATRIX\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: appropriateness_category
+        sql: "{CUBE}.\"APPROPRIATENESS_CATEGORY\""
+        type: string
+
+      - name: cell_label
+        sql: "{CUBE}.\"CELL_LABEL\""
+        type: string
+
+      - name: cell_name
+        sql: "{CUBE}.\"CELL_NAME\""
+        type: string
+
+      - name: source_schema
+        sql: "{CUBE}.\"SOURCE_SCHEMA\""
+        type: string
+
+      - name: zone_label
+        sql: "{CUBE}.\"ZONE_LABEL\""
+        type: string
+
+    measures:
+      - name: count
+        type: count
+
+      - name: cell_count
+        sql: "{CUBE}.\"CELL_COUNT\""
+        type: sum
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

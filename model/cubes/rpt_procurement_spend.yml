@@ -1,0 +1,48 @@
+cubes:
+  - name: rpt_procurement_spend
+    sql_table: "\"REPORTING\".\"RPT_PROCUREMENT_SPEND\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: canonical_name
+        sql: "{CUBE}.\"CANONICAL_NAME\""
+        type: string
+
+      - name: doc_type
+        sql: "{CUBE}.\"DOC_TYPE\""
+        type: string
+
+      - name: facility
+        sql: "{CUBE}.\"FACILITY\""
+        type: string
+
+      - name: product_category
+        sql: "{CUBE}.\"PRODUCT_CATEGORY\""
+        type: string
+
+      - name: therapeutic_class
+        sql: "{CUBE}.\"THERAPEUTIC_CLASS\""
+        type: string
+
+      - name: doc_month
+        sql: "{CUBE}.\"DOC_MONTH\""
+        type: time
+
+    measures:
+      - name: count
+        type: count
+
+      - name: total_quantity
+        sql: "{CUBE}.\"TOTAL_QUANTITY\""
+        type: sum
+
+      - name: total_value
+        sql: "{CUBE}.\"TOTAL_VALUE\""
+        type: sum
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

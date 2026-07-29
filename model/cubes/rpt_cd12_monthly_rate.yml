@@ -1,0 +1,20 @@
+cubes:
+  - name: rpt_cd12_monthly_rate
+    sql_table: "\"REPORTING\".\"RPT_CD12_MONTHLY_RATE\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: critical_month
+        sql: "{CUBE}.\"CRITICAL_MONTH\""
+        type: time
+
+    measures:
+      - name: count
+        type: count
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

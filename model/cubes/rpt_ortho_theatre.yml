@@ -1,0 +1,160 @@
+cubes:
+  - name: rpt_ortho_theatre
+    sql_table: "\"REPORTING\".\"RPT_ORTHO_THEATRE\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: age_group
+        sql: "{CUBE}.\"AGE_GROUP\""
+        type: string
+
+      - name: anaesthesia_type
+        sql: "{CUBE}.\"ANAESTHESIA_TYPE\""
+        type: string
+
+      - name: category
+        sql: "{CUBE}.\"CATEGORY\""
+        type: string
+
+      - name: circulating_nurse
+        sql: "{CUBE}.\"CIRCULATING_NURSE\""
+        type: string
+
+      - name: composite_patient_id
+        sql: "{CUBE}.\"COMPOSITE_PATIENT_ID\""
+        type: string
+
+      - name: facility
+        sql: "{CUBE}.\"FACILITY\""
+        type: string
+
+      - name: from_opd
+        sql: "{CUBE}.\"FROM_OPD\""
+        type: boolean
+
+      - name: gender
+        sql: "{CUBE}.\"GENDER\""
+        type: string
+
+      - name: is_completed
+        sql: "{CUBE}.\"IS_COMPLETED\""
+        type: boolean
+
+      - name: is_elective
+        sql: "{CUBE}.\"IS_ELECTIVE\""
+        type: boolean
+
+      - name: is_new_patient
+        sql: "{CUBE}.\"IS_NEW_PATIENT\""
+        type: boolean
+
+      - name: link_confidence
+        sql: "{CUBE}.\"LINK_CONFIDENCE\""
+        type: string
+
+      - name: mode_of_payment
+        sql: "{CUBE}.\"MODE_OF_PAYMENT\""
+        type: string
+
+      - name: outcome
+        sql: "{CUBE}.\"OUTCOME\""
+        type: string
+
+      - name: position
+        sql: "{CUBE}.\"POSITION\""
+        type: string
+
+      - name: pre_op_diagnosis
+        sql: "{CUBE}.\"PRE_OP_DIAGNOSIS\""
+        type: string
+
+      - name: procedure_code
+        sql: "{CUBE}.\"PROCEDURE_CODE\""
+        type: string
+
+      - name: procedure_day_name
+        sql: "{CUBE}.\"PROCEDURE_DAY_NAME\""
+        type: string
+
+      - name: procedure_name
+        sql: "{CUBE}.\"PROCEDURE_NAME\""
+        type: string
+
+      - name: prosthesis
+        sql: "{CUBE}.\"PROSTHESIS\""
+        type: string
+
+      - name: room
+        sql: "{CUBE}.\"ROOM\""
+        type: string
+
+      - name: scrub_nurse
+        sql: "{CUBE}.\"SCRUB_NURSE\""
+        type: string
+
+      - name: side_of_body
+        sql: "{CUBE}.\"SIDE_OF_BODY\""
+        type: string
+
+      - name: source_system
+        sql: "{CUBE}.\"SOURCE_SYSTEM\""
+        type: string
+
+      - name: status
+        sql: "{CUBE}.\"STATUS\""
+        type: string
+
+      - name: visit_id
+        sql: "{CUBE}.\"VISIT_ID\""
+        type: string
+
+      - name: planned_date
+        sql: "{CUBE}.\"PLANNED_DATE\""
+        type: time
+
+      - name: planned_time
+        sql: "{CUBE}.\"PLANNED_TIME\""
+        type: time
+
+      - name: procedure_date
+        sql: "{CUBE}.\"PROCEDURE_DATE\""
+        type: time
+
+      - name: procedure_month
+        sql: "{CUBE}.\"PROCEDURE_MONTH\""
+        type: time
+
+      - name: procedure_week
+        sql: "{CUBE}.\"PROCEDURE_WEEK\""
+        type: time
+
+      - name: request_date
+        sql: "{CUBE}.\"REQUEST_DATE\""
+        type: time
+
+      - name: request_time
+        sql: "{CUBE}.\"REQUEST_TIME\""
+        type: time
+
+      - name: service_time
+        sql: "{CUBE}.\"SERVICE_TIME\""
+        type: time
+
+      - name: time_in
+        sql: "{CUBE}.\"TIME_IN\""
+        type: time
+
+      - name: time_out
+        sql: "{CUBE}.\"TIME_OUT\""
+        type: time
+
+    measures:
+      - name: count
+        type: count
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

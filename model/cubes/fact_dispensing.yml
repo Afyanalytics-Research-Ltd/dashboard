@@ -1,0 +1,68 @@
+cubes:
+  - name: fact_dispensing
+    sql_table: "\"REPORTING\".\"FACT_DISPENSING\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: dispensed_from_negative_stock
+        sql: "{CUBE}.\"DISPENSED_FROM_NEGATIVE_STOCK\""
+        type: boolean
+
+      - name: is_stockout_dispense
+        sql: "{CUBE}.\"IS_STOCKOUT_DISPENSE\""
+        type: boolean
+
+      - name: product_id
+        sql: "{CUBE}.\"PRODUCT_ID\""
+        type: string
+
+      - name: sk_detail_id
+        sql: "{CUBE}.\"SK_DETAIL_ID\""
+        type: string
+
+      - name: sk_patient_id
+        sql: "{CUBE}.\"SK_PATIENT_ID\""
+        type: string
+
+      - name: sk_visit_id
+        sql: "{CUBE}.\"SK_VISIT_ID\""
+        type: string
+
+      - name: source_schema
+        sql: "{CUBE}.\"SOURCE_SCHEMA\""
+        type: string
+
+      - name: dispensed_at
+        sql: "{CUBE}.\"DISPENSED_AT\""
+        type: time
+
+      - name: dispensing_month
+        sql: "{CUBE}.\"DISPENSING_MONTH\""
+        type: time
+
+    measures:
+      - name: count
+        type: count
+
+      - name: discount
+        sql: "{CUBE}.\"DISCOUNT\""
+        type: sum
+
+      - name: dispensing_event_total
+        sql: "{CUBE}.\"DISPENSING_EVENT_TOTAL\""
+        type: sum
+
+      - name: line_total
+        sql: "{CUBE}.\"LINE_TOTAL\""
+        type: sum
+
+      - name: unit_price
+        sql: "{CUBE}.\"UNIT_PRICE\""
+        type: sum
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

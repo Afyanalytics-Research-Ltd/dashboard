@@ -1,0 +1,32 @@
+cubes:
+  - name: rpt_specialty_admissions
+    sql_table: "\"REPORTING\".\"RPT_SPECIALTY_ADMISSIONS\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: facility
+        sql: "{CUBE}.\"FACILITY\""
+        type: string
+
+      - name: payment_mode
+        sql: "{CUBE}.\"PAYMENT_MODE\""
+        type: string
+
+      - name: ward_name
+        sql: "{CUBE}.\"WARD_NAME\""
+        type: string
+
+      - name: admission_month
+        sql: "{CUBE}.\"ADMISSION_MONTH\""
+        type: time
+
+    measures:
+      - name: count
+        type: count
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

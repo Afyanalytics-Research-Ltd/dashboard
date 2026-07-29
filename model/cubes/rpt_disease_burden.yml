@@ -1,0 +1,36 @@
+cubes:
+  - name: rpt_disease_burden
+    sql_table: "\"REPORTING\".\"RPT_DISEASE_BURDEN\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: disease_group
+        sql: "{CUBE}.\"DISEASE_GROUP\""
+        type: string
+
+      - name: facility
+        sql: "{CUBE}.\"FACILITY\""
+        type: string
+
+      - name: source_schema
+        sql: "{CUBE}.\"SOURCE_SCHEMA\""
+        type: string
+
+      - name: signal_month
+        sql: "{CUBE}.\"SIGNAL_MONTH\""
+        type: time
+
+    measures:
+      - name: count
+        type: count
+
+      - name: rx_count
+        sql: "{CUBE}.\"RX_COUNT\""
+        type: sum
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

@@ -1,0 +1,36 @@
+cubes:
+  - name: rpt_kakamega_population
+    sql_table: "\"REPORTING\".\"RPT_KAKAMEGA_POPULATION\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: facility
+        sql: "{CUBE}.\"FACILITY\""
+        type: string
+
+      - name: source_schema
+        sql: "{CUBE}.\"SOURCE_SCHEMA\""
+        type: string
+
+      - name: sub_county
+        sql: "{CUBE}.\"SUB_COUNTY\""
+        type: string
+
+      - name: visit_month
+        sql: "{CUBE}.\"VISIT_MONTH\""
+        type: time
+
+    measures:
+      - name: count
+        type: count
+
+      - name: visit_count
+        sql: "{CUBE}.\"VISIT_COUNT\""
+        type: sum
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

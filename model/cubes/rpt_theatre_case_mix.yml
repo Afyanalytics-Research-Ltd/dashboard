@@ -1,0 +1,28 @@
+cubes:
+  - name: rpt_theatre_case_mix
+    sql_table: "\"REPORTING\".\"RPT_THEATRE_CASE_MIX\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: procedure_name
+        sql: "{CUBE}.\"PROCEDURE_NAME\""
+        type: string
+
+      - name: theatre_name
+        sql: "{CUBE}.\"THEATRE_NAME\""
+        type: string
+
+      - name: session_month
+        sql: "{CUBE}.\"SESSION_MONTH\""
+        type: time
+
+    measures:
+      - name: count
+        type: count
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

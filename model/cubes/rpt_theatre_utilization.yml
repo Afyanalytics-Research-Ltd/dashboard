@@ -1,0 +1,36 @@
+cubes:
+  - name: rpt_theatre_utilization
+    sql_table: "\"REPORTING\".\"RPT_THEATRE_UTILIZATION\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: booking_status
+        sql: "{CUBE}.\"BOOKING_STATUS\""
+        type: string
+
+      - name: facility
+        sql: "{CUBE}.\"FACILITY\""
+        type: string
+
+      - name: theatre_name
+        sql: "{CUBE}.\"THEATRE_NAME\""
+        type: string
+
+      - name: theatre_type
+        sql: "{CUBE}.\"THEATRE_TYPE\""
+        type: string
+
+      - name: session_month
+        sql: "{CUBE}.\"SESSION_MONTH\""
+        type: time
+
+    measures:
+      - name: count
+        type: count
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

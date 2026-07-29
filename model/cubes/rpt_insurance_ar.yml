@@ -1,0 +1,28 @@
+cubes:
+  - name: rpt_insurance_ar
+    sql_table: "\"REPORTING\".\"RPT_INSURANCE_AR\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: facility
+        sql: "{CUBE}.\"FACILITY\""
+        type: string
+
+      - name: insurer
+        sql: "{CUBE}.\"INSURER\""
+        type: string
+
+      - name: invoice_month
+        sql: "{CUBE}.\"INVOICE_MONTH\""
+        type: time
+
+    measures:
+      - name: count
+        type: count
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

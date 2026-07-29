@@ -1,0 +1,44 @@
+cubes:
+  - name: upd_admissions_profile
+    sql_table: "\"REPORTING\".\"UPD_ADMISSIONS_PROFILE\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: admission_type
+        sql: "{CUBE}.\"ADMISSION_TYPE\""
+        type: string
+
+      - name: is_open_admission
+        sql: "{CUBE}.\"IS_OPEN_ADMISSION\""
+        type: boolean
+
+      - name: payment_mode
+        sql: "{CUBE}.\"PAYMENT_MODE\""
+        type: string
+
+      - name: sex
+        sql: "{CUBE}.\"SEX\""
+        type: string
+
+      - name: admission_date
+        sql: "{CUBE}.\"ADMISSION_DATE\""
+        type: time
+
+      - name: discharge_date
+        sql: "{CUBE}.\"DISCHARGE_DATE\""
+        type: time
+
+    measures:
+      - name: count
+        type: count
+
+      - name: admission_cost
+        sql: "{CUBE}.\"ADMISSION_COST\""
+        type: sum
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

@@ -25,20 +25,47 @@ from .facility import resolve_facility, resolve_facility_from_user
 logger = logging.getLogger(__name__)
 
 
+def _get_or_create_thread_id(user_id: str) -> str:
+    """
+    Persistent LangGraph thread_id for a REST-API user, reused across
+    requests so follow-up questions land in the same checkpointed thread
+    (with its accumulated conversation history) instead of a fresh,
+    memoryless one every time.
+    """
+    from .models import ConversationThread
+
+    conv, _created = ConversationThread.objects.get_or_create(
+        user_id=user_id, defaults={"thread_id": str(uuid.uuid4())}
+    )
+    return conv.thread_id
+
+
+_UNSET = object()  # sentinel: "caller didn't pre-resolve facility" vs. "resolved to None"
+
+
 def _build_initial_state(
     question: str,
     user_id: str,
     callback_url: str,
     user_phone: str | None = None,
-) -> dict:
-    thread_id = str(uuid.uuid4())
-    # Resolve facility upfront — try user_id first, then phone number.
-    # This means both REST and WhatsApp callers get row-level filtering.
-    user_facility = resolve_facility(user_id, phone=user_phone)
-    if user_facility:
-        logger.info("_build_initial_state: user=%s → facility=%s", user_id, user_facility)
-    else:
-        logger.info("_build_initial_state: user=%s → no facility restriction", user_id)
+    thread_id: str | None = None,
+    user_facility=_UNSET,
+) -> tuple[str, dict]:
+    """
+    Shared by query() and whatsapp_webhook() — the one place new AgentState
+    fields need to be added going forward, instead of drifting across two
+    separate dict-literals (which is how messages/last_matched_metric ended
+    up missing from query()'s inline dict prior to this consolidation).
+    """
+    thread_id = thread_id or str(uuid.uuid4())
+    if user_facility is _UNSET:
+        # Resolve facility upfront — try user_id first, then phone number.
+        # This means both REST and WhatsApp callers get row-level filtering.
+        user_facility = resolve_facility(user_id, phone=user_phone)
+        if user_facility:
+            logger.info("_build_initial_state: user=%s → facility=%s", user_id, user_facility)
+        else:
+            logger.info("_build_initial_state: user=%s → no facility restriction", user_id)
     return thread_id, {
         "question": question,
         "user_id": user_id,
@@ -54,6 +81,11 @@ def _build_initial_state(
         "is_resumed": False,
         "fallback_reason": None,
         "resume_data": None,
+        "intent_plan": None,
+        "retrieval_candidates": None,
+        "validation_report": None,
+        "derived_metric": None,
+        "pending_join_writes": None,
     }
 
 
@@ -134,23 +166,15 @@ def query(request):
     else:
         user_facility = resolve_facility(user_id, phone=user_phone)
 
-    thread_id = str(uuid.uuid4())
-    initial_state = {
-        "question":               question,
-        "user_id":                user_id,
-        "user_phone":             user_phone,
-        "callback_url":           callback_url or "none://unset",
-        "thread_id":              thread_id,
-        "user_facility":          user_facility,
-        "matched_metric":         None,
-        "classification_confidence": 0.0,
-        "cube_query":             None,
-        "raw_result":             None,
-        "formatted_result":       None,
-        "is_resumed":             False,
-        "fallback_reason":        None,
-        "resume_data":            None,
-    }
+    thread_id = _get_or_create_thread_id(user_id)
+    _, initial_state = _build_initial_state(
+        question=question,
+        user_id=user_id,
+        callback_url=callback_url or "none://unset",
+        user_phone=user_phone,
+        thread_id=thread_id,
+        user_facility=user_facility,  # already resolved above — don't re-resolve
+    )
 
     logger.info(
         "query: user=%s facility=%s question=%r",
@@ -257,7 +281,7 @@ def whatsapp_webhook(request):
 
     user_id = str(profile.user.id)
 
-    from .charts import get_chart_for_thread, is_affirmative_reply, wants_visualization
+    from .charts import get_chart_for_thread, is_affirmative_reply, is_pure_chart_request, wants_visualization
     from .models import WhatsAppChatState
     from .nodes import _send_whatsapp, _send_whatsapp_image
 
@@ -267,14 +291,23 @@ def whatsapp_webhook(request):
     # to the right thread, mirroring self_service/consumers.py's in-memory
     # pending_chart_thread_id / last_metric_thread_id.
     chat_state, _created = WhatsAppChatState.objects.get_or_create(phone=phone)
+    if not chat_state.thread_id:
+        chat_state.thread_id = str(uuid.uuid4())
+        chat_state.save(update_fields=["thread_id", "updated_at"])
 
+    # is_pure_chart_request (not the broader wants_visualization) gates this
+    # shortcut deliberately — "show me the patients by sex" also matches
+    # wants_visualization but is a NEW breakdown request, not a bare "chart
+    # what you just told me". Using the broad check here would silently
+    # re-render whatever the last full pipeline run happened to compute,
+    # which may be stale or unrelated to the new question.
     wants_chart = (
         (chat_state.chart_offer_pending and is_affirmative_reply(text_body))
-        or (chat_state.last_metric_thread_id and wants_visualization(text_body))
+        or (chat_state.thread_id and is_pure_chart_request(text_body))
     )
 
-    if wants_chart and chat_state.last_metric_thread_id:
-        chart, error = get_chart_for_thread(chat_state.last_metric_thread_id)
+    if wants_chart and chat_state.thread_id:
+        chart, error = get_chart_for_thread(chat_state.thread_id)
         chat_state.chart_offer_pending = False
         chat_state.save(update_fields=["chart_offer_pending", "updated_at"])
 
@@ -282,13 +315,14 @@ def whatsapp_webhook(request):
             _send_whatsapp(phone=phone, message=error)
         else:
             _send_whatsapp_image(phone=phone, image_base64=chart["image_base64"], caption=chart["caption"])
-        return JsonResponse({"status": "completed", "thread_id": chat_state.last_metric_thread_id}, status=200)
+        return JsonResponse({"status": "completed", "thread_id": chat_state.thread_id}, status=200)
 
     thread_id, initial_state = _build_initial_state(
         question=text_body,
         user_id=user_id,
         callback_url="whatsapp://internal",  # no HTTP callback for WhatsApp queries
         user_phone=phone,
+        thread_id=chat_state.thread_id,
     )
 
     output, err = _run_graph(initial_state, thread_id)
@@ -322,10 +356,10 @@ def whatsapp_webhook(request):
             f"reply *yes* if you'd like me to visualize it as a chart."
         )
 
-    chat_state.last_metric_thread_id = result_thread_id or chat_state.last_metric_thread_id
+    chat_state.thread_id = result_thread_id or chat_state.thread_id
     # Don't leave an offer pending if we already sent the chart in this reply.
     chat_state.chart_offer_pending = bool(formatted.get("chart_offer")) and not chart
-    chat_state.save(update_fields=["last_metric_thread_id", "chart_offer_pending", "updated_at"])
+    chat_state.save(update_fields=["thread_id", "chart_offer_pending", "updated_at"])
 
     _send_whatsapp(phone=phone, message=summary)
     if chart:

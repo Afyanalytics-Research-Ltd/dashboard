@@ -1,0 +1,36 @@
+cubes:
+  - name: rpt_ar_aging
+    sql_table: "\"REPORTING\".\"RPT_AR_AGING\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: aging_bucket
+        sql: "{CUBE}.\"AGING_BUCKET\""
+        type: string
+
+      - name: facility
+        sql: "{CUBE}.\"FACILITY\""
+        type: string
+
+      - name: insurer
+        sql: "{CUBE}.\"INSURER\""
+        type: string
+
+      - name: facility_data_end
+        sql: "{CUBE}.\"FACILITY_DATA_END\""
+        type: time
+
+      - name: invoice_month
+        sql: "{CUBE}.\"INVOICE_MONTH\""
+        type: time
+
+    measures:
+      - name: count
+        type: count
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

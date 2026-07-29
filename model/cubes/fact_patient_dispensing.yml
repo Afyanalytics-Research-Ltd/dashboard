@@ -1,0 +1,52 @@
+cubes:
+  - name: fact_patient_dispensing
+    sql_table: "\"REPORTING\".\"FACT_PATIENT_DISPENSING\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: sk_patient_id
+        sql: "{CUBE}.\"SK_PATIENT_ID\""
+        type: string
+
+      - name: sk_visit_id
+        sql: "{CUBE}.\"SK_VISIT_ID\""
+        type: string
+
+      - name: source_schema
+        sql: "{CUBE}.\"SOURCE_SCHEMA\""
+        type: string
+
+      - name: dispensing_month
+        sql: "{CUBE}.\"DISPENSING_MONTH\""
+        type: time
+
+      - name: first_dispensed_at
+        sql: "{CUBE}.\"FIRST_DISPENSED_AT\""
+        type: time
+
+      - name: last_dispensed_at
+        sql: "{CUBE}.\"LAST_DISPENSED_AT\""
+        type: time
+
+    measures:
+      - name: count
+        type: count
+
+      - name: drugs_dispensed_count
+        sql: "{CUBE}.\"DRUGS_DISPENSED_COUNT\""
+        type: sum
+
+      - name: total_drug_cost
+        sql: "{CUBE}.\"TOTAL_DRUG_COST\""
+        type: sum
+
+      - name: unclassified_drug_count
+        sql: "{CUBE}.\"UNCLASSIFIED_DRUG_COUNT\""
+        type: sum
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

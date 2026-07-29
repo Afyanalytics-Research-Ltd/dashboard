@@ -1,0 +1,44 @@
+cubes:
+  - name: rpt_dispensing_trends
+    sql_table: "\"REPORTING\".\"RPT_DISPENSING_TRENDS\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: canonical_name
+        sql: "{CUBE}.\"CANONICAL_NAME\""
+        type: string
+
+      - name: facility
+        sql: "{CUBE}.\"FACILITY\""
+        type: string
+
+      - name: inn_name
+        sql: "{CUBE}.\"INN_NAME\""
+        type: string
+
+      - name: therapeutic_class
+        sql: "{CUBE}.\"THERAPEUTIC_CLASS\""
+        type: string
+
+      - name: therapeutic_subclass
+        sql: "{CUBE}.\"THERAPEUTIC_SUBCLASS\""
+        type: string
+
+      - name: dispensing_month
+        sql: "{CUBE}.\"DISPENSING_MONTH\""
+        type: time
+
+    measures:
+      - name: count
+        type: count
+
+      - name: total_dispensing_value
+        sql: "{CUBE}.\"TOTAL_DISPENSING_VALUE\""
+        type: sum
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

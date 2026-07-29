@@ -1,0 +1,80 @@
+cubes:
+  - name: rpt_ortho_pharmacy
+    sql_table: "\"REPORTING\".\"RPT_ORTHO_PHARMACY\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: composite_patient_id
+        sql: "{CUBE}.\"COMPOSITE_PATIENT_ID\""
+        type: string
+
+      - name: facility
+        sql: "{CUBE}.\"FACILITY\""
+        type: string
+
+      - name: is_served
+        sql: "{CUBE}.\"IS_SERVED\""
+        type: boolean
+
+      - name: item_class
+        sql: "{CUBE}.\"ITEM_CLASS\""
+        type: string
+
+      - name: item_name
+        sql: "{CUBE}.\"ITEM_NAME\""
+        type: string
+
+      - name: order_day_name
+        sql: "{CUBE}.\"ORDER_DAY_NAME\""
+        type: string
+
+      - name: patient_id
+        sql: "{CUBE}.\"PATIENT_ID\""
+        type: string
+
+      - name: source_system
+        sql: "{CUBE}.\"SOURCE_SYSTEM\""
+        type: string
+
+      - name: tat_category
+        sql: "{CUBE}.\"TAT_CATEGORY\""
+        type: string
+
+      - name: visit_id
+        sql: "{CUBE}.\"VISIT_ID\""
+        type: string
+
+      - name: dispensed_stamp
+        sql: "{CUBE}.\"DISPENSED_STAMP\""
+        type: time
+
+      - name: order_date
+        sql: "{CUBE}.\"ORDER_DATE\""
+        type: time
+
+      - name: order_month
+        sql: "{CUBE}.\"ORDER_MONTH\""
+        type: time
+
+      - name: request_stamp
+        sql: "{CUBE}.\"REQUEST_STAMP\""
+        type: time
+
+    measures:
+      - name: count
+        type: count
+
+      - name: quantity
+        sql: "{CUBE}.\"QUANTITY\""
+        type: sum
+
+      - name: unit_price
+        sql: "{CUBE}.\"UNIT_PRICE\""
+        type: sum
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

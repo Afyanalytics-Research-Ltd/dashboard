@@ -1,0 +1,48 @@
+cubes:
+  - name: dim_product_canonical
+    sql_table: "\"REPORTING\".\"DIM_PRODUCT_CANONICAL\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: canonical_name
+        sql: "{CUBE}.\"CANONICAL_NAME\""
+        type: string
+
+      - name: form_canonical
+        sql: "{CUBE}.\"FORM_CANONICAL\""
+        type: string
+
+      - name: inn_name
+        sql: "{CUBE}.\"INN_NAME\""
+        type: string
+
+      - name: present_in_facilities
+        sql: "{CUBE}.\"PRESENT_IN_FACILITIES\""
+        type: string
+
+      - name: strength_canonical
+        sql: "{CUBE}.\"STRENGTH_CANONICAL\""
+        type: string
+
+      - name: dim_loaded_at
+        sql: "{CUBE}.\"DIM_LOADED_AT\""
+        type: time
+
+    measures:
+      - name: count
+        type: count
+
+      - name: facility_count
+        sql: "{CUBE}.\"FACILITY_COUNT\""
+        type: sum
+
+      - name: local_product_id_count
+        sql: "{CUBE}.\"LOCAL_PRODUCT_ID_COUNT\""
+        type: sum
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

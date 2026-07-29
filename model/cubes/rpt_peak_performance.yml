@@ -1,0 +1,52 @@
+cubes:
+  - name: rpt_peak_performance
+    sql_table: "\"REPORTING\".\"RPT_PEAK_PERFORMANCE\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: day_name
+        sql: "{CUBE}.\"DAY_NAME\""
+        type: string
+
+      - name: is_admitted
+        sql: "{CUBE}.\"IS_ADMITTED\""
+        type: boolean
+
+      - name: time_bucket
+        sql: "{CUBE}.\"TIME_BUCKET\""
+        type: string
+
+      - name: username
+        sql: "{CUBE}.\"USERNAME\""
+        type: string
+
+      - name: ward_category
+        sql: "{CUBE}.\"WARD_CATEGORY\""
+        type: string
+
+      - name: ward_name
+        sql: "{CUBE}.\"WARD_NAME\""
+        type: string
+
+      - name: admission_month
+        sql: "{CUBE}.\"ADMISSION_MONTH\""
+        type: time
+
+      - name: admitted_at
+        sql: "{CUBE}.\"ADMITTED_AT\""
+        type: time
+
+      - name: visit_month
+        sql: "{CUBE}.\"VISIT_MONTH\""
+        type: time
+
+    measures:
+      - name: count
+        type: count
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

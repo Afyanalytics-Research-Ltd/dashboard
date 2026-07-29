@@ -1,0 +1,169 @@
+# Business Glossary — hand-curated, NOT auto-generated.
+#
+# Bridges the natural-language terms analysts/clinicians actually use
+# ("stockout rate", "readmission rate") to the real Cube measures/dimensions
+# that answer them, so the semantic retriever (agents/retrieval.py) can match
+# a question even when its wording shares no vocabulary with a metric's own
+# description.
+#
+# Two entry shapes:
+#   maps_to:  term refers directly to one existing Cube measure.
+#   formula + variables: term is a ratio/derived concept computed from two+
+#     measures that live in the SAME cube (see agents/derived_metrics.py —
+#     cross-cube combinations are a separate, not-yet-built follow-up).
+#
+# Every field name below is verified against catalog/metrics.yaml — do not
+# add an entry referencing a cube/measure you haven't confirmed exists.
+#
+# Re-run catalog/build_embeddings.py after editing this file.
+
+terms:
+  - term: patient admissions
+    aliases: [admissions, inpatient admissions, patients admitted]
+    description: Count of inpatient admissions recorded across all facilities.
+    maps_to: fact_inpatient_admissions.count
+
+  - term: dispensing discount
+    aliases: [discount, discounts applied]
+    description: Total discount amount applied across dispensing transactions.
+    maps_to: fact_dispensing.discount
+
+  - term: discount rate
+    aliases: [average discount rate, dispensing discount rate]
+    description: Discount applied as a proportion of total dispensing value — not
+      a predefined metric, computed as discount ÷ dispensing total within the
+      same fact_dispensing cube.
+    formula: "a / b"
+    variables:
+      a: fact_dispensing.discount
+      b: fact_dispensing.dispensing_event_total
+
+  - term: stockout
+    aliases: [stockouts, out of stock, stock outs, stockout alerts]
+    description: Count of stockout alerts generated across facilities and products.
+    maps_to: rpt_stockout_alerts.count
+
+  - term: bed occupancy
+    aliases: [ward occupancy, occupied beds]
+    description: Count of bed occupancy records by facility and ward.
+    maps_to: rpt_bed_occupancy.count
+
+  - term: admission cost
+    aliases: [average admission cost, cost per admission]
+    description: Average cost associated with an admission.
+    maps_to: rpt_bed_occupancy.avg_admission_cost
+
+  - term: readmission
+    aliases: [readmissions, patients readmitted]
+    description: Count of patient readmissions.
+    maps_to: rpt_readmissions.count
+
+  - term: readmission rate
+    aliases: [30-day readmission rate, readmission proportion]
+    description: Proportion of readmissions that occurred within roughly 30 days
+      of discharge — computed as the 30-day gap count ÷ total readmissions
+      within the same rpt_readmissions cube.
+    formula: "a / b"
+    variables:
+      a: rpt_readmissions.approx_gap_30day_count
+      b: rpt_readmissions.count
+
+  - term: accounts receivable
+    aliases: [AR aging, outstanding invoices, ar count]
+    description: Count of accounts-receivable aging records by facility and aging bucket.
+    maps_to: rpt_ar_aging.count
+
+  - term: insurance claims
+    aliases: [insurance accounts receivable, insurance ar]
+    description: Count of insurance accounts-receivable records by facility and insurer.
+    maps_to: rpt_insurance_ar.count
+
+  - term: theatre utilization
+    aliases: [theatre bookings, operating theatre usage]
+    description: Count of theatre utilization/booking sessions.
+    maps_to: rpt_theatre_utilization.count
+
+  - term: procedure revenue
+    aliases: [average procedure revenue, revenue per procedure]
+    description: Average billed amount per procedure.
+    maps_to: rpt_procedure_revenue.avg_item_amount
+
+  - term: dialysis sessions
+    aliases: [dialysis session count, dialysis visits]
+    description: Count of dialysis sessions conducted.
+    maps_to: rpt_dialysis.count
+
+  - term: disease burden
+    aliases: [disease cases, disease case count]
+    description: Count of disease cases recorded by disease group and facility.
+    maps_to: rpt_disease_burden.count
+
+  - term: prescriptions
+    aliases: [rx count, prescriptions issued]
+    description: Count of prescriptions issued for tracked disease groups.
+    maps_to: rpt_disease_burden.rx_count
+
+  - term: stock watchlist
+    aliases: [dos watchlist, reorder watchlist, items to reorder]
+    description: Count of items on the stock-monitoring watchlist.
+    maps_to: rpt_dos_watchlist.count
+
+  - term: specialty admissions
+    aliases: [specialty admission count]
+    description: Count of specialty admissions to the hospital.
+    maps_to: rpt_specialty_admissions.count
+
+  - term: stock redistribution
+    aliases: [stock transfers, redistribution events]
+    description: Count of stock redistribution/transfer events between facilities.
+    maps_to: rpt_redistribution.count
+
+  - term: patient payments
+    aliases: [finance events, patient finance events]
+    description: Count of financial events (payments, invoices) tied to patients.
+    maps_to: fact_patient_finance_events.count
+
+  - term: amount collected
+    aliases: [revenue collected, total collected, payments collected]
+    description: Total monetary amount across patient finance events.
+    maps_to: fact_patient_finance_events.amount
+
+  - term: patient invoices
+    aliases: [invoices, invoice count]
+    description: Count of patient invoices generated.
+    maps_to: fact_patient_invoice.count
+
+  - term: unique products
+    aliases: [canonical products, product taxonomy count]
+    description: Count of unique canonical products in the product taxonomy.
+    maps_to: canonical_product_taxonomy.count
+
+  - term: duplicate products
+    aliases: [facility product duplicates]
+    description: Count of duplicate product entries across facilities.
+    maps_to: canonical_product_taxonomy.facility_dup_count
+
+  - term: dispensing trends
+    aliases: [dispensing value, total dispensing value]
+    description: Total value of medications dispensed over time.
+    maps_to: rpt_dispensing_trends.total_dispensing_value
+
+  - term: catchment population
+    aliases: [population served, population count]
+    description: Count of population records tracked for a catchment area.
+    maps_to: rpt_kakamega_population.count
+
+  - term: ward utilisation
+    aliases: [ward capacity utilisation, ward usage percentage]
+    description: Percentage of total ward capacity utilised.
+    maps_to: rpt_lodwar_ward_utilisation.pct_of_total
+
+  - term: medication cost
+    aliases: [drug cost, total drug cost, cost of medication]
+    description: Total cost of drugs dispensed to patients.
+    maps_to: fact_patient_dispensing.total_drug_cost
+
+  - term: drugs dispensed
+    aliases: [dispensing volume, medications dispensed count]
+    description: Count of individual drugs dispensed to patients.
+    maps_to: fact_patient_dispensing.drugs_dispensed_count

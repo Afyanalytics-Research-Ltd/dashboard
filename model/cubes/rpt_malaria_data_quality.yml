@@ -1,0 +1,56 @@
+cubes:
+  - name: rpt_malaria_data_quality
+    sql_table: "\"REPORTING\".\"RPT_MALARIA_DATA_QUALITY\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: comparison_allowed
+        sql: "{CUBE}.\"COMPARISON_ALLOWED\""
+        type: boolean
+
+      - name: confidence_level
+        sql: "{CUBE}.\"CONFIDENCE_LEVEL\""
+        type: string
+
+      - name: evidence_type
+        sql: "{CUBE}.\"EVIDENCE_TYPE\""
+        type: string
+
+      - name: known_gap
+        sql: "{CUBE}.\"KNOWN_GAP\""
+        type: string
+
+      - name: metric_id
+        sql: "{CUBE}.\"METRIC_ID\""
+        type: string
+
+      - name: metric_name
+        sql: "{CUBE}.\"METRIC_NAME\""
+        type: string
+
+      - name: reliability_note
+        sql: "{CUBE}.\"RELIABILITY_NOTE\""
+        type: string
+
+      - name: source_schema
+        sql: "{CUBE}.\"SOURCE_SCHEMA\""
+        type: string
+
+      - name: what_data_would_unlock
+        sql: "{CUBE}.\"WHAT_DATA_WOULD_UNLOCK\""
+        type: string
+
+      - name: zone_label
+        sql: "{CUBE}.\"ZONE_LABEL\""
+        type: string
+
+    measures:
+      - name: count
+        type: count
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

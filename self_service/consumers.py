@@ -60,6 +60,11 @@ def _wants_visualization(text):
     return wants_visualization(text)
 
 
+def _is_pure_chart_request(text):
+    from agents.charts import is_pure_chart_request
+    return is_pure_chart_request(text)
+
+
 class AnalyticsChatConsumer(AsyncWebsocketConsumer):
 
     async def connect(self):
@@ -111,13 +116,18 @@ class AnalyticsChatConsumer(AsyncWebsocketConsumer):
         pending_thread_id = self.pending_chart_thread_id
         self.pending_chart_thread_id = None  # consumed either way — offers don't linger past the next reply
 
-        # Either: a plain "yes" answering a just-made offer, or an explicit
-        # "graph/chart/plot/visualize" request about whatever was last asked
-        # — the latter works even when the prior result was too small to be
-        # proactively offered (e.g. a 0-row answer).
+        # Either: a plain "yes" answering a just-made offer, or a BARE
+        # chart request with no new analytical content ("show me a graph",
+        # "visualize that") about whatever was last asked — the latter
+        # works even when the prior result was too small to be proactively
+        # offered (e.g. a 0-row answer). Deliberately narrower than
+        # _wants_visualization here: a new substantive question that
+        # happens to mention charting ("show me the patients by sex") must
+        # run through _route() to get a FRESH result, not silently re-chart
+        # whatever the last query happened to compute.
         chart_thread_id = (
             pending_thread_id if (pending_thread_id and _is_affirmative(query))
-            else self.last_metric_thread_id if (self.last_metric_thread_id and _wants_visualization(query))
+            else self.last_metric_thread_id if (self.last_metric_thread_id and _is_pure_chart_request(query))
             else None
         )
 

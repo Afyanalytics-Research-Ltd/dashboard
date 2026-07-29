@@ -1,0 +1,40 @@
+cubes:
+  - name: rpt_bed_occupancy
+    sql_table: "\"REPORTING\".\"RPT_BED_OCCUPANCY\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: facility
+        sql: "{CUBE}.\"FACILITY\""
+        type: string
+
+      - name: ward_age_group
+        sql: "{CUBE}.\"WARD_AGE_GROUP\""
+        type: string
+
+      - name: ward_category
+        sql: "{CUBE}.\"WARD_CATEGORY\""
+        type: string
+
+      - name: ward_name
+        sql: "{CUBE}.\"WARD_NAME\""
+        type: string
+
+      - name: admission_month
+        sql: "{CUBE}.\"ADMISSION_MONTH\""
+        type: time
+
+    measures:
+      - name: count
+        type: count
+
+      - name: avg_admission_cost
+        sql: "{CUBE}.\"AVG_ADMISSION_COST\""
+        type: sum
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

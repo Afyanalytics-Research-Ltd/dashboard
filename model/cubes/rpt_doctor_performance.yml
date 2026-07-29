@@ -1,0 +1,24 @@
+cubes:
+  - name: rpt_doctor_performance
+    sql_table: "\"REPORTING\".\"RPT_DOCTOR_PERFORMANCE\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: username
+        sql: "{CUBE}.\"USERNAME\""
+        type: string
+
+      - name: visit_month
+        sql: "{CUBE}.\"VISIT_MONTH\""
+        type: time
+
+    measures:
+      - name: count
+        type: count
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

@@ -1,0 +1,56 @@
+cubes:
+  - name: rpt_stockout_alerts
+    sql_table: "\"REPORTING\".\"RPT_STOCKOUT_ALERTS\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: canonical_name
+        sql: "{CUBE}.\"CANONICAL_NAME\""
+        type: string
+
+      - name: clinical_priority
+        sql: "{CUBE}.\"CLINICAL_PRIORITY\""
+        type: string
+
+      - name: facility
+        sql: "{CUBE}.\"FACILITY\""
+        type: string
+
+      - name: inn_name
+        sql: "{CUBE}.\"INN_NAME\""
+        type: string
+
+      - name: product_name
+        sql: "{CUBE}.\"PRODUCT_NAME\""
+        type: string
+
+      - name: therapeutic_class
+        sql: "{CUBE}.\"THERAPEUTIC_CLASS\""
+        type: string
+
+      - name: therapeutic_subclass
+        sql: "{CUBE}.\"THERAPEUTIC_SUBCLASS\""
+        type: string
+
+      - name: first_stockout_dispense
+        sql: "{CUBE}.\"FIRST_STOCKOUT_DISPENSE\""
+        type: time
+
+      - name: last_dispensed_at
+        sql: "{CUBE}.\"LAST_DISPENSED_AT\""
+        type: time
+
+      - name: last_stockout_dispense
+        sql: "{CUBE}.\"LAST_STOCKOUT_DISPENSE\""
+        type: time
+
+    measures:
+      - name: count
+        type: count
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

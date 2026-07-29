@@ -1,0 +1,56 @@
+cubes:
+  - name: rpt_redistribution
+    sql_table: "\"REPORTING\".\"RPT_REDISTRIBUTION\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: canonical_name
+        sql: "{CUBE}.\"CANONICAL_NAME\""
+        type: string
+
+      - name: clinical_priority
+        sql: "{CUBE}.\"CLINICAL_PRIORITY\""
+        type: string
+
+      - name: deficit_facility
+        sql: "{CUBE}.\"DEFICIT_FACILITY\""
+        type: string
+
+      - name: inn_name
+        sql: "{CUBE}.\"INN_NAME\""
+        type: string
+
+      - name: surplus_facility
+        sql: "{CUBE}.\"SURPLUS_FACILITY\""
+        type: string
+
+      - name: therapeutic_class
+        sql: "{CUBE}.\"THERAPEUTIC_CLASS\""
+        type: string
+
+      - name: therapeutic_subclass
+        sql: "{CUBE}.\"THERAPEUTIC_SUBCLASS\""
+        type: string
+
+      - name: deficit_data_as_of
+        sql: "{CUBE}.\"DEFICIT_DATA_AS_OF\""
+        type: time
+
+      - name: surplus_data_as_of
+        sql: "{CUBE}.\"SURPLUS_DATA_AS_OF\""
+        type: time
+
+    measures:
+      - name: count
+        type: count
+
+      - name: suggested_transfer_qty
+        sql: "{CUBE}.\"SUGGESTED_TRANSFER_QTY\""
+        type: sum
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

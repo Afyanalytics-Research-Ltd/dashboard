@@ -1,0 +1,24 @@
+cubes:
+  - name: rpt_dialysis_ops
+    sql_table: "\"REPORTING\".\"RPT_DIALYSIS_OPS\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: is_partial_month
+        sql: "{CUBE}.\"IS_PARTIAL_MONTH\""
+        type: boolean
+
+      - name: invoice_month
+        sql: "{CUBE}.\"INVOICE_MONTH\""
+        type: time
+
+    measures:
+      - name: count
+        type: count
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

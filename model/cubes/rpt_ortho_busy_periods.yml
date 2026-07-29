@@ -1,0 +1,28 @@
+cubes:
+  - name: rpt_ortho_busy_periods
+    sql_table: "\"REPORTING\".\"RPT_ORTHO_BUSY_PERIODS\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: is_peak_slot
+        sql: "{CUBE}.\"IS_PEAK_SLOT\""
+        type: boolean
+
+      - name: visit_day_name
+        sql: "{CUBE}.\"VISIT_DAY_NAME\""
+        type: string
+
+    measures:
+      - name: count
+        type: count
+
+      - name: pct_of_total
+        sql: "{CUBE}.\"PCT_OF_TOTAL\""
+        type: sum
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

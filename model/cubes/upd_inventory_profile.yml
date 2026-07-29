@@ -1,0 +1,32 @@
+cubes:
+  - name: upd_inventory_profile
+    sql_table: "\"REPORTING\".\"UPD_INVENTORY_PROFILE\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: source_schema
+        sql: "{CUBE}.\"SOURCE_SCHEMA\""
+        type: string
+
+      - name: first_dispensed_at
+        sql: "{CUBE}.\"FIRST_DISPENSED_AT\""
+        type: time
+
+      - name: last_dispensed_at
+        sql: "{CUBE}.\"LAST_DISPENSED_AT\""
+        type: time
+
+    measures:
+      - name: count
+        type: count
+
+      - name: lifetime_drug_cost
+        sql: "{CUBE}.\"LIFETIME_DRUG_COST\""
+        type: sum
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

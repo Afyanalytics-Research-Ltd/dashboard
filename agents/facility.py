@@ -356,15 +356,14 @@ def inject_facility_filter(query: dict, facility_key: str) -> dict:
         )
         return query
 
-    # Don't double-inject
-    existing = query.get("filters", [])
-    for f in existing:
-        if f.get("member") == matched_dim:
-            logger.debug(
-                "inject_facility_filter: %s filter already present — skipping",
-                matched_dim,
-            )
-            return query
+    # Row-level security: ALWAYS enforce the correct facility filter on this
+    # dimension, replacing any filter already targeting it rather than
+    # skipping when one is merely present. An existing filter on this exact
+    # field is not necessarily the facility scope — it could be an
+    # unrelated (even hallucinated) LLM-extracted filter that happens to
+    # target the same column, which would otherwise silently suppress row-
+    # level scoping entirely rather than just being redundant with it.
+    existing = [f for f in query.get("filters", []) if f.get("member") != matched_dim]
 
     logger.info(
         "inject_facility_filter: %s = %s  (facility=%s)",

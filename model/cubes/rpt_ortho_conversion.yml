@@ -1,0 +1,108 @@
+cubes:
+  - name: rpt_ortho_conversion
+    sql_table: "\"REPORTING\".\"RPT_ORTHO_CONVERSION\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: bed_category
+        sql: "{CUBE}.\"BED_CATEGORY\""
+        type: string
+
+      - name: bed_no
+        sql: "{CUBE}.\"BED_NO\""
+        type: string
+
+      - name: composite_patient_id
+        sql: "{CUBE}.\"COMPOSITE_PATIENT_ID\""
+        type: string
+
+      - name: conversion_type
+        sql: "{CUBE}.\"CONVERSION_TYPE\""
+        type: string
+
+      - name: discharge_category
+        sql: "{CUBE}.\"DISCHARGE_CATEGORY\""
+        type: string
+
+      - name: facility
+        sql: "{CUBE}.\"FACILITY\""
+        type: string
+
+      - name: gender
+        sql: "{CUBE}.\"GENDER\""
+        type: string
+
+      - name: has_prior_opd_7d
+        sql: "{CUBE}.\"HAS_PRIOR_OPD_7D\""
+        type: boolean
+
+      - name: is_direct_admission
+        sql: "{CUBE}.\"IS_DIRECT_ADMISSION\""
+        type: boolean
+
+      - name: is_discharge_reliable
+        sql: "{CUBE}.\"IS_DISCHARGE_RELIABLE\""
+        type: boolean
+
+      - name: link_confidence
+        sql: "{CUBE}.\"LINK_CONFIDENCE\""
+        type: string
+
+      - name: patient_id
+        sql: "{CUBE}.\"PATIENT_ID\""
+        type: string
+
+      - name: pay_mode
+        sql: "{CUBE}.\"PAY_MODE\""
+        type: string
+
+      - name: prior_opd_visit_id
+        sql: "{CUBE}.\"PRIOR_OPD_VISIT_ID\""
+        type: string
+
+      - name: prior_opd_visit_type
+        sql: "{CUBE}.\"PRIOR_OPD_VISIT_TYPE\""
+        type: string
+
+      - name: source_system
+        sql: "{CUBE}.\"SOURCE_SYSTEM\""
+        type: string
+
+      - name: visit_id
+        sql: "{CUBE}.\"VISIT_ID\""
+        type: string
+
+      - name: ward
+        sql: "{CUBE}.\"WARD\""
+        type: string
+
+      - name: admission_date
+        sql: "{CUBE}.\"ADMISSION_DATE\""
+        type: time
+
+      - name: admission_month
+        sql: "{CUBE}.\"ADMISSION_MONTH\""
+        type: time
+
+      - name: admission_week
+        sql: "{CUBE}.\"ADMISSION_WEEK\""
+        type: time
+
+      - name: discharge_date
+        sql: "{CUBE}.\"DISCHARGE_DATE\""
+        type: time
+
+      - name: prior_opd_date
+        sql: "{CUBE}.\"PRIOR_OPD_DATE\""
+        type: time
+
+    measures:
+      - name: count
+        type: count
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

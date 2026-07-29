@@ -1,0 +1,20 @@
+cubes:
+  - name: rpt_admission_tat
+    sql_table: "\"REPORTING\".\"RPT_ADMISSION_TAT\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: tat_month
+        sql: "{CUBE}.\"TAT_MONTH\""
+        type: time
+
+    measures:
+      - name: count
+        type: count
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

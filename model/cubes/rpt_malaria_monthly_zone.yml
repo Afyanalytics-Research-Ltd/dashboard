@@ -1,0 +1,60 @@
+cubes:
+  - name: rpt_malaria_monthly_zone
+    sql_table: "\"REPORTING\".\"RPT_MALARIA_MONTHLY_ZONE\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: is_valid_positivity_month
+        sql: "{CUBE}.\"IS_VALID_POSITIVITY_MONTH\""
+        type: boolean
+
+      - name: source_schema
+        sql: "{CUBE}.\"SOURCE_SCHEMA\""
+        type: string
+
+      - name: zone_label
+        sql: "{CUBE}.\"ZONE_LABEL\""
+        type: string
+
+      - name: visit_month
+        sql: "{CUBE}.\"VISIT_MONTH\""
+        type: time
+
+    measures:
+      - name: count
+        type: count
+
+      - name: antibiotic_confirmed_count
+        sql: "{CUBE}.\"ANTIBIOTIC_CONFIRMED_COUNT\""
+        type: sum
+
+      - name: antibiotic_rx_count
+        sql: "{CUBE}.\"ANTIBIOTIC_RX_COUNT\""
+        type: sum
+
+      - name: antimalarial_count
+        sql: "{CUBE}.\"ANTIMALARIAL_COUNT\""
+        type: sum
+
+      - name: confirmed_count
+        sql: "{CUBE}.\"CONFIRMED_COUNT\""
+        type: sum
+
+      - name: sepsis_count
+        sql: "{CUBE}.\"SEPSIS_COUNT\""
+        type: sum
+
+      - name: tested_count
+        sql: "{CUBE}.\"TESTED_COUNT\""
+        type: sum
+
+      - name: visit_count
+        sql: "{CUBE}.\"VISIT_COUNT\""
+        type: sum
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

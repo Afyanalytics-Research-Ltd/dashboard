@@ -1,0 +1,44 @@
+cubes:
+  - name: rpt_supplier_summary
+    sql_table: "\"REPORTING\".\"RPT_SUPPLIER_SUMMARY\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: facility
+        sql: "{CUBE}.\"FACILITY\""
+        type: string
+
+      - name: supplier_id
+        sql: "{CUBE}.\"SUPPLIER_ID\""
+        type: string
+
+      - name: supplier_name
+        sql: "{CUBE}.\"SUPPLIER_NAME\""
+        type: string
+
+      - name: first_activity
+        sql: "{CUBE}.\"FIRST_ACTIVITY\""
+        type: time
+
+      - name: last_activity
+        sql: "{CUBE}.\"LAST_ACTIVITY\""
+        type: time
+
+    measures:
+      - name: count
+        type: count
+
+      - name: ordered_value
+        sql: "{CUBE}.\"ORDERED_VALUE\""
+        type: sum
+
+      - name: received_value
+        sql: "{CUBE}.\"RECEIVED_VALUE\""
+        type: sum
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

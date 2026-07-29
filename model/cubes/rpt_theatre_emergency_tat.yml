@@ -1,0 +1,24 @@
+cubes:
+  - name: rpt_theatre_emergency_tat
+    sql_table: "\"REPORTING\".\"RPT_THEATRE_EMERGENCY_TAT\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: declaration_day
+        sql: "{CUBE}.\"DECLARATION_DAY\""
+        type: string
+
+      - name: booking_ts
+        sql: "{CUBE}.\"BOOKING_TS\""
+        type: time
+
+    measures:
+      - name: count
+        type: count
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

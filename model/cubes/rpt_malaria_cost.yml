@@ -1,0 +1,56 @@
+cubes:
+  - name: rpt_malaria_cost
+    sql_table: "\"REPORTING\".\"RPT_MALARIA_COST\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: cost_data_available
+        sql: "{CUBE}.\"COST_DATA_AVAILABLE\""
+        type: boolean
+
+      - name: detection_source
+        sql: "{CUBE}.\"DETECTION_SOURCE\""
+        type: string
+
+      - name: is_tenri_pso_outlier_row
+        sql: "{CUBE}.\"IS_TENRI_PSO_OUTLIER_ROW\""
+        type: boolean
+
+      - name: source_schema
+        sql: "{CUBE}.\"SOURCE_SCHEMA\""
+        type: string
+
+      - name: zone_label
+        sql: "{CUBE}.\"ZONE_LABEL\""
+        type: string
+
+      - name: visit_month
+        sql: "{CUBE}.\"VISIT_MONTH\""
+        type: time
+
+    measures:
+      - name: count
+        type: count
+
+      - name: confirmed_count
+        sql: "{CUBE}.\"CONFIRMED_COUNT\""
+        type: sum
+
+      - name: pct_visits_with_cost
+        sql: "{CUBE}.\"PCT_VISITS_WITH_COST\""
+        type: sum
+
+      - name: visit_count
+        sql: "{CUBE}.\"VISIT_COUNT\""
+        type: sum
+
+      - name: visits_with_cost
+        sql: "{CUBE}.\"VISITS_WITH_COST\""
+        type: sum
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

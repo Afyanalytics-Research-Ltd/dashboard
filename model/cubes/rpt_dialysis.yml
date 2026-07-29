@@ -1,0 +1,28 @@
+cubes:
+  - name: rpt_dialysis
+    sql_table: "\"REPORTING\".\"RPT_DIALYSIS\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: dialysis_ward
+        sql: "{CUBE}.\"DIALYSIS_WARD\""
+        type: string
+
+      - name: facility
+        sql: "{CUBE}.\"FACILITY\""
+        type: string
+
+      - name: session_month
+        sql: "{CUBE}.\"SESSION_MONTH\""
+        type: time
+
+    measures:
+      - name: count
+        type: count
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

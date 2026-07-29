@@ -1,0 +1,40 @@
+cubes:
+  - name: rpt_procedure_revenue
+    sql_table: "\"REPORTING\".\"RPT_PROCEDURE_REVENUE\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: facility
+        sql: "{CUBE}.\"FACILITY\""
+        type: string
+
+      - name: insurer
+        sql: "{CUBE}.\"INSURER\""
+        type: string
+
+      - name: payment_mode
+        sql: "{CUBE}.\"PAYMENT_MODE\""
+        type: string
+
+      - name: revenue_category
+        sql: "{CUBE}.\"REVENUE_CATEGORY\""
+        type: string
+
+      - name: revenue_month
+        sql: "{CUBE}.\"REVENUE_MONTH\""
+        type: time
+
+    measures:
+      - name: count
+        type: count
+
+      - name: avg_item_amount
+        sql: "{CUBE}.\"AVG_ITEM_AMOUNT\""
+        type: sum
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

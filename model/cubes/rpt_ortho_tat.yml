@@ -1,0 +1,88 @@
+cubes:
+  - name: rpt_ortho_tat
+    sql_table: "\"REPORTING\".\"RPT_ORTHO_TAT\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: age_group
+        sql: "{CUBE}.\"AGE_GROUP\""
+        type: string
+
+      - name: composite_patient_id
+        sql: "{CUBE}.\"COMPOSITE_PATIENT_ID\""
+        type: string
+
+      - name: facility
+        sql: "{CUBE}.\"FACILITY\""
+        type: string
+
+      - name: gender
+        sql: "{CUBE}.\"GENDER\""
+        type: string
+
+      - name: is_new_patient
+        sql: "{CUBE}.\"IS_NEW_PATIENT\""
+        type: boolean
+
+      - name: is_walk_in
+        sql: "{CUBE}.\"IS_WALK_IN\""
+        type: boolean
+
+      - name: source_system
+        sql: "{CUBE}.\"SOURCE_SYSTEM\""
+        type: string
+
+      - name: visit_day_name
+        sql: "{CUBE}.\"VISIT_DAY_NAME\""
+        type: string
+
+      - name: visit_id
+        sql: "{CUBE}.\"VISIT_ID\""
+        type: string
+
+      - name: visit_type
+        sql: "{CUBE}.\"VISIT_TYPE\""
+        type: string
+
+      - name: cons_time
+        sql: "{CUBE}.\"CONS_TIME\""
+        type: time
+
+      - name: pharm_time
+        sql: "{CUBE}.\"PHARM_TIME\""
+        type: time
+
+      - name: triage_time
+        sql: "{CUBE}.\"TRIAGE_TIME\""
+        type: time
+
+      - name: visit_date
+        sql: "{CUBE}.\"VISIT_DATE\""
+        type: time
+
+      - name: visit_end_time
+        sql: "{CUBE}.\"VISIT_END_TIME\""
+        type: time
+
+      - name: visit_month
+        sql: "{CUBE}.\"VISIT_MONTH\""
+        type: time
+
+      - name: visit_start_time
+        sql: "{CUBE}.\"VISIT_START_TIME\""
+        type: time
+
+      - name: visit_week
+        sql: "{CUBE}.\"VISIT_WEEK\""
+        type: time
+
+    measures:
+      - name: count
+        type: count
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

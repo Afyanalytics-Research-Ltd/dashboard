@@ -1,0 +1,64 @@
+cubes:
+  - name: rpt_malaria_zones
+    sql_table: "\"REPORTING\".\"RPT_MALARIA_ZONES\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: analytical_caveats
+        sql: "{CUBE}.\"ANALYTICAL_CAVEATS\""
+        type: string
+
+      - name: county
+        sql: "{CUBE}.\"COUNTY\""
+        type: string
+
+      - name: itn_use_access_ratio_category
+        sql: "{CUBE}.\"ITN_USE_ACCESS_RATIO_CATEGORY\""
+        type: string
+
+      - name: papfpr_range_pct
+        sql: "{CUBE}.\"PAPFPR_RANGE_PCT\""
+        type: string
+
+      - name: primary_sub_county
+        sql: "{CUBE}.\"PRIMARY_SUB_COUNTY\""
+        type: string
+
+      - name: source_schema
+        sql: "{CUBE}.\"SOURCE_SCHEMA\""
+        type: string
+
+      - name: testing_method
+        sql: "{CUBE}.\"TESTING_METHOD\""
+        type: string
+
+      - name: transmission_zone
+        sql: "{CUBE}.\"TRANSMISSION_ZONE\""
+        type: string
+
+      - name: zone_label
+        sql: "{CUBE}.\"ZONE_LABEL\""
+        type: string
+
+      - name: data_end_date
+        sql: "{CUBE}.\"DATA_END_DATE\""
+        type: time
+
+      - name: data_start_date
+        sql: "{CUBE}.\"DATA_START_DATE\""
+        type: time
+
+    measures:
+      - name: count
+        type: count
+
+      - name: valid_visit_count
+        sql: "{CUBE}.\"VALID_VISIT_COUNT\""
+        type: sum
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

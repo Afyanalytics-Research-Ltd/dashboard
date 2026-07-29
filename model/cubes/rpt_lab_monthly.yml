@@ -1,0 +1,24 @@
+cubes:
+  - name: rpt_lab_monthly
+    sql_table: "\"REPORTING\".\"RPT_LAB_MONTHLY\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: lab_month
+        sql: "{CUBE}.\"LAB_MONTH\""
+        type: time
+
+    measures:
+      - name: count
+        type: count
+
+      - name: abnormal_count
+        sql: "{CUBE}.\"ABNORMAL_COUNT\""
+        type: sum
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

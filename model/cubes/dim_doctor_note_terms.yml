@@ -1,0 +1,36 @@
+cubes:
+  - name: dim_doctor_note_terms
+    sql_table: "\"REPORTING\".\"DIM_DOCTOR_NOTE_TERMS\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: canonical_term
+        sql: "{CUBE}.\"CANONICAL_TERM\""
+        type: string
+
+      - name: clinical_syndrome
+        sql: "{CUBE}.\"CLINICAL_SYNDROME\""
+        type: string
+
+      - name: disease_burden_group
+        sql: "{CUBE}.\"DISEASE_BURDEN_GROUP\""
+        type: string
+
+      - name: raw_term
+        sql: "{CUBE}.\"RAW_TERM\""
+        type: string
+
+      - name: status
+        sql: "{CUBE}.\"STATUS\""
+        type: string
+
+    measures:
+      - name: count
+        type: count
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

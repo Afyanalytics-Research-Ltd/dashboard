@@ -1,0 +1,40 @@
+cubes:
+  - name: fact_patient_invoice
+    sql_table: "\"REPORTING\".\"FACT_PATIENT_INVOICE\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: facility_key
+        sql: "{CUBE}.\"FACILITY_KEY\""
+        type: string
+
+      - name: invoice_key
+        sql: "{CUBE}.\"INVOICE_KEY\""
+        type: string
+
+      - name: patient_id
+        sql: "{CUBE}.\"PATIENT_ID\""
+        type: string
+
+      - name: first_event_date
+        sql: "{CUBE}.\"FIRST_EVENT_DATE\""
+        type: time
+
+      - name: last_event_date
+        sql: "{CUBE}.\"LAST_EVENT_DATE\""
+        type: time
+
+    measures:
+      - name: count
+        type: count
+
+      - name: event_count
+        sql: "{CUBE}.\"EVENT_COUNT\""
+        type: sum
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

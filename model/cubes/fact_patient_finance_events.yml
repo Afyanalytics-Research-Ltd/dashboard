@@ -1,0 +1,48 @@
+cubes:
+  - name: fact_patient_finance_events
+    sql_table: "\"REPORTING\".\"FACT_PATIENT_FINANCE_EVENTS\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: event_type
+        sql: "{CUBE}.\"EVENT_TYPE\""
+        type: string
+
+      - name: invoice_no
+        sql: "{CUBE}.\"INVOICE_NO\""
+        type: string
+
+      - name: patient_id
+        sql: "{CUBE}.\"PATIENT_ID\""
+        type: string
+
+      - name: payment_mode
+        sql: "{CUBE}.\"PAYMENT_MODE\""
+        type: string
+
+      - name: source_schema
+        sql: "{CUBE}.\"SOURCE_SCHEMA\""
+        type: string
+
+      - name: source_table
+        sql: "{CUBE}.\"SOURCE_TABLE\""
+        type: string
+
+      - name: event_date
+        sql: "{CUBE}.\"EVENT_DATE\""
+        type: time
+
+    measures:
+      - name: count
+        type: count
+
+      - name: amount
+        sql: "{CUBE}.\"AMOUNT\""
+        type: sum
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

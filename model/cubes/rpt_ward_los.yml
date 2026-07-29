@@ -1,0 +1,28 @@
+cubes:
+  - name: rpt_ward_los
+    sql_table: "\"REPORTING\".\"RPT_WARD_LOS\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: facility
+        sql: "{CUBE}.\"FACILITY\""
+        type: string
+
+      - name: ward_category
+        sql: "{CUBE}.\"WARD_CATEGORY\""
+        type: string
+
+      - name: admission_month
+        sql: "{CUBE}.\"ADMISSION_MONTH\""
+        type: time
+
+    measures:
+      - name: count
+        type: count
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

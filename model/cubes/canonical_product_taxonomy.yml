@@ -1,0 +1,84 @@
+cubes:
+  - name: canonical_product_taxonomy
+    sql_table: "\"REPORTING\".\"CANONICAL_PRODUCT_TAXONOMY\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: canonical_name
+        sql: "{CUBE}.\"CANONICAL_NAME\""
+        type: string
+
+      - name: facility
+        sql: "{CUBE}.\"FACILITY\""
+        type: string
+
+      - name: form_canonical
+        sql: "{CUBE}.\"FORM_CANONICAL\""
+        type: string
+
+      - name: form_extracted
+        sql: "{CUBE}.\"FORM_EXTRACTED\""
+        type: string
+
+      - name: inn_map_status
+        sql: "{CUBE}.\"INN_MAP_STATUS\""
+        type: string
+
+      - name: inn_name
+        sql: "{CUBE}.\"INN_NAME\""
+        type: string
+
+      - name: match_type
+        sql: "{CUBE}.\"MATCH_TYPE\""
+        type: string
+
+      - name: name_normalised
+        sql: "{CUBE}.\"NAME_NORMALISED\""
+        type: string
+
+      - name: product_category
+        sql: "{CUBE}.\"PRODUCT_CATEGORY\""
+        type: string
+
+      - name: product_id
+        sql: "{CUBE}.\"PRODUCT_ID\""
+        type: string
+
+      - name: product_name
+        sql: "{CUBE}.\"PRODUCT_NAME\""
+        type: string
+
+      - name: strength_canonical
+        sql: "{CUBE}.\"STRENGTH_CANONICAL\""
+        type: string
+
+      - name: strength_extracted
+        sql: "{CUBE}.\"STRENGTH_EXTRACTED\""
+        type: string
+
+      - name: therapeutic_class
+        sql: "{CUBE}.\"THERAPEUTIC_CLASS\""
+        type: string
+
+      - name: therapeutic_subclass
+        sql: "{CUBE}.\"THERAPEUTIC_SUBCLASS\""
+        type: string
+
+      - name: loaded_at
+        sql: "{CUBE}.\"LOADED_AT\""
+        type: time
+
+    measures:
+      - name: count
+        type: count
+
+      - name: facility_dup_count
+        sql: "{CUBE}.\"FACILITY_DUP_COUNT\""
+        type: sum
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

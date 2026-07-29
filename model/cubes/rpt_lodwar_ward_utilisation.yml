@@ -1,0 +1,32 @@
+cubes:
+  - name: rpt_lodwar_ward_utilisation
+    sql_table: "\"REPORTING\".\"RPT_LODWAR_WARD_UTILISATION\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: facility
+        sql: "{CUBE}.\"FACILITY\""
+        type: string
+
+      - name: source_schema
+        sql: "{CUBE}.\"SOURCE_SCHEMA\""
+        type: string
+
+      - name: ward_name
+        sql: "{CUBE}.\"WARD_NAME\""
+        type: string
+
+    measures:
+      - name: count
+        type: count
+
+      - name: pct_of_total
+        sql: "{CUBE}.\"PCT_OF_TOTAL\""
+        type: sum
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

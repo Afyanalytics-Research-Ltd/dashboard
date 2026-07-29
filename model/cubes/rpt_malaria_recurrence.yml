@@ -1,0 +1,40 @@
+cubes:
+  - name: rpt_malaria_recurrence
+    sql_table: "\"REPORTING\".\"RPT_MALARIA_RECURRENCE\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: recurrence_tier
+        sql: "{CUBE}.\"RECURRENCE_TIER\""
+        type: string
+
+      - name: source_schema
+        sql: "{CUBE}.\"SOURCE_SCHEMA\""
+        type: string
+
+      - name: zone_label
+        sql: "{CUBE}.\"ZONE_LABEL\""
+        type: string
+
+    measures:
+      - name: count
+        type: count
+
+      - name: patient_count
+        sql: "{CUBE}.\"PATIENT_COUNT\""
+        type: sum
+
+      - name: zone_patient_count
+        sql: "{CUBE}.\"ZONE_PATIENT_COUNT\""
+        type: sum
+
+      - name: zone_recurrent_patient_count
+        sql: "{CUBE}.\"ZONE_RECURRENT_PATIENT_COUNT\""
+        type: sum
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

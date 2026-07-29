@@ -1,0 +1,17 @@
+cubes:
+  - name: rpt_patient_return_funnel
+    sql_table: "\"REPORTING\".\"RPT_PATIENT_RETURN_FUNNEL\""
+    data_source: default
+
+    joins: []
+
+    dimensions: []
+
+    measures:
+      - name: count
+        type: count
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

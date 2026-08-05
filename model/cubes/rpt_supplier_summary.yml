@@ -27,6 +27,16 @@ cubes:
         type: time
 
     measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:03:52.750966+00:00
+      - name: purchase_orders
+        sql: '{CUBE}."PURCHASE_ORDERS"'
+        type: sum
+      - name: goods_received_docs
+        sql: '{CUBE}."GOODS_RECEIVED_DOCS"'
+        type: sum
+      - name: distinct_items
+        sql: '{CUBE}."DISTINCT_ITEMS"'
+        type: sum
       - name: count
         type: count
 

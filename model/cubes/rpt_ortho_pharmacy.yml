@@ -63,6 +63,19 @@ cubes:
         type: time
 
     measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:02:39.217736+00:00
+      - name: order_year
+        sql: '{CUBE}."ORDER_YEAR"'
+        type: sum
+      - name: order_hour
+        sql: '{CUBE}."ORDER_HOUR"'
+        type: sum
+      - name: tat_mins
+        sql: '{CUBE}."TAT_MINS"'
+        type: sum
+      - name: revenue_kes
+        sql: '{CUBE}."REVENUE_KES"'
+        type: sum
       - name: count
         type: count
 

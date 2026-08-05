@@ -177,6 +177,11 @@
         <i class="bi bi-gear sidebar-item-icon"></i>
         <span class="sidebar-item-label">Settings</span>
       </a>
+      <a href="{% url 'agents:agent-configuration' %}"
+         class="sidebar-item {% if sidebar_section == 'agent-configuration' %}active{% endif %}">
+        <i class="bi bi-robot sidebar-item-icon"></i>
+        <span class="sidebar-item-label">Semantic Layer Configuration</span>
+      </a>
       {% endif %}
 
       <!-- Notifications shortcut -->
@@ -364,6 +369,13 @@
                  href="{% url 'core:settings' %}">
                 <i class="bi bi-gear" style="color:var(--afya-blue);"></i>
                 System Settings
+              </a>
+            </li>
+            <li>
+              <a class="dropdown-item d-flex align-items-center gap-2 py-2"
+                 href="{% url 'agents:agent-configuration' %}">
+                <i class="bi bi-robot" style="color:var(--afya-blue);"></i>
+                Semantic Layer Configuration
               </a>
             </li>
             <li>

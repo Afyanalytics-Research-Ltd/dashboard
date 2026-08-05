@@ -123,17 +123,22 @@ def promote_date_filters(query: dict, filters: list[dict]) -> tuple[dict, list[d
             continue
 
         member = f["member"]
-        matched = False
-        for td in time_dims:
-            if td.get("dimension") == member:
-                if f["operator"] == "inDateRange":
+        converted = False
+        if f["operator"] == "inDateRange":
+            for td in time_dims:
+                if td.get("dimension") == member:
                     td["dateRange"] = f["values"]  # e.g. ["2023-09-01", "2023-09-30"]
-                matched = True
-                logger.info("promote_date_filters: moved %s filter to timeDimension.dateRange", member)
-                break
+                    converted = True
+                    logger.info("promote_date_filters: moved %s filter to timeDimension.dateRange", member)
+                    break
 
-        if not matched:
-            # No matching timeDimension — keep as a regular filter
+        if not converted:
+            # Either no matching timeDimension, or a date operator (beforeDate/
+            # afterDate/notInDateRange) that isn't a single [start, end] range and
+            # so can't be expressed as dateRange — keep it as a regular filter
+            # instead of silently discarding it (previously: any operator matching
+            # an existing timeDimension's member was marked "matched" and dropped
+            # here even when it was never actually applied anywhere).
             remaining.append(f)
 
     updated_query = {**query, "timeDimensions": time_dims}

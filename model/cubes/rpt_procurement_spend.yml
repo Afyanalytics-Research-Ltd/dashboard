@@ -31,6 +31,13 @@ cubes:
         type: time
 
     measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:03:23.420881+00:00
+      - name: documents
+        sql: '{CUBE}."DOCUMENTS"'
+        type: sum
+      - name: lines
+        sql: '{CUBE}."LINES"'
+        type: sum
       - name: count
         type: count
 

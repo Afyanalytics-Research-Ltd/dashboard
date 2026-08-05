@@ -97,7 +97,22 @@ def _run_graph(initial_state: dict, thread_id: str):
         return output, None
     except Exception as exc:
         logger.exception("graph.invoke failed for thread %s", thread_id)
-        return None, JsonResponse({"error": str(exc)}, status=500)
+        # Checkpointed state survives a mid-run exception (LangGraph saves
+        # after every completed node), so whatever generate_cube_query /
+        # validate_query already resolved before execute_query blew up is
+        # still readable here — include it so a Cube failure is debuggable
+        # from the API response alone, not just the server log.
+        attempted_query = None
+        try:
+            snapshot = graph.get_state(config)
+            attempted_query = (snapshot.values or {}).get("cube_query") if snapshot else None
+        except Exception:
+            logger.debug("_run_graph: could not read back state for thread %s", thread_id)
+
+        error_body = {"error": str(exc)}
+        if attempted_query:
+            error_body["attempted_query"] = attempted_query
+        return None, JsonResponse(error_body, status=500)
 
 
 def _interrupt_message(output: dict) -> str | None:

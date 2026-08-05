@@ -35,6 +35,25 @@ cubes:
         type: time
 
     measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:00:10.554243+00:00
+      - name: current_soh_raw
+        sql: '{CUBE}."CURRENT_SOH_RAW"'
+        type: sum
+      - name: current_soh
+        sql: '{CUBE}."CURRENT_SOH"'
+        type: sum
+      - name: total_dispensed_30d
+        sql: '{CUBE}."TOTAL_DISPENSED_30D"'
+        type: sum
+      - name: avg_daily_consumption
+        sql: '{CUBE}."AVG_DAILY_CONSUMPTION"'
+        type: avg
+      - name: active_dispensing_days
+        sql: '{CUBE}."ACTIVE_DISPENSING_DAYS"'
+        type: sum
+      - name: days_of_stock_remaining
+        sql: '{CUBE}."DAYS_OF_STOCK_REMAINING"'
+        type: sum
       - name: count
         type: count
 

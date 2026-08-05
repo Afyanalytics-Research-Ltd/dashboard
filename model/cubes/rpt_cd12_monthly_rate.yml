@@ -11,6 +11,19 @@ cubes:
         type: time
 
     measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T12:59:35.691647+00:00
+      - name: total_critical
+        sql: '{CUBE}."TOTAL_CRITICAL"'
+        type: sum
+      - name: admitted
+        sql: '{CUBE}."ADMITTED"'
+        type: sum
+      - name: not_admitted
+        sql: '{CUBE}."NOT_ADMITTED"'
+        type: sum
+      - name: non_admission_rate_pct
+        sql: '{CUBE}."NON_ADMISSION_RATE_PCT"'
+        type: avg
       - name: count
         type: count
 

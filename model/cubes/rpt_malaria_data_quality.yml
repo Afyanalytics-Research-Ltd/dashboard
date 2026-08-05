@@ -47,6 +47,10 @@ cubes:
         type: string
 
     measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:01:12.700791+00:00
+      - name: completeness_pct
+        sql: '{CUBE}."COMPLETENESS_PCT"'
+        type: avg
       - name: count
         type: count
 

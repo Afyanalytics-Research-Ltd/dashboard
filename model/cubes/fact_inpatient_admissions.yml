@@ -19,6 +19,19 @@ cubes:
         type: string
 
     measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T12:58:26.991701+00:00
+      - name: age
+        sql: '{CUBE}."AGE"'
+        type: sum
+      - name: total_los_days
+        sql: '{CUBE}."TOTAL_LOS_DAYS"'
+        type: sum
+      - name: total_readmissions
+        sql: '{CUBE}."TOTAL_READMISSIONS"'
+        type: sum
+      - name: total_30d_readmissions
+        sql: '{CUBE}."TOTAL_30D_READMISSIONS"'
+        type: sum
       - name: count
         type: count
 

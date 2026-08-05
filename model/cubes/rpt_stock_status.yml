@@ -43,6 +43,16 @@ cubes:
         type: time
 
     measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:03:42.998514+00:00
+      - name: current_soh_raw
+        sql: '{CUBE}."CURRENT_SOH_RAW"'
+        type: sum
+      - name: current_soh
+        sql: '{CUBE}."CURRENT_SOH"'
+        type: sum
+      - name: days_since_last_dispense
+        sql: '{CUBE}."DAYS_SINCE_LAST_DISPENSE"'
+        type: sum
       - name: count
         type: count
 

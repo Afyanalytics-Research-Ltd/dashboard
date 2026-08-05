@@ -15,6 +15,31 @@ cubes:
         type: time
 
     measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T12:59:45.591882+00:00
+      - name: sessions_billed
+        sql: '{CUBE}."SESSIONS_BILLED"'
+        type: sum
+      - name: sessions_insured
+        sql: '{CUBE}."SESSIONS_INSURED"'
+        type: sum
+      - name: sessions_cash
+        sql: '{CUBE}."SESSIONS_CASH"'
+        type: sum
+      - name: session_fee_revenue
+        sql: '{CUBE}."SESSION_FEE_REVENUE"'
+        type: sum
+      - name: total_dialysis_revenue
+        sql: '{CUBE}."TOTAL_DIALYSIS_REVENUE"'
+        type: sum
+      - name: ancillary_revenue
+        sql: '{CUBE}."ANCILLARY_REVENUE"'
+        type: sum
+      - name: avg_session_fee
+        sql: '{CUBE}."AVG_SESSION_FEE"'
+        type: avg
+      - name: utilisation_pct_theoretical
+        sql: '{CUBE}."UTILISATION_PCT_THEORETICAL"'
+        type: sum
       - name: count
         type: count
 

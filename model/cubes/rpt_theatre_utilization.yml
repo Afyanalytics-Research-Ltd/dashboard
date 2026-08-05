@@ -27,6 +27,49 @@ cubes:
         type: time
 
     measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:04:07.798807+00:00
+      - name: total_sessions
+        sql: '{CUBE}."TOTAL_SESSIONS"'
+        type: sum
+      - name: completed_sessions
+        sql: '{CUBE}."COMPLETED_SESSIONS"'
+        type: sum
+      - name: completion_rate_pct
+        sql: '{CUBE}."COMPLETION_RATE_PCT"'
+        type: avg
+      - name: emergency_sessions
+        sql: '{CUBE}."EMERGENCY_SESSIONS"'
+        type: sum
+      - name: elective_sessions
+        sql: '{CUBE}."ELECTIVE_SESSIONS"'
+        type: sum
+      - name: avg_duration_min
+        sql: '{CUBE}."AVG_DURATION_MIN"'
+        type: avg
+      - name: total_duration_min
+        sql: '{CUBE}."TOTAL_DURATION_MIN"'
+        type: sum
+      - name: total_duration_hrs
+        sql: '{CUBE}."TOTAL_DURATION_HRS"'
+        type: sum
+      - name: sessions_with_invoice
+        sql: '{CUBE}."SESSIONS_WITH_INVOICE"'
+        type: sum
+      - name: total_revenue
+        sql: '{CUBE}."TOTAL_REVENUE"'
+        type: sum
+      - name: avg_revenue_per_session
+        sql: '{CUBE}."AVG_REVENUE_PER_SESSION"'
+        type: avg
+      - name: distinct_insurers
+        sql: '{CUBE}."DISTINCT_INSURERS"'
+        type: sum
+      - name: insured_revenue
+        sql: '{CUBE}."INSURED_REVENUE"'
+        type: sum
+      - name: cash_revenue
+        sql: '{CUBE}."CASH_REVENUE"'
+        type: sum
       - name: count
         type: count
 

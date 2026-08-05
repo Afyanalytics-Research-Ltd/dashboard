@@ -27,6 +27,28 @@ cubes:
         type: string
 
     measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:01:30.739441+00:00
+      - name: cell_order
+        sql: '{CUBE}."CELL_ORDER"'
+        type: sum
+      - name: total_visits
+        sql: '{CUBE}."TOTAL_VISITS"'
+        type: sum
+      - name: cell_pct_of_zone
+        sql: '{CUBE}."CELL_PCT_OF_ZONE"'
+        type: sum
+      - name: empirical_treatment_rate_pct
+        sql: '{CUBE}."EMPIRICAL_TREATMENT_RATE_PCT"'
+        type: avg
+      - name: documented_act_rate_pct
+        sql: '{CUBE}."DOCUMENTED_ACT_RATE_PCT"'
+        type: avg
+      - name: over_prescription_rate_pct
+        sql: '{CUBE}."OVER_PRESCRIPTION_RATE_PCT"'
+        type: avg
+      - name: integrity_delta
+        sql: '{CUBE}."INTEGRITY_DELTA"'
+        type: sum
       - name: count
         type: count
 

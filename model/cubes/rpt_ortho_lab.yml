@@ -123,6 +123,16 @@ cubes:
         type: time
 
     measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:02:12.089091+00:00
+      - name: visit_year
+        sql: '{CUBE}."VISIT_YEAR"'
+        type: sum
+      - name: visit_dow
+        sql: '{CUBE}."VISIT_DOW"'
+        type: sum
+      - name: result_tat_mins
+        sql: '{CUBE}."RESULT_TAT_MINS"'
+        type: sum
       - name: count
         type: count
 

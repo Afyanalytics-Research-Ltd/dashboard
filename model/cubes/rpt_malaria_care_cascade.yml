@@ -31,6 +31,13 @@ cubes:
         type: string
 
     measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:00:59.345934+00:00
+      - name: step_order
+        sql: '{CUBE}."STEP_ORDER"'
+        type: sum
+      - name: dropout_rate_pct
+        sql: '{CUBE}."DROPOUT_RATE_PCT"'
+        type: avg
       - name: count
         type: count
 

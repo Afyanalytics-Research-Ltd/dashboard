@@ -27,6 +27,25 @@ cubes:
         type: time
 
     measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T12:58:45.455670+00:00
+      - name: total_billed
+        sql: '{CUBE}."TOTAL_BILLED"'
+        type: sum
+      - name: total_patient_invoice
+        sql: '{CUBE}."TOTAL_PATIENT_INVOICE"'
+        type: sum
+      - name: total_paid_eval
+        sql: '{CUBE}."TOTAL_PAID_EVAL"'
+        type: sum
+      - name: total_transactions
+        sql: '{CUBE}."TOTAL_TRANSACTIONS"'
+        type: sum
+      - name: total_waived
+        sql: '{CUBE}."TOTAL_WAIVED"'
+        type: sum
+      - name: balance_due
+        sql: '{CUBE}."BALANCE_DUE"'
+        type: sum
       - name: count
         type: count
 

@@ -27,6 +27,28 @@ cubes:
         type: time
 
     measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:03:28.456273+00:00
+      - name: total_admissions
+        sql: '{CUBE}."TOTAL_ADMISSIONS"'
+        type: sum
+      - name: readmissions
+        sql: '{CUBE}."READMISSIONS"'
+        type: sum
+      - name: readmission_rate_pct
+        sql: '{CUBE}."READMISSION_RATE_PCT"'
+        type: avg
+      - name: readmissions_30day
+        sql: '{CUBE}."READMISSIONS_30DAY"'
+        type: sum
+      - name: readmission_30day_rate_pct
+        sql: '{CUBE}."READMISSION_30DAY_RATE_PCT"'
+        type: avg
+      - name: avg_days_between_admissions
+        sql: '{CUBE}."AVG_DAYS_BETWEEN_ADMISSIONS"'
+        type: avg
+      - name: insured_30day_revenue_at_risk
+        sql: '{CUBE}."INSURED_30DAY_REVENUE_AT_RISK"'
+        type: sum
       - name: count
         type: count
 

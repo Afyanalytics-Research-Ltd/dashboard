@@ -23,6 +23,10 @@ cubes:
         type: time
 
     measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:00:29.989352+00:00
+      - name: incidence_rate_per_1000
+        sql: '{CUBE}."INCIDENCE_RATE_PER_1000"'
+        type: sum
       - name: count
         type: count
 

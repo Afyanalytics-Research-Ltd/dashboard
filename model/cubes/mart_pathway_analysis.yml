@@ -1,0 +1,147 @@
+cubes:
+  - name: mart_pathway_analysis
+    sql_table: "\"REPORTING\".\"MART_PATHWAY_ANALYSIS\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: composite_patient_id
+        sql: "{CUBE}.\"COMPOSITE_PATIENT_ID\""
+        type: string
+
+      - name: diagnostic_pathway
+        sql: "{CUBE}.\"DIAGNOSTIC_PATHWAY\""
+        type: string
+
+      - name: disposition
+        sql: "{CUBE}.\"DISPOSITION\""
+        type: string
+
+      - name: drop_off_stage
+        sql: "{CUBE}.\"DROP_OFF_STAGE\""
+        type: string
+
+      - name: expected_endpoint
+        sql: "{CUBE}.\"EXPECTED_ENDPOINT\""
+        type: string
+
+      - name: facility
+        sql: "{CUBE}.\"FACILITY\""
+        type: string
+
+      - name: gender
+        sql: "{CUBE}.\"GENDER\""
+        type: string
+
+      - name: had_admission
+        sql: "{CUBE}.\"HAD_ADMISSION\""
+        type: boolean
+
+      - name: had_imaging
+        sql: "{CUBE}.\"HAD_IMAGING\""
+        type: boolean
+
+      - name: had_lab_order
+        sql: "{CUBE}.\"HAD_LAB_ORDER\""
+        type: boolean
+
+      - name: had_pharmacy
+        sql: "{CUBE}.\"HAD_PHARMACY\""
+        type: boolean
+
+      - name: had_proc_request
+        sql: "{CUBE}.\"HAD_PROC_REQUEST\""
+        type: boolean
+
+      - name: had_theatre
+        sql: "{CUBE}.\"HAD_THEATRE\""
+        type: boolean
+
+      - name: had_triage
+        sql: "{CUBE}.\"HAD_TRIAGE\""
+        type: boolean
+
+      - name: is_discharge_reliable
+        sql: "{CUBE}.\"IS_DISCHARGE_RELIABLE\""
+        type: boolean
+
+      - name: patient_id
+        sql: "{CUBE}.\"PATIENT_ID\""
+        type: string
+
+      - name: source_system
+        sql: "{CUBE}.\"SOURCE_SYSTEM\""
+        type: string
+
+      - name: visit_id
+        sql: "{CUBE}.\"VISIT_ID\""
+        type: string
+
+      - name: visit_type
+        sql: "{CUBE}.\"VISIT_TYPE\""
+        type: string
+
+      - name: visit_date
+        sql: "{CUBE}.\"VISIT_DATE\""
+        type: time
+
+    measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T12:59:04.480362+00:00
+      - name: age
+        sql: '{CUBE}."AGE"'
+        type: sum
+      - name: time_to_consult_mins
+        sql: '{CUBE}."TIME_TO_CONSULT_MINS"'
+        type: sum
+      - name: opd_cycle_mins
+        sql: '{CUBE}."OPD_CYCLE_MINS"'
+        type: sum
+      - name: los_hours
+        sql: '{CUBE}."LOS_HOURS"'
+        type: sum
+      - name: pathway_complete
+        sql: '{CUBE}."PATHWAY_COMPLETE"'
+        type: sum
+      - name: incomplete_care
+        sql: '{CUBE}."INCOMPLETE_CARE"'
+        type: sum
+      - name: count
+        type: count
+
+      - name: imaging_count
+        sql: "{CUBE}.\"IMAGING_COUNT\""
+        type: sum
+
+      - name: lab_order_count
+        sql: "{CUBE}.\"LAB_ORDER_COUNT\""
+        type: sum
+
+      - name: pharmacy_item_count
+        sql: "{CUBE}.\"PHARMACY_ITEM_COUNT\""
+        type: sum
+
+      - name: proc_paid_count
+        sql: "{CUBE}.\"PROC_PAID_COUNT\""
+        type: sum
+
+      - name: proc_request_count
+        sql: "{CUBE}.\"PROC_REQUEST_COUNT\""
+        type: sum
+
+      - name: proc_unpaid_count
+        sql: "{CUBE}.\"PROC_UNPAID_COUNT\""
+        type: sum
+
+      - name: theatre_procedure_count
+        sql: "{CUBE}.\"THEATRE_PROCEDURE_COUNT\""
+        type: sum
+
+      - name: uncollected_value
+        sql: "{CUBE}.\"UNCOLLECTED_VALUE\""
+        type: sum
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

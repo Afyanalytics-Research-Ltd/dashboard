@@ -1,0 +1,107 @@
+cubes:
+  - name: vw_rpt_ortho_tat
+    sql_table: "\"REPORTING\".\"VW_RPT_ORTHO_TAT\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: age_group
+        sql: "{CUBE}.\"AGE_GROUP\""
+        type: string
+
+      - name: composite_patient_id
+        sql: "{CUBE}.\"COMPOSITE_PATIENT_ID\""
+        type: string
+
+      - name: facility
+        sql: "{CUBE}.\"FACILITY\""
+        type: string
+
+      - name: gender
+        sql: "{CUBE}.\"GENDER\""
+        type: string
+
+      - name: is_new_patient
+        sql: "{CUBE}.\"IS_NEW_PATIENT\""
+        type: boolean
+
+      - name: is_walk_in
+        sql: "{CUBE}.\"IS_WALK_IN\""
+        type: boolean
+
+      - name: source_system
+        sql: "{CUBE}.\"SOURCE_SYSTEM\""
+        type: string
+
+      - name: visit_day_name
+        sql: "{CUBE}.\"VISIT_DAY_NAME\""
+        type: string
+
+      - name: visit_id
+        sql: "{CUBE}.\"VISIT_ID\""
+        type: string
+
+      - name: visit_type
+        sql: "{CUBE}.\"VISIT_TYPE\""
+        type: string
+
+      - name: cons_time
+        sql: "{CUBE}.\"CONS_TIME\""
+        type: time
+
+      - name: pharm_time
+        sql: "{CUBE}.\"PHARM_TIME\""
+        type: time
+
+      - name: triage_time
+        sql: "{CUBE}.\"TRIAGE_TIME\""
+        type: time
+
+      - name: visit_date
+        sql: "{CUBE}.\"VISIT_DATE\""
+        type: time
+
+      - name: visit_end_time
+        sql: "{CUBE}.\"VISIT_END_TIME\""
+        type: time
+
+      - name: visit_month
+        sql: "{CUBE}.\"VISIT_MONTH\""
+        type: time
+
+      - name: visit_start_time
+        sql: "{CUBE}.\"VISIT_START_TIME\""
+        type: time
+
+      - name: visit_week
+        sql: "{CUBE}.\"VISIT_WEEK\""
+        type: time
+
+    measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:05:21.162723+00:00
+      - name: visit_year
+        sql: '{CUBE}."VISIT_YEAR"'
+        type: sum
+      - name: visit_dow
+        sql: '{CUBE}."VISIT_DOW"'
+        type: sum
+      - name: start_to_triage_mins
+        sql: '{CUBE}."START_TO_TRIAGE_MINS"'
+        type: sum
+      - name: start_to_cons_mins
+        sql: '{CUBE}."START_TO_CONS_MINS"'
+        type: sum
+      - name: start_to_pharm_mins
+        sql: '{CUBE}."START_TO_PHARM_MINS"'
+        type: sum
+      - name: total_visit_mins
+        sql: '{CUBE}."TOTAL_VISIT_MINS"'
+        type: sum
+      - name: count
+        type: count
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

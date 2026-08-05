@@ -180,6 +180,15 @@ def generate_cube_query(state: AgentState) -> dict:
             field_name = dimension.rsplit(".", 1)[-1].lower()
             if any(hint in field_name or field_name in hint for hint in group_by_hints):
                 selected_dimensions.append(dimension)
+        if not selected_dimensions and len(all_dimensions) == 1:
+            # The user clearly asked for SOME breakdown (group_by_hints is
+            # non-empty) but no hint word lexically overlaps the metric's
+            # one dimension at all (e.g. hint "doctor" vs the real column
+            # "username" — no shared substring either way). With only one
+            # possible axis to break out by, using it is a safe default:
+            # the ambiguity that makes guessing risky with 2+ candidates
+            # doesn't exist when there's exactly one.
+            selected_dimensions = list(all_dimensions)
     query["dimensions"] = selected_dimensions
 
     # Same reasoning applies to the catalog's timeDimension: it always
@@ -212,6 +221,10 @@ def generate_cube_query(state: AgentState) -> dict:
             # actually exists.
             member = sorted(time_members)[0]
             filters.append({"member": member, "operator": operator, "values": values})
+            logger.info(
+                "generate_cube_query: applying time filter member=%s operator=%s values=%s",
+                member, operator, values,
+            )
             if not query["timeDimensions"]:
                 # Bare entry (no granularity) purely so _promote_date_filters
                 # (execute_query) has something to attach dateRange to —
@@ -233,6 +246,10 @@ def generate_cube_query(state: AgentState) -> dict:
                 f"field to filter on — the result below covers all available data, not "
                 f"just the requested period."
             )
+            logger.warning(
+                "generate_cube_query: metric=%s has no date field — time_range %s dropped, running unfiltered",
+                matched_metric.get("id"), time_range,
+            )
 
     allowed_members = schema_validation.valid_members_for(matched_metric)
     for hint in plan.get("filter_hints") or []:
@@ -240,15 +257,48 @@ def generate_cube_query(state: AgentState) -> dict:
         value = hint.get("value")
         if not concept or not value:
             continue
-        for member in allowed_members:
-            field_name = member.rsplit(".", 1)[-1].lower()
-            if concept in field_name or field_name in concept:
-                filters.append({
-                    "member": member,
-                    "operator": hint.get("operator", "equals"),
-                    "values": [value],
-                })
-                break
+        # allowed_members is a set (unordered) and a broad concept like "ward"
+        # can substring-match MULTIPLE real fields (ward_name AND
+        # ward_category both contain "ward") — picking whichever the set
+        # happens to yield first is non-deterministic and can silently
+        # filter on the wrong field (observed: "General Female" — a ward
+        # NAME value — applied to ward_category instead of ward_name,
+        # matching zero rows). Collect every match, then break the tie
+        # deterministically: prefer a field ending in "_name" (this
+        # codebase's convention for "the specific one of these", e.g.
+        # ward_name/facility_name), else fall back to sorted order so the
+        # choice is at least stable across runs.
+        candidates = [
+            member for member in allowed_members
+            if (field_name := member.rsplit(".", 1)[-1].lower())
+            and (concept in field_name or field_name in concept)
+        ]
+        if candidates:
+            candidates.sort(key=lambda m: (not m.rsplit(".", 1)[-1].lower().endswith("_name"), m))
+            filters.append({
+                "member": candidates[0],
+                "operator": hint.get("operator", "equals"),
+                "values": [value],
+            })
+        else:
+            # No field on this metric matches the concept at all (e.g. the
+            # user said "Private wards" but the resolved metric has no ward
+            # dimension whatsoever) — this filter is silently unattachable,
+            # not just ambiguous. Unlike the date-range drop above, this
+            # path previously had NO warning at all, so explain_result had
+            # no way to know "Private" was never actually applied — the
+            # summarizer would then confidently claim a filtered result that
+            # was really an unfiltered total (observed: "the Private wards
+            # had 81 admissions" for a metric with no concept of ward).
+            warnings.append(
+                f"The user asked to filter by '{value}' (concept: {concept}), but "
+                f"'{matched_metric.get('name') or matched_metric.get('id')}' has no matching "
+                f"field for this — the result below is NOT filtered by {concept}."
+            )
+            logger.warning(
+                "generate_cube_query: metric=%s has no field matching filter concept=%r value=%r — dropped",
+                matched_metric.get("id"), concept, value,
+            )
 
     query["filters"] = filters
     update["cube_query"] = query

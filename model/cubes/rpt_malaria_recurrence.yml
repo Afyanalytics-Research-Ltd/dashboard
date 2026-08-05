@@ -19,6 +19,19 @@ cubes:
         type: string
 
     measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:01:25.496883+00:00
+      - name: tier_order
+        sql: '{CUBE}."TIER_ORDER"'
+        type: sum
+      - name: zone_max_visits
+        sql: '{CUBE}."ZONE_MAX_VISITS"'
+        type: sum
+      - name: pct_of_zone_patients
+        sql: '{CUBE}."PCT_OF_ZONE_PATIENTS"'
+        type: sum
+      - name: recurrence_rate
+        sql: '{CUBE}."RECURRENCE_RATE"'
+        type: avg
       - name: count
         type: count
 

@@ -23,6 +23,28 @@ cubes:
         type: time
 
     measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:01:18.945764+00:00
+      - name: testing_rate
+        sql: '{CUBE}."TESTING_RATE"'
+        type: avg
+      - name: positivity_rate
+        sql: '{CUBE}."POSITIVITY_RATE"'
+        type: avg
+      - name: antibiotic_coprescription_rate
+        sql: '{CUBE}."ANTIBIOTIC_COPRESCRIPTION_RATE"'
+        type: avg
+      - name: sepsis_rate
+        sql: '{CUBE}."SEPSIS_RATE"'
+        type: avg
+      - name: rainfall_mm
+        sql: '{CUBE}."RAINFALL_MM"'
+        type: sum
+      - name: sub_county_pop
+        sql: '{CUBE}."SUB_COUNTY_POP"'
+        type: sum
+      - name: incidence_per_1000_monthly
+        sql: '{CUBE}."INCIDENCE_PER_1000_MONTHLY"'
+        type: sum
       - name: count
         type: count
 

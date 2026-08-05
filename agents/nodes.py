@@ -37,6 +37,7 @@ from .schema_validation import (
     valid_time_members_for as _valid_time_members_for,
     validate_filters as _validate_filters,
 )
+from .nodes_query import CONFIDENT_SINGLE_SCORE, RELEVANT_FLOOR, is_directly_resolvable
 
 logger = logging.getLogger(__name__)
 
@@ -203,6 +204,58 @@ def _ping_callback(callback_url: str, state: AgentState, user_message: str) -> N
         logger.error("_ping_callback: failed to reach %s — %s", callback_url, exc)
 
 
+def _diagnose_fallback(state: AgentState) -> str:
+    """
+    Reconstruct WHY this question fell through to fallback_notifier, from
+    whatever retrieve_candidates/compose_derived_metric already left in
+    state — state["fallback_reason"] itself is never actually set by any
+    node, so relying on it silently produced "Reason: None" in every
+    analytics email. This is computed fresh here instead, so the log line
+    and the email always carry a real, specific explanation.
+    """
+    plan = state.get("intent_plan") or {}
+    candidates = state.get("retrieval_candidates") or []
+
+    parts = [
+        f"subject={plan.get('subject')!r} metric_type={plan.get('metric_type')} "
+        f"candidate_terms={plan.get('candidate_terms')}"
+    ]
+
+    if not candidates:
+        parts.append("retrieval returned no candidates at all — check agents/retrieval.py's index.")
+        return " | ".join(parts)
+
+    relevant = [c for c in candidates if c.get("score", 0) >= RELEVANT_FLOOR]
+    ranked = ", ".join(f"{c['id']}({c.get('score', 0):.2f})" for c in candidates[:5])
+    parts.append(f"top candidates: {ranked}")
+
+    if not relevant:
+        top_score = candidates[0].get("score", 0)
+        parts.append(
+            f"none reached RELEVANT_FLOOR={RELEVANT_FLOOR} (best was {top_score:.2f}) — "
+            f"this question likely isn't covered by any catalog metric, measure, or "
+            f"glossary entry yet. Add one to catalog/metrics.yaml or catalog/glossary.yaml."
+        )
+    elif any(c.get("score", 0) >= CONFIDENT_SINGLE_SCORE and is_directly_resolvable(c) for c in relevant):
+        parts.append(
+            "a directly-resolvable candidate cleared CONFIDENT_SINGLE_SCORE — this should "
+            "NOT have reached fallback_notifier; check _resolve_matched_metric for a bug."
+        )
+    else:
+        parts.append(
+            f"{len(relevant)} candidate(s) reached RELEVANT_FLOOR={RELEVANT_FLOOR} but none "
+            f"was a single directly-resolvable hit at CONFIDENT_SINGLE_SCORE={CONFIDENT_SINGLE_SCORE}, "
+            f"and compose_derived_metric couldn't combine them into a ratio/difference either — "
+            f"needs either a curated catalog/glossary.yaml formula, or 2+ measure-shaped "
+            f"candidates on the SAME cube. Consider adding the missing metric/formula."
+        )
+
+    if state.get("pending_join_writes"):
+        parts.append("a cross-cube auto-join was attempted but nothing computed this turn.")
+
+    return " | ".join(parts)
+
+
 def fallback_notifier(state: AgentState) -> dict:
     """
     Phase 1:
@@ -218,6 +271,9 @@ def fallback_notifier(state: AgentState) -> dict:
     analytics_email = getattr(settings, "ANALYTICS_TEAM_EMAIL", "analytics@example.com")
     from_email = getattr(settings, "DEFAULT_FROM_EMAIL", "noreply@example.com")
 
+    reason = _diagnose_fallback(state)
+    logger.warning("fallback_notifier: question=%r — %s", state["question"], reason)
+
     # ── 1. Email analytics team ───────────────────────────────────────────
     subject = f"[Analytics Request] New metric needed: \"{state['question'][:60]}\""
     body = (
@@ -227,7 +283,7 @@ def fallback_notifier(state: AgentState) -> dict:
         f"User Phone: {state.get('user_phone') or 'not provided'}\n"
         f"Thread ID : {state['thread_id']}\n"
         f"Confidence: {state['classification_confidence']:.0%}\n"
-        f"Reason    : {state.get('fallback_reason', 'No close match found')}\n\n"
+        f"Reason    : {reason}\n\n"
         f"Once you have added the metric to catalog/metrics.yaml, trigger the resume:\n\n"
         f"  POST /api/resume/\n"
         f"  {{\n"

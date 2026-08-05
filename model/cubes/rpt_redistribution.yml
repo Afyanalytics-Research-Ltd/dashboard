@@ -43,6 +43,22 @@ cubes:
         type: time
 
     measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:03:33.270753+00:00
+      - name: deficit_soh
+        sql: '{CUBE}."DEFICIT_SOH"'
+        type: sum
+      - name: deficit_consumption_30d
+        sql: '{CUBE}."DEFICIT_CONSUMPTION_30D"'
+        type: sum
+      - name: surplus_soh
+        sql: '{CUBE}."SURPLUS_SOH"'
+        type: sum
+      - name: surplus_dos
+        sql: '{CUBE}."SURPLUS_DOS"'
+        type: sum
+      - name: data_horizon_gap_months
+        sql: '{CUBE}."DATA_HORIZON_GAP_MONTHS"'
+        type: sum
       - name: count
         type: count
 

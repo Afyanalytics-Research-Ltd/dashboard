@@ -87,6 +87,13 @@ cubes:
         type: time
 
     measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:02:47.078089+00:00
+      - name: admission_year
+        sql: '{CUBE}."ADMISSION_YEAR"'
+        type: sum
+      - name: los_days
+        sql: '{CUBE}."LOS_DAYS"'
+        type: sum
       - name: count
         type: count
 

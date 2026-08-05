@@ -47,6 +47,19 @@ cubes:
         type: time
 
     measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:03:48.043699+00:00
+      - name: current_soh_raw
+        sql: '{CUBE}."CURRENT_SOH_RAW"'
+        type: sum
+      - name: stockout_dispense_events
+        sql: '{CUBE}."STOCKOUT_DISPENSE_EVENTS"'
+        type: sum
+      - name: units_dispensed_at_zero
+        sql: '{CUBE}."UNITS_DISPENSED_AT_ZERO"'
+        type: sum
+      - name: days_in_stockout
+        sql: '{CUBE}."DAYS_IN_STOCKOUT"'
+        type: sum
       - name: count
         type: count
 

@@ -151,6 +151,22 @@ cubes:
         type: time
 
     measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:02:59.102241+00:00
+      - name: procedure_year
+        sql: '{CUBE}."PROCEDURE_YEAR"'
+        type: sum
+      - name: procedure_dow
+        sql: '{CUBE}."PROCEDURE_DOW"'
+        type: sum
+      - name: surgery_duration_mins
+        sql: '{CUBE}."SURGERY_DURATION_MINS"'
+        type: sum
+      - name: request_to_planned_days
+        sql: '{CUBE}."REQUEST_TO_PLANNED_DAYS"'
+        type: sum
+      - name: request_to_service_mins
+        sql: '{CUBE}."REQUEST_TO_SERVICE_MINS"'
+        type: sum
       - name: count
         type: count
 

@@ -71,6 +71,22 @@ cubes:
         type: time
 
     measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:02:20.831783+00:00
+      - name: hour_of_day
+        sql: '{CUBE}."HOUR_OF_DAY"'
+        type: sum
+      - name: arrival_hour
+        sql: '{CUBE}."ARRIVAL_HOUR"'
+        type: sum
+      - name: visit_year
+        sql: '{CUBE}."VISIT_YEAR"'
+        type: sum
+      - name: visit_dow
+        sql: '{CUBE}."VISIT_DOW"'
+        type: sum
+      - name: age
+        sql: '{CUBE}."AGE"'
+        type: sum
       - name: count
         type: count
 

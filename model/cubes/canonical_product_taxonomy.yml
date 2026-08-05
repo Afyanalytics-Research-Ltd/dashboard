@@ -71,6 +71,10 @@ cubes:
         type: time
 
     measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T12:57:53.111648+00:00
+      - name: match_confidence
+        sql: '{CUBE}."MATCH_CONFIDENCE"'
+        type: sum
       - name: count
         type: count
 

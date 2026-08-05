@@ -51,6 +51,28 @@ cubes:
         type: time
 
     measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:01:37.223713+00:00
+      - name: malaria_incidence_per_1000_2022
+        sql: '{CUBE}."MALARIA_INCIDENCE_PER_1000_2022"'
+        type: sum
+      - name: itn_hh_ownership_pct_kmis2020_national
+        sql: '{CUBE}."ITN_HH_OWNERSHIP_PCT_KMIS2020_NATIONAL"'
+        type: sum
+      - name: itn_u5_use_pct_kmis2020_national
+        sql: '{CUBE}."ITN_U5_USE_PCT_KMIS2020_NATIONAL"'
+        type: sum
+      - name: itn_pregnant_use_pct_kmis2020_national
+        sql: '{CUBE}."ITN_PREGNANT_USE_PCT_KMIS2020_NATIONAL"'
+        type: sum
+      - name: itn_population_access_pct_kmis2020_national
+        sql: '{CUBE}."ITN_POPULATION_ACCESS_PCT_KMIS2020_NATIONAL"'
+        type: sum
+      - name: itn_population_slept_under_pct_kmis2020_national
+        sql: '{CUBE}."ITN_POPULATION_SLEPT_UNDER_PCT_KMIS2020_NATIONAL"'
+        type: sum
+      - name: sub_county_pop
+        sql: '{CUBE}."SUB_COUNTY_POP"'
+        type: sum
       - name: count
         type: count
 

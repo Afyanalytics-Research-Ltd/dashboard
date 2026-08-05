@@ -1,48 +1,58 @@
 """
 Metric catalog loader.
 
-Reads catalog/metrics.yaml and provides:
+Reads MetricDefinition rows from the database (managed via the Agent
+Configuration settings page / Django admin — see agents/views.py,
+agents/admin.py) and provides:
   - get_all()      → full list (for LLM context)
   - get_by_id(id)  → single metric dict (for resume path)
   - as_context()   → compact string injected into LLM prompt
+
+catalog/metrics.yaml was the source of truth before this; it was imported
+once into the DB via agents/migrations/0004_import_metrics_yaml.py and is no
+longer read here.
+
+No caching: writes to MetricDefinition now come from an ordinary web
+request (the settings page), not only from the re_classify resume path that
+used to call reload() right after editing the YAML file in the same
+process — so an in-process cache would go stale in every OTHER worker
+process until it happened to resume a thread, which may never happen for a
+fresh query. The table is small (curated metrics, not raw data), so a plain
+per-call query is cheap and removes that whole bug class instead of trying
+to keep a cache correctly invalidated across processes.
 """
 
 from __future__ import annotations
 
-import os
-from functools import lru_cache
-from pathlib import Path
 from typing import Optional
 
-import yaml
-
-CATALOG_PATH = Path(__file__).resolve().parent.parent / "catalog" / "metrics.yaml"
-
-
-@lru_cache(maxsize=1)
-def _load() -> list[dict]:
-    """Load and cache the catalog. Call reload() to bust the cache."""
-    # import pdb;pdb.set_trace()
-    with open(CATALOG_PATH, "r") as f:
-        data = yaml.safe_load(f)
-    return data.get("metrics", [])
+from .models import MetricDefinition
 
 
 def reload() -> None:
-    """Bust the cache — call after analytics team adds a new metric."""
-    _load.cache_clear()
+    """
+    No-op — kept only so existing call sites (agents/nodes.py's
+    re_classify) don't need to change. There's no cache to bust anymore;
+    get_all()/get_by_id() always query the DB directly.
+    """
+
+
+def _as_dict(m: MetricDefinition) -> dict:
+    return {
+        "id": m.metric_id,
+        "name": m.name,
+        "description": m.description,
+        "cube_query": m.cube_query or {},
+    }
 
 
 def get_all() -> list[dict]:
-    return _load()
+    return [_as_dict(m) for m in MetricDefinition.objects.filter(is_active=True)]
 
 
 def get_by_id(metric_id: str) -> Optional[dict]:
-    print(get_all())
-    for m in get_all():
-        if m["id"] == metric_id:
-            return m
-    return None
+    m = MetricDefinition.objects.filter(metric_id=metric_id, is_active=True).first()
+    return _as_dict(m) if m else None
 
 
 def as_context() -> str:

@@ -167,3 +167,22 @@ terms:
     aliases: [dispensing volume, medications dispensed count]
     description: Count of individual drugs dispensed to patients.
     maps_to: fact_patient_dispensing.drugs_dispensed_count
+
+  - term: BTR
+    aliases: [bed turnover rate, ward turnover rate]
+    description: Bed Turnover Rate — admissions per available bed, per ward
+      per month. Computed as total_admissions / bed_count.
+    maps_to: rpt_bed_occupancy.btr
+
+  - term: BTI
+    aliases: [bed turnover interval, bti days, average empty bed days]
+    description: Bed Turnover Interval — average number of empty days between
+      admissions, per ward per month. Computed as (bed_count * days_in_month
+      - total_bed_days) / discharged_admissions.
+    maps_to: rpt_bed_occupancy.bti_days
+
+  - term: BOR
+    aliases: [bed occupancy rate, bed occupancy percentage]
+    description: Bed Occupancy Rate — percentage of available bed-days
+      actually occupied, per ward per month.
+    maps_to: rpt_bed_occupancy.bor_pct

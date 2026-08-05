@@ -23,6 +23,40 @@ cubes:
         type: time
 
     measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:03:38.150523+00:00
+      - name: total_admissions
+        sql: '{CUBE}."TOTAL_ADMISSIONS"'
+        type: sum
+      - name: day_cases
+        sql: '{CUBE}."DAY_CASES"'
+        type: sum
+      - name: inpatient_stays
+        sql: '{CUBE}."INPATIENT_STAYS"'
+        type: sum
+      - name: open_admissions
+        sql: '{CUBE}."OPEN_ADMISSIONS"'
+        type: sum
+      - name: avg_los_days
+        sql: '{CUBE}."AVG_LOS_DAYS"'
+        type: avg
+      - name: total_bed_days
+        sql: '{CUBE}."TOTAL_BED_DAYS"'
+        type: sum
+      - name: insured_admissions
+        sql: '{CUBE}."INSURED_ADMISSIONS"'
+        type: sum
+      - name: cash_admissions
+        sql: '{CUBE}."CASH_ADMISSIONS"'
+        type: sum
+      - name: total_admission_revenue
+        sql: '{CUBE}."TOTAL_ADMISSION_REVENUE"'
+        type: sum
+      - name: insured_revenue
+        sql: '{CUBE}."INSURED_REVENUE"'
+        type: sum
+      - name: cash_revenue
+        sql: '{CUBE}."CASH_REVENUE"'
+        type: sum
       - name: count
         type: count
 

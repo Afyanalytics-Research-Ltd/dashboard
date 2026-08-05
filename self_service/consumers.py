@@ -220,12 +220,28 @@ class AnalyticsChatConsumer(AsyncWebsocketConsumer):
 
         try:
             output = graph.invoke(initial_state, config=config)
-        except Exception:
+        except Exception as exc:
             logger.exception(
                 'Agent graph.invoke failed for user=%s query=%r',
                 self.user.username, query,
             )
-            return None
+            # The checkpointer persists state after every completed node, so
+            # even though execute_query blew up partway through, whatever
+            # generate_cube_query/validate_query already resolved is still
+            # readable here — surface it instead of silently falling back to
+            # OpenAI, which would otherwise hide that a real query was
+            # attempted and answer from the LLM's own guess instead.
+            attempted_query = None
+            try:
+                snapshot = graph.get_state(config)
+                attempted_query = (snapshot.values or {}).get('cube_query') if snapshot else None
+            except Exception:
+                logger.debug('_run_agent: could not read back state for thread %s', thread_id)
+
+            content = f"That query failed to run: {exc}"
+            if attempted_query:
+                content += f"\n\n```json\n{json.dumps(attempted_query, indent=2)}\n```"
+            return {'content': content, 'data': None, 'intent': 'error'}
 
         # Graph suspended — metric not in catalog; analytics team already notified
         if output.get('__interrupt__'):

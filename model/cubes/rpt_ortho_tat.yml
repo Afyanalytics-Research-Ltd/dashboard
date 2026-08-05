@@ -79,6 +79,25 @@ cubes:
         type: time
 
     measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:02:53.203867+00:00
+      - name: visit_year
+        sql: '{CUBE}."VISIT_YEAR"'
+        type: sum
+      - name: visit_dow
+        sql: '{CUBE}."VISIT_DOW"'
+        type: sum
+      - name: start_to_triage_mins
+        sql: '{CUBE}."START_TO_TRIAGE_MINS"'
+        type: sum
+      - name: start_to_cons_mins
+        sql: '{CUBE}."START_TO_CONS_MINS"'
+        type: sum
+      - name: start_to_pharm_mins
+        sql: '{CUBE}."START_TO_PHARM_MINS"'
+        type: sum
+      - name: total_visit_mins
+        sql: '{CUBE}."TOTAL_VISIT_MINS"'
+        type: sum
       - name: count
         type: count
 

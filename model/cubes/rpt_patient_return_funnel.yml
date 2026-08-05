@@ -8,6 +8,28 @@ cubes:
     dimensions: []
 
     measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:03:06.517551+00:00
+      - name: total_non_admitted_peak
+        sql: '{CUBE}."TOTAL_NON_ADMITTED_PEAK"'
+        type: sum
+      - name: returned
+        sql: '{CUBE}."RETURNED"'
+        type: sum
+      - name: never_returned
+        sql: '{CUBE}."NEVER_RETURNED"'
+        type: sum
+      - name: return_pct
+        sql: '{CUBE}."RETURN_PCT"'
+        type: avg
+      - name: later_admitted
+        sql: '{CUBE}."LATER_ADMITTED"'
+        type: sum
+      - name: admitted_of_returned_pct
+        sql: '{CUBE}."ADMITTED_OF_RETURNED_PCT"'
+        type: avg
+      - name: median_days_to_return
+        sql: '{CUBE}."MEDIAN_DAYS_TO_RETURN"'
+        type: sum
       - name: count
         type: count
 

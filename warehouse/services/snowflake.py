@@ -157,6 +157,45 @@ class SnowflakeClient:
         except Exception as exc:
             raise SnowflakeQueryError(str(exc)) from exc
 
+    def get_columns(self, schema: str, table: str) -> pd.DataFrame:
+        """Return a DataFrame listing every column of ``schema.table``.
+
+        Columns: COLUMN_NAME, DATA_TYPE, NUMERIC_SCALE.
+
+        Args:
+            schema: Schema name (will be uppercased and quoted).
+            table: Table name (will be uppercased and quoted).
+
+        Raises:
+            SnowflakeQueryError: On connection or query failure.
+        """
+        safe_schema = schema.upper().replace('"', '').replace("'", "")
+        safe_table = table.upper().replace('"', '').replace("'", "")
+        sql = f"""
+            SELECT
+                COLUMN_NAME,
+                DATA_TYPE,
+                NUMERIC_SCALE
+            FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_SCHEMA = '{safe_schema}' AND TABLE_NAME = '{safe_table}'
+            ORDER BY ORDINAL_POSITION
+        """
+        try:
+            conn = self._connect()
+            try:
+                cursor = conn.cursor()
+                try:
+                    cursor.execute(sql)
+                    return cursor.fetch_pandas_all()
+                finally:
+                    cursor.close()
+            finally:
+                conn.close()
+        except SnowflakeQueryError:
+            raise
+        except Exception as exc:
+            raise SnowflakeQueryError(str(exc)) from exc
+
     def get_table_sample(
         self, schema: str, table: str, rows: int = 10
     ) -> pd.DataFrame:

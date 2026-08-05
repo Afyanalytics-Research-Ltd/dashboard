@@ -43,6 +43,31 @@ cubes:
         type: time
 
     measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T12:58:19.340235+00:00
+      - name: quantity_dispensed
+        sql: '{CUBE}."QUANTITY_DISPENSED"'
+        type: sum
+      - name: payment_status
+        sql: '{CUBE}."PAYMENT_STATUS"'
+        type: sum
+      - name: is_invoiced
+        sql: '{CUBE}."IS_INVOICED"'
+        type: sum
+      - name: soh_before
+        sql: '{CUBE}."SOH_BEFORE"'
+        type: sum
+      - name: soh_after_raw
+        sql: '{CUBE}."SOH_AFTER_RAW"'
+        type: sum
+      - name: soh_after_display
+        sql: '{CUBE}."SOH_AFTER_DISPLAY"'
+        type: sum
+      - name: dispensing_year
+        sql: '{CUBE}."DISPENSING_YEAR"'
+        type: sum
+      - name: dispensing_month_num
+        sql: '{CUBE}."DISPENSING_MONTH_NUM"'
+        type: sum
       - name: count
         type: count
 

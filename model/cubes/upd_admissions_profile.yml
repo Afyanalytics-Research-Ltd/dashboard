@@ -31,6 +31,19 @@ cubes:
         type: time
 
     measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:04:24.094305+00:00
+      - name: age_at_admission
+        sql: '{CUBE}."AGE_AT_ADMISSION"'
+        type: sum
+      - name: los_days
+        sql: '{CUBE}."LOS_DAYS"'
+        type: sum
+      - name: is_readmission
+        sql: '{CUBE}."IS_READMISSION"'
+        type: sum
+      - name: is_30day_readmission
+        sql: '{CUBE}."IS_30DAY_READMISSION"'
+        type: sum
       - name: count
         type: count
 

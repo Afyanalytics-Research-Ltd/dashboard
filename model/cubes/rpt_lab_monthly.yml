@@ -11,6 +11,16 @@ cubes:
         type: time
 
     measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:00:36.454403+00:00
+      - name: distinct_visits
+        sql: '{CUBE}."DISTINCT_VISITS"'
+        type: sum
+      - name: total_components
+        sql: '{CUBE}."TOTAL_COMPONENTS"'
+        type: sum
+      - name: abnormal_pct
+        sql: '{CUBE}."ABNORMAL_PCT"'
+        type: avg
       - name: count
         type: count
 

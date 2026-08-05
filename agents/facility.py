@@ -34,21 +34,34 @@ logger = logging.getLogger(__name__)
 # ── Canonical facility registry ───────────────────────────────────────────────
 # Maps canonical facility key → filter values for each cube family.
 
-FACILITY_REGISTRY: dict[str, dict[str, str]] = {
+FACILITY_REGISTRY: dict[str, dict[str, str | list[str]]] = {
+    # source_schema AND facility both carry a list, not a single string: raw
+    # ingestion has left some rows under inconsistent naming (e.g.
+    # lowercase "kisumu", or a "_CLEAN"-suffixed value in the "facility"
+    # column of some rpt_* tables) alongside the normalized value — an
+    # "equals" filter with only the canonical value silently misses those
+    # rows and undercounts, or returns zero rows outright (observed:
+    # rpt_bed_occupancy.facility is literally "KISUMU_CLEAN" for this
+    # facility's rows, not "KISUMU" — a KISUMU user's BTR/BTI questions
+    # were being scoped to a facility value that matches nothing at all).
+    # Cube's "equals" operator with multiple values compiles to SQL
+    # IN(...), so listing every known alias here is enough — no operator
+    # change needed. TENRI's "facility" column matches its bare name
+    # exactly (confirmed against live data), so it's left as a single value.
     "KISUMU": {
-        "source_schema": "KISUMU_CLEAN",
-        "facility":      "KISUMU",
+        "source_schema": ["KISUMU_CLEAN", "kisumu"],
+        "facility":      ["KISUMU", "KISUMU_CLEAN"],
     },
     "KAKAMEGA": {
-        "source_schema": "KAKAMEGA_CLEAN",
-        "facility":      "KAKAMEGA",
+        "source_schema": ["KAKAMEGA_CLEAN", "kakamega"],
+        "facility":      ["KAKAMEGA", "KAKAMEGA_CLEAN"],
     },
     "LODWAR": {
-        "source_schema": "LODWAR_CLEAN",
-        "facility":      "LODWAR",
+        "source_schema": ["LODWAR_CLEAN", "lodwar"],
+        "facility":      ["LODWAR", "LODWAR_CLEAN"],
     },
     "TENRI": {
-        "source_schema": "TENRI",
+        "source_schema": ["TENRI", "tenri"],
         "facility":      "TENRI",
     },
 }
@@ -288,6 +301,35 @@ def resolve_facility(user_id: str, phone: str | None = None) -> str | None:
     return None
 
 
+# ── Live cube schema cache (for verifying Pass 2's naming-convention guess) ────
+# Same lazy-load + explicit-reload shape as agents/retrieval.py's embeddings
+# index cache — cube dimension lists change rarely (only via the Semantic
+# Layer Configuration approve flow or a manual schema edit), so a per-process
+# cache avoids an extra Cube /meta round trip on every single query.
+
+_cube_dimensions_cache: dict[str, set[str]] | None = None
+
+
+def _cube_dimension_names(cube_name: str) -> set[str]:
+    global _cube_dimensions_cache
+    if _cube_dimensions_cache is None:
+        from . import cube_client
+
+        meta = cube_client.fetch_meta()
+        _cube_dimensions_cache = {
+            cube["name"]: {d["name"].rsplit(".", 1)[-1] for d in cube.get("dimensions", [])}
+            for cube in meta.get("cubes", [])
+        }
+    return _cube_dimensions_cache.get(cube_name, set())
+
+
+def reload_cube_dimensions_cache() -> None:
+    """Bust the cache — call after a cube's dimensions change (e.g. a new
+    measure/dimension approved via the Semantic Layer Configuration page)."""
+    global _cube_dimensions_cache
+    _cube_dimensions_cache = None
+
+
 # ── Query filter injection ────────────────────────────────────────────────────
 
 def inject_facility_filter(query: dict, facility_key: str) -> dict:
@@ -328,7 +370,7 @@ def inject_facility_filter(query: dict, facility_key: str) -> dict:
     # unconditionally and always chose the first one (source_schema), which broke
     # rpt_ cubes that only expose "facility".
     matched_dim: str | None = None
-    matched_value: str | None = None
+    matched_value: str | list[str] | None = None
 
     query_dims = set(query.get("dimensions", []))
 
@@ -340,12 +382,19 @@ def inject_facility_filter(query: dict, facility_key: str) -> dict:
             matched_value = filter_value
             break
 
-    # Pass 2 — infer from cube naming convention when no dimension was selected
+    # Pass 2 — infer from cube naming convention when no dimension was selected.
+    # The naming convention is a good GUESS, not a guarantee — some rpt_*
+    # cubes (e.g. rpt_doctor_performance: only username/visit_month) have no
+    # facility dimension at all. Guessing one anyway sends Cube a filter on a
+    # field that doesn't exist, which it rejects with a hard 400 — this
+    # crashed real questions in production before this check existed. Verify
+    # against the cube's own live schema before committing to the guess.
     if not matched_dim:
-        if cube_prefix.startswith("rpt_"):
+        real_dims = _cube_dimension_names(cube_prefix)
+        if cube_prefix.startswith("rpt_") and "facility" in real_dims:
             matched_dim = f"{cube_prefix}.facility"
             matched_value = schema_map.get("facility")
-        elif cube_prefix.startswith("fact_"):
+        elif cube_prefix.startswith("fact_") and "source_schema" in real_dims:
             matched_dim = f"{cube_prefix}.source_schema"
             matched_value = schema_map.get("source_schema")
 
@@ -370,8 +419,10 @@ def inject_facility_filter(query: dict, facility_key: str) -> dict:
         matched_dim, matched_value, facility_key,
     )
 
+    values = matched_value if isinstance(matched_value, list) else [matched_value]
+
     query = dict(query)
     query["filters"] = existing + [
-        {"member": matched_dim, "operator": "equals", "values": [matched_value]}
+        {"member": matched_dim, "operator": "equals", "values": values}
     ]
     return query

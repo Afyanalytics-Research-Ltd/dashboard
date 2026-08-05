@@ -1,0 +1,89 @@
+cubes:
+  - name: mart_revenue_leakage
+    sql_table: "\"REPORTING\".\"MART_REVENUE_LEAKAGE\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: composite_patient_id
+        sql: "{CUBE}.\"COMPOSITE_PATIENT_ID\""
+        type: string
+
+      - name: disposition
+        sql: "{CUBE}.\"DISPOSITION\""
+        type: string
+
+      - name: facility
+        sql: "{CUBE}.\"FACILITY\""
+        type: string
+
+      - name: is_collected
+        sql: "{CUBE}.\"IS_COLLECTED\""
+        type: boolean
+
+      - name: patient_id
+        sql: "{CUBE}.\"PATIENT_ID\""
+        type: string
+
+      - name: proc_category
+        sql: "{CUBE}.\"PROC_CATEGORY\""
+        type: string
+
+      - name: request_name
+        sql: "{CUBE}.\"REQUEST_NAME\""
+        type: string
+
+      - name: source_system
+        sql: "{CUBE}.\"SOURCE_SYSTEM\""
+        type: string
+
+      - name: visit_id
+        sql: "{CUBE}.\"VISIT_ID\""
+        type: string
+
+      - name: visit_type
+        sql: "{CUBE}.\"VISIT_TYPE\""
+        type: string
+
+      - name: ward_type
+        sql: "{CUBE}.\"WARD_TYPE\""
+        type: string
+
+      - name: request_date
+        sql: "{CUBE}.\"REQUEST_DATE\""
+        type: time
+
+      - name: visit_date
+        sql: "{CUBE}.\"VISIT_DATE\""
+        type: time
+
+    measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T12:59:09.250971+00:00
+      - name: paid
+        sql: '{CUBE}."PAID"'
+        type: sum
+      - name: is_leakage
+        sql: '{CUBE}."IS_LEAKAGE"'
+        type: sum
+      - name: los_hours
+        sql: '{CUBE}."LOS_HOURS"'
+        type: sum
+      - name: time_to_consult_mins
+        sql: '{CUBE}."TIME_TO_CONSULT_MINS"'
+        type: sum
+      - name: count
+        type: count
+
+      - name: uncollected_value
+        sql: "{CUBE}.\"UNCOLLECTED_VALUE\""
+        type: sum
+
+      - name: unit_price
+        sql: "{CUBE}.\"UNIT_PRICE\""
+        type: sum
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

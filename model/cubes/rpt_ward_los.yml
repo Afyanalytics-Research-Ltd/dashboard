@@ -19,6 +19,13 @@ cubes:
         type: time
 
     measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:04:12.517158+00:00
+      - name: median_los_days
+        sql: '{CUBE}."MEDIAN_LOS_DAYS"'
+        type: sum
+      - name: admissions
+        sql: '{CUBE}."ADMISSIONS"'
+        type: sum
       - name: count
         type: count
 

@@ -11,6 +11,22 @@ cubes:
         type: time
 
     measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T12:59:14.163746+00:00
+      - name: total_admissions
+        sql: '{CUBE}."TOTAL_ADMISSIONS"'
+        type: sum
+      - name: fast_track
+        sql: '{CUBE}."FAST_TRACK"'
+        type: sum
+      - name: fast_pct
+        sql: '{CUBE}."FAST_PCT"'
+        type: avg
+      - name: p50_tat_min
+        sql: '{CUBE}."P50_TAT_MIN"'
+        type: sum
+      - name: p75_tat_min
+        sql: '{CUBE}."P75_TAT_MIN"'
+        type: sum
       - name: count
         type: count
 

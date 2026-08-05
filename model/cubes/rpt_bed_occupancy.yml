@@ -27,6 +27,74 @@ cubes:
         type: time
 
     measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T12:59:29.491767+00:00
+      - name: open_admissions
+        sql: '{CUBE}."OPEN_ADMISSIONS"'
+        type: sum
+      - name: insured_admissions
+        sql: '{CUBE}."INSURED_ADMISSIONS"'
+        type: sum
+      - name: cash_admissions
+        sql: '{CUBE}."CASH_ADMISSIONS"'
+        type: sum
+      - name: avg_los_days
+        sql: '{CUBE}."AVG_LOS_DAYS"'
+        type: avg
+      - name: total_admission_revenue
+        sql: '{CUBE}."TOTAL_ADMISSION_REVENUE"'
+        type: sum
+      - name: insured_revenue
+        sql: '{CUBE}."INSURED_REVENUE"'
+        type: sum
+      - name: cash_revenue
+        sql: '{CUBE}."CASH_REVENUE"'
+        type: sum
+      # Added via Semantic Layer Configuration settings page on 2026-08-05T11:20:54.370174+00:00
+      # Requested by: ksh
+      - name: bor_pct
+        sql: '{total_bed_days} / NULLIF({bed_count} * {days_in_month}, 0) * 100'
+        type: number
+        title: Bed Occupancy Rate (%)
+        description: total_bed_days / (bed_count * days_in_month) * 100.
+      # Added via Semantic Layer Configuration settings page on 2026-08-05T11:20:46.889623+00:00
+      # Requested by: ksh
+      - name: bti_days
+        sql: ({bed_count} * {days_in_month} - {total_bed_days}) / NULLIF({discharged_admissions}, 0)
+        type: number
+        title: Bed Turnover Interval (days)
+        description: Average empty days between admissions = (bed_count * days_in_month - total_bed_days) / discharged_admissions.
+      # Added via Semantic Layer Configuration settings page on 2026-08-05T11:20:38.277045+00:00
+      # Requested by: ksh
+      - name: btr
+        sql: '{total_admissions} / NULLIF({bed_count}, 0)'
+        type: number
+        title: Bed Turnover Rate
+        description: Admissions per available bed per month which is calculated as follows total_admissions / bed_count.
+      # Added via Semantic Layer Configuration settings page on 2026-08-05T11:13:02.916486+00:00
+      # Requested by: ksh
+      - name: days_in_month
+        sql: DAY(LAST_DAY({CUBE}."ADMISSION_MONTH"))
+        type: max
+      # Added via Semantic Layer Configuration settings page on 2026-08-05T10:57:41.313237+00:00
+      # Requested by: ksh
+      - name: bed_count
+        sql: CASE {CUBE}."WARD_NAME" WHEN 'General Female'    THEN 7 WHEN 'General Maternity' THEN 7 WHEN 'Pediatric General' THEN 6 WHEN 'General Male'      THEN 4 WHEN 'Private Male'      THEN 3 WHEN 'Private Female'    THEN 3 WHEN 'Private Maternity' THEN 2 ELSE NULL END
+        type: max
+      # Added via Semantic Layer Configuration settings page on 2026-08-05T10:57:05.782253+00:00
+      # Requested by: ksh
+      - name: total_bed_days
+        sql: '{CUBE}."TOTAL_BED_DAYS"'
+        type: sum
+      # Added via Semantic Layer Configuration settings page on 2026-08-05T10:56:01.069816+00:00
+      # Requested by: ksh
+      - name: discharged_admissions
+        sql: '{CUBE}."DISCHARGED_ADMISSIONS"'
+        type: sum
+      # Added via Semantic Layer Configuration settings page on 2026-08-05T10:54:28.370457+00:00
+      # Requested by: ksh
+      - name: total_admissions
+        sql: '{CUBE}."TOTAL_ADMISSIONS"'
+        type: sum
       - name: count
         type: count
 

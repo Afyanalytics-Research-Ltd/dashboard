@@ -23,6 +23,13 @@ cubes:
         type: time
 
     measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T12:59:51.380887+00:00
+      - name: icd10_visits
+        sql: '{CUBE}."ICD10_VISITS"'
+        type: sum
+      - name: lab_events
+        sql: '{CUBE}."LAB_EVENTS"'
+        type: sum
       - name: count
         type: count
 

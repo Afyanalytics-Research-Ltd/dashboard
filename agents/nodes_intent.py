@@ -14,6 +14,8 @@ from __future__ import annotations
 import json
 import logging
 
+from django.utils import timezone
+
 from . import retrieval
 from .nodes import _openai, _recent_history, _context_hint
 from .state import AgentState
@@ -28,6 +30,11 @@ question (and any prior conversation turns) and produce a structured plan
 describing what they're asking for. Do NOT try to pick an exact predefined
 metric yourself — a separate retrieval step searches for candidates by
 meaning, and a separate query builder constructs the actual Cube query.
+
+Today's date is {today}. Resolve any relative date phrase ("this month",
+"last month", "today", "this quarter", "year to date") against THIS date,
+not any date mentioned in example data or prior turns — a question with no
+explicit year almost always means the current one.
 {context_hint}
 Respond with valid JSON only — no markdown, no explanation:
 {{
@@ -58,11 +65,25 @@ Rules:
 - confidence reflects whether you understood the QUESTION itself, not
   whether a matching metric exists — a well-understood but uncatalogued
   question should still get a reasonably high confidence.
+- When the subject names a specific KIND or CATEGORY of a broader
+  countable thing — "CT/Angio sessions", "malaria cases", "insured
+  admissions" — ALSO extract the qualifying word as a filter_hint, even
+  though the phrase reads as one natural noun phrase with no separate
+  category word like "type" spelled out (unlike "Private WARDS", where
+  "ward" itself signals the category). concept: the general category this
+  qualifies (e.g. "modality", "diagnosis", "payment mode") — value: the
+  specific qualifier (e.g. "CT / Angio", "malaria", "insured"). Getting
+  this right matters: skipping it means the query runs against EVERY kind
+  of the broader thing instead of just the one asked about, and the answer
+  looks specific when it silently isn't.
 """
 
 
 def plan_intent(state: AgentState) -> dict:
-    prompt = PLAN_SYSTEM.format(context_hint=_context_hint(state))
+    prompt = PLAN_SYSTEM.format(
+        today=timezone.now().strftime("%Y-%m-%d"),
+        context_hint=_context_hint(state),
+    )
 
     response = _openai().chat.completions.create(
         model="gpt-4o-mini",
@@ -78,8 +99,9 @@ def plan_intent(state: AgentState) -> dict:
     plan: dict = json.loads(response.choices[0].message.content)
 
     logger.info(
-        "plan_intent: subject=%r metric_type=%s confidence=%.2f",
+        "plan_intent: subject=%r metric_type=%s confidence=%.2f time_range=%s group_by_hints=%s filter_hints=%s",
         plan.get("subject"), plan.get("metric_type"), float(plan.get("confidence", 0.0)),
+        plan.get("time_range"), plan.get("group_by_hints"), plan.get("filter_hints"),
     )
 
     return {

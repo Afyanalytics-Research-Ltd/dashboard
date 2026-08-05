@@ -18,10 +18,12 @@ python3 manage.py migrate  &
 # echo " "
 # python manage.py loaddata initialization.yaml
 # echo " "
-# echo "<<<<<<<<<<<<<<<<<<<< START Celery >>>>>>>>>>>>>>>>>>>>>>>>"
+echo "<<<<<<<<<<<<<<<<<<<< START Celery >>>>>>>>>>>>>>>>>>>>>>>>"
 
-# # # start Celery worker
-# celery -A airflow_dashboard worker --loglevel=info &
+# Backs Agent Configuration's "Generate Missing Metrics" / "Rebuild
+# Embeddings" background tasks (agents/tasks.py). No periodic tasks exist
+# yet, so no celery beat is started.
+celery -A airflow_dashboard worker --loglevel=info &
 
 # # # start celery beat
 # celery -A airflow_dashboard beat --loglevel=info &

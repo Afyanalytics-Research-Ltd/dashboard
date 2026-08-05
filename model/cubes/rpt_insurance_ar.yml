@@ -19,6 +19,34 @@ cubes:
         type: time
 
     measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:00:22.733835+00:00
+      - name: invoices
+        sql: '{CUBE}."INVOICES"'
+        type: sum
+      - name: distinct_visits
+        sql: '{CUBE}."DISTINCT_VISITS"'
+        type: sum
+      - name: total_billed
+        sql: '{CUBE}."TOTAL_BILLED"'
+        type: sum
+      - name: total_collected
+        sql: '{CUBE}."TOTAL_COLLECTED"'
+        type: sum
+      - name: total_outstanding
+        sql: '{CUBE}."TOTAL_OUTSTANDING"'
+        type: sum
+      - name: collection_rate_pct
+        sql: '{CUBE}."COLLECTION_RATE_PCT"'
+        type: avg
+      - name: dispatched_invoices
+        sql: '{CUBE}."DISPATCHED_INVOICES"'
+        type: sum
+      - name: dispatch_rate_pct
+        sql: '{CUBE}."DISPATCH_RATE_PCT"'
+        type: avg
+      - name: enrolled_patients
+        sql: '{CUBE}."ENROLLED_PATIENTS"'
+        type: sum
       - name: count
         type: count
 

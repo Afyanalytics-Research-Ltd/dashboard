@@ -43,6 +43,16 @@ cubes:
         type: time
 
     measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:03:13.139870+00:00
+      - name: visit_hour
+        sql: '{CUBE}."VISIT_HOUR"'
+        type: sum
+      - name: day_num
+        sql: '{CUBE}."DAY_NUM"'
+        type: sum
+      - name: tat_min
+        sql: '{CUBE}."TAT_MIN"'
+        type: sum
       - name: count
         type: count
 

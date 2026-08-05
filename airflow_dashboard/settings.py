@@ -465,3 +465,26 @@ else:
             'BACKEND': 'channels.layers.InMemoryChannelLayer',
         }
     }
+
+# ---------------------------------------------------------------------------
+# Celery — background tasks (agents/tasks.py: Agent Configuration's
+# "Generate Missing Metrics" / "Rebuild Embeddings" buttons — both make
+# several slow LLM/embedding calls, too slow to run in a request/response
+# cycle). Broker/backend default to the `redis` service already defined in
+# docker-compose.yaml / docker-compose.dev.yaml, on the same `dashboard-net`
+# network as `web` — no new infrastructure, override via env if deployed
+# differently.
+# ---------------------------------------------------------------------------
+
+CELERY_BROKER_URL = os.getenv('CELERY_BROKER_URL', 'redis://redis:6379/1')
+CELERY_RESULT_BACKEND = os.getenv('CELERY_RESULT_BACKEND', CELERY_BROKER_URL)
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = TIME_ZONE
+CELERY_RESULT_EXPIRES = 60 * 60 * 24  # 24 hours — enough to check a result the next morning
+
+# Runs a task synchronously in-process (no broker/worker needed) when set —
+# for local dev without docker-compose's redis service running. Off by
+# default so production always actually queues instead of silently blocking.
+CELERY_TASK_ALWAYS_EAGER = os.getenv('CELERY_TASK_ALWAYS_EAGER', 'false').strip().lower() == 'true'

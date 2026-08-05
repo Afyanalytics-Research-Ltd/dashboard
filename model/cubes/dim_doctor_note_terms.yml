@@ -27,6 +27,22 @@ cubes:
         type: string
 
     measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T12:58:03.948605+00:00
+      - name: is_chronic
+        sql: '{CUBE}."IS_CHRONIC"'
+        type: sum
+      - name: is_pregnant
+        sql: '{CUBE}."IS_PREGNANT"'
+        type: sum
+      - name: is_followup
+        sql: '{CUBE}."IS_FOLLOWUP"'
+        type: sum
+      - name: is_negated
+        sql: '{CUBE}."IS_NEGATED"'
+        type: sum
+      - name: is_noise
+        sql: '{CUBE}."IS_NOISE"'
+        type: sum
       - name: count
         type: count
 

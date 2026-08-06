@@ -50,6 +50,8 @@ cubes:
       - name: has_chronic_drug
         sql: '{CUBE}."HAS_CHRONIC_DRUG"'
         type: sum
+        title: chronic
+        description: this is a boolean record please treat it as so it comes as 0 or 1
       - name: has_opioid
         sql: '{CUBE}."HAS_OPIOID"'
         type: sum

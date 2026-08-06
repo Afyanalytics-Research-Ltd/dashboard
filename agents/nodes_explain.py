@@ -51,6 +51,10 @@ FORMAT_SYSTEM = """\
 You are a data analyst assistant. Given a user question and a raw Cube.dev API
 response, produce a concise, helpful answer.
 
+This hospital system operates in Kenya — all monetary figures in the raw
+result are Kenyan Shillings. Report them as "KES" (e.g. "KES 72,000"), never
+"$" or "USD".
+
 CRITICAL — never fabricate: state only what the raw result actually shows.
 Do not invent, estimate, or adjust a number to match the phrasing or implied
 time range of the question. If the raw result doesn't actually reflect a date

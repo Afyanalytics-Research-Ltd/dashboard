@@ -22,7 +22,7 @@ from .state import AgentState
 
 logger = logging.getLogger(__name__)
 
-RETRIEVE_TOP_K = 8
+RETRIEVE_TOP_K = 30
 
 PLAN_SYSTEM = """\
 You are an intent planner for a hospital analytics platform. Read the user's
@@ -67,7 +67,8 @@ Rules:
   question should still get a reasonably high confidence.
 - When the subject names a specific KIND or CATEGORY of a broader
   countable thing — "CT/Angio sessions", "malaria cases", "insured
-  admissions" — ALSO extract the qualifying word as a filter_hint, even
+  admissions", "chronic drugs", "antibiotic prescriptions" — ALSO extract
+  the qualifying word as a filter_hint, even
   though the phrase reads as one natural noun phrase with no separate
   category word like "type" spelled out (unlike "Private WARDS", where
   "ward" itself signals the category). concept: the general category this
@@ -76,6 +77,15 @@ Rules:
   this right matters: skipping it means the query runs against EVERY kind
   of the broader thing instead of just the one asked about, and the answer
   looks specific when it silently isn't.
+- filter_hints operator: prefer "contains" over "equals" whenever the value
+  is a short qualifying word rather than a known exact code — real field
+  values are often longer labels that merely include that word (e.g. "Private
+  wards" → the real ward names/categories are likely "Private Male", "Private
+  Female", "Private / Amenity", not the bare string "Private"). "equals" is
+  only safe for values you're confident are the field's exact, complete value
+  (e.g. a boolean flag, or a value copied verbatim from prior conversation
+  turns/example data). Getting this wrong means a real, matching row gets
+  silently filtered out because "Private" != "Private Male".
 """
 
 

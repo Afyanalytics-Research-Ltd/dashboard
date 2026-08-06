@@ -46,6 +46,98 @@ CONFIDENT_SINGLE_SCORE = 0.58   # at/above this + a directly-resolvable source �
 # compose_derived_metric).
 _DIRECTLY_RESOLVABLE_SOURCES = {"metric", "measure"}
 
+# Glue words that show up in a filter concept or a field name without being
+# what actually relates them (e.g. "ward type" and "admission_type" both
+# contain "type", but that's not evidence they're the same axis) — stripped
+# before the whole-word-overlap fallback in _field_matches_concept, so two
+# fields don't false-positive match on nothing but a shared suffix.
+_GENERIC_CONCEPT_WORDS = {"type", "category", "mode", "status", "name", "code", "group", "kind"}
+
+
+def _concept_words(concept: str) -> set[str]:
+    words = {w for w in concept.lower().replace("_", " ").split() if w}
+    distinctive = words - _GENERIC_CONCEPT_WORDS
+    return distinctive or words  # an all-generic concept still needs something to match on
+
+
+def _field_matches_concept(field_name: str, concept: str) -> bool:
+    """
+    True if a metric's field named field_name is a plausible target for a
+    free-text filter concept (e.g. "ward type", "modality"). Two tiers:
+
+    1. Plain substring, either direction — handles the common case where
+       concept and field name are basically the same word (concept
+       "modality" / field "modality", or concept "facility" / field
+       "facility_name").
+    2. Whole-word overlap on the concept's DISTINCTIVE words (glue words
+       like "type"/"category" stripped first — see _GENERIC_CONCEPT_WORDS)
+       against the field name's own underscore-separated words. Lets an LLM
+       -extracted concept like "ward type" still match a field actually
+       named "ward_category" or "ward_name" (no shared substring at all
+       otherwise), without matching an unrelated field that merely happens
+       to share the same glue word (e.g. "admission_type").
+    """
+    concept = concept.strip().lower()
+    if not concept or not field_name:
+        return False
+    if concept in field_name or field_name in concept:
+        return True
+    return bool(_concept_words(concept) & set(field_name.split("_")))
+
+
+# This codebase's own naming convention for a record's reporting PERIOD —
+# nearly every cube's intended date-range-filter target is named this way
+# (dispensing_month, admission_month, revenue_month, invoice_month, ...) —
+# checked ahead of "_date" and any bare event timestamp when a metric
+# declares more than one time dimension, so a plain "in April 2026" question
+# lands on the period field rather than a per-record event timestamp (e.g.
+# fact_patient_dispensing has dispensing_month AND first_dispensed_at/
+# last_dispensed_at — the latter two are per-patient lifetime markers, not
+# what "in April 2026" means for an aggregate question).
+_TIME_MEMBER_SUFFIX_PRIORITY = ("_month", "_date", "_at")
+
+
+def _pick_time_member(time_members: set[str]) -> str:
+    """
+    Choose which real time dimension a date-range filter should target when
+    a metric declares more than one. Tries each suffix tier in
+    _TIME_MEMBER_SUFFIX_PRIORITY in turn — the first tier with any match
+    wins, sorted alphabetically within that tier for a stable choice among
+    ties (e.g. two "_month" fields). Falls back to plain alphabetical order
+    only if nothing matches any tier at all.
+    """
+    for suffix in _TIME_MEMBER_SUFFIX_PRIORITY:
+        matches = sorted(m for m in time_members if m.rsplit(".", 1)[-1].lower().endswith(suffix))
+        if matches:
+            return matches[0]
+    return sorted(time_members)[0]
+
+
+def _find_measure_for_qualifier(metric: dict, value: str) -> str | None:
+    """
+    Some "kind of X" filter values name a dedicated MEASURE on the same
+    cube rather than something to filter a dimension by — e.g. "chronic"
+    (from "chronic drugs") isn't a WHERE-able category, it's
+    fact_patient_dispensing.has_chronic_drug, a pre-aggregated 0/1 flag
+    literally titled "chronic". Same shape as the "CT/Angio sessions" bug
+    (the qualifier IS the measure, not a filter on top of a generic one) —
+    but worse when missed, since Cube can't filter a SUM by a string at
+    all: it emits a HAVING ... ILIKE clause on the aggregated number,
+    which is never true and silently returns the wrong (usually zero or
+    nonsensical) rows rather than erroring.
+
+    Checked BEFORE attempting to attach a dimension filter for a hint — a
+    hit here means don't filter at all, select this measure instead.
+    """
+    value_lower = str(value).strip().lower()
+    if not value_lower:
+        return None
+    for measure in (metric.get("cube_query") or {}).get("measures") or []:
+        field_name = measure.rsplit(".", 1)[-1].lower()
+        if _field_matches_concept(field_name, value_lower):
+            return measure
+    return None
+
 
 def is_directly_resolvable(candidate: dict) -> bool:
     if candidate["source"] in _DIRECTLY_RESOLVABLE_SOURCES:
@@ -119,6 +211,78 @@ def _resolve_single_field(candidate: dict) -> dict:
     return find_catalog_metric_containing_measure(field) or _synthesize_single_measure_metric(candidate)
 
 
+def _resolve_candidate_metric(candidate: dict) -> dict | None:
+    """Turn one directly-resolvable retrieval candidate into a full
+    matched_metric dict. Factored out of _resolve_matched_metric so
+    _find_metric_supporting_concepts can resolve several candidates to
+    check their fields, not just whichever one ends up chosen."""
+    if candidate["source"] == "metric" and candidate.get("metric_id"):
+        base = get_by_id(candidate["metric_id"])
+        return deepcopy(base) if base else None
+    if candidate["source"] in ("measure", "glossary"):
+        # A glossary entry that maps directly to one measure resolves the
+        # same way a bare measure hit does — is_directly_resolvable already
+        # excluded formula-shaped glossary entries (those need
+        # compose_derived_metric).
+        return _resolve_single_field(candidate)
+    return None
+
+
+def _find_metric_supporting_concepts(
+    candidates: list[dict], concepts: list[str], candidate_terms: list[str],
+) -> dict | None:
+    """
+    When the user named filter concept(s) (e.g. "ward" for "Private wards"),
+    a directly-resolvable candidate with no field for it is a worse pick
+    than a slightly-lower-ranked one that does — top score alone can't
+    distinguish "answerable" from "merely resolvable" here, the same gap
+    find_first_resolvable already closes for resolvability itself (see its
+    own docstring). Scans candidates in ranked order and returns the first
+    resolved metric whose fields cover EVERY named concept.
+
+    Having a matching FIELD isn't enough on its own, though — plenty of
+    tables incidentally have a ward/facility/payment column without being
+    what the question is actually about (observed: a "Private wards"
+    question, ranked-first candidate landed on a table with a ward_name
+    column but zero Private-ward rows, because a different table entirely
+    was the real subject). So when the plan also named candidate_terms
+    (what the user's asking to MEASURE, e.g. "revenue", "admission count"),
+    additionally require EVERY one of them to match one of the metric's own
+    MEASURE names — cheap corroboration that this metric doesn't just
+    happen to have the filter field, it also measures ALL of what was
+    asked about, not merely one generic "count" that happens to lexically
+    overlap one of the terms while missing the others entirely (observed:
+    a bare row-count measure satisfied "admission count" on its own but the
+    same table had nothing answering "revenue" at all).
+
+    Returns None if no candidate in range satisfies both — callers fall
+    back to the plain top-ranked pick, so a genuinely inapplicable/mistyped
+    concept (nothing on ANY candidate matches it) doesn't block an answer
+    outright.
+    """
+    for candidate in candidates:
+        if not is_directly_resolvable(candidate):
+            continue
+        metric = _resolve_candidate_metric(candidate)
+        if not metric:
+            continue
+        cube_query = metric.get("cube_query") or {}
+        field_names = {m.rsplit(".", 1)[-1].lower() for m in schema_validation.valid_members_for(metric)}
+        if not all(any(_field_matches_concept(name, concept) for name in field_names) for concept in concepts):
+            continue
+        terms = [term.strip().lower() for term in candidate_terms if term and term.strip()]
+        if terms:
+            measure_names = {m.rsplit(".", 1)[-1].lower() for m in (cube_query.get("measures") or [])}
+            all_terms_covered = all(
+                any(_field_matches_concept(name, term) for name in measure_names)
+                for term in terms
+            )
+            if not all_terms_covered:
+                continue
+        return metric
+    return None
+
+
 def _resolve_matched_metric(state: AgentState) -> dict | None:
     """Resolve retrieval_candidates' best directly-resolvable pick into a
     matched_metric, unless one is already set (e.g. by the resume path's
@@ -128,20 +292,16 @@ def _resolve_matched_metric(state: AgentState) -> dict | None:
 
     candidates = state.get("retrieval_candidates") or []
     relevant = [c for c in candidates if c.get("score", 0) >= RELEVANT_FLOOR]
-    top = find_first_resolvable(relevant, CONFIDENT_SINGLE_SCORE)
-    if not top:
-        return None
 
-    if top["source"] == "metric" and top.get("metric_id"):
-        base = get_by_id(top["metric_id"])
-        return deepcopy(base) if base else None
-    if top["source"] in ("measure", "glossary"):
-        # A glossary entry that maps directly to one measure resolves the
-        # same way a bare measure hit does — is_directly_resolvable already
-        # excluded formula-shaped glossary entries (those need
-        # compose_derived_metric).
-        return _resolve_single_field(top)
-    return None
+    plan = state.get("intent_plan") or {}
+    concepts = [hint["concept"].strip().lower() for hint in plan.get("filter_hints") or [] if hint.get("concept")]
+    if concepts:
+        preferred = _find_metric_supporting_concepts(relevant, concepts, plan.get("candidate_terms") or [])
+        if preferred:
+            return preferred
+
+    top = find_first_resolvable(relevant, CONFIDENT_SINGLE_SCORE)
+    return _resolve_candidate_metric(top) if top else None
 
 
 def generate_cube_query(state: AgentState) -> dict:
@@ -218,8 +378,10 @@ def generate_cube_query(state: AgentState) -> dict:
             # Anchor on the metric's own real time dimension rather than
             # trusting the plan to have named the right field — validation
             # would drop a mismatched name anyway, so just use the one that
-            # actually exists.
-            member = sorted(time_members)[0]
+            # actually exists. When more than one does, _pick_time_member
+            # prefers the reporting-period field over a per-record event
+            # timestamp (see its own docstring).
+            member = _pick_time_member(time_members)
             filters.append({"member": member, "operator": operator, "values": values})
             logger.info(
                 "generate_cube_query: applying time filter member=%s operator=%s values=%s",
@@ -252,29 +414,62 @@ def generate_cube_query(state: AgentState) -> dict:
             )
 
     allowed_members = schema_validation.valid_members_for(matched_metric)
+    qualifier_measures: list[str] = []
     for hint in plan.get("filter_hints") or []:
         concept = (hint.get("concept") or "").strip().lower()
         value = hint.get("value")
         if not concept or not value:
             continue
+
+        measure_for_value = _find_measure_for_qualifier(matched_metric, value)
+        if measure_for_value:
+            logger.info(
+                "generate_cube_query: qualifier value=%r matched measure %s directly — "
+                "using it instead of a filter", value, measure_for_value,
+            )
+            if measure_for_value not in qualifier_measures:
+                qualifier_measures.append(measure_for_value)
+            continue
+
         # allowed_members is a set (unordered) and a broad concept like "ward"
         # can substring-match MULTIPLE real fields (ward_name AND
         # ward_category both contain "ward") — picking whichever the set
         # happens to yield first is non-deterministic and can silently
-        # filter on the wrong field (observed: "General Female" — a ward
-        # NAME value — applied to ward_category instead of ward_name,
-        # matching zero rows). Collect every match, then break the tie
-        # deterministically: prefer a field ending in "_name" (this
-        # codebase's convention for "the specific one of these", e.g.
-        # ward_name/facility_name), else fall back to sorted order so the
-        # choice is at least stable across runs.
+        # filter on the wrong field. Collect every match, then break the tie
+        # deterministically based on the VALUE's own shape:
+        #   - A multi-word value (e.g. "General Female") reads as a specific
+        #     ward's full name — prefer a field ending in "_name" (observed:
+        #     applying it to ward_category instead matched zero rows, since
+        #     ward_category's values are broader tiers, not ward names).
+        #   - A single bare qualifier word (e.g. "Private", "General") reads
+        #     as a category/tier, not one specific ward's name — prefer a
+        #     field ending in "_category" instead (observed: "Private" as a
+        #     ward_NAME contains-filter over-matched "Private Maternity" —
+        #     itself filed under ward_CATEGORY "Maternity", not "Private" —
+        #     inflating the total; ward_category's own "Private / Amenity"
+        #     value is the actual curated grouping the word refers to).
+        # Whichever loses this tie-break is still kept as a fallback so a
+        # metric with only one of the two fields still gets filtered.
+        is_multi_word_value = len(str(value).split()) > 1
+        preferred_suffix = "_name" if is_multi_word_value else "_category"
+        fallback_suffix = "_category" if is_multi_word_value else "_name"
         candidates = [
             member for member in allowed_members
             if (field_name := member.rsplit(".", 1)[-1].lower())
-            and (concept in field_name or field_name in concept)
+            and _field_matches_concept(field_name, concept)
         ]
         if candidates:
-            candidates.sort(key=lambda m: (not m.rsplit(".", 1)[-1].lower().endswith("_name"), m))
+            def _tie_break(member: str) -> tuple[int, str]:
+                field_name = member.rsplit(".", 1)[-1].lower()
+                if field_name.endswith(preferred_suffix):
+                    rank = 0
+                elif field_name.endswith(fallback_suffix):
+                    rank = 1
+                else:
+                    rank = 2
+                return (rank, member)
+
+            candidates.sort(key=_tie_break)
             filters.append({
                 "member": candidates[0],
                 "operator": hint.get("operator", "equals"),
@@ -300,6 +495,8 @@ def generate_cube_query(state: AgentState) -> dict:
                 matched_metric.get("id"), concept, value,
             )
 
+    if qualifier_measures:
+        query["measures"] = qualifier_measures
     query["filters"] = filters
     update["cube_query"] = query
     if warnings:

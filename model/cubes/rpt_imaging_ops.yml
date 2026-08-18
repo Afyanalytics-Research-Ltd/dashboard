@@ -26,9 +26,13 @@ cubes:
       - name: revenue
         sql: '{CUBE}."REVENUE"'
         type: sum
+        title: Imaging Revenue (KES)
+        description: Total imaging revenue, by facility/modality (e.g. "CT / Angio", "Ultrasound")/month — use for "imaging revenue" and "which imaging modality generates the most revenue" questions.
       - name: avg_per_session
         sql: '{CUBE}."AVG_PER_SESSION"'
         type: avg
+        title: Average Imaging Revenue per Session (KES)
+        description: Average revenue per imaging session, by facility/modality — use to compare average session revenue between facilities (e.g. ultrasound revenue between TENRI and KSH).
       - name: count
         type: count
 

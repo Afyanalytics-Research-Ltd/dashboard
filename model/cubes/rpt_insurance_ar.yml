@@ -35,15 +35,37 @@ cubes:
       - name: total_outstanding
         sql: '{CUBE}."TOTAL_OUTSTANDING"'
         type: sum
+        title: Total Outstanding Insurance AR (KES)
+        description: Total outstanding insurance accounts receivable, by facility/insurer/month. For a breakdown by AGING BUCKET (30/60/90+ days), use rpt_ar_aging.total_outstanding instead.
       - name: collection_rate_pct
         sql: '{CUBE}."COLLECTION_RATE_PCT"'
         type: avg
+        format: percent
+        title: Insurance Collection Rate (%, averaged)
+        description: AVERAGE of a pre-computed per-row rate — not safe when grouping/filtering by facility, insurer, or month, since averaging rates differs from the true rate. Use collection_rate_calc_pct instead.
       - name: dispatched_invoices
         sql: '{CUBE}."DISPATCHED_INVOICES"'
         type: sum
       - name: dispatch_rate_pct
         sql: '{CUBE}."DISPATCH_RATE_PCT"'
         type: avg
+        format: percent
+        title: Invoice Dispatch Rate (%, averaged)
+        description: AVERAGE of a pre-computed per-row rate — not safe when grouping/filtering by insurer or month. Use dispatch_rate_calc_pct instead.
+
+      - name: collection_rate_calc_pct
+        sql: "{total_collected} * 100.0 / NULLIF({total_billed}, 0)"
+        type: number
+        format: percent
+        title: Insurance Collection Rate (%)
+        description: TRUE collection rate — total_collected / total_billed — correct at any grouping. Use for "overall insurance collection rate" / "which insurer has the highest collection rate" questions.
+
+      - name: dispatch_rate_calc_pct
+        sql: "{dispatched_invoices} * 100.0 / NULLIF({invoices}, 0)"
+        type: number
+        format: percent
+        title: Invoice Dispatch Rate (%)
+        description: TRUE dispatch rate — dispatched_invoices / invoices — correct at any grouping. Use for "insurers with a dispatch rate below 80%" questions.
       - name: enrolled_patients
         sql: '{CUBE}."ENROLLED_PATIENTS"'
         type: sum

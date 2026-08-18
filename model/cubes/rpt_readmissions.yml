@@ -37,18 +37,43 @@ cubes:
       - name: readmission_rate_pct
         sql: '{CUBE}."READMISSION_RATE_PCT"'
         type: avg
+        format: percent
+        title: Overall Readmission Rate (%, averaged)
+        description: AVERAGE of a pre-computed per-row rate — averaging rates across a group is NOT the same as a true rate-of-sums when grouping by anything other than the row's own native grain. For any GROUPED question (by facility/ward/discharge type/month), use readmission_rate_calc_pct instead, which is always mathematically correct regardless of grouping.
       - name: readmissions_30day
         sql: '{CUBE}."READMISSIONS_30DAY"'
         type: sum
+        title: 30-Day Readmissions (count)
       - name: readmission_30day_rate_pct
         sql: '{CUBE}."READMISSION_30DAY_RATE_PCT"'
         type: avg
+        format: percent
+        title: 30-Day Readmission Rate (%, averaged)
+        description: AVERAGE of a pre-computed per-row rate — NOT safe to use when grouping by facility/ward/discharge type/month, since averaging rates across a group differs from the true rate. Use readmission_30day_rate_calc_pct instead for any grouped or filtered "30-day readmission rate" question.
+
+      - name: readmission_rate_calc_pct
+        sql: "{readmissions} * 100.0 / NULLIF({total_admissions}, 0)"
+        type: number
+        format: percent
+        title: Overall Readmission Rate (%)
+        description: TRUE readmission rate — readmissions / total_admissions — correct at any grouping (by facility, ward_category, discharge_type, admission_month). Use for "overall readmission rate" questions, especially ones with a threshold ("rate above X%") or a group-by.
+
+      - name: readmission_30day_rate_calc_pct
+        sql: "{readmissions_30day} * 100.0 / NULLIF({total_admissions}, 0)"
+        type: number
+        format: percent
+        title: 30-Day Readmission Rate (%)
+        description: TRUE 30-day readmission rate — readmissions_30day / total_admissions — correct at any grouping (by facility, ward_category, discharge_type, admission_month), unlike the averaged readmission_30day_rate_pct column. Use for "30-day readmission rate" questions, especially ones with a threshold ("rate above 10%") or broken down by discharge type/month.
       - name: avg_days_between_admissions
         sql: '{CUBE}."AVG_DAYS_BETWEEN_ADMISSIONS"'
         type: avg
+        title: Average Days Between Admissions
+        description: Average gap in days between a patient's consecutive admissions — not a rate/percentage.
       - name: insured_30day_revenue_at_risk
         sql: '{CUBE}."INSURED_30DAY_REVENUE_AT_RISK"'
         type: sum
+        title: Insured 30-Day Readmission Revenue at Risk (KES)
+        description: Insured revenue exposed to 30-day readmissions, by ward category — use for "revenue at risk" questions.
       - name: count
         type: count
 

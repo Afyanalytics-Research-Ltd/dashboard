@@ -19,12 +19,25 @@ cubes:
       - name: evaluations
         sql: '{CUBE}."EVALUATIONS"'
         type: sum
+        title: Doctor Evaluations (count)
       - name: admissions
         sql: '{CUBE}."ADMISSIONS"'
         type: sum
+        title: Doctor Admissions (count)
       - name: conversion_rate_pct
         sql: '{CUBE}."CONVERSION_RATE_PCT"'
         type: avg
+        format: percent
+        title: Admission Conversion Rate (%, averaged)
+        description: AVERAGE of a pre-computed per-row rate — not safe when grouping/filtering by username or month. Use conversion_rate_calc_pct instead.
+
+      - name: conversion_rate_calc_pct
+        sql: "{admissions} * 100.0 / NULLIF({evaluations}, 0)"
+        type: number
+        format: percent
+        title: Admission Conversion Rate (%)
+        description: TRUE admission conversion rate — admissions / evaluations — correct at any grouping. Use for "facility-wide admission conversion rate", "which doctor has the highest conversion rate", "doctors with over 100 evaluations but conversion rate below 5%" questions.
+
       - name: count
         type: count
 

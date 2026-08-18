@@ -22,24 +22,42 @@ cubes:
       - name: sessions_insured
         sql: '{CUBE}."SESSIONS_INSURED"'
         type: sum
+        title: Insured Dialysis Sessions (count)
+        description: Count of dialysis sessions paid by insurance, per month — divide by sessions_billed for the insured percentage.
       - name: sessions_cash
         sql: '{CUBE}."SESSIONS_CASH"'
         type: sum
+        title: Cash Dialysis Sessions (count)
+
+      - name: insured_pct
+        sql: "{sessions_insured} * 100.0 / NULLIF({sessions_billed}, 0)"
+        type: number
+        format: percent
+        title: Insured Dialysis Session Share (%)
+        description: Percentage of billed dialysis sessions paid by insurance — sessions_insured / sessions_billed. Use for "proportion of dialysis sessions insured vs cash" questions.
+
       - name: session_fee_revenue
         sql: '{CUBE}."SESSION_FEE_REVENUE"'
         type: sum
+        title: Dialysis Session Fee Revenue (KES)
       - name: total_dialysis_revenue
         sql: '{CUBE}."TOTAL_DIALYSIS_REVENUE"'
         type: sum
+        title: Total Dialysis Revenue (KES)
       - name: ancillary_revenue
         sql: '{CUBE}."ANCILLARY_REVENUE"'
         type: sum
+        title: Dialysis Ancillary Revenue (KES)
       - name: avg_session_fee
         sql: '{CUBE}."AVG_SESSION_FEE"'
         type: avg
+        title: Average Dialysis Session Fee (KES)
       - name: utilisation_pct_theoretical
         sql: '{CUBE}."UTILISATION_PCT_THEORETICAL"'
         type: sum
+        format: percent
+        title: Dialysis Utilisation Rate (% of theoretical capacity)
+        description: Monthly dialysis machine/chair utilisation as a percentage of theoretical maximum capacity — use for "dialysis utilisation rate", "is dialysis utilisation improving", and "dropped below X% of theoretical capacity" questions. Filter is_partial_month = false for complete months only.
       - name: count
         type: count
 

@@ -37,12 +37,32 @@ cubes:
       - name: completion_rate_pct
         sql: '{CUBE}."COMPLETION_RATE_PCT"'
         type: avg
+        format: percent
+        title: Theatre Completion Rate (%, averaged)
+        description: AVERAGE of a pre-computed per-row rate — not safe when grouping/filtering by facility or month. Use completion_rate_calc_pct instead.
+
+      - name: completion_rate_calc_pct
+        sql: "{completed_sessions} * 100.0 / NULLIF({total_sessions}, 0)"
+        type: number
+        format: percent
+        title: Theatre Completion Rate (%)
+        description: TRUE theatre completion rate — completed_sessions / total_sessions — correct at any grouping. Use for "theatre completion rate in the most recent month" questions.
+
       - name: emergency_sessions
         sql: '{CUBE}."EMERGENCY_SESSIONS"'
         type: sum
+        title: Emergency Theatre Sessions (count)
       - name: elective_sessions
         sql: '{CUBE}."ELECTIVE_SESSIONS"'
         type: sum
+        title: Elective Theatre Sessions (count)
+
+      - name: emergency_pct
+        sql: "{emergency_sessions} * 100.0 / NULLIF({total_sessions}, 0)"
+        type: number
+        format: percent
+        title: Emergency Session Share (%)
+        description: Percentage of theatre sessions that were emergency (vs elective) — emergency_sessions / total_sessions. Use for "what proportion of sessions are emergency vs elective" questions.
       - name: avg_duration_min
         sql: '{CUBE}."AVG_DURATION_MIN"'
         type: avg
@@ -61,12 +81,16 @@ cubes:
       - name: avg_revenue_per_session
         sql: '{CUBE}."AVG_REVENUE_PER_SESSION"'
         type: avg
+        title: Average Theatre Session Revenue (KES)
+        description: Average revenue per theatre session, by theatre name/facility — use for "which theatre has the highest average session revenue" questions.
       - name: distinct_insurers
         sql: '{CUBE}."DISTINCT_INSURERS"'
         type: sum
       - name: insured_revenue
         sql: '{CUBE}."INSURED_REVENUE"'
         type: sum
+        title: Theatre Insured Revenue (KES)
+        description: Insured revenue from THEATRE sessions specifically — not overall facility insured revenue. For "which insurer contributes the most insured revenue" across all procedures, use rpt_procedure_revenue's total_revenue broken down by insurer instead.
       - name: cash_revenue
         sql: '{CUBE}."CASH_REVENUE"'
         type: sum

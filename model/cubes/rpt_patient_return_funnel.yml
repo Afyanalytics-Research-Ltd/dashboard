@@ -12,26 +12,46 @@ cubes:
       - name: total_non_admitted_peak
         sql: '{CUBE}."TOTAL_NON_ADMITTED_PEAK"'
         type: sum
+        title: Total Non-Admitted Peak-Hour Patients (count)
       - name: returned
         sql: '{CUBE}."RETURNED"'
         type: sum
+        title: Non-Admitted Peak-Hour Patients Who Returned (count)
       - name: never_returned
         sql: '{CUBE}."NEVER_RETURNED"'
         type: sum
+        title: Non-Admitted Peak-Hour Patients Who Never Returned (count)
+        description: Count of non-admitted peak-hour patients who never returned — divide by total_non_admitted_peak for the "never returned" percentage.
       - name: return_pct
         sql: '{CUBE}."RETURN_PCT"'
         type: avg
+        format: percent
+        title: Non-Admitted Peak-Hour Patient Return Rate (%)
+        description: Percentage of non-admitted peak-hour patients who returned to the facility on a later visit.
       - name: later_admitted
         sql: '{CUBE}."LATER_ADMITTED"'
         type: sum
+        title: Later Admitted on Return Visit (count)
       - name: admitted_of_returned_pct
         sql: '{CUBE}."ADMITTED_OF_RETURNED_PCT"'
         type: avg
+        format: percent
+        title: Admitted-of-Returned Rate (%)
+        description: Of the non-admitted peak-hour patients who returned, the percentage later admitted.
       - name: median_days_to_return
         sql: '{CUBE}."MEDIAN_DAYS_TO_RETURN"'
         type: sum
+        title: Median Days to Return
+        description: Median number of days for a non-admitted peak-hour patient to return to the facility.
       - name: count
         type: count
+
+      - name: never_returned_pct
+        sql: "{never_returned} * 100.0 / NULLIF({total_non_admitted_peak}, 0)"
+        type: number
+        format: percent
+        title: Never-Returned Rate (%)
+        description: Percentage of non-admitted peak-hour patients who never returned — never_returned / total_non_admitted_peak. Use for "what percentage never return" questions.
 
     pre_aggregations:
       # Pre-aggregation definitions go here.

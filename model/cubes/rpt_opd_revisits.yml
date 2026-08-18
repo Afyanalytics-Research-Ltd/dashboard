@@ -1,0 +1,70 @@
+cubes:
+  - name: rpt_opd_revisits
+    sql_table: "\"REPORTING\".\"RPT_OPD_REVISITS\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: source_schema
+        sql: "{CUBE}.\"SOURCE_SCHEMA\""
+        type: string
+
+      - name: clean_diagnosis
+        sql: "{CUBE}.\"CLEAN_DIAGNOSIS\""
+        type: string
+
+      - name: final_disease_burden_group
+        sql: "{CUBE}.\"FINAL_DISEASE_BURDEN_GROUP\""
+        type: string
+
+      - name: is_comorbidity
+        sql: "{CUBE}.\"IS_COMORBIDITY\""
+        type: boolean
+
+      - name: age_group
+        sql: "{CUBE}.\"AGE_GROUP\""
+        type: string
+
+      - name: gender
+        sql: "{CUBE}.\"GENDER\""
+        type: string
+
+      - name: payment_mode
+        sql: "{CUBE}.\"PAYMENT_MODE\""
+        type: string
+
+      - name: revisit_day_bucket
+        sql: "{CUBE}.\"REVISIT_DAY_BUCKET\""
+        type: string
+        description: Bucketed days-to-revisit (e.g. within 2 days) — for "what proportion of 7-day revisits return within the first 2 days" questions.
+
+      - name: visit_month
+        sql: "{CUBE}.\"VISIT_MONTH\""
+        type: time
+
+    measures:
+      - name: revisit_count
+        sql: '{CUBE}."REVISIT_COUNT"'
+        type: sum
+        title: 7-Day OPD Revisits (count)
+        description: Count of OPD revisits within 7 days — break down by clean_diagnosis, age_group, gender, is_comorbidity, revisit_day_bucket, or visit_month.
+
+      - name: distinct_patients
+        sql: '{CUBE}."DISTINCT_PATIENTS"'
+        type: sum
+        title: Distinct Patients (count)
+
+      - name: revisit_rate_pct
+        sql: "{revisit_count} * 100.0 / NULLIF({distinct_patients}, 0)"
+        type: number
+        format: percent
+        title: 7-Day OPD Revisit Rate (%)
+        description: TRUE 7-day OPD revisit rate — revisit_count / distinct_patients — correct at any grouping. Use for "overall 7-day OPD revisit rate", "do comorbid patients revisit more often", "are female patients more likely to revisit" questions.
+
+      - name: count
+        type: count
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started

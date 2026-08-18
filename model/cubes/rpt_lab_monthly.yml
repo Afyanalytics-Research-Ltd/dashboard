@@ -18,9 +18,13 @@ cubes:
       - name: total_components
         sql: '{CUBE}."TOTAL_COMPONENTS"'
         type: sum
+        title: Total Lab Components Processed (count)
       - name: abnormal_pct
         sql: '{CUBE}."ABNORMAL_PCT"'
         type: avg
+        format: percent
+        title: Abnormal Lab Result Rate (%)
+        description: Percentage of lab result components flagged abnormal, by month — use for "abnormal lab rate" questions.
       - name: count
         type: count
 

@@ -23,6 +23,8 @@ cubes:
       - name: median_los_days
         sql: '{CUBE}."MEDIAN_LOS_DAYS"'
         type: sum
+        title: Median Ward Length of Stay (days)
+        description: Median length of stay in days, broken down by ward_category, facility, and admission_month — use for "median length of stay" / "median LOS" questions about a specific ward or ward category.
       - name: admissions
         sql: '{CUBE}."ADMISSIONS"'
         type: sum

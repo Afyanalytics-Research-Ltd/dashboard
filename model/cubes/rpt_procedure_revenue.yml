@@ -40,12 +40,15 @@ cubes:
       - name: total_revenue
         sql: '{CUBE}."TOTAL_REVENUE"'
         type: sum
+        title: Procedure Revenue (KES)
+        description: Total revenue from billed procedures/items, per facility/month. Break down by revenue_category (e.g. Pharmacy, Investigations, Rebate) for "top revenue category" questions, by insurer + payment_mode="insured" for "which insurer contributes the most insured revenue" questions, or filter revenue_category="Rebate" for contra-revenue/rebate exposure questions.
       - name: count
         type: count
 
       - name: avg_item_amount
         sql: "{CUBE}.\"AVG_ITEM_AMOUNT\""
         type: sum
+        title: Average Revenue per Line Item (KES)
 
     pre_aggregations:
       # Pre-aggregation definitions go here.

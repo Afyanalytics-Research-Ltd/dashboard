@@ -115,9 +115,25 @@ def _base_query_for(field: str) -> dict:
 def compose_derived_metric(state: AgentState) -> dict:
     candidates = state.get("retrieval_candidates") or []
     relevant = [c for c in candidates if c.get("score", 0) >= RELEVANT_FLOOR]
+    if not relevant:
+        return {}
+
+    # relevant is already score-sorted (retrieval.retrieve_many sorts
+    # descending) — this is the best ANY candidate scored, formula or not.
+    top_score = relevant[0]["score"]
 
     formula_hits = [c for c in relevant if c["source"] == "glossary" and c.get("formula") and c.get("variables")]
-    if formula_hits:
+    # Only trust a glossary formula when it's the best-scoring relevant
+    # candidate (or tied) — NOT merely present somewhere above
+    # RELEVANT_FLOOR. Trusting formula_hits[0] unconditionally let a
+    # loosely-related glossary term win outright over a much better plain
+    # measure/metric candidate that simply missed CONFIDENT_SINGLE_SCORE by
+    # a hair (observed: "insurance collection rate at TENRI" scored
+    # rpt_insurance_ar.collection_rate_pct — the exact right field — at
+    # 0.575, but a "readmission rate" glossary formula scoring lower still
+    # hijacked the answer since formula candidates were never compared
+    # against the overall best before this check existed).
+    if formula_hits and formula_hits[0]["score"] >= top_score:
         derived = _build_from_glossary_formula(formula_hits[0])
         if derived:
             return _finalize(derived)

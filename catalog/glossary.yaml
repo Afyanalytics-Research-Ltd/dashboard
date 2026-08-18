@@ -38,10 +38,23 @@ terms:
       a: fact_dispensing.discount
       b: fact_dispensing.dispensing_event_total
 
-  - term: stockout
+  - term: stockout alert count
     aliases: [stockouts, out of stock, stock outs, stockout alerts]
-    description: Count of stockout alerts generated across facilities and products.
+    description: Count of discrete stockout ALERT events generated across
+      facilities and products — a raw count, NOT a rate/frequency/percentage.
+      For "stockout RATE" or "stockout FREQUENCY" questions, use the
+      "stockout rate" term instead.
     maps_to: rpt_stockout_alerts.count
+
+  - term: stockout rate
+    aliases: [stockout frequency, drugs stocking out, which drugs are stocking out, zero stock, days at zero stock]
+    description: The RATE/FREQUENCY at which a drug, therapeutic class, or
+      facility was out of stock — days at zero stock-on-hand divided by
+      total transaction days/months (fact_dispensing.stockout_frequency).
+      Break down by canonical_product_taxonomy.canonical_name or
+      therapeutic_class (joined via canonical_product_id) for "which drugs
+      are stocking out" / "stockout rate by therapeutic class" questions.
+    maps_to: fact_dispensing.stockout_frequency
 
   - term: bed occupancy
     aliases: [ward occupancy, occupied beds]
@@ -60,13 +73,13 @@ terms:
 
   - term: readmission rate
     aliases: [30-day readmission rate, readmission proportion]
-    description: Proportion of readmissions that occurred within roughly 30 days
-      of discharge — computed as the 30-day gap count ÷ total readmissions
-      within the same rpt_readmissions cube.
-    formula: "a / b"
-    variables:
-      a: rpt_readmissions.approx_gap_30day_count
-      b: rpt_readmissions.count
+    description: TRUE 30-day readmission rate — readmissions within 30 days of
+      discharge as a percentage of total admissions (readmissions_30day ÷
+      total_admissions), by facility/ward category/discharge type/month.
+      ONLY about READMISSIONS specifically — not a general "X rate" term;
+      do not use for collection rate, conversion rate, completion rate, or
+      any other unrelated rate/percentage concept.
+    maps_to: rpt_readmissions.readmission_30day_rate_calc_pct
 
   - term: accounts receivable
     aliases: [AR aging, outstanding invoices, ar count]
@@ -90,8 +103,19 @@ terms:
 
   - term: dialysis sessions
     aliases: [dialysis session count, dialysis visits]
-    description: Count of dialysis sessions conducted.
+    description: Count of dialysis sessions conducted — a raw count. For
+      dialysis UTILISATION (capacity usage), use "dialysis utilisation"
+      instead.
     maps_to: rpt_dialysis.count
+
+  - term: dialysis utilisation
+    aliases: [dialysis utilisation rate, dialysis capacity, theoretical capacity]
+    description: Monthly dialysis machine/chair utilisation as a percentage
+      of theoretical maximum capacity. Use for "current monthly dialysis
+      utilisation rate", "is dialysis utilisation improving", "dropped
+      below X% of theoretical capacity" questions — NOT the same as a
+      session count.
+    maps_to: rpt_dialysis_ops.utilisation_pct_theoretical
 
   - term: disease burden
     aliases: [disease cases, disease case count]

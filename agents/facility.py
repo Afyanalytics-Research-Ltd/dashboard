@@ -50,15 +50,20 @@ FACILITY_REGISTRY: dict[str, dict[str, str | list[str]]] = {
     # exactly (confirmed against live data), so it's left as a single value.
     "KISUMU": {
         "source_schema": ["KISUMU_CLEAN", "kisumu"],
-        "facility":      ["KISUMU", "KISUMU_CLEAN"],
+        # canonical_product_taxonomy.facility uses lowercase "kisumu" —
+        # a different convention than the rpt_* tables' "KISUMU_CLEAN" —
+        # so both must be listed or that cube's facility filter matches
+        # nothing (observed: every canonical_product_taxonomy-joined
+        # question about KSH silently returned zero rows).
+        "facility":      ["KISUMU", "KISUMU_CLEAN", "kisumu"],
     },
     "KAKAMEGA": {
         "source_schema": ["KAKAMEGA_CLEAN", "kakamega"],
-        "facility":      ["KAKAMEGA", "KAKAMEGA_CLEAN"],
+        "facility":      ["KAKAMEGA", "KAKAMEGA_CLEAN", "kakamega"],
     },
     "LODWAR": {
         "source_schema": ["LODWAR_CLEAN", "lodwar"],
-        "facility":      ["LODWAR", "LODWAR_CLEAN"],
+        "facility":      ["LODWAR", "LODWAR_CLEAN", "lodwar"],
     },
     "TENRI": {
         "source_schema": ["TENRI", "tenri"],
@@ -75,7 +80,7 @@ FACILITY_DIMENSION_NAMES = {"source_schema", "facility"}
 # Order matters — more specific keywords first to avoid false matches.
 
 FACILITY_KEYWORDS: dict[str, list[str]] = {
-    "KISUMU":   ["kisumu"],
+    "KISUMU":   ["kisumu", "ksh"],
     "KAKAMEGA": ["kakamega"],
     "LODWAR":   ["lodwar", "turkana"],
     "TENRI":    ["tenri"],
@@ -299,6 +304,39 @@ def resolve_facility(user_id: str, phone: str | None = None) -> str | None:
 
     logger.debug("resolve_facility: %s → unrestricted", user_id)
     return None
+
+
+# ── Free-text facility filter resolution ──────────────────────────────────────
+# Used by generate_cube_query (agents/nodes_query.py) when the intent planner
+# extracts a facility mention as a filter_hint (e.g. concept="facility",
+# value="KSH") from the question text itself — distinct from the row-level
+# security path above, which only fires when the CALLING USER is scoped to a
+# single facility. A multi-facility user (e.g. a Client Administrator covering
+# both KSH and TENRI) asking about one facility BY NAME has no user_facility
+# to inject, so without this the filter_hint's raw text ("KSH") was applied
+# verbatim as a literal equals/contains filter — which never matches the real
+# column value ("KISUMU_CLEAN") and silently returns null/empty results.
+
+
+def resolve_facility_filter_value(raw_value: str, dimension_field: str) -> list[str] | None:
+    """
+    Resolve a free-text facility mention (e.g. "KSH", "Kisumu", "Tenri
+    Hospital") to the exact DB-value list for the given Cube dimension
+    (e.g. "rpt_bed_occupancy.facility" or "fact_x.source_schema"), using the
+    same keyword table and alias list as the row-level-security path.
+
+    Returns None if raw_value doesn't match any known facility keyword, so
+    the caller can fall back to filtering on the literal text instead.
+    """
+    key = _match_by_keywords(str(raw_value))
+    if not key or key not in FACILITY_REGISTRY:
+        return None
+
+    dim_suffix = dimension_field.rsplit(".", 1)[-1]
+    values = FACILITY_REGISTRY[key].get(dim_suffix)
+    if not values:
+        return None
+    return values if isinstance(values, list) else [values]
 
 
 # ── Live cube schema cache (for verifying Pass 2's naming-convention guess) ────

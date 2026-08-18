@@ -1,0 +1,98 @@
+cubes:
+  - name: rpt_infectious_disease
+    sql_table: "\"REPORTING\".\"RPT_INFECTIOUS_DISEASE\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: source_schema
+        sql: "{CUBE}.\"SOURCE_SCHEMA\""
+        type: string
+
+      - name: disease_group
+        sql: "{CUBE}.\"DISEASE_GROUP\""
+        type: string
+        description: 'e.g. "Malaria", "URTI", "Sepsis" — match with "contains" since real values may have extra qualifiers.'
+
+      - name: icd10_chapter
+        sql: "{CUBE}.\"ICD10_CHAPTER\""
+        type: string
+
+      - name: final_disease_burden_group
+        sql: "{CUBE}.\"FINAL_DISEASE_BURDEN_GROUP\""
+        type: string
+
+      - name: clean_diagnosis
+        sql: "{CUBE}.\"CLEAN_DIAGNOSIS\""
+        type: string
+
+      - name: hai_ssi_flag
+        sql: "{CUBE}.\"HAI_SSI_FLAG\""
+        type: string
+
+      - name: is_comorbidity
+        sql: "{CUBE}.\"IS_COMORBIDITY\""
+        type: boolean
+
+      - name: has_comorbidity_flag
+        sql: "{CUBE}.\"HAS_COMORBIDITY_FLAG\""
+        type: boolean
+
+      - name: comorbidity_pair
+        sql: "{CUBE}.\"COMORBIDITY_PAIR\""
+        type: string
+
+      - name: age_group
+        sql: "{CUBE}.\"AGE_GROUP\""
+        type: string
+
+      - name: gender
+        sql: "{CUBE}.\"GENDER\""
+        type: string
+
+      - name: payment_mode
+        sql: "{CUBE}.\"PAYMENT_MODE\""
+        type: string
+
+      - name: visit_month
+        sql: "{CUBE}.\"VISIT_MONTH\""
+        type: time
+
+    measures:
+      - name: total_visits
+        sql: '{CUBE}."TOTAL_VISITS"'
+        type: sum
+        title: Infectious Disease Visits (count)
+        description: Total infectious-disease visit count — break down by disease_group (malaria/URTI/sepsis via "contains"), age_group, gender, or visit_month.
+
+      - name: distinct_patients
+        sql: '{CUBE}."DISTINCT_PATIENTS"'
+        type: sum
+        title: Distinct Infectious Disease Patients (count)
+
+      - name: hai_ssi_visits
+        sql: '{CUBE}."HAI_SSI_VISITS"'
+        type: sum
+        title: HAI/SSI Visits (count)
+
+      - name: comorbid_visits
+        sql: '{CUBE}."TOTAL_VISITS"'
+        type: sum
+        filters:
+          - sql: "{CUBE}.\"HAS_COMORBIDITY_FLAG\" = TRUE"
+        title: Comorbid Infectious Disease Visits (count)
+
+      - name: comorbidity_rate_pct
+        sql: "{comorbid_visits} * 100.0 / NULLIF({total_visits}, 0)"
+        type: number
+        format: percent
+        title: Infectious Disease Comorbidity Rate (%)
+        description: TRUE comorbidity rate among infectious disease patients — comorbid_visits / total_visits.
+
+      - name: count
+        type: count
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started

@@ -23,8 +23,13 @@ import httpx
 
 from . import expr_eval, schema_validation
 from .catalog import get_all, get_by_id
-from .cube_client import run_query
-from .facility import inject_facility_filter, resolve_facility
+from .cube_client import fetch_meta, run_query
+from .facility import (
+    FACILITY_DIMENSION_NAMES,
+    inject_facility_filter,
+    resolve_facility,
+    resolve_facility_filter_value,
+)
 from .state import AgentState
 
 logger = logging.getLogger(__name__)
@@ -180,26 +185,68 @@ def find_catalog_metric_containing_measure(field: str) -> dict | None:
     return None
 
 
+_cube_meta_cache: dict[str, dict] | None = None
+
+
+def _cube_meta_for(cube_name: str) -> dict | None:
+    """Live Cube /meta entry for one cube, fetched once per process.
+
+    Used to backfill a synthesized single-measure metric's dimensions —
+    see _synthesize_single_measure_metric for why this matters.
+    """
+    global _cube_meta_cache
+    if _cube_meta_cache is None:
+        try:
+            meta = fetch_meta()
+        except Exception:
+            logger.exception("_cube_meta_for: fetch_meta() failed — proceeding with no cube metadata")
+            _cube_meta_cache = {}
+        else:
+            _cube_meta_cache = {c["name"]: c for c in meta.get("cubes", [])}
+    return _cube_meta_cache.get(cube_name)
+
+
 def _synthesize_single_measure_metric(candidate: dict) -> dict:
     """
     Build a matched_metric-shaped dict from a bare "measure" retrieval
     candidate whose field isn't covered by any curated catalog entry (see
-    find_catalog_metric_containing_measure, tried first). Known
-    simplification: a retrieval candidate only carries its own field, not
-    the rest of its cube's dimensions/time dimensions, so the synthesized
-    metric has none — filter/time hints simply won't have anything to
-    attach to for these truly uncovered-cube cases (schema_validation
-    safely drops them rather than guessing), which is a safe degradation,
-    not a crash.
+    find_catalog_metric_containing_measure, tried first).
+
+    Pulls the REST of the measure's own cube's dimensions/timeDimensions
+    from Cube's live /meta — a retrieval candidate only carries its own
+    field, so without this the synthesized metric had no filterable fields
+    at all, meaning every filter_hint/time_range got silently dropped even
+    when the cube genuinely has a matching facility or date column
+    (observed: rpt_admission_tat.p50_tat_min resolved this way, correctly
+    matching the question at 0.67, but a "most recent month" time_range was
+    dropped as "no date field" despite the cube's own tat_month column
+    existing — the metric just never carried it). Falls back to no
+    dimensions at all if the live cube metadata can't be fetched, which is
+    the previous (safe, non-crashing) behavior.
     """
     field = candidate["field"]
+    cube_name = candidate.get("cube") or (field.split(".", 1)[0] if "." in field else None)
+
+    dimensions: list[str] = []
+    time_dimensions: list[dict] = []
+    cube_meta = _cube_meta_for(cube_name) if cube_name else None
+    if cube_meta:
+        for dim in cube_meta.get("dimensions") or []:
+            name = dim.get("name")
+            if not name:
+                continue
+            if dim.get("type") == "time":
+                time_dimensions.append({"dimension": name})
+            else:
+                dimensions.append(name)
+
     return {
         "id": f"measure:{field}",
         "name": candidate.get("label") or field,
         "cube_query": {
             "measures": [field],
-            "dimensions": [],
-            "timeDimensions": [],
+            "dimensions": dimensions,
+            "timeDimensions": time_dimensions,
             "filters": [],
             "limit": 500,
         },
@@ -338,7 +385,14 @@ def generate_cube_query(state: AgentState) -> dict:
     if group_by_hints:
         for dimension in all_dimensions:
             field_name = dimension.rsplit(".", 1)[-1].lower()
-            if any(hint in field_name or field_name in hint for hint in group_by_hints):
+            # _field_matches_concept (word-overlap, not just substring) —
+            # a naive substring check missed real synonym pairs like hint
+            # "discharge pathway" vs field "discharge_type" (no substring
+            # relationship either direction, despite meaning the same
+            # thing), silently dropping the group-by and aggregating every
+            # discharge type into one row for "are there discharge
+            # pathways where..." questions.
+            if any(_field_matches_concept(field_name, hint) for hint in group_by_hints):
                 selected_dimensions.append(dimension)
         if not selected_dimensions and len(all_dimensions) == 1:
             # The user clearly asked for SOME breakdown (group_by_hints is
@@ -371,7 +425,41 @@ def generate_cube_query(state: AgentState) -> dict:
 
     time_range = plan.get("time_range") or {}
     operator = time_range.get("operator")
-    if operator and operator != "none":
+    if operator == "latest":
+        # "Most recent" / "last N months" — the freshest period the DATA
+        # actually has, not a calendar range computed from today (see
+        # PLAN_SYSTEM's note on this: reporting data can lag today by
+        # months, so a today-anchored guess silently matches zero rows).
+        # Cube has no "give me whatever's newest" filter primitive, so this
+        # is expressed as order-by-time-desc + limit instead of a WHERE
+        # clause — the same shape the ground-truth SQL for these questions
+        # uses (ORDER BY <month> DESC LIMIT N), never a date filter.
+        time_members = schema_validation.valid_time_members_for(matched_metric)
+        if time_members:
+            member = _pick_time_member(time_members)
+            try:
+                periods = max(1, int(time_range.get("periods") or 1))
+            except (TypeError, ValueError):
+                periods = 1
+            query["timeDimensions"] = [{"dimension": member, "granularity": "month"}]
+            query["order"] = {member: "desc"}
+            query["limit"] = periods
+            logger.info(
+                "generate_cube_query: 'latest' time_range — member=%s periods=%d (order-by-desc, no date filter)",
+                member, periods,
+            )
+        else:
+            warnings.append(
+                f"The user asked for the most recent period, but "
+                f"'{matched_metric.get('name') or matched_metric.get('id')}' has no date "
+                f"field to order by — the result below covers all available data, not "
+                f"just the most recent period."
+            )
+            logger.warning(
+                "generate_cube_query: metric=%s has no date field — 'latest' time_range dropped, running unfiltered",
+                matched_metric.get("id"),
+            )
+    elif operator and operator != "none":
         time_members = schema_validation.valid_time_members_for(matched_metric)
         values = [v for v in (time_range.get("start"), time_range.get("end")) if v]
         if time_members and values:
@@ -450,6 +538,28 @@ def generate_cube_query(state: AgentState) -> dict:
         #     value is the actual curated grouping the word refers to).
         # Whichever loses this tie-break is still kept as a fallback so a
         # metric with only one of the two fields still gets filtered.
+        # A filter concept naming the facility axis needs its value resolved
+        # through the same alias table as row-level security (e.g. "KSH" ->
+        # ["KISUMU", "KISUMU_CLEAN"]) rather than filtered as literal text —
+        # the real column never contains "KSH". Checked BEFORE the generic
+        # concept-word matching below (not derived from its output) because
+        # "facility" as a concept word has NO lexical overlap with
+        # "source_schema" at all (fact_* tables' facility axis) — the
+        # generic _field_matches_concept check alone would never surface it
+        # as a candidate, so a resolvable facility value on a fact_* cube
+        # was silently dropped every time (observed: every pharmacy/
+        # dispensing question with an explicit facility mention lost that
+        # filter, aggregating across every facility with no caveat other
+        # than a vague "not filtered by facility" note).
+        facility_candidate = next(
+            (
+                member for member in allowed_members
+                if member.rsplit(".", 1)[-1].lower() in FACILITY_DIMENSION_NAMES
+                and resolve_facility_filter_value(value, member)
+            ),
+            None,
+        )
+
         is_multi_word_value = len(str(value).split()) > 1
         preferred_suffix = "_name" if is_multi_word_value else "_category"
         fallback_suffix = "_category" if is_multi_word_value else "_name"
@@ -458,6 +568,16 @@ def generate_cube_query(state: AgentState) -> dict:
             if (field_name := member.rsplit(".", 1)[-1].lower())
             and _field_matches_concept(field_name, concept)
         ]
+        if facility_candidate:
+            resolved_values = resolve_facility_filter_value(value, facility_candidate)
+            if resolved_values:
+                filters.append({
+                    "member": facility_candidate,
+                    "operator": "equals",
+                    "values": resolved_values,
+                })
+                continue
+
         if candidates:
             def _tie_break(member: str) -> tuple[int, str]:
                 field_name = member.rsplit(".", 1)[-1].lower()

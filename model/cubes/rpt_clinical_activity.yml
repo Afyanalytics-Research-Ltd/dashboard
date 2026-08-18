@@ -1,0 +1,135 @@
+cubes:
+  - name: rpt_clinical_activity
+    sql_table: "\"REPORTING\".\"RPT_CLINICAL_ACTIVITY\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: source_schema
+        sql: "{CUBE}.\"SOURCE_SCHEMA\""
+        type: string
+
+      - name: ward_category
+        sql: "{CUBE}.\"WARD_CATEGORY\""
+        type: string
+
+      - name: ward_name
+        sql: "{CUBE}.\"WARD_NAME\""
+        type: string
+
+      - name: clean_diagnosis
+        sql: "{CUBE}.\"CLEAN_DIAGNOSIS\""
+        type: string
+
+      - name: final_disease_burden_group
+        sql: "{CUBE}.\"FINAL_DISEASE_BURDEN_GROUP\""
+        type: string
+
+      - name: age_group
+        sql: "{CUBE}.\"AGE_GROUP\""
+        type: string
+
+      - name: gender
+        sql: "{CUBE}.\"GENDER\""
+        type: string
+
+      - name: payment_mode
+        sql: "{CUBE}.\"PAYMENT_MODE\""
+        type: string
+
+      - name: is_comorbidity
+        sql: "{CUBE}.\"IS_COMORBIDITY\""
+        type: boolean
+
+      - name: has_chronic_diagnosis
+        sql: "{CUBE}.\"HAS_CHRONIC_DIAGNOSIS\""
+        type: boolean
+
+      - name: hai_ssi_flag
+        sql: "{CUBE}.\"HAI_SSI_FLAG\""
+        type: string
+
+      - name: readmission_gap_bucket
+        sql: "{CUBE}.\"READMISSION_GAP_BUCKET\""
+        type: string
+        description: Bucketed gap between discharge and readmission (e.g. within 7 days) — for "what proportion of readmissions return within 7 days" questions.
+
+      - name: admission_month
+        sql: "{CUBE}.\"ADMISSION_MONTH\""
+        type: time
+
+    measures:
+      - name: total_admissions
+        sql: '{CUBE}."TOTAL_ADMISSIONS"'
+        type: sum
+        title: Admissions (count)
+
+      - name: total_discharges
+        sql: '{CUBE}."TOTAL_DISCHARGES"'
+        type: sum
+        title: Discharges (count)
+
+      - name: readmissions
+        sql: '{CUBE}."READMISSIONS"'
+        type: sum
+        title: Readmissions, any window (count)
+
+      - name: readmissions_30day
+        sql: '{CUBE}."READMISSIONS_30DAY"'
+        type: sum
+        title: 30-Day Readmissions (count)
+
+      - name: readmission_rate_30d_pct
+        sql: '{CUBE}."READMISSION_RATE_30D_PCT"'
+        type: avg
+        format: percent
+        title: 30-Day Readmission Rate (%, averaged)
+        description: AVERAGE of a pre-computed per-row rate — not safe when grouping/filtering by ward, diagnosis, age group, or month. Use readmission_rate_30d_calc_pct instead.
+
+      - name: readmission_rate_30d_calc_pct
+        sql: "{readmissions_30day} * 100.0 / NULLIF({total_admissions}, 0)"
+        type: number
+        format: percent
+        title: 30-Day Readmission Rate (%)
+        description: TRUE 30-day readmission rate — readmissions_30day / total_admissions — correct at any grouping (ward_category, clean_diagnosis, age_group, admission_month). Use for "overall 30-day readmission rate", "which ward/diagnosis/age group has the highest readmission rate" questions.
+
+      - name: los_days_weighted
+        sql: "{CUBE}.\"AVG_LOS_DAYS\" * {CUBE}.\"TOTAL_ADMISSIONS\""
+        type: sum
+        title: LOS-Days Weighted by Admissions (internal)
+        description: Internal helper — avg_los_days × total_admissions, summed, for computing a correctly weighted average LOS across any grouping. Prefer avg_los_days_calc.
+
+      - name: avg_los_days_calc
+        sql: "{los_days_weighted} / NULLIF({total_admissions}, 0)"
+        type: number
+        title: Average Length of Stay (days)
+        description: TRUE admissions-weighted average length of stay in days — correct at any grouping (ward, diagnosis, facility, month). Use for "average length of stay", "which ward has the longest average LOS", "has average LOS changed" questions.
+
+      - name: median_los_days
+        sql: '{CUBE}."MEDIAN_LOS_DAYS"'
+        type: avg
+        title: Median Length of Stay (days)
+        description: Average of the median LOS across grouped rows — use for "which diagnosis has the highest median LOS" questions.
+
+      - name: p25_los_days
+        sql: '{CUBE}."P25_LOS_DAYS"'
+        type: avg
+        title: 25th Percentile Length of Stay (days)
+
+      - name: p75_los_days
+        sql: '{CUBE}."P75_LOS_DAYS"'
+        type: avg
+        title: 75th Percentile Length of Stay (days)
+
+      - name: hai_ssi_count
+        sql: '{CUBE}."HAI_SSI_COUNT"'
+        type: sum
+        title: HAI/SSI Case Count
+
+      - name: count
+        type: count
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started

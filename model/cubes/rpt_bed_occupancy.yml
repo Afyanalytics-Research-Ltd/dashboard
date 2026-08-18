@@ -40,6 +40,8 @@ cubes:
       - name: avg_los_days
         sql: '{CUBE}."AVG_LOS_DAYS"'
         type: avg
+        title: Average Length of Stay (days)
+        description: Average length of stay in days across admissions, per facility per month — use for "average LOS" / "length of stay" trend questions (e.g. is average LOS increasing or decreasing).
       - name: total_admission_revenue
         sql: '{CUBE}."TOTAL_ADMISSION_REVENUE"'
         type: sum
@@ -54,6 +56,7 @@ cubes:
       - name: bor_pct
         sql: '{total_bed_days} / NULLIF({bed_count} * {days_in_month}, 0) * 100'
         type: number
+        format: percent
         title: Bed Occupancy Rate (%)
         description: total_bed_days / (bed_count * days_in_month) * 100.
       # Added via Semantic Layer Configuration settings page on 2026-08-05T11:20:46.889623+00:00

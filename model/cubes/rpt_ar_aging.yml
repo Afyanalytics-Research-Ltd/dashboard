@@ -43,15 +43,38 @@ cubes:
       - name: total_outstanding
         sql: '{CUBE}."TOTAL_OUTSTANDING"'
         type: sum
+        title: Outstanding AR by Aging Bucket (KES)
+        description: Outstanding accounts receivable broken down by aging_bucket (e.g. "90+" days), facility, and insurer — use for "90+ day outstanding AR" and other aging-bucket questions.
       - name: collection_rate_pct
         sql: '{CUBE}."COLLECTION_RATE_PCT"'
         type: avg
+        format: percent
+        title: Collection Rate (%, averaged)
+        description: AVERAGE of a pre-computed per-row rate — not safe when grouping/filtering. Use collection_rate_calc_pct instead.
       - name: dispatched_invoices
         sql: '{CUBE}."DISPATCHED_INVOICES"'
         type: sum
       - name: dispatch_rate_pct
         sql: '{CUBE}."DISPATCH_RATE_PCT"'
         type: avg
+        format: percent
+        title: Dispatch Rate (%, averaged)
+        description: AVERAGE of a pre-computed per-row rate — not safe when grouping/filtering. Use dispatch_rate_calc_pct instead.
+
+      - name: collection_rate_calc_pct
+        sql: "{total_collected} * 100.0 / NULLIF({total_billed}, 0)"
+        type: number
+        format: percent
+        title: Collection Rate (%)
+        description: TRUE collection rate — total_collected / total_billed — correct at any grouping.
+
+      - name: dispatch_rate_calc_pct
+        sql: "{dispatched_invoices} * 100.0 / NULLIF({invoices}, 0)"
+        type: number
+        format: percent
+        title: Dispatch Rate (%)
+        description: TRUE dispatch rate — dispatched_invoices / invoices — correct at any grouping.
+
       - name: avg_days_to_dispatch
         sql: '{CUBE}."AVG_DAYS_TO_DISPATCH"'
         type: avg
@@ -64,9 +87,12 @@ cubes:
       - name: overpaid_invoices
         sql: '{CUBE}."OVERPAID_INVOICES"'
         type: sum
+        title: Overpaid Invoices (count)
       - name: overpayment_kes
         sql: '{CUBE}."OVERPAYMENT_KES"'
         type: sum
+        title: Overpayment Amount (KES)
+        description: Total overpaid amount, by facility/insurer — use for "insurers with overpayments" questions.
       - name: count
         type: count
 

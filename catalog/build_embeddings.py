@@ -89,28 +89,47 @@ def collect_entries(cubes: list[dict], metrics: list[dict], glossary_terms: list
         for measure in cube.get("measures", []):
             qname = _qualified_name(cube_name, measure["name"])
             label = measure.get("title") or measure.get("shortTitle") or measure["name"]
+            desc = (measure.get("description") or "").strip()
+            # Metric/glossary entries below lead with human-readable text
+            # (name + description) and score noticeably better for the same
+            # underlying concept — measures/dimensions used to lead with the
+            # technical cube/field identifier instead ("rpt_x field_y (sum):
+            # Title"), which dilutes the semantic content that actually
+            # matches how people phrase questions. Leading with the label/
+            # description here (technical id moved to the end, still present
+            # for exact-name lookups) brings measures in line with how
+            # metric/glossary entries are already embedded.
+            text = label
+            if desc:
+                text += f". {desc}"
+            text += f" ({cube_name}.{measure['name']}, {measure.get('type', '')})"
             entries.append({
                 "id": f"measure::{qname}",
                 "source": "measure",
-                "text": f"{cube_name} {measure['name']} ({measure.get('type', '')}): {label}",
+                "text": text,
                 "metadata": {
                     "cube": cube_name, "field": qname, "kind": "measure",
                     "cube_measure_type": measure.get("type", ""),
-                    "label": label, "description": measure.get("description", ""),
+                    "label": label, "description": desc,
                     "metric_id": None, "glossary_term": None,
                 },
             })
         for dimension in cube.get("dimensions", []):
             qname = _qualified_name(cube_name, dimension["name"])
             label = dimension.get("title") or dimension.get("shortTitle") or dimension["name"]
+            desc = (dimension.get("description") or "").strip()
+            text = label
+            if desc:
+                text += f". {desc}"
+            text += f" ({cube_name}.{dimension['name']}, {dimension.get('type', '')})"
             entries.append({
                 "id": f"dimension::{qname}",
                 "source": "dimension",
-                "text": f"{cube_name} {dimension['name']} ({dimension.get('type', '')}): {label}",
+                "text": text,
                 "metadata": {
                     "cube": cube_name, "field": qname, "kind": "dimension",
                     "cube_measure_type": dimension.get("type", ""),
-                    "label": label, "description": dimension.get("description", ""),
+                    "label": label, "description": desc,
                     "metric_id": None, "glossary_term": None,
                 },
             })

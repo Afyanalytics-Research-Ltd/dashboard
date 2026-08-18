@@ -25,6 +25,7 @@ cubes:
       - name: inn_map_status
         sql: "{CUBE}.\"INN_MAP_STATUS\""
         type: string
+        description: Whether this product's name has been mapped to a canonical drug name — value "needs_review" means it is unmapped. Use for "products not mapped to canonical names" / "products needing taxonomy review" questions.
 
       - name: inn_name
         sql: "{CUBE}.\"INN_NAME\""
@@ -45,6 +46,12 @@ cubes:
       - name: product_id
         sql: "{CUBE}.\"PRODUCT_ID\""
         type: string
+        primary_key: true
+
+      - name: canonical_product_id
+        sql: "{CUBE}.\"CANONICAL_PRODUCT_ID\""
+        type: number
+        description: Join key from fact_dispensing — links a dispense event to this product's canonical_name and therapeutic_class.
 
       - name: product_name
         sql: "{CUBE}.\"PRODUCT_NAME\""
@@ -61,10 +68,12 @@ cubes:
       - name: therapeutic_class
         sql: "{CUBE}.\"THERAPEUTIC_CLASS\""
         type: string
+        description: Broad drug class (e.g. "Antimalarials", "Antiretrovirals", "Antimicrobials", "Cardiovascular") — join fact_dispensing to this cube via canonical_product_id to break down dispensing/stockout/cost by drug class.
 
       - name: therapeutic_subclass
         sql: "{CUBE}.\"THERAPEUTIC_SUBCLASS\""
         type: string
+        description: Finer-grained drug class than therapeutic_class (e.g. "Penicillins", "Cephalosporins", "Opioid").
 
       - name: loaded_at
         sql: "{CUBE}.\"LOADED_AT\""
@@ -75,6 +84,8 @@ cubes:
       - name: match_confidence
         sql: '{CUBE}."MATCH_CONFIDENCE"'
         type: sum
+        title: Product Name Match Confidence
+        description: Confidence score (0-100) that a product's name was correctly mapped to its canonical drug identity — a low value (e.g. below 60) flags a data-quality risk. Use for "low confidence product mappings" / "products below 60% confidence" questions.
       - name: count
         type: count
 

@@ -1,0 +1,109 @@
+cubes:
+  - name: rpt_chronic_disease
+    sql_table: "\"REPORTING\".\"RPT_CHRONIC_DISEASE\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: source_schema
+        sql: "{CUBE}.\"SOURCE_SCHEMA\""
+        type: string
+
+      - name: primary_chronic_disease_group
+        sql: "{CUBE}.\"PRIMARY_CHRONIC_DISEASE_GROUP\""
+        type: string
+        description: 'e.g. "Hypertension", "Diabetes" — filter with ILIKE-equivalent "contains" for hypertension-specific questions.'
+
+      - name: clean_diagnosis
+        sql: "{CUBE}.\"CLEAN_DIAGNOSIS\""
+        type: string
+
+      - name: comorbidity_pair
+        sql: "{CUBE}.\"COMORBIDITY_PAIR\""
+        type: string
+
+      - name: age_group
+        sql: "{CUBE}.\"AGE_GROUP\""
+        type: string
+
+      - name: gender
+        sql: "{CUBE}.\"GENDER\""
+        type: string
+
+      - name: payment_mode
+        sql: "{CUBE}.\"PAYMENT_MODE\""
+        type: string
+
+      - name: bp_control_status
+        sql: "{CUBE}.\"BP_CONTROL_STATUS\""
+        type: string
+        description: 'Blood-pressure control status for hypertensive patients — e.g. "Controlled", "Uncontrolled", "Hypertensive Crisis".'
+
+      - name: modal_drug_regimen
+        sql: "{CUBE}.\"MODAL_DRUG_REGIMEN\""
+        type: string
+
+      - name: visit_month
+        sql: "{CUBE}.\"VISIT_MONTH\""
+        type: time
+
+    measures:
+      - name: total_visits
+        sql: '{CUBE}."TOTAL_VISITS"'
+        type: sum
+        title: Chronic Disease Visits (count)
+        description: Total chronic-disease visit count — break down by primary_chronic_disease_group, age_group, gender, bp_control_status, or visit_month.
+
+      - name: distinct_patients
+        sql: '{CUBE}."DISTINCT_PATIENTS"'
+        type: sum
+        title: Distinct Chronic Patients (count)
+
+      - name: visits_with_comorbidity
+        sql: '{CUBE}."VISITS_WITH_COMORBIDITY"'
+        type: sum
+        title: Chronic Visits With Comorbidity (count)
+
+      - name: comorbidity_rate_pct
+        sql: "{visits_with_comorbidity} * 100.0 / NULLIF({total_visits}, 0)"
+        type: number
+        format: percent
+        title: Chronic Disease Comorbidity Rate (%)
+        description: TRUE comorbidity rate among chronic disease patients — visits_with_comorbidity / total_visits.
+
+      - name: crisis_visits
+        sql: '{CUBE}."TOTAL_VISITS"'
+        type: sum
+        filters:
+          - sql: "{CUBE}.\"BP_CONTROL_STATUS\" = 'Hypertensive Crisis'"
+        title: Hypertensive Crisis Visits (count)
+
+      - name: crisis_rate_pct
+        sql: "{crisis_visits} * 100.0 / NULLIF({total_visits}, 0)"
+        type: number
+        format: percent
+        title: Hypertensive Crisis Rate (%)
+        description: Percentage of (hypertension-filtered) visits in hypertensive crisis — crisis_visits / total_visits. Filter primary_chronic_disease_group contains "Hypertension" first.
+
+      - name: avg_bp_systolic
+        sql: '{CUBE}."AVG_BP_SYSTOLIC"'
+        type: avg
+        title: Average Systolic BP
+
+      - name: avg_bp_diastolic
+        sql: '{CUBE}."AVG_BP_DIASTOLIC"'
+        type: avg
+        title: Average Diastolic BP
+
+      - name: avg_bmi
+        sql: '{CUBE}."AVG_BMI"'
+        type: avg
+        title: Average BMI
+
+      - name: count
+        type: count
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started

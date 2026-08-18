@@ -45,16 +45,28 @@ class _EmbeddingsIndex:
 
 
 _index_cache: _EmbeddingsIndex | None = None
+_index_cache_mtime: float | None = None
 
 
 def _load_index() -> _EmbeddingsIndex:
-    global _index_cache
-    if _index_cache is None:
-        if not EMBEDDINGS_PATH.exists():
-            raise RuntimeError(
-                f"{EMBEDDINGS_PATH} not found — run "
-                f"'python catalog/build_embeddings.py' first to build the semantic-retrieval index."
-            )
+    global _index_cache, _index_cache_mtime
+
+    if not EMBEDDINGS_PATH.exists():
+        raise RuntimeError(
+            f"{EMBEDDINGS_PATH} not found — run "
+            f"'python manage.py rebuild_embeddings' first to build the semantic-retrieval index."
+        )
+
+    # A rebuild (Settings page / `manage.py rebuild_embeddings`) overwrites
+    # this file on disk from a DIFFERENT process than the one serving
+    # requests — nothing else in this codebase calls reload_index() to bust
+    # a live web worker's in-memory cache, so without this stat() check a
+    # freshly-curated metric/measure description (or a filter-value fix)
+    # silently never reaches retrieval until every worker process happens
+    # to restart. The stat() itself is cheap (page-cache hit) compared to
+    # the embeddings call this feeds into, so checking on every call is fine.
+    current_mtime = EMBEDDINGS_PATH.stat().st_mtime
+    if _index_cache is None or current_mtime != _index_cache_mtime:
         with np.load(EMBEDDINGS_PATH, allow_pickle=True) as data:
             metadata = json.loads(str(data["metadata"]))
             _index_cache = _EmbeddingsIndex(
@@ -63,6 +75,7 @@ def _load_index() -> _EmbeddingsIndex:
                 sources=list(data["sources"]),
                 metadata=metadata,
             )
+        _index_cache_mtime = current_mtime
         logger.info("retrieval: loaded %d embeddings from %s", len(_index_cache.ids), EMBEDDINGS_PATH)
     return _index_cache
 

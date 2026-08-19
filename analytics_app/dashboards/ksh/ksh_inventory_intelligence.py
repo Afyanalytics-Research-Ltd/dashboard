@@ -217,12 +217,20 @@ def _load_climate(lat: float, lon: float, ref_date_str: str):
     _rd = parse_ref_date(ref_date_str)
     return get_climate_signal(_rd)
 
-import datetime as _dt
 _ref_date_parsed = parse_ref_date(_ref_date)
 
-# Seasonal engine is only meaningful for live facilities. Historical schemas
-# (ref_date > 90 days in the past) would surface peaks from years ago.
-_is_live_schema = _ref_date_parsed >= (_dt.date.today() - _dt.timedelta(days=90))
+# Date the whole dashboard is anchored to — the most recent day of data, not the
+# wall-clock date. Shown to users so figures read "as of last data" and aren't
+# mistaken for real-time. Falls back to today when ref_date is CURRENT_DATE.
+_as_of_date = _ref_date_parsed
+_as_of_label = _as_of_date.strftime("%A, %d %b %Y")
+
+# Seasonal engine is only meaningful for active facilities. Use the registry
+# flag, not ref-date recency: KSH is live but its data can lag the calendar by
+# months, so the ref_date (now anchored to MAX(dispensed_at)) may sit >90 days
+# in the past while the facility is still active. Historical schemas (is_live
+# False) stay gated off so they don't surface peaks from years ago.
+_is_live_schema = fac.is_live
 
 if _is_live_schema:
     _climate_signal    = _load_climate(KISUMU_LAT, KISUMU_LON, _ref_date)
@@ -261,7 +269,7 @@ if page == "Today's Briefing":
 
     page_header(
         title="Today's Briefing",
-        subtitle=f"Operational summary · {pd.Timestamp.now().strftime('%A, %d %b %Y')}",
+        subtitle=f"Operational summary · as of {_as_of_label} (latest data)",
         facility_label=fac.label,
         is_live=fac.is_live,
     )

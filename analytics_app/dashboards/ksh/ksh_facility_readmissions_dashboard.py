@@ -6292,13 +6292,13 @@ elif page == "Causal Intelligence":
                 '<div style="font-size:10px;font-weight:700;color:#DC2626;text-transform:uppercase;'
                 'letter-spacing:1.5px;margin-bottom:10px">MONDAY 14–17H — FOUR CONNECTED COSTS</div>'
                 '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'
-                '<div style="font-size:12px;color:#991B1B">▼ <b>Conversion −33%</b> '
+                '<div style="font-size:12px;color:#991B1B">▼ <b>Conversion −28%</b> '
                 '— fewer patients admitted per evaluation during peak</div>'
-                '<div style="font-size:12px;color:#991B1B">▲ <b>TAT +81% median</b> '
-                '— bed wait nearly doubles, 43 → 78 min</div>'
-                '<div style="font-size:12px;color:#991B1B">▼ <b>Private capture −30%</b> '
+                '<div style="font-size:12px;color:#991B1B">▲ <b>TAT +41% median</b> '
+                '— 54 → 76 min</div>'
+                '<div style="font-size:12px;color:#991B1B">▼ <b>Private capture −36%</b> '
                 '— higher-yield admissions deflected at peak</div>'
-                '<div style="font-size:12px;color:#991B1B">✕ <b>44% of peak non-admissions are permanent</b> '
+                '<div style="font-size:12px;color:#991B1B">✕ <b>46% of peak non-admissions are permanent</b> '
                 '— patients who leave during peak do not return to KSH</div>'
                 '</div>'
                 '</div>',
@@ -6402,17 +6402,17 @@ elif page == "Causal Intelligence":
 
             with st.expander("Analysis"):
                 st.markdown(
-                    "- Conversion drops 33% during peak (5.9% → 3.9%) against a 2,466-evaluation window — "
-                    "not a low-volume artefact.\n"
-                    "- TAT nearly doubles at median (43 → 78 min). P75 rises from 173 → 196 min — "
+                    "- Conversion drops 28% during peak (5.0% → 3.6%) — n=34,294 evaluations "
+                    "(2,211 peak, 32,083 off-peak). Not a low-volume artefact.\n"
+                    "- TAT rises 41% at median (54 → 76 min). P75 rises from 182 → 196 min — "
                     "peak pushes the median into the slow zone; the upper tail was already high off-peak.\n"
-                    "- Doctor load redistribution is the structural driver: lowino absorbs 49.2% of peak "
-                    "evaluations (vs 17.1% off-peak) while eawando's share falls from 37.1% to 28.1%. "
+                    "- Doctor load redistribution is the structural driver: lowino absorbs 49.4% of peak "
+                    "evaluations (vs 17.4% off-peak) while eawando's share falls from 37.3% to 27.8%. "
                     "Peak window and facility-wide concentration risk (CD6) have different key actors.\n"
-                    "- Private ward capture falls 30% (11.9% → 8.4%). Observed shift — case-mix "
+                    "- Private ward capture falls 36% (11.9% → 7.6%). Observed shift — case-mix "
                     "contribution not isolated.\n"
-                    "- 44% of non-admitted peak patients never returned to KSH. Of those who returned, "
-                    "only 17.3% were eventually admitted — peak non-admission is largely permanent patient "
+                    "- 46.2% of non-admitted peak patients never returned to KSH. Of those who returned, "
+                    "15.2% were eventually admitted — peak non-admission is largely permanent patient "
                     "loss, not deferral. Observation window: Sep 2024–May 2026."
                 )
 
@@ -6497,15 +6497,15 @@ elif page == "Causal Intelligence":
                 _aw_min = float(_aw["pct"].min())
                 st.caption(
                     f"One doctor absence = facility-wide intake drop across all 7 wards simultaneously — not one ward. "
-                    f"J.Ogutu (14–17% per ward) is the only named backup. "
+                    f"J.Ogutu (24.6% of facility admissions, Apr 2026) is the closest named backup. "
                     f"Review: Medical Director."
                 )
                 with st.expander("Analysis"):
                     st.markdown(
-                        "- E.Awando evaluates **34–46% of admissions in every ward** — the risk is facility-wide, not concentrated in one area.\n"
+                        "- E.Awando evaluates **20–46% of admissions across all wards** (20% Private Maternity, up to 45.5% General Male) — the risk is facility-wide, not concentrated in one area.\n"
                         "- A single absence triggers intake reduction across all wards with no pre-defined cover.\n"
                         "- M.Akinyi's departure (Jan 2026) added ~57% volume onto E.Awando silently — no flag fired until months later.\n"
-                        "- J.Ogutu is the only confirmed backup but carries a distant 14–17% per ward.\n"
+                        "- J.Ogutu is the closest confirmed backup at 24.6% of facility admissions (Apr 2026).\n"
                         "- Private wards are most exposed: fewest distinct evaluators and no fallback when E.Awando is absent."
                     )
 

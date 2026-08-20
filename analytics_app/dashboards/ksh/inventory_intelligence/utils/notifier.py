@@ -1,46 +1,14 @@
-"""
-Phase 2.5 — Daily Digest delivery.
-
-Sends a daily email digest (top insights + key KPIs + dashboard link) via SMTP.
-WhatsApp delivery is deferred pending Meta Business API approval.
-
-Configuration (add to .env):
-    NOTIFY_EMAIL_TO      — recipient address(es), comma-separated
-    NOTIFY_EMAIL_FROM    — sender address (e.g. alerts@afya.ai)
-    SMTP_HOST            — SMTP server hostname
-    SMTP_PORT            — SMTP port (default 587)
-    SMTP_USER            — SMTP login username
-    SMTP_PASSWORD        — SMTP login password
-    DASHBOARD_URL        — public URL of the dashboard (for the CTA button)
-
-Usage (standalone script or cron):
-    from utils.notifier import send_daily_digest
-    send_daily_digest(
-        facility_name="Facility Name",
-        insights=insight_rows,          # List[InsightRow] from insight_engine.detect_all()
-        kpi=kpi_dict,                   # from get_kpi_summary()
-        order_count=12,                 # ORDER_NOW count from score_all()
-        patient_risk_count=8,           # total_patients_at_risk from get_patient_risk_totals()
-    )
-
-Design principles (from ROADMAP):
-  - SMTP credentials loaded from .env — never hard-coded
-  - LLM never touches raw data — all numbers pre-computed before this call
-  - Sends at most once per facility per calendar day (idempotency guard via a local
-    date-stamp file under /tmp — lightweight, no database required)
-"""
-
 from __future__ import annotations
 
 import html
 import os
-import smtplib
 import tempfile
 from datetime import date
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
 from pathlib import Path
 from typing import List, Optional, TYPE_CHECKING
+
+from django.conf import settings as dj_settings
+from django.core.mail import EmailMultiAlternatives
 
 if TYPE_CHECKING:
     from intelligence.insight_engine import InsightRow
@@ -50,6 +18,30 @@ if TYPE_CHECKING:
 
 def _env(key: str, default: str = "") -> str:
     return os.environ.get(key, default).strip()
+
+
+def _ensure_django_email_configured() -> None:
+
+    if dj_settings.configured:
+        return
+    import django
+    if os.environ.get("DJANGO_SETTINGS_MODULE"):
+        django.setup()
+    else:
+        dj_settings.configure(
+            INSTALLED_APPS=[],
+            EMAIL_BACKEND="django.core.mail.backends.smtp.EmailBackend",
+            EMAIL_HOST=_env("EMAIL_HOST", "smtp.gmail.com"),
+            EMAIL_PORT=int(_env("EMAIL_PORT", "587")),
+            EMAIL_USE_TLS=_env("EMAIL_USE_TLS", "true").lower() != "false",
+            EMAIL_HOST_USER=_env("EMAIL_HOST_USER"),
+            EMAIL_HOST_PASSWORD=_env("EMAIL_HOST_PASSWORD"),
+            DEFAULT_FROM_EMAIL=_env("NOTIFY_EMAIL_FROM", "noreply@afyaanalytics.com"),
+        )
+
+
+def _default_sender() -> str:
+    return getattr(dj_settings, "DEFAULT_FROM_EMAIL", "noreply@afyaanalytics.com")
 
 
 # ── Idempotency guard ─────────────────────────────────────────────────────────
@@ -99,6 +91,43 @@ def _insight_block_html(row: "InsightRow") -> str:
     )
 
 
+_SEV_LABEL = {"CRITICAL": "AT PEAK", "HIGH": "APPROACHING", "MEDIUM": "WATCH"}
+_SEV_CHIP  = {
+    "CRITICAL": "background:#FEE2E2;color:#991B1B;border:1px solid #FECACA",
+    "HIGH":     "background:#FEF3C7;color:#92400E;border:1px solid #FDE68A",
+    "MEDIUM":   "background:#EFF6FF;color:#1E40AF;border:1px solid #BFDBFE",
+}
+
+
+def _seasonal_section_html(signals: list) -> str:
+    if not signals:
+        return ""
+    chips = ""
+    for s in sorted(signals, key=lambda x: {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2}.get(x.get("severity", "MEDIUM"), 2)):
+        sev     = str(s.get("severity", "MEDIUM")).upper()
+        lbl     = _SEV_LABEL.get(sev, sev)
+        style   = _SEV_CHIP.get(sev, _SEV_CHIP["MEDIUM"])
+        timing  = "at peak" if s.get("weeks_to_peak") == 0 else f"{s.get('weeks_to_peak')}w away"
+        uplift  = round((s.get("demand_multiplier", 1) - 1) * 100)
+        drugs   = s.get("drugs_at_risk", 0)
+        disease = html.escape(str(s.get("disease", "")))
+        chips += (
+            f'<span style="display:inline-block;border-radius:6px;padding:4px 10px;'
+            f'margin:0 6px 6px 0;font-size:11px;{style}">'
+            f'<span style="font-weight:700;font-size:10px">{lbl}</span>'
+            f'&nbsp;<span style="font-weight:600">{disease}</span>'
+            f'&nbsp;<span style="opacity:0.7">· {timing} · {drugs} drug{"s" if drugs != 1 else ""} · +{uplift}% demand</span>'
+            f'</span>'
+        )
+    return (
+        f'<tr><td style="padding:14px 28px 0">'
+        f'<div style="font-size:10px;font-weight:700;text-transform:uppercase;'
+        f'letter-spacing:0.07em;color:#9CA3AF;margin-bottom:6px">Seasonal demand signals</div>'
+        f'<div>{chips}</div>'
+        f'</td></tr>'
+    )
+
+
 def _build_html(
     facility_name: str,
     insights: List["InsightRow"],
@@ -108,6 +137,7 @@ def _build_html(
     dashboard_url: str,
     digest_date: date,
     clinical_alerts: Optional[List["InsightRow"]] = None,
+    seasonal_signals: Optional[list] = None,
 ) -> str:
     insight_blocks = "".join(_insight_block_html(r) for r in insights[:3])
     if not insight_blocks:
@@ -208,6 +238,9 @@ def _build_html(
           {insight_blocks}
         </td></tr>
 
+        <!-- Seasonal demand signals -->
+        {_seasonal_section_html(seasonal_signals or [])}
+
         <!-- Clinical alerts -->
         {clinical_section}
 
@@ -241,6 +274,7 @@ def _build_plaintext(
     dashboard_url: str,
     digest_date: date,
     clinical_alerts: Optional[List["InsightRow"]] = None,
+    seasonal_signals: Optional[list] = None,
 ) -> str:
     _kpi = {k.lower(): v for k, v in kpi.items()}
     stockouts = int(_kpi.get("active_stockouts", 0) or 0)
@@ -266,6 +300,15 @@ def _build_plaintext(
     if not insights:
         lines.append("  No critical insights today. Stock levels are healthy.")
 
+    if seasonal_signals:
+        lines += ["", "SEASONAL DEMAND SIGNALS"]
+        for s in seasonal_signals:
+            sev    = str(s.get("severity", "")).upper()
+            lbl    = _SEV_LABEL.get(sev, sev)
+            timing = "at peak" if s.get("weeks_to_peak") == 0 else f"{s.get('weeks_to_peak')}w away"
+            uplift = round((s.get("demand_multiplier", 1) - 1) * 100)
+            lines.append(f"  [{lbl}] {s.get('disease')} · {timing} · {s.get('drugs_at_risk')} drugs · +{uplift}% demand")
+
     if clinical_alerts:
         lines += ["", "CLINICAL ALERTS"]
         for i, row in enumerate(clinical_alerts[:5], 1):
@@ -290,6 +333,7 @@ def send_daily_digest(
     facility_slug: Optional[str] = None,
     force: bool = False,
     clinical_alerts: Optional[List["InsightRow"]] = None,
+    seasonal_signals: Optional[list] = None,
 ) -> bool:
     """
     Send the daily digest email.
@@ -297,65 +341,51 @@ def send_daily_digest(
     Args:
         facility_name:       Human-readable facility label (shown in email).
         insights:            Top insights from insight_engine.detect_all() (stockout/demand items).
-        kpi:                 KPI dict from get_kpi_summary() (keys case-insensitive).
+        kpi:                 KPI dict — use engine-derived counts for stock status fields.
         order_count:         Number of ORDER_NOW items from score_all().
         patient_risk_count:  Total patients at risk from get_patient_risk_totals().
         facility_slug:       Short identifier for idempotency stamp (default: lowered facility_name).
         force:               If True, bypass the once-per-day idempotency guard.
-        clinical_alerts:     R3 dead stock + R5 refill overdue InsightRows. Rendered as a
-                             dedicated "Clinical alerts" section below priority insights.
+        clinical_alerts:     R3 dead stock + R5 refill overdue InsightRows.
+        seasonal_signals:    _actionable_summaries from the briefing page seasonal engine.
 
     Returns:
-        True if email was sent, False if skipped (already sent today or config missing).
+        True if email was sent, False if skipped (already sent today or NOTIFY_EMAIL_TO unset).
 
     Raises:
-        smtplib.SMTPException on SMTP-level errors.
+        django.core.mail.BadHeaderError / smtplib.SMTPException on delivery errors.
     """
+    _ensure_django_email_configured()
+
     slug = (facility_slug or facility_name.lower().replace(" ", "_"))
 
     if not force and _already_sent_today(slug):
         return False
 
-    # Load SMTP config from environment
     recipients_raw = _env("NOTIFY_EMAIL_TO")
-    sender         = _env("NOTIFY_EMAIL_FROM")
-    smtp_host      = _env("SMTP_HOST")
-    smtp_port      = int(_env("SMTP_PORT", "587"))
-    smtp_user      = _env("SMTP_USER")
-    smtp_password  = _env("SMTP_PASSWORD")
     dashboard_url  = _env("DASHBOARD_URL")
 
-    if not (recipients_raw and sender and smtp_host and smtp_user and smtp_password):
-        # Config not set — silently skip (digest is optional)
+    if not recipients_raw:
         return False
 
     recipients = [r.strip() for r in recipients_raw.split(",") if r.strip()]
     if not recipients:
         return False
 
-    today = date.today()
+    today   = date.today()
+    sender  = _default_sender()
     subject = (
         f"[Afya] Daily digest — {facility_name} — "
         f"{len(insights)} insight{'s' if len(insights) != 1 else ''} · "
         f"{today.strftime('%d %b %Y')}"
     )
 
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
-    msg["From"]    = sender
-    msg["To"]      = ", ".join(recipients)
+    plain     = _build_plaintext(facility_name, insights, kpi, order_count, patient_risk_count, dashboard_url, today, clinical_alerts=clinical_alerts, seasonal_signals=seasonal_signals)
+    html_body = _build_html(facility_name, insights, kpi, order_count, patient_risk_count, dashboard_url, today, clinical_alerts=clinical_alerts, seasonal_signals=seasonal_signals)
 
-    plain     = _build_plaintext(facility_name, insights, kpi, order_count, patient_risk_count, dashboard_url, today, clinical_alerts=clinical_alerts)
-    html_body = _build_html(facility_name, insights, kpi, order_count, patient_risk_count, dashboard_url, today, clinical_alerts=clinical_alerts)
-
-    msg.attach(MIMEText(plain, "plain"))
-    msg.attach(MIMEText(html_body, "html"))
-
-    with smtplib.SMTP(smtp_host, smtp_port) as server:
-        server.ehlo()
-        server.starttls()
-        server.login(smtp_user, smtp_password)
-        server.sendmail(sender, recipients, msg.as_string())
+    msg = EmailMultiAlternatives(subject, plain, sender, recipients)
+    msg.attach_alternative(html_body, "text/html")
+    msg.send()
 
     _mark_sent_today(slug)
     return True

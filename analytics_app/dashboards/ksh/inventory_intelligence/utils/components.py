@@ -30,7 +30,14 @@ section[data-testid="stSidebarNav"],
 [data-testid="stSidebarNavItems"],
 [data-testid="stSidebarNavSeparator"] { display: none !important; }
 
-.main .block-container { padding-top: 0.5rem; }
+/* Use more of the viewport — trim Streamlit's default side/top whitespace */
+.main .block-container,
+[data-testid="stMainBlockContainer"],
+[data-testid="stAppViewBlockContainer"] {
+    max-width: 1600px;
+    /* top clears Streamlit's 60px fixed header so the page title stays visible */
+    padding: 4.5rem 2.5rem 3rem;
+}
 
 /* ── Page header ───────────────────────────────────── */
 .page-header {
@@ -68,16 +75,16 @@ section[data-testid="stSidebarNav"],
     padding: 14px 14px 12px;
 }
 .kpi-label {
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.05em;
     color: #9CA3AF;
     margin-bottom: 6px;
     line-height: 1.4;              /* allow wrapping — no truncation */
 }
 .kpi-value {
-    font-size: 26px;
+    font-size: 28px;
     font-weight: 700;
     color: #111827;
     line-height: 1.1;
@@ -247,26 +254,26 @@ section[data-testid="stSidebarNav"],
 }
 .stat-item:last-child { border-right: none; }
 .stat-label {
-    font-size: 10px;
+    font-size: 11.5px;
     font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.07em;
+    letter-spacing: 0.05em;
     color: #9CA3AF;
-    margin-bottom: 4px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    margin-bottom: 5px;
+    line-height: 1.3;
+    min-height: 2.3em;            /* reserve 2 lines so values stay aligned */
+    white-space: normal;          /* wrap the full label instead of truncating */
 }
 .stat-value {
-    font-size: 24px;
+    font-size: 27px;
     font-weight: 700;
     color: #111827;
     line-height: 1.1;
 }
 .stat-hint {
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 600;
-    margin-top: 2px;
+    margin-top: 3px;
 }
 
 /* ── AI Decision cards ─────────────────────────────────── */

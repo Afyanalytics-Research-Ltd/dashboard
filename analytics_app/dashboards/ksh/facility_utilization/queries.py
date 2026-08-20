@@ -2378,3 +2378,53 @@ def q_opd_daily_28d():
         GROUP BY s.visit_date, period
         ORDER BY s.visit_date
     """)
+
+
+def q_opd_station_band_wait():
+    """KSH: median inter-station wait by arrival band (morning / peak / afternoon) — OPD only.
+    Source: stg_opd_tracker (silver). WAIT_MIN = time from previous station to this station.
+    Arrival band anchored to Reception EVENT_TS hour. IS_POST_ADMISSION = FALSE.
+    Stations: Doctor, Laboratory, Pharmacy, Radiology.
+    Columns: station, arrival_band, band_sort, visits, median_wait_min."""
+    return run_query_df("""
+        WITH reception AS (
+            SELECT
+                VISIT_ID,
+                DATE_PART('hour', EVENT_TS) AS arrival_hour
+            FROM HOSPITALS.STAGING.stg_opd_tracker
+            WHERE STATION = 'Reception'
+              AND IS_POST_ADMISSION = FALSE
+        ),
+        waits AS (
+            SELECT
+                t.STATION,
+                t.WAIT_MIN,
+                CASE
+                    WHEN r.arrival_hour BETWEEN 7  AND 9  THEN 'Morning (07–09)'
+                    WHEN r.arrival_hour BETWEEN 10 AND 12 THEN 'Peak (10–12)'
+                    WHEN r.arrival_hour BETWEEN 13 AND 18 THEN 'Afternoon (13–18)'
+                END AS arrival_band,
+                CASE
+                    WHEN r.arrival_hour BETWEEN 7  AND 9  THEN 1
+                    WHEN r.arrival_hour BETWEEN 10 AND 12 THEN 2
+                    WHEN r.arrival_hour BETWEEN 13 AND 18 THEN 3
+                END AS band_sort
+            FROM HOSPITALS.STAGING.stg_opd_tracker t
+            JOIN reception r ON r.VISIT_ID = t.VISIT_ID
+            WHERE t.IS_POST_ADMISSION = FALSE
+              AND t.STATION IN ('Doctor', 'Laboratory', 'Pharmacy', 'Radiology')
+              AND t.WAIT_MIN IS NOT NULL
+              AND t.WAIT_MIN BETWEEN 1 AND 480
+              AND r.arrival_hour BETWEEN 7 AND 18
+        )
+        SELECT
+            STATION                                                       AS station,
+            arrival_band,
+            band_sort,
+            COUNT(*)                                                      AS visits,
+            ROUND(MEDIAN(WAIT_MIN))                                       AS median_wait_min
+        FROM waits
+        WHERE arrival_band IS NOT NULL
+        GROUP BY STATION, arrival_band, band_sort
+        ORDER BY STATION, band_sort
+    """)

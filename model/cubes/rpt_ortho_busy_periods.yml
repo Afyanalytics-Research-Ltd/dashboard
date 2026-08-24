@@ -25,15 +25,18 @@ cubes:
       - name: total_visits
         sql: '{CUBE}."TOTAL_VISITS"'
         type: sum
+        drill_members: [visit_day_name, is_peak_slot]
       - name: avg_per_day
         sql: '{CUBE}."AVG_PER_DAY"'
         type: avg
       - name: count
         type: count
+        drill_members: [visit_day_name, is_peak_slot]
 
       - name: pct_of_total
         sql: "{CUBE}.\"PCT_OF_TOTAL\""
         type: sum
+        drill_members: [visit_day_name, is_peak_slot]
 
     pre_aggregations:
       # Pre-aggregation definitions go here.

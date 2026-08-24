@@ -23,8 +23,10 @@ cubes:
       - name: bookings
         sql: '{CUBE}."BOOKINGS"'
         type: sum
+        drill_members: [session_month, theatre_name, procedure_name]
       - name: count
         type: count
+        drill_members: [session_month, theatre_name, procedure_name]
 
     pre_aggregations:
       # Pre-aggregation definitions go here.

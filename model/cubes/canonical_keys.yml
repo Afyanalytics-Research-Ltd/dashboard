@@ -6,6 +6,11 @@ cubes:
     joins: []
 
     dimensions:
+      - name: canonical_product_id
+        sql: "{CUBE}.\"CANONICAL_PRODUCT_ID\""
+        type: number
+        primary_key: true
+
       - name: canonical_name
         sql: "{CUBE}.\"CANONICAL_NAME\""
         type: string
@@ -33,6 +38,7 @@ cubes:
     measures:
       - name: count
         type: count
+        drill_members: [therapeutic_class, canonical_name, form_canonical, canonical_product_id]
 
     pre_aggregations:
       # Pre-aggregation definitions go here.

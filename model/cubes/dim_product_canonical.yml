@@ -6,6 +6,11 @@ cubes:
     joins: []
 
     dimensions:
+      - name: canonical_product_id
+        sql: "{CUBE}.\"CANONICAL_PRODUCT_ID\""
+        type: number
+        primary_key: true
+
       - name: canonical_name
         sql: "{CUBE}.\"CANONICAL_NAME\""
         type: string
@@ -38,8 +43,10 @@ cubes:
       - name: avg_match_confidence
         sql: '{CUBE}."AVG_MATCH_CONFIDENCE"'
         type: avg
+        drill_members: [canonical_name, present_in_facilities, canonical_product_id]
       - name: count
         type: count
+        drill_members: [dim_loaded_at, canonical_name, present_in_facilities, canonical_product_id]
 
       - name: facility_count
         sql: "{CUBE}.\"FACILITY_COUNT\""

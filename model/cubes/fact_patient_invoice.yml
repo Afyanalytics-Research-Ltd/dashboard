@@ -3,7 +3,18 @@ cubes:
     sql_table: "\"REPORTING\".\"FACT_PATIENT_INVOICE\""
     data_source: default
 
-    joins: []
+    # rpt_retention is the hospital-wide patient hub. This table's facility
+    # column is FACILITY_KEY (not SOURCE_SCHEMA like most other facts) — its
+    # values include a 6th facility, XANALIFE_CLEAN, not yet present in
+    # agents/facility.py's FACILITY_REGISTRY (flagged, not fixed here). The
+    # same "_CLEAN" stripping/uppercasing normalization applies uniformly to
+    # it. Raw PATIENT_ID collides across facilities, so normalization is
+    # required before matching patient_id — a naive join was verified to
+    # overcount by ~14%.
+    joins:
+      - name: rpt_retention
+        sql: "UPPER(REGEXP_REPLACE({CUBE}.\"FACILITY_KEY\", '_CLEAN$', '')) = UPPER(REGEXP_REPLACE({rpt_retention}.\"SOURCE_SCHEMA\", '_CLEAN$', '')) AND {CUBE}.\"PATIENT_ID\" = {rpt_retention}.\"PATIENT_ID\""
+        relationship: many_to_one
 
     dimensions:
       - name: facility_key
@@ -13,6 +24,7 @@ cubes:
       - name: invoice_key
         sql: "{CUBE}.\"INVOICE_KEY\""
         type: string
+        primary_key: true
 
       - name: patient_id
         sql: "{CUBE}.\"PATIENT_ID\""
@@ -31,6 +43,7 @@ cubes:
       - name: total_billed
         sql: '{CUBE}."TOTAL_BILLED"'
         type: sum
+        drill_members: [first_event_date, facility_key, patient_id, invoice_key]
       - name: total_patient_invoice
         sql: '{CUBE}."TOTAL_PATIENT_INVOICE"'
         type: sum
@@ -46,8 +59,10 @@ cubes:
       - name: balance_due
         sql: '{CUBE}."BALANCE_DUE"'
         type: sum
+        drill_members: [last_event_date, facility_key, patient_id, invoice_key]
       - name: count
         type: count
+        drill_members: [first_event_date, facility_key, patient_id, invoice_key]
 
       - name: event_count
         sql: "{CUBE}.\"EVENT_COUNT\""

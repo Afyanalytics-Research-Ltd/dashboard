@@ -15,6 +15,14 @@ cubes:
         sql: "{CUBE}.\"CANONICAL_PRODUCT_ID\" = {canonical_product_taxonomy}.\"CANONICAL_PRODUCT_ID\""
         relationship: many_to_one
 
+      - name: canonical_keys
+        sql: "{CUBE}.\"CANONICAL_PRODUCT_ID\" = {canonical_keys}.\"CANONICAL_PRODUCT_ID\""
+        relationship: many_to_one
+
+      - name: fact_patient_dispensing
+        sql: "{CUBE}.\"SK_VISIT_ID\" = {fact_patient_dispensing}.\"SK_VISIT_ID\""
+        relationship: many_to_one
+
     dimensions:
       - name: dispensed_from_negative_stock
         sql: "{CUBE}.\"DISPENSED_FROM_NEGATIVE_STOCK\""
@@ -69,6 +77,7 @@ cubes:
         type: sum
         title: Units Dispensed
         description: Total quantity/units of a drug dispensed — use for "how many units dispensed", "total X dispensed" questions, broken down by canonical_product_taxonomy.canonical_name or therapeutic_class via the canonical_product_id join.
+        drill_members: [dispensing_month, source_schema, canonical_product_id]
       - name: payment_status
         sql: '{CUBE}."PAYMENT_STATUS"'
         type: sum
@@ -97,6 +106,7 @@ cubes:
         type: count
         title: Dispense Events (count)
         description: Count of individual dispense line-item events — use for "total dispenses" questions, or filtered by dispensed_from_negative_stock/is_stockout_dispense for negative-stock/stockout dispense counts.
+        drill_members: [dispensed_at, source_schema, canonical_product_id, sk_detail_id]
 
       - name: discount
         sql: "{CUBE}.\"DISCOUNT\""
@@ -169,6 +179,7 @@ cubes:
         format: percent
         title: Stockout Frequency / Rate
         description: Rate at which a product/therapeutic class/facility was out of stock — days_at_zero_stock / total_transaction_days. Use for "stockout rate", "stockout frequency", "which product/drug is stocking out" questions, broken down by canonical_name or therapeutic_class (via the canonical_product_id join) or dispensing_month for trends.
+        drill_members: [dispensing_month, source_schema, canonical_product_id]
 
       - name: avg_line_total
         sql: "{line_total} / NULLIF({count}, 0)"

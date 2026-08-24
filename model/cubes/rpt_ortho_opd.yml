@@ -3,7 +3,10 @@ cubes:
     sql_table: "\"REPORTING\".\"RPT_ORTHO_OPD\""
     data_source: default
 
-    joins: []
+    joins:
+      - name: rpt_ortho_patient_journey
+        sql: "{CUBE}.\"VISIT_ID\" = {rpt_ortho_patient_journey}.\"VISIT_ID\""
+        relationship: one_to_one
 
     dimensions:
       - name: age_group
@@ -45,6 +48,7 @@ cubes:
       - name: visit_id
         sql: "{CUBE}.\"VISIT_ID\""
         type: string
+        primary_key: true
 
       - name: visit_type
         sql: "{CUBE}.\"VISIT_TYPE\""
@@ -89,6 +93,7 @@ cubes:
         type: sum
       - name: count
         type: count
+        drill_members: [visit_date, facility, visit_type, age_group, visit_id]
 
     pre_aggregations:
       # Pre-aggregation definitions go here.

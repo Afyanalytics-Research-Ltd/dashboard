@@ -3,20 +3,29 @@ cubes:
     sql_table: "\"REPORTING\".\"RPT_AR_AGING\""
     data_source: default
 
-    joins: []
+    # rpt_insurance_ar is unique at facility+insurer+invoice_month grain
+    # (verified via direct SQL join-count check: 1,647/1,647 rpt_ar_aging
+    # rows matched, 100%, no fan-out) — see Universe D in the join map.
+    joins:
+      - name: rpt_insurance_ar
+        sql: "{CUBE}.\"FACILITY\" = {rpt_insurance_ar}.\"FACILITY\" AND {CUBE}.\"INSURER\" = {rpt_insurance_ar}.\"INSURER\" AND {CUBE}.\"INVOICE_MONTH\" = {rpt_insurance_ar}.\"INVOICE_MONTH\""
+        relationship: many_to_one
 
     dimensions:
       - name: aging_bucket
         sql: "{CUBE}.\"AGING_BUCKET\""
         type: string
+        primary_key: true
 
       - name: facility
         sql: "{CUBE}.\"FACILITY\""
         type: string
+        primary_key: true
 
       - name: insurer
         sql: "{CUBE}.\"INSURER\""
         type: string
+        primary_key: true
 
       - name: facility_data_end
         sql: "{CUBE}.\"FACILITY_DATA_END\""
@@ -25,6 +34,7 @@ cubes:
       - name: invoice_month
         sql: "{CUBE}.\"INVOICE_MONTH\""
         type: time
+        primary_key: true
 
     measures:
       # Added by sync_cube_schemas_from_snowflake on 2026-08-05T12:59:24.754781+00:00
@@ -67,6 +77,7 @@ cubes:
         format: percent
         title: Collection Rate (%)
         description: TRUE collection rate — total_collected / total_billed — correct at any grouping.
+        drill_members: [invoice_month, facility, insurer, aging_bucket]
 
       - name: dispatch_rate_calc_pct
         sql: "{dispatched_invoices} * 100.0 / NULLIF({invoices}, 0)"
@@ -95,6 +106,7 @@ cubes:
         description: Total overpaid amount, by facility/insurer — use for "insurers with overpayments" questions.
       - name: count
         type: count
+        drill_members: [invoice_month, facility, insurer, aging_bucket]
 
     pre_aggregations:
       # Pre-aggregation definitions go here.

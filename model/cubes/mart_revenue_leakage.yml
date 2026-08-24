@@ -3,7 +3,10 @@ cubes:
     sql_table: "\"REPORTING\".\"MART_REVENUE_LEAKAGE\""
     data_source: default
 
-    joins: []
+    joins:
+      - name: rpt_ortho_patient_journey
+        sql: "{CUBE}.\"VISIT_ID\" = {rpt_ortho_patient_journey}.\"VISIT_ID\""
+        relationship: many_to_one
 
     dimensions:
       - name: composite_patient_id
@@ -33,6 +36,7 @@ cubes:
       - name: request_name
         sql: "{CUBE}.\"REQUEST_NAME\""
         type: string
+        primary_key: true
 
       - name: source_system
         sql: "{CUBE}.\"SOURCE_SYSTEM\""
@@ -41,6 +45,7 @@ cubes:
       - name: visit_id
         sql: "{CUBE}.\"VISIT_ID\""
         type: string
+        primary_key: true
 
       - name: visit_type
         sql: "{CUBE}.\"VISIT_TYPE\""
@@ -66,6 +71,7 @@ cubes:
       - name: is_leakage
         sql: '{CUBE}."IS_LEAKAGE"'
         type: sum
+        drill_members: [visit_date, facility, proc_category, ward_type, visit_id]
       - name: los_hours
         sql: '{CUBE}."LOS_HOURS"'
         type: sum
@@ -74,10 +80,12 @@ cubes:
         type: sum
       - name: count
         type: count
+        drill_members: [visit_date, facility, proc_category, ward_type, visit_id]
 
       - name: uncollected_value
         sql: "{CUBE}.\"UNCOLLECTED_VALUE\""
         type: sum
+        drill_members: [visit_date, facility, proc_category, ward_type, visit_id]
 
       - name: unit_price
         sql: "{CUBE}.\"UNIT_PRICE\""

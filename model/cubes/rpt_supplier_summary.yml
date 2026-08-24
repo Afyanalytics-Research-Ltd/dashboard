@@ -13,6 +13,7 @@ cubes:
       - name: supplier_id
         sql: "{CUBE}.\"SUPPLIER_ID\""
         type: string
+        primary_key: true
 
       - name: supplier_name
         sql: "{CUBE}.\"SUPPLIER_NAME\""
@@ -39,10 +40,12 @@ cubes:
         type: sum
       - name: count
         type: count
+        drill_members: [facility, supplier_name, supplier_id]
 
       - name: ordered_value
         sql: "{CUBE}.\"ORDERED_VALUE\""
         type: sum
+        drill_members: [facility, supplier_name, supplier_id]
 
       - name: received_value
         sql: "{CUBE}.\"RECEIVED_VALUE\""

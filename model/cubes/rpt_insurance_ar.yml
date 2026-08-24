@@ -9,14 +9,17 @@ cubes:
       - name: facility
         sql: "{CUBE}.\"FACILITY\""
         type: string
+        primary_key: true
 
       - name: insurer
         sql: "{CUBE}.\"INSURER\""
         type: string
+        primary_key: true
 
       - name: invoice_month
         sql: "{CUBE}.\"INVOICE_MONTH\""
         type: time
+        primary_key: true
 
     measures:
       # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:00:22.733835+00:00
@@ -59,6 +62,7 @@ cubes:
         format: percent
         title: Insurance Collection Rate (%)
         description: TRUE collection rate — total_collected / total_billed — correct at any grouping. Use for "overall insurance collection rate" / "which insurer has the highest collection rate" questions.
+        drill_members: [invoice_month, facility, insurer]
 
       - name: dispatch_rate_calc_pct
         sql: "{dispatched_invoices} * 100.0 / NULLIF({invoices}, 0)"
@@ -71,6 +75,7 @@ cubes:
         type: sum
       - name: count
         type: count
+        drill_members: [invoice_month, facility, insurer]
 
     pre_aggregations:
       # Pre-aggregation definitions go here.

@@ -3,28 +3,39 @@ cubes:
     sql_table: "\"REPORTING\".\"RPT_READMISSIONS\""
     data_source: default
 
-    joins: []
+    # rpt_ward_los is unique at facility+ward_category+admission_month grain
+    # (verified via direct SQL join-count check: 1,823/1,835 rpt_readmissions
+    # rows matched, no fan-out) — see Universe D in the join map.
+    joins:
+      - name: rpt_ward_los
+        sql: "{CUBE}.\"FACILITY\" = {rpt_ward_los}.\"FACILITY\" AND {CUBE}.\"WARD_CATEGORY\" = {rpt_ward_los}.\"WARD_CATEGORY\" AND {CUBE}.\"ADMISSION_MONTH\" = {rpt_ward_los}.\"ADMISSION_MONTH\""
+        relationship: many_to_one
 
     dimensions:
       - name: discharge_type
         sql: "{CUBE}.\"DISCHARGE_TYPE\""
         type: string
+        primary_key: true
 
       - name: facility
         sql: "{CUBE}.\"FACILITY\""
         type: string
+        primary_key: true
 
       - name: payment_mode
         sql: "{CUBE}.\"PAYMENT_MODE\""
         type: string
+        primary_key: true
 
       - name: ward_category
         sql: "{CUBE}.\"WARD_CATEGORY\""
         type: string
+        primary_key: true
 
       - name: admission_month
         sql: "{CUBE}.\"ADMISSION_MONTH\""
         type: time
+        primary_key: true
 
     measures:
       # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:03:28.456273+00:00
@@ -57,6 +68,7 @@ cubes:
         format: percent
         title: Overall Readmission Rate (%)
         description: TRUE readmission rate — readmissions / total_admissions — correct at any grouping (by facility, ward_category, discharge_type, admission_month). Use for "overall readmission rate" questions, especially ones with a threshold ("rate above X%") or a group-by.
+        drill_members: [admission_month, facility, ward_category, discharge_type]
 
       - name: readmission_30day_rate_calc_pct
         sql: "{readmissions_30day} * 100.0 / NULLIF({total_admissions}, 0)"
@@ -76,6 +88,7 @@ cubes:
         description: Insured revenue exposed to 30-day readmissions, by ward category — use for "revenue at risk" questions.
       - name: count
         type: count
+        drill_members: [admission_month, facility, ward_category, discharge_type]
 
       - name: approx_gap_30day_count
         sql: "{CUBE}.\"APPROX_GAP_30DAY_COUNT\""

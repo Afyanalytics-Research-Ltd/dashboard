@@ -54,6 +54,7 @@ cubes:
         type: sum
         title: Chronic Disease Visits (count)
         description: Total chronic-disease visit count — break down by primary_chronic_disease_group, age_group, gender, bp_control_status, or visit_month.
+        drill_members: [visit_month, primary_chronic_disease_group, age_group, gender, bp_control_status]
 
       - name: distinct_patients
         sql: '{CUBE}."DISTINCT_PATIENTS"'
@@ -71,6 +72,7 @@ cubes:
         format: percent
         title: Chronic Disease Comorbidity Rate (%)
         description: TRUE comorbidity rate among chronic disease patients — visits_with_comorbidity / total_visits.
+        drill_members: [visit_month, primary_chronic_disease_group, age_group, payment_mode]
 
       - name: crisis_visits
         sql: '{CUBE}."TOTAL_VISITS"'
@@ -85,6 +87,7 @@ cubes:
         format: percent
         title: Hypertensive Crisis Rate (%)
         description: Percentage of (hypertension-filtered) visits in hypertensive crisis — crisis_visits / total_visits. Filter primary_chronic_disease_group contains "Hypertension" first.
+        drill_members: [visit_month, primary_chronic_disease_group, age_group, gender]
 
       - name: avg_bp_systolic
         sql: '{CUBE}."AVG_BP_SYSTOLIC"'

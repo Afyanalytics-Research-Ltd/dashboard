@@ -42,8 +42,10 @@ cubes:
         type: sum
         title: Procedure Revenue (KES)
         description: Total revenue from billed procedures/items, per facility/month. Break down by revenue_category (e.g. Pharmacy, Investigations, Rebate) for "top revenue category" questions, by insurer + payment_mode="insured" for "which insurer contributes the most insured revenue" questions, or filter revenue_category="Rebate" for contra-revenue/rebate exposure questions.
+        drill_members: [revenue_month, facility, revenue_category, insurer]
       - name: count
         type: count
+        drill_members: [revenue_month, facility, revenue_category, insurer]
 
       - name: avg_item_amount
         sql: "{CUBE}.\"AVG_ITEM_AMOUNT\""

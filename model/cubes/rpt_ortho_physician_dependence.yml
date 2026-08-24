@@ -3,7 +3,13 @@ cubes:
     sql_table: "\"REPORTING\".\"RPT_ORTHO_PHYSICIAN_DEPENDENCE\""
     data_source: default
 
-    joins: []
+    joins:
+      - name: rpt_ortho_patient_journey
+        sql: "{CUBE}.\"VISIT_ID\" = {rpt_ortho_patient_journey}.\"VISIT_ID\""
+        relationship: one_to_one
+      - name: rpt_ortho_admissions
+        sql: "{CUBE}.\"VISIT_ID\" = {rpt_ortho_admissions}.\"VISIT_ID\""
+        relationship: one_to_one
 
     dimensions:
       - name: admitted_by_hash
@@ -65,6 +71,7 @@ cubes:
       - name: visit_id
         sql: "{CUBE}.\"VISIT_ID\""
         type: string
+        primary_key: true
 
       - name: ward
         sql: "{CUBE}.\"WARD\""
@@ -94,8 +101,10 @@ cubes:
       - name: los_days
         sql: '{CUBE}."LOS_DAYS"'
         type: sum
+        drill_members: [admission_date, facility, doctor_hash, ward, visit_id]
       - name: count
         type: count
+        drill_members: [admission_date, facility, doctor_hash, ward, visit_id]
 
     pre_aggregations:
       # Pre-aggregation definitions go here.

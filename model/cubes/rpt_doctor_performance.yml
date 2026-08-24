@@ -20,6 +20,7 @@ cubes:
         sql: '{CUBE}."EVALUATIONS"'
         type: sum
         title: Doctor Evaluations (count)
+        drill_members: [visit_month, username]
       - name: admissions
         sql: '{CUBE}."ADMISSIONS"'
         type: sum
@@ -37,6 +38,7 @@ cubes:
         format: percent
         title: Admission Conversion Rate (%)
         description: TRUE admission conversion rate — admissions / evaluations — correct at any grouping. Use for "facility-wide admission conversion rate", "which doctor has the highest conversion rate", "doctors with over 100 evaluations but conversion rate below 5%" questions.
+        drill_members: [visit_month, username]
 
       - name: count
         type: count

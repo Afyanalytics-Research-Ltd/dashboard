@@ -38,6 +38,13 @@ cubes:
       - name: los_days
         sql: '{CUBE}."LOS_DAYS"'
         type: sum
+        # No join to rpt_retention/fact_inpatient_admissions here: this cube has no
+        # facility/source_schema column at all, so a patient_id join can't be
+        # facility-normalized — and the same raw-PATIENT_ID collision problem proven
+        # elsewhere in this warehouse (see JOIN_MAP.md Universe C) means an unnormalized
+        # join would silently overcount (naive join already returns 23,163 matches
+        # against fact_inpatient_admissions for only 23,048 rows here).
+        drill_members: [admission_date, admission_type, payment_mode, sex]
       - name: is_readmission
         sql: '{CUBE}."IS_READMISSION"'
         type: sum
@@ -46,6 +53,7 @@ cubes:
         type: sum
       - name: count
         type: count
+        drill_members: [admission_date, admission_type, payment_mode, sex]
 
       - name: admission_cost
         sql: "{CUBE}.\"ADMISSION_COST\""

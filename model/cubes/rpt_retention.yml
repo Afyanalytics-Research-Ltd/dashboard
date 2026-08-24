@@ -18,6 +18,9 @@ cubes:
       - name: patient_id
         sql: "{CUBE}.\"PATIENT_ID\""
         type: number
+        # ~97% unique (36,784 distinct / 37,989 rows) — not a hard guarantee,
+        # but the best available key in this cube, used as primary_key since
+        # Cube requires one to support joins from other cubes into this hub.
         primary_key: true
 
       - name: last_clinician_user
@@ -77,6 +80,7 @@ cubes:
         type: count_distinct
         title: Patients (count)
         description: Distinct patient count — break down by lifecycle_status, last_burden_group, payment_mode, age_group, gender, or primary_chronic_disease_group. Filter is_chronic=1 for chronic-patient-only questions.
+        drill_members: [last_visit_date, source_schema, lifecycle_status, payment_mode, patient_id]
 
       - name: ltfu_patients
         sql: "{CUBE}.\"PATIENT_ID\""
@@ -92,6 +96,7 @@ cubes:
         format: percent
         title: LTFU Rate (%)
         description: TRUE lost-to-follow-up rate — ltfu_patients / total_patients — correct at any grouping (by last_burden_group, payment_mode, gender, age_group, primary_chronic_disease_group). Use for "LTFU rate for chronic patients", "which disease burden group has the highest LTFU rate" questions.
+        drill_members: [last_visit_date, source_schema, last_burden_group, primary_chronic_disease_group, patient_id]
 
       - name: lapsing_patients
         sql: "{CUBE}.\"PATIENT_ID\""
@@ -107,6 +112,7 @@ cubes:
         format: percent
         title: Lapsing Rate (%)
         description: Percentage of patients in the lapsing window (91-180 days) — lapsing_patients / total_patients.
+        drill_members: [last_visit_date, source_schema, payment_mode, patient_id]
 
     pre_aggregations:
       # Pre-aggregation definitions go here.

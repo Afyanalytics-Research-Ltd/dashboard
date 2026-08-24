@@ -23,6 +23,7 @@ cubes:
       - name: total_admissions
         sql: '{CUBE}."TOTAL_ADMISSIONS"'
         type: sum
+        drill_members: [facility, ward_name]
       - name: closed_admissions
         sql: '{CUBE}."CLOSED_ADMISSIONS"'
         type: sum
@@ -38,6 +39,7 @@ cubes:
       - name: pct_of_total
         sql: "{CUBE}.\"PCT_OF_TOTAL\""
         type: sum
+        drill_members: [facility, ward_name]
 
     pre_aggregations:
       # Pre-aggregation definitions go here.

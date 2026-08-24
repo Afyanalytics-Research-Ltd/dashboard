@@ -31,6 +31,7 @@ cubes:
       - name: is_chronic
         sql: '{CUBE}."IS_CHRONIC"'
         type: sum
+        drill_members: [canonical_term, clinical_syndrome, disease_burden_group]
       - name: is_pregnant
         sql: '{CUBE}."IS_PREGNANT"'
         type: sum
@@ -45,6 +46,7 @@ cubes:
         type: sum
       - name: count
         type: count
+        drill_members: [canonical_term, clinical_syndrome, disease_burden_group, status]
 
     pre_aggregations:
       # Pre-aggregation definitions go here.

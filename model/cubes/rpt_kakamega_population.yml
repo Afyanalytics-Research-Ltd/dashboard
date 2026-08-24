@@ -27,12 +27,14 @@ cubes:
       - name: incidence_rate_per_1000
         sql: '{CUBE}."INCIDENCE_RATE_PER_1000"'
         type: sum
+        drill_members: [visit_month, facility, sub_county]
       - name: count
         type: count
 
       - name: visit_count
         sql: "{CUBE}.\"VISIT_COUNT\""
         type: sum
+        drill_members: [visit_month, facility, sub_county]
 
     pre_aggregations:
       # Pre-aggregation definitions go here.

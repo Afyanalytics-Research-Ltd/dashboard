@@ -15,6 +15,7 @@ cubes:
       - name: total_admissions
         sql: '{CUBE}."TOTAL_ADMISSIONS"'
         type: sum
+        drill_members: [tat_month]
       - name: fast_track
         sql: '{CUBE}."FAST_TRACK"'
         type: sum
@@ -23,11 +24,13 @@ cubes:
         type: avg
         format: percent
         title: Fast-Tracked Admissions (%)
+        drill_members: [tat_month]
       - name: p50_tat_min
         sql: '{CUBE}."P50_TAT_MIN"'
         type: sum
         title: Median Admission TAT (minutes)
         description: Median (P50) admission turnaround time in MINUTES, per month — not a currency value. Use for "median/average admission TAT" questions.
+        drill_members: [tat_month]
       - name: p75_tat_min
         sql: '{CUBE}."P75_TAT_MIN"'
         type: sum

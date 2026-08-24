@@ -70,6 +70,7 @@ cubes:
         type: sum
         title: Visits (count)
         description: Total visit count — use for "total visit count", "which diagnosis has the most visits", "which age group accounts for the most visits" questions, broken down by clean_diagnosis, final_disease_burden_group, age_group, payment_mode, visit_type, or comorbidity_pair.
+        drill_members: [visit_month, clean_diagnosis, final_disease_burden_group, age_group, payment_mode]
 
       - name: distinct_patients
         sql: '{CUBE}."DISTINCT_PATIENTS"'
@@ -89,6 +90,7 @@ cubes:
         format: percent
         title: Comorbidity Rate (%)
         description: Percentage of visits with a comorbidity recorded — comorbid_visits / total_visits. Break down by visit_type for "do inpatient visits have a higher comorbidity rate than outpatient" questions.
+        drill_members: [visit_month, visit_type, age_group, payment_mode]
 
       - name: doctor_note_only_visits
         sql: '{CUBE}."TOTAL_VISITS"'
@@ -120,6 +122,7 @@ cubes:
 
       - name: count
         type: count
+        drill_members: [visit_month, clean_diagnosis, age_group, gender]
 
     pre_aggregations:
       # Pre-aggregation definitions go here.

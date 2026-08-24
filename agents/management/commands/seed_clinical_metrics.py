@@ -53,6 +53,7 @@ METRICS: list[dict] = [
                 "rpt_opd_ipd.chronic_opd_pct",
             ],
             "dimensions": [
+                "rpt_opd_ipd.source_schema",
                 "rpt_opd_ipd.age_group",
                 "rpt_opd_ipd.gender",
                 "rpt_opd_ipd.payment_mode",
@@ -93,6 +94,7 @@ METRICS: list[dict] = [
                 "rpt_case_mix.unclassified_pct",
             ],
             "dimensions": [
+                "rpt_case_mix.source_schema",
                 "rpt_case_mix.clean_diagnosis",
                 "rpt_case_mix.final_disease_burden_group",
                 "rpt_case_mix.classification_source",
@@ -139,6 +141,7 @@ METRICS: list[dict] = [
                 "rpt_clinical_activity.hai_ssi_count",
             ],
             "dimensions": [
+                "rpt_clinical_activity.source_schema",
                 "rpt_clinical_activity.ward_category",
                 "rpt_clinical_activity.ward_name",
                 "rpt_clinical_activity.clean_diagnosis",
@@ -170,6 +173,7 @@ METRICS: list[dict] = [
                 "rpt_opd_revisits.revisit_rate_pct",
             ],
             "dimensions": [
+                "rpt_opd_revisits.source_schema",
                 "rpt_opd_revisits.clean_diagnosis",
                 "rpt_opd_revisits.age_group",
                 "rpt_opd_revisits.gender",
@@ -208,6 +212,7 @@ METRICS: list[dict] = [
                 "rpt_retention.lapsing_pct",
             ],
             "dimensions": [
+                "rpt_retention.source_schema",
                 "rpt_retention.lifecycle_status",
                 "rpt_retention.last_burden_group",
                 "rpt_retention.last_clean_diagnosis",
@@ -257,6 +262,7 @@ METRICS: list[dict] = [
                 "rpt_chronic_disease.avg_bmi",
             ],
             "dimensions": [
+                "rpt_chronic_disease.source_schema",
                 "rpt_chronic_disease.primary_chronic_disease_group",
                 "rpt_chronic_disease.age_group",
                 "rpt_chronic_disease.gender",
@@ -299,6 +305,7 @@ METRICS: list[dict] = [
                 "rpt_maternal.total_prescription_revenue",
             ],
             "dimensions": [
+                "rpt_maternal.source_schema",
                 "rpt_maternal.maternal_case_type",
                 "rpt_maternal.age_group",
                 "rpt_maternal.anc_adherence_band",
@@ -333,6 +340,7 @@ METRICS: list[dict] = [
                 "rpt_infectious_disease.comorbidity_rate_pct",
             ],
             "dimensions": [
+                "rpt_infectious_disease.source_schema",
                 "rpt_infectious_disease.disease_group",
                 "rpt_infectious_disease.final_disease_burden_group",
                 "rpt_infectious_disease.age_group",
@@ -356,6 +364,7 @@ METRICS: list[dict] = [
         "cube_query": {
             "measures": ["rpt_diagnosis_reference.confirmed_visits"],
             "dimensions": [
+                "rpt_diagnosis_reference.source_schema",
                 "rpt_diagnosis_reference.hai_ssi_flag",
                 "rpt_diagnosis_reference.clean_diagnosis",
             ],

@@ -3,7 +3,10 @@ cubes:
     sql_table: "\"REPORTING\".\"RPT_DOS_WATCHLIST\""
     data_source: default
 
-    joins: []
+    joins:
+      - name: canonical_product_taxonomy
+        sql: "{CUBE}.\"FACILITY\" = {canonical_product_taxonomy}.\"FACILITY\" AND {CUBE}.\"PRODUCT_ID\" = {canonical_product_taxonomy}.\"PRODUCT_ID\""
+        relationship: many_to_one
 
     dimensions:
       - name: canonical_name
@@ -13,6 +16,7 @@ cubes:
       - name: facility
         sql: "{CUBE}.\"FACILITY\""
         type: string
+        primary_key: true
 
       - name: inn_name
         sql: "{CUBE}.\"INN_NAME\""
@@ -21,6 +25,7 @@ cubes:
       - name: product_name
         sql: "{CUBE}.\"PRODUCT_NAME\""
         type: string
+        primary_key: true
 
       - name: reorder_urgency
         sql: "{CUBE}.\"REORDER_URGENCY\""
@@ -54,8 +59,10 @@ cubes:
       - name: days_of_stock_remaining
         sql: '{CUBE}."DAYS_OF_STOCK_REMAINING"'
         type: sum
+        drill_members: [facility, reorder_urgency, product_name]
       - name: count
         type: count
+        drill_members: [last_dispensed_at, facility, reorder_urgency, product_name]
 
     pre_aggregations:
       # Pre-aggregation definitions go here.

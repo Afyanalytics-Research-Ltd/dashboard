@@ -82,7 +82,8 @@
       "Bash(wslpath '\\\\\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\luther\\\\dashboard')",
       "Bash(ls -la \"$\\(wslpath '\\\\\\\\wsl.localhost\\\\Ubuntu\\\\home\\\\luther\\\\dashboard'\\)/.env\")",
       "Bash(curl -s \"https://api.github.com/repos/MarquezProject/marquez/contents/docker\")",
-      "Bash(curl -s \"https://api.github.com/search/code?q=snowflake+repo:MarquezProject/marquez\")"
+      "Bash(curl -s \"https://api.github.com/search/code?q=snowflake+repo:MarquezProject/marquez\")",
+      "Read(///wsl.localhost/Ubuntu/home/**)"
     ],
     "additionalDirectories": [
       "\\home\\luther\\dashboard\\templates\\analytics",

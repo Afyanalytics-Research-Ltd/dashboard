@@ -64,6 +64,7 @@ cubes:
         sql: '{CUBE}."TOTAL_ADMISSIONS"'
         type: sum
         title: Admissions (count)
+        drill_members: [admission_month, ward_category, clean_diagnosis, age_group, payment_mode]
 
       - name: total_discharges
         sql: '{CUBE}."TOTAL_DISCHARGES"'
@@ -93,6 +94,7 @@ cubes:
         format: percent
         title: 30-Day Readmission Rate (%)
         description: TRUE 30-day readmission rate — readmissions_30day / total_admissions — correct at any grouping (ward_category, clean_diagnosis, age_group, admission_month). Use for "overall 30-day readmission rate", "which ward/diagnosis/age group has the highest readmission rate" questions.
+        drill_members: [admission_month, ward_category, clean_diagnosis, age_group]
 
       - name: los_days_weighted
         sql: "{CUBE}.\"AVG_LOS_DAYS\" * {CUBE}.\"TOTAL_ADMISSIONS\""
@@ -105,6 +107,7 @@ cubes:
         type: number
         title: Average Length of Stay (days)
         description: TRUE admissions-weighted average length of stay in days — correct at any grouping (ward, diagnosis, facility, month). Use for "average length of stay", "which ward has the longest average LOS", "has average LOS changed" questions.
+        drill_members: [admission_month, ward_category, ward_name, clean_diagnosis]
 
       - name: median_los_days
         sql: '{CUBE}."MEDIAN_LOS_DAYS"'

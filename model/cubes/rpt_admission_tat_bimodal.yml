@@ -18,6 +18,7 @@ cubes:
       - name: total_admissions
         sql: '{CUBE}."TOTAL_ADMISSIONS"'
         type: sum
+        drill_members: [day_name]
       - name: fast_track
         sql: '{CUBE}."FAST_TRACK"'
         type: sum
@@ -27,9 +28,11 @@ cubes:
       - name: fast_pct
         sql: '{CUBE}."FAST_PCT"'
         type: avg
+        drill_members: [day_name]
       - name: p50_tat_min
         sql: '{CUBE}."P50_TAT_MIN"'
         type: sum
+        drill_members: [day_name]
       - name: p75_tat_min
         sql: '{CUBE}."P75_TAT_MIN"'
         type: sum

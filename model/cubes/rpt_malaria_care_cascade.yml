@@ -3,12 +3,16 @@ cubes:
     sql_table: "\"REPORTING\".\"RPT_MALARIA_CARE_CASCADE\""
     data_source: default
 
-    joins: []
+    joins:
+      - name: rpt_malaria_zones
+        sql: "{CUBE}.\"ZONE_LABEL\" = {rpt_malaria_zones}.\"ZONE_LABEL\""
+        relationship: many_to_one
 
     dimensions:
       - name: branch
         sql: "{CUBE}.\"BRANCH\""
         type: string
+        primary_key: true
 
       - name: branch_label
         sql: "{CUBE}.\"BRANCH_LABEL\""
@@ -25,10 +29,12 @@ cubes:
       - name: step_name
         sql: "{CUBE}.\"STEP_NAME\""
         type: string
+        primary_key: true
 
       - name: zone_label
         sql: "{CUBE}.\"ZONE_LABEL\""
         type: string
+        primary_key: true
 
     measures:
       # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:00:59.345934+00:00
@@ -38,8 +44,10 @@ cubes:
       - name: dropout_rate_pct
         sql: '{CUBE}."DROPOUT_RATE_PCT"'
         type: avg
+        drill_members: [zone_label, step_name, branch, confidence_level]
       - name: count
         type: count
+        drill_members: [zone_label, step_name, branch, source_schema]
 
       - name: dropout_count
         sql: "{CUBE}.\"DROPOUT_COUNT\""

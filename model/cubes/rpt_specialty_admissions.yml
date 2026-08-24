@@ -27,6 +27,7 @@ cubes:
       - name: total_admissions
         sql: '{CUBE}."TOTAL_ADMISSIONS"'
         type: sum
+        drill_members: [admission_month, facility, ward_name, payment_mode]
       - name: day_cases
         sql: '{CUBE}."DAY_CASES"'
         type: sum
@@ -59,6 +60,7 @@ cubes:
         type: sum
       - name: count
         type: count
+        drill_members: [admission_month, facility, ward_name, payment_mode]
 
     pre_aggregations:
       # Pre-aggregation definitions go here.

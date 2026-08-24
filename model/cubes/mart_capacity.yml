@@ -22,6 +22,7 @@ cubes:
       - name: total_census
         sql: '{CUBE}."TOTAL_CENSUS"'
         type: sum
+        drill_members: [period_date, day_name]
       - name: ortho_census
         sql: '{CUBE}."ORTHO_CENSUS"'
         type: sum
@@ -46,6 +47,7 @@ cubes:
       - name: theatre_cases
         sql: '{CUBE}."THEATRE_CASES"'
         type: sum
+        drill_members: [period_date, day_name]
       - name: theatre_14d_avg
         sql: '{CUBE}."THEATRE_14D_AVG"'
         type: sum
@@ -67,6 +69,7 @@ cubes:
       - name: opd_no_consult_pct
         sql: '{CUBE}."OPD_NO_CONSULT_PCT"'
         type: avg
+        drill_members: [period_date, day_name]
       - name: v1_census_excluded
         sql: '{CUBE}."V1_CENSUS_EXCLUDED"'
         type: sum

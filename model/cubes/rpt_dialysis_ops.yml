@@ -19,6 +19,7 @@ cubes:
       - name: sessions_billed
         sql: '{CUBE}."SESSIONS_BILLED"'
         type: sum
+        drill_members: [invoice_month, is_partial_month]
       - name: sessions_insured
         sql: '{CUBE}."SESSIONS_INSURED"'
         type: sum
@@ -35,6 +36,7 @@ cubes:
         format: percent
         title: Insured Dialysis Session Share (%)
         description: Percentage of billed dialysis sessions paid by insurance — sessions_insured / sessions_billed. Use for "proportion of dialysis sessions insured vs cash" questions.
+        drill_members: [invoice_month, is_partial_month]
 
       - name: session_fee_revenue
         sql: '{CUBE}."SESSION_FEE_REVENUE"'
@@ -58,6 +60,7 @@ cubes:
         format: percent
         title: Dialysis Utilisation Rate (% of theoretical capacity)
         description: Monthly dialysis machine/chair utilisation as a percentage of theoretical maximum capacity — use for "dialysis utilisation rate", "is dialysis utilisation improving", and "dropped below X% of theoretical capacity" questions. Filter is_partial_month = false for complete months only.
+        drill_members: [invoice_month, is_partial_month]
       - name: count
         type: count
 

@@ -57,12 +57,14 @@ cubes:
         type: count
         title: Evaluations (count)
         description: Count of ED evaluations (one row per evaluation). Break down by time_bucket (values include "Peak (Mon 14-17h)" and "Off-Peak") for peak vs off-peak questions, by username for per-doctor evaluation counts. Use for "how many evaluations", "which doctor handles the most evaluations" questions.
+        drill_members: [visit_month, time_bucket, username, ward_category]
 
       - name: admissions
         sql: 'IFF({CUBE}."IS_ADMITTED", 1, 0)'
         type: sum
         title: Admissions From Evaluation (count)
         description: Count of evaluations that resulted in an admission.
+        drill_members: [visit_month, time_bucket, username, ward_category]
 
       - name: conversion_pct
         sql: "{admissions} * 100.0 / NULLIF({count}, 0)"
@@ -70,6 +72,7 @@ cubes:
         format: percent
         title: Admission Conversion Rate (%)
         description: Percentage of evaluations that resulted in an admission — admissions / count. Break down by time_bucket for "are peak-hour patients more likely to be admitted than off-peak" questions, or by visit_month for a conversion-rate trend.
+        drill_members: [visit_month, time_bucket, username, ward_category]
 
     pre_aggregations:
       # Pre-aggregation definitions go here.

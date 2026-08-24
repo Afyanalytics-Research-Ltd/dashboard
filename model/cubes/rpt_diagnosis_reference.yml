@@ -71,6 +71,7 @@ cubes:
         type: count_distinct
         title: Confirmed Visits (count)
         description: Distinct visit count — filter hai_ssi_flag = 'HAI' or 'SSI' and break down by clean_diagnosis for "leading HAI/SSI infection type" questions.
+        drill_members: [clean_diagnosis, final_disease_burden_group, hai_ssi_flag, classification_source]
 
     pre_aggregations:
       # Pre-aggregation definitions go here.

@@ -3,12 +3,26 @@ cubes:
     sql_table: "\"REPORTING\".\"UPD_INVENTORY_PROFILE\""
     data_source: default
 
-    joins: []
+    # rpt_retention is the hospital-wide patient hub. Raw PATIENT_ID collides
+    # across facilities, so the join must normalize source_schema first
+    # (strip the "_CLEAN" suffix and uppercase) before matching patient_id —
+    # a naive patient_id-only join was verified to overcount by ~14%.
+    joins:
+      - name: rpt_retention
+        sql: "UPPER(REGEXP_REPLACE({CUBE}.\"SOURCE_SCHEMA\", '_CLEAN$', '')) = UPPER(REGEXP_REPLACE({rpt_retention}.\"SOURCE_SCHEMA\", '_CLEAN$', '')) AND {CUBE}.\"PATIENT_ID\" = {rpt_retention}.\"PATIENT_ID\""
+        relationship: many_to_one
 
     dimensions:
       - name: source_schema
         sql: "{CUBE}.\"SOURCE_SCHEMA\""
         type: string
+        primary_key: true
+
+      - name: patient_id
+        sql: "{CUBE}.\"PATIENT_ID\""
+        type: number
+        primary_key: true
+        description: ~95% unique per source_schema (88,837/93,347) — the best available row identifier for this cube; used as a composite primary_key with source_schema since Cube requires one now that this cube joins to rpt_retention.
 
       - name: first_dispensed_at
         sql: "{CUBE}.\"FIRST_DISPENSED_AT\""
@@ -23,6 +37,7 @@ cubes:
       - name: total_dispensing_visits
         sql: '{CUBE}."TOTAL_DISPENSING_VISITS"'
         type: sum
+        drill_members: [first_dispensed_at, source_schema]
       - name: total_drugs_dispensed
         sql: '{CUBE}."TOTAL_DRUGS_DISPENSED"'
         type: sum
@@ -58,10 +73,12 @@ cubes:
         type: sum
       - name: count
         type: count
+        drill_members: [first_dispensed_at, source_schema]
 
       - name: lifetime_drug_cost
         sql: "{CUBE}.\"LIFETIME_DRUG_COST\""
         type: sum
+        drill_members: [last_dispensed_at, source_schema]
 
     pre_aggregations:
       # Pre-aggregation definitions go here.

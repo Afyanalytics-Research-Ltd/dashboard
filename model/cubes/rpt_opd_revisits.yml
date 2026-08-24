@@ -49,6 +49,7 @@ cubes:
         type: sum
         title: 7-Day OPD Revisits (count)
         description: Count of OPD revisits within 7 days — break down by clean_diagnosis, age_group, gender, is_comorbidity, revisit_day_bucket, or visit_month.
+        drill_members: [visit_month, clean_diagnosis, age_group, gender, is_comorbidity]
 
       - name: distinct_patients
         sql: '{CUBE}."DISTINCT_PATIENTS"'
@@ -61,9 +62,11 @@ cubes:
         format: percent
         title: 7-Day OPD Revisit Rate (%)
         description: TRUE 7-day OPD revisit rate — revisit_count / distinct_patients — correct at any grouping. Use for "overall 7-day OPD revisit rate", "do comorbid patients revisit more often", "are female patients more likely to revisit" questions.
+        drill_members: [visit_month, age_group, gender, is_comorbidity]
 
       - name: count
         type: count
+        drill_members: [visit_month, clean_diagnosis, age_group]
 
     pre_aggregations:
       # Pre-aggregation definitions go here.

@@ -65,6 +65,7 @@ cubes:
         type: sum
         title: Infectious Disease Visits (count)
         description: Total infectious-disease visit count — break down by disease_group (malaria/URTI/sepsis via "contains"), age_group, gender, or visit_month.
+        drill_members: [visit_month, disease_group, age_group, gender]
 
       - name: distinct_patients
         sql: '{CUBE}."DISTINCT_PATIENTS"'
@@ -89,9 +90,11 @@ cubes:
         format: percent
         title: Infectious Disease Comorbidity Rate (%)
         description: TRUE comorbidity rate among infectious disease patients — comorbid_visits / total_visits.
+        drill_members: [visit_month, disease_group, age_group, gender]
 
       - name: count
         type: count
+        drill_members: [visit_month, disease_group, age_group]
 
     pre_aggregations:
       # Pre-aggregation definitions go here.

@@ -47,6 +47,7 @@ cubes:
         format: percent
         title: Theatre Completion Rate (%)
         description: TRUE theatre completion rate — completed_sessions / total_sessions — correct at any grouping. Use for "theatre completion rate in the most recent month" questions.
+        drill_members: [session_month, facility, theatre_name, theatre_type]
 
       - name: emergency_sessions
         sql: '{CUBE}."EMERGENCY_SESSIONS"'
@@ -96,6 +97,7 @@ cubes:
         type: sum
       - name: count
         type: count
+        drill_members: [session_month, facility, theatre_name, theatre_type]
 
     pre_aggregations:
       # Pre-aggregation definitions go here.

@@ -3,7 +3,10 @@ cubes:
     sql_table: "\"REPORTING\".\"RPT_MALARIA_DATA_QUALITY\""
     data_source: default
 
-    joins: []
+    joins:
+      - name: rpt_malaria_zones
+        sql: "{CUBE}.\"ZONE_LABEL\" = {rpt_malaria_zones}.\"ZONE_LABEL\""
+        relationship: many_to_one
 
     dimensions:
       - name: comparison_allowed
@@ -25,6 +28,7 @@ cubes:
       - name: metric_id
         sql: "{CUBE}.\"METRIC_ID\""
         type: string
+        primary_key: true
 
       - name: metric_name
         sql: "{CUBE}.\"METRIC_NAME\""
@@ -45,14 +49,17 @@ cubes:
       - name: zone_label
         sql: "{CUBE}.\"ZONE_LABEL\""
         type: string
+        primary_key: true
 
     measures:
       # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:01:12.700791+00:00
       - name: completeness_pct
         sql: '{CUBE}."COMPLETENESS_PCT"'
         type: avg
+        drill_members: [zone_label, metric_name, confidence_level]
       - name: count
         type: count
+        drill_members: [zone_label, metric_name, evidence_type, source_schema]
 
     pre_aggregations:
       # Pre-aggregation definitions go here.

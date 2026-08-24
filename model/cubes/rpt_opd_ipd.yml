@@ -72,6 +72,7 @@ cubes:
         type: sum
         title: OPD Visits (count)
         description: Breakdown-level OPD visit count — safe to sum by any dimension (age_group, gender, payment_mode, diagnosis, etc.).
+        drill_members: [visit_month, clean_diagnosis, final_disease_burden_group, age_group, payment_mode]
 
       - name: distinct_patients
         sql: '{CUBE}."DISTINCT_PATIENTS"'
@@ -134,9 +135,11 @@ cubes:
         format: percent
         title: Chronic OPD Visit Share (%)
         description: Percentage of OPD visits classified as chronic — chronic_visits / total_visits.
+        drill_members: [visit_month, clean_diagnosis, age_group, payment_mode]
 
       - name: count
         type: count
+        drill_members: [visit_month, clean_diagnosis, age_group]
 
     pre_aggregations:
       # Pre-aggregation definitions go here.

@@ -62,6 +62,7 @@ cubes:
         type: sum
         title: Maternal Visits (count)
         description: Total maternal visit count — break down by maternal_case_type (ANC/COMPLICATION/PREGNANCY LOSS), age_group, or visit_month.
+        drill_members: [visit_month, maternal_case_type, age_group, payment_mode]
 
       - name: distinct_patients
         sql: '{CUBE}."DISTINCT_PATIENTS"'
@@ -86,6 +87,7 @@ cubes:
         format: percent
         title: Single-Visit ANC Rate (%)
         description: Percentage of ANC patients who are single-visit (lost after first contact) — single_visit_patients / distinct_patients. Filter maternal_case_type = 'ANC' first.
+        drill_members: [visit_month, maternal_case_type, anc_adherence_band, age_group]
 
       - name: total_investigations
         sql: '{CUBE}."TOTAL_INVESTIGATIONS"'
@@ -112,6 +114,7 @@ cubes:
 
       - name: count
         type: count
+        drill_members: [visit_month, maternal_case_type, age_group]
 
     pre_aggregations:
       # Pre-aggregation definitions go here.

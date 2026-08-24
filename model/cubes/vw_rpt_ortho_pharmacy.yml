@@ -3,7 +3,10 @@ cubes:
     sql_table: "\"REPORTING\".\"VW_RPT_ORTHO_PHARMACY\""
     data_source: default
 
-    joins: []
+    joins:
+      - name: vw_rpt_ortho_patient_journey
+        sql: "{CUBE}.\"VISIT_ID\" = {vw_rpt_ortho_patient_journey}.\"VISIT_ID\""
+        relationship: many_to_one
 
     dimensions:
       - name: composite_patient_id
@@ -25,6 +28,7 @@ cubes:
       - name: item_name
         sql: "{CUBE}.\"ITEM_NAME\""
         type: string
+        primary_key: true
 
       - name: order_day_name
         sql: "{CUBE}.\"ORDER_DAY_NAME\""
@@ -45,6 +49,7 @@ cubes:
       - name: visit_id
         sql: "{CUBE}.\"VISIT_ID\""
         type: string
+        primary_key: true
 
       - name: dispensed_stamp
         sql: "{CUBE}.\"DISPENSED_STAMP\""
@@ -53,6 +58,7 @@ cubes:
       - name: order_date
         sql: "{CUBE}.\"ORDER_DATE\""
         type: time
+        primary_key: true
 
       - name: order_month
         sql: "{CUBE}.\"ORDER_MONTH\""
@@ -76,8 +82,10 @@ cubes:
       - name: revenue_kes
         sql: '{CUBE}."REVENUE_KES"'
         type: sum
+        drill_members: [order_date, facility, item_class, item_name]
       - name: count
         type: count
+        drill_members: [order_date, facility, item_class, visit_id]
 
       - name: quantity
         sql: "{CUBE}.\"QUANTITY\""

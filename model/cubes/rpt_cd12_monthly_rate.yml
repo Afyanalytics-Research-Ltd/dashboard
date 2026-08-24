@@ -15,6 +15,7 @@ cubes:
       - name: total_critical
         sql: '{CUBE}."TOTAL_CRITICAL"'
         type: sum
+        drill_members: [critical_month]
       - name: admitted
         sql: '{CUBE}."ADMITTED"'
         type: sum
@@ -24,6 +25,7 @@ cubes:
       - name: non_admission_rate_pct
         sql: '{CUBE}."NON_ADMISSION_RATE_PCT"'
         type: avg
+        drill_members: [critical_month]
       - name: count
         type: count
 

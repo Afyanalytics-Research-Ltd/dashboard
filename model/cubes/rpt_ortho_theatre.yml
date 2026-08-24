@@ -3,7 +3,10 @@ cubes:
     sql_table: "\"REPORTING\".\"RPT_ORTHO_THEATRE\""
     data_source: default
 
-    joins: []
+    joins:
+      - name: rpt_ortho_patient_journey
+        sql: "{CUBE}.\"VISIT_ID\" = {rpt_ortho_patient_journey}.\"VISIT_ID\""
+        relationship: many_to_one
 
     dimensions:
       - name: age_group
@@ -73,6 +76,7 @@ cubes:
       - name: procedure_code
         sql: "{CUBE}.\"PROCEDURE_CODE\""
         type: string
+        primary_key: true
 
       - name: procedure_day_name
         sql: "{CUBE}.\"PROCEDURE_DAY_NAME\""
@@ -109,6 +113,7 @@ cubes:
       - name: visit_id
         sql: "{CUBE}.\"VISIT_ID\""
         type: string
+        primary_key: true
 
       - name: planned_date
         sql: "{CUBE}.\"PLANNED_DATE\""
@@ -121,6 +126,7 @@ cubes:
       - name: procedure_date
         sql: "{CUBE}.\"PROCEDURE_DATE\""
         type: time
+        primary_key: true
 
       - name: procedure_month
         sql: "{CUBE}.\"PROCEDURE_MONTH\""
@@ -161,6 +167,7 @@ cubes:
       - name: surgery_duration_mins
         sql: '{CUBE}."SURGERY_DURATION_MINS"'
         type: sum
+        drill_members: [procedure_date, facility, procedure_name, status, visit_id]
       - name: request_to_planned_days
         sql: '{CUBE}."REQUEST_TO_PLANNED_DAYS"'
         type: sum
@@ -169,6 +176,7 @@ cubes:
         type: sum
       - name: count
         type: count
+        drill_members: [procedure_date, facility, procedure_name, status, visit_id]
 
     pre_aggregations:
       # Pre-aggregation definitions go here.

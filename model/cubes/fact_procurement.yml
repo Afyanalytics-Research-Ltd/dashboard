@@ -3,7 +3,14 @@ cubes:
     sql_table: "\"REPORTING\".\"FACT_PROCUREMENT\""
     data_source: default
 
-    joins: []
+    joins:
+      - name: canonical_keys
+        sql: "{CUBE}.\"CANONICAL_PRODUCT_ID\" = {canonical_keys}.\"CANONICAL_PRODUCT_ID\""
+        relationship: many_to_one
+
+      - name: rpt_supplier_summary
+        sql: "{CUBE}.\"SUPPLIER_ID\" = {rpt_supplier_summary}.\"SUPPLIER_ID\""
+        relationship: many_to_one
 
     dimensions:
       - name: canonical_name
@@ -17,6 +24,7 @@ cubes:
       - name: doc_id
         sql: "{CUBE}.\"DOC_ID\""
         type: string
+        primary_key: true
 
       - name: doc_type
         sql: "{CUBE}.\"DOC_TYPE\""
@@ -73,10 +81,12 @@ cubes:
     measures:
       - name: count
         type: count
+        drill_members: [doc_at, source_schema, therapeutic_class, supplier_id]
 
       - name: line_value
         sql: "{CUBE}.\"LINE_VALUE\""
         type: sum
+        drill_members: [doc_month, source_schema, supplier_name, therapeutic_class]
 
       - name: quantity
         sql: "{CUBE}.\"QUANTITY\""

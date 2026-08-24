@@ -3,12 +3,16 @@ cubes:
     sql_table: "\"REPORTING\".\"RPT_REDISTRIBUTION\""
     data_source: default
 
-    joins: []
+    joins:
+      - name: canonical_keys
+        sql: "{CUBE}.\"CANONICAL_PRODUCT_ID\" = {canonical_keys}.\"CANONICAL_PRODUCT_ID\""
+        relationship: many_to_one
 
     dimensions:
       - name: canonical_name
         sql: "{CUBE}.\"CANONICAL_NAME\""
         type: string
+        primary_key: true
 
       - name: clinical_priority
         sql: "{CUBE}.\"CLINICAL_PRIORITY\""
@@ -17,6 +21,7 @@ cubes:
       - name: deficit_facility
         sql: "{CUBE}.\"DEFICIT_FACILITY\""
         type: string
+        primary_key: true
 
       - name: inn_name
         sql: "{CUBE}.\"INN_NAME\""
@@ -25,6 +30,7 @@ cubes:
       - name: surplus_facility
         sql: "{CUBE}.\"SURPLUS_FACILITY\""
         type: string
+        primary_key: true
 
       - name: therapeutic_class
         sql: "{CUBE}.\"THERAPEUTIC_CLASS\""
@@ -61,10 +67,12 @@ cubes:
         type: sum
       - name: count
         type: count
+        drill_members: [deficit_facility, surplus_facility, therapeutic_class]
 
       - name: suggested_transfer_qty
         sql: "{CUBE}.\"SUGGESTED_TRANSFER_QTY\""
         type: sum
+        drill_members: [deficit_facility, surplus_facility, therapeutic_class]
 
     pre_aggregations:
       # Pre-aggregation definitions go here.

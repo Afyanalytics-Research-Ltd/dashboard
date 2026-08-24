@@ -27,11 +27,13 @@ cubes:
       - name: icd10_visits
         sql: '{CUBE}."ICD10_VISITS"'
         type: sum
+        drill_members: [signal_month, disease_group, facility]
       - name: lab_events
         sql: '{CUBE}."LAB_EVENTS"'
         type: sum
       - name: count
         type: count
+        drill_members: [signal_month, disease_group, facility]
 
       - name: rx_count
         sql: "{CUBE}.\"RX_COUNT\""

@@ -19,8 +19,10 @@ cubes:
       - name: tat_min
         sql: '{CUBE}."TAT_MIN"'
         type: sum
+        drill_members: [booking_ts, declaration_day]
       - name: count
         type: count
+        drill_members: [booking_ts, declaration_day]
 
     pre_aggregations:
       # Pre-aggregation definitions go here.

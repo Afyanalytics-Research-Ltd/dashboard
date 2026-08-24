@@ -3,7 +3,10 @@ cubes:
     sql_table: "\"REPORTING\".\"RPT_MALARIA_TREATMENT_MATRIX\""
     data_source: default
 
-    joins: []
+    joins:
+      - name: rpt_malaria_zones
+        sql: "{CUBE}.\"ZONE_LABEL\" = {rpt_malaria_zones}.\"ZONE_LABEL\""
+        relationship: many_to_one
 
     dimensions:
       - name: appropriateness_category
@@ -17,6 +20,7 @@ cubes:
       - name: cell_name
         sql: "{CUBE}.\"CELL_NAME\""
         type: string
+        primary_key: true
 
       - name: source_schema
         sql: "{CUBE}.\"SOURCE_SCHEMA\""
@@ -25,6 +29,7 @@ cubes:
       - name: zone_label
         sql: "{CUBE}.\"ZONE_LABEL\""
         type: string
+        primary_key: true
 
     measures:
       # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:01:30.739441+00:00
@@ -40,6 +45,7 @@ cubes:
       - name: empirical_treatment_rate_pct
         sql: '{CUBE}."EMPIRICAL_TREATMENT_RATE_PCT"'
         type: avg
+        drill_members: [zone_label, cell_name, appropriateness_category]
       - name: documented_act_rate_pct
         sql: '{CUBE}."DOCUMENTED_ACT_RATE_PCT"'
         type: avg
@@ -51,6 +57,7 @@ cubes:
         type: sum
       - name: count
         type: count
+        drill_members: [zone_label, cell_name, appropriateness_category, source_schema]
 
       - name: cell_count
         sql: "{CUBE}.\"CELL_COUNT\""

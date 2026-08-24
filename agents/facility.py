@@ -49,7 +49,18 @@ FACILITY_REGISTRY: dict[str, dict[str, str | list[str]]] = {
     # change needed. TENRI's "facility" column matches its bare name
     # exactly (confirmed against live data), so it's left as a single value.
     "KISUMU": {
-        "source_schema": ["KISUMU_CLEAN", "kisumu"],
+        # Three different conventions across cube families all target this
+        # same "source_schema" axis: rpt_bed_occupancy-style tables use
+        # "KISUMU_CLEAN", canonical_product_taxonomy/fact_dispensing use
+        # lowercase "kisumu", and the clinical-domain tables (rpt_opd_ipd,
+        # rpt_case_mix, rpt_clinical_activity, etc.) use bare uppercase
+        # "KISUMU" with no suffix at all. Missing any one of the three
+        # means every question against that cube family silently drops the
+        # facility filter (observed: the entire 100-question clinical test
+        # suite lost its KISUMU scoping this way — bare "KISUMU" wasn't in
+        # this list, so it never matched the source_schema value those
+        # tables actually store).
+        "source_schema": ["KISUMU_CLEAN", "kisumu", "KISUMU"],
         # canonical_product_taxonomy.facility uses lowercase "kisumu" —
         # a different convention than the rpt_* tables' "KISUMU_CLEAN" —
         # so both must be listed or that cube's facility filter matches
@@ -58,11 +69,11 @@ FACILITY_REGISTRY: dict[str, dict[str, str | list[str]]] = {
         "facility":      ["KISUMU", "KISUMU_CLEAN", "kisumu"],
     },
     "KAKAMEGA": {
-        "source_schema": ["KAKAMEGA_CLEAN", "kakamega"],
+        "source_schema": ["KAKAMEGA_CLEAN", "kakamega", "KAKAMEGA"],
         "facility":      ["KAKAMEGA", "KAKAMEGA_CLEAN", "kakamega"],
     },
     "LODWAR": {
-        "source_schema": ["LODWAR_CLEAN", "lodwar"],
+        "source_schema": ["LODWAR_CLEAN", "lodwar", "LODWAR"],
         "facility":      ["LODWAR", "LODWAR_CLEAN", "lodwar"],
     },
     "TENRI": {

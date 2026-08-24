@@ -3,7 +3,10 @@ cubes:
     sql_table: "\"REPORTING\".\"RPT_MALARIA_MONTHLY_ZONE\""
     data_source: default
 
-    joins: []
+    joins:
+      - name: rpt_malaria_zones
+        sql: "{CUBE}.\"ZONE_LABEL\" = {rpt_malaria_zones}.\"ZONE_LABEL\""
+        relationship: many_to_one
 
     dimensions:
       - name: is_valid_positivity_month
@@ -17,10 +20,12 @@ cubes:
       - name: zone_label
         sql: "{CUBE}.\"ZONE_LABEL\""
         type: string
+        primary_key: true
 
       - name: visit_month
         sql: "{CUBE}.\"VISIT_MONTH\""
         type: time
+        primary_key: true
 
     measures:
       # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:01:18.945764+00:00
@@ -30,6 +35,7 @@ cubes:
       - name: positivity_rate
         sql: '{CUBE}."POSITIVITY_RATE"'
         type: avg
+        drill_members: [visit_month, zone_label, is_valid_positivity_month]
       - name: antibiotic_coprescription_rate
         sql: '{CUBE}."ANTIBIOTIC_COPRESCRIPTION_RATE"'
         type: avg
@@ -47,6 +53,7 @@ cubes:
         type: sum
       - name: count
         type: count
+        drill_members: [visit_month, zone_label, source_schema]
 
       - name: antibiotic_confirmed_count
         sql: "{CUBE}.\"ANTIBIOTIC_CONFIRMED_COUNT\""

@@ -502,6 +502,16 @@ def generate_cube_query(state: AgentState) -> dict:
             )
 
     allowed_members = schema_validation.valid_members_for(matched_metric)
+    # Text-shaped filter_hints (equals/contains a label like "maternal",
+    # "Private") must only ever target STRING DIMENSIONS, never measures —
+    # a qualifier that legitimately names a measure is already handled
+    # above by _find_measure_for_qualifier. Searching the full
+    # measures+dimensions set here let a generic word shared with a
+    # MEASURE name win the match (observed: concept "visit type" value
+    # "maternal" matched the count measure single_visit_patients, both
+    # sharing the word "visit", producing a Cube 400 — "equals" against a
+    # numeric measure with a non-numeric value is nonsensical).
+    allowed_dimensions = set((matched_metric.get("cube_query") or {}).get("dimensions") or [])
     qualifier_measures: list[str] = []
     for hint in plan.get("filter_hints") or []:
         concept = (hint.get("concept") or "").strip().lower()
@@ -553,7 +563,7 @@ def generate_cube_query(state: AgentState) -> dict:
         # than a vague "not filtered by facility" note).
         facility_candidate = next(
             (
-                member for member in allowed_members
+                member for member in allowed_dimensions
                 if member.rsplit(".", 1)[-1].lower() in FACILITY_DIMENSION_NAMES
                 and resolve_facility_filter_value(value, member)
             ),
@@ -564,7 +574,7 @@ def generate_cube_query(state: AgentState) -> dict:
         preferred_suffix = "_name" if is_multi_word_value else "_category"
         fallback_suffix = "_category" if is_multi_word_value else "_name"
         candidates = [
-            member for member in allowed_members
+            member for member in allowed_dimensions
             if (field_name := member.rsplit(".", 1)[-1].lower())
             and _field_matches_concept(field_name, concept)
         ]

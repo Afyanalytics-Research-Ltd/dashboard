@@ -3,7 +3,10 @@ cubes:
     sql_table: "\"REPORTING\".\"RPT_STOCKOUT_ALERTS\""
     data_source: default
 
-    joins: []
+    joins:
+      - name: canonical_product_taxonomy
+        sql: "{CUBE}.\"FACILITY\" = {canonical_product_taxonomy}.\"FACILITY\" AND {CUBE}.\"PRODUCT_ID\" = {canonical_product_taxonomy}.\"PRODUCT_ID\""
+        relationship: many_to_one
 
     dimensions:
       - name: canonical_name
@@ -17,6 +20,7 @@ cubes:
       - name: facility
         sql: "{CUBE}.\"FACILITY\""
         type: string
+        primary_key: true
 
       - name: inn_name
         sql: "{CUBE}.\"INN_NAME\""
@@ -25,6 +29,7 @@ cubes:
       - name: product_name
         sql: "{CUBE}.\"PRODUCT_NAME\""
         type: string
+        primary_key: true
 
       - name: therapeutic_class
         sql: "{CUBE}.\"THERAPEUTIC_CLASS\""
@@ -54,6 +59,7 @@ cubes:
       - name: stockout_dispense_events
         sql: '{CUBE}."STOCKOUT_DISPENSE_EVENTS"'
         type: sum
+        drill_members: [facility, therapeutic_class, product_name]
       - name: units_dispensed_at_zero
         sql: '{CUBE}."UNITS_DISPENSED_AT_ZERO"'
         type: sum
@@ -62,6 +68,7 @@ cubes:
         type: sum
       - name: count
         type: count
+        drill_members: [last_stockout_dispense, facility, clinical_priority, product_name]
 
     pre_aggregations:
       # Pre-aggregation definitions go here.

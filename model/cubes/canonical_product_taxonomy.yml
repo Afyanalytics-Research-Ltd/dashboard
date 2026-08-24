@@ -3,7 +3,14 @@ cubes:
     sql_table: "\"REPORTING\".\"CANONICAL_PRODUCT_TAXONOMY\""
     data_source: default
 
-    joins: []
+    joins:
+      - name: canonical_keys
+        sql: "{CUBE}.\"CANONICAL_PRODUCT_ID\" = {canonical_keys}.\"CANONICAL_PRODUCT_ID\""
+        relationship: many_to_one
+
+      - name: dim_product_canonical
+        sql: "{CUBE}.\"CANONICAL_PRODUCT_ID\" = {dim_product_canonical}.\"CANONICAL_PRODUCT_ID\""
+        relationship: many_to_one
 
     dimensions:
       - name: canonical_name
@@ -86,8 +93,10 @@ cubes:
         type: sum
         title: Product Name Match Confidence
         description: Confidence score (0-100) that a product's name was correctly mapped to its canonical drug identity — a low value (e.g. below 60) flags a data-quality risk. Use for "low confidence product mappings" / "products below 60% confidence" questions.
+        drill_members: [facility, therapeutic_class, product_id]
       - name: count
         type: count
+        drill_members: [loaded_at, facility, therapeutic_class, product_id]
 
       - name: facility_dup_count
         sql: "{CUBE}.\"FACILITY_DUP_COUNT\""

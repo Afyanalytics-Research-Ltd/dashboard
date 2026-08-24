@@ -3,7 +3,17 @@ cubes:
     sql_table: "\"REPORTING\".\"RPT_ORTHO_ADMISSIONS\""
     data_source: default
 
-    joins: []
+    joins:
+      - name: rpt_ortho_patient_journey
+        sql: "{CUBE}.\"VISIT_ID\" = {rpt_ortho_patient_journey}.\"VISIT_ID\""
+        relationship: one_to_one
+      # Self-referencing prior-visit chain: PRIOR_OPD_VISIT_ID points back to
+      # the OPD visit (in rpt_ortho_opd) that preceded this admission. This is
+      # a distinct target cube from the join above, so it's a separate entry,
+      # not a duplicate/aliased name.
+      - name: rpt_ortho_opd
+        sql: "{CUBE}.\"PRIOR_OPD_VISIT_ID\" = {rpt_ortho_opd}.\"VISIT_ID\""
+        relationship: many_to_one
 
     dimensions:
       - name: admission_day_name
@@ -77,6 +87,7 @@ cubes:
       - name: visit_id
         sql: "{CUBE}.\"VISIT_ID\""
         type: string
+        primary_key: true
 
       - name: ward
         sql: "{CUBE}.\"WARD\""
@@ -113,11 +124,13 @@ cubes:
       - name: los_days
         sql: '{CUBE}."LOS_DAYS"'
         type: sum
+        drill_members: [admission_date, facility, ward, bed_category, visit_id]
       - name: opd_to_admission_days
         sql: '{CUBE}."OPD_TO_ADMISSION_DAYS"'
         type: sum
       - name: count
         type: count
+        drill_members: [admission_date, facility, ward, bed_category, visit_id]
 
     pre_aggregations:
       # Pre-aggregation definitions go here.

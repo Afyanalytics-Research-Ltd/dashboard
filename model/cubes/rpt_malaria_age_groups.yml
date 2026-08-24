@@ -21,6 +21,7 @@ cubes:
         type: sum
       - name: count
         type: count
+        drill_members: [age_group_label, age_group_raw]
 
     pre_aggregations:
       # Pre-aggregation definitions go here.

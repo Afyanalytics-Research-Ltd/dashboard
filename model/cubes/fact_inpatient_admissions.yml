@@ -3,12 +3,20 @@ cubes:
     sql_table: "\"REPORTING\".\"FACT_INPATIENT_ADMISSIONS\""
     data_source: default
 
-    joins: []
+    # rpt_retention is the hospital-wide patient hub. Raw PATIENT_ID collides
+    # across facilities, so the join must normalize source_schema first
+    # (strip the "_CLEAN" suffix and uppercase) before matching patient_id —
+    # a naive patient_id-only join was verified to overcount by ~14%.
+    joins:
+      - name: rpt_retention
+        sql: "UPPER(REGEXP_REPLACE({CUBE}.\"SOURCE_SCHEMA\", '_CLEAN$', '')) = UPPER(REGEXP_REPLACE({rpt_retention}.\"SOURCE_SCHEMA\", '_CLEAN$', '')) AND {CUBE}.\"PATIENT_ID\" = {rpt_retention}.\"PATIENT_ID\""
+        relationship: many_to_one
 
     dimensions:
       - name: composite_patient_id
         sql: "{CUBE}.\"COMPOSITE_PATIENT_ID\""
         type: string
+        primary_key: true
 
       - name: sex
         sql: "{CUBE}.\"SEX\""
@@ -26,6 +34,7 @@ cubes:
       - name: total_los_days
         sql: '{CUBE}."TOTAL_LOS_DAYS"'
         type: sum
+        drill_members: [source_schema, sex, composite_patient_id]
       - name: total_readmissions
         sql: '{CUBE}."TOTAL_READMISSIONS"'
         type: sum
@@ -34,10 +43,12 @@ cubes:
         type: sum
       - name: count
         type: count
+        drill_members: [source_schema, sex, composite_patient_id]
 
       - name: total_visits_count
         sql: "{CUBE}.\"TOTAL_VISITS_COUNT\""
         type: sum
+        drill_members: [source_schema, sex, composite_patient_id]
 
     pre_aggregations:
       # Pre-aggregation definitions go here.

@@ -3,16 +3,21 @@ cubes:
     sql_table: "\"REPORTING\".\"RPT_DISPENSING_TRENDS\""
     data_source: default
 
-    joins: []
+    joins:
+      - name: canonical_keys
+        sql: "{CUBE}.\"CANONICAL_PRODUCT_ID\" = {canonical_keys}.\"CANONICAL_PRODUCT_ID\""
+        relationship: many_to_one
 
     dimensions:
       - name: canonical_name
         sql: "{CUBE}.\"CANONICAL_NAME\""
         type: string
+        primary_key: true
 
       - name: facility
         sql: "{CUBE}.\"FACILITY\""
         type: string
+        primary_key: true
 
       - name: inn_name
         sql: "{CUBE}.\"INN_NAME\""
@@ -29,6 +34,7 @@ cubes:
       - name: dispensing_month
         sql: "{CUBE}.\"DISPENSING_MONTH\""
         type: time
+        primary_key: true
 
     measures:
       # Added by sync_cube_schemas_from_snowflake on 2026-08-05T12:59:55.843188+00:00
@@ -61,10 +67,12 @@ cubes:
         type: avg
       - name: count
         type: count
+        drill_members: [dispensing_month, facility, therapeutic_class, canonical_name]
 
       - name: total_dispensing_value
         sql: "{CUBE}.\"TOTAL_DISPENSING_VALUE\""
         type: sum
+        drill_members: [dispensing_month, facility, therapeutic_class, canonical_name]
 
     pre_aggregations:
       # Pre-aggregation definitions go here.

@@ -3,28 +3,39 @@ cubes:
     sql_table: "\"REPORTING\".\"RPT_BED_OCCUPANCY\""
     data_source: default
 
-    joins: []
+    # rpt_ward_los is unique at facility+ward_category+admission_month grain
+    # (verified via direct SQL join-count check: 720/730 rpt_bed_occupancy
+    # rows matched, no fan-out) — see Universe D in the join map.
+    joins:
+      - name: rpt_ward_los
+        sql: "{CUBE}.\"FACILITY\" = {rpt_ward_los}.\"FACILITY\" AND {CUBE}.\"WARD_CATEGORY\" = {rpt_ward_los}.\"WARD_CATEGORY\" AND {CUBE}.\"ADMISSION_MONTH\" = {rpt_ward_los}.\"ADMISSION_MONTH\""
+        relationship: many_to_one
 
     dimensions:
       - name: facility
         sql: "{CUBE}.\"FACILITY\""
         type: string
+        primary_key: true
 
       - name: ward_age_group
         sql: "{CUBE}.\"WARD_AGE_GROUP\""
         type: string
+        primary_key: true
 
       - name: ward_category
         sql: "{CUBE}.\"WARD_CATEGORY\""
         type: string
+        primary_key: true
 
       - name: ward_name
         sql: "{CUBE}.\"WARD_NAME\""
         type: string
+        primary_key: true
 
       - name: admission_month
         sql: "{CUBE}.\"ADMISSION_MONTH\""
         type: time
+        primary_key: true
 
     measures:
       # Added by sync_cube_schemas_from_snowflake on 2026-08-05T12:59:29.491767+00:00
@@ -59,6 +70,7 @@ cubes:
         format: percent
         title: Bed Occupancy Rate (%)
         description: total_bed_days / (bed_count * days_in_month) * 100.
+        drill_members: [admission_month, facility, ward_category, ward_name]
       # Added via Semantic Layer Configuration settings page on 2026-08-05T11:20:46.889623+00:00
       # Requested by: ksh
       - name: bti_days
@@ -100,6 +112,7 @@ cubes:
         type: sum
       - name: count
         type: count
+        drill_members: [admission_month, facility, ward_category, ward_name]
 
       - name: avg_admission_cost
         sql: "{CUBE}.\"AVG_ADMISSION_COST\""

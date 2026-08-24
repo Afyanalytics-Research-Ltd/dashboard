@@ -3,12 +3,16 @@ cubes:
     sql_table: "\"REPORTING\".\"RPT_MALARIA_RECURRENCE\""
     data_source: default
 
-    joins: []
+    joins:
+      - name: rpt_malaria_zones
+        sql: "{CUBE}.\"ZONE_LABEL\" = {rpt_malaria_zones}.\"ZONE_LABEL\""
+        relationship: many_to_one
 
     dimensions:
       - name: recurrence_tier
         sql: "{CUBE}.\"RECURRENCE_TIER\""
         type: string
+        primary_key: true
 
       - name: source_schema
         sql: "{CUBE}.\"SOURCE_SCHEMA\""
@@ -17,6 +21,7 @@ cubes:
       - name: zone_label
         sql: "{CUBE}.\"ZONE_LABEL\""
         type: string
+        primary_key: true
 
     measures:
       # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:01:25.496883+00:00
@@ -32,8 +37,10 @@ cubes:
       - name: recurrence_rate
         sql: '{CUBE}."RECURRENCE_RATE"'
         type: avg
+        drill_members: [zone_label, recurrence_tier]
       - name: count
         type: count
+        drill_members: [zone_label, recurrence_tier, source_schema]
 
       - name: patient_count
         sql: "{CUBE}.\"PATIENT_COUNT\""

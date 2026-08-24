@@ -31,6 +31,7 @@ cubes:
       - name: opd_visits
         sql: '{CUBE}."OPD_VISITS"'
         type: sum
+        drill_members: [period_date, cons_rbi_label, imaging_rbi_label, lab_rbi_label, pharm_rbi_label]
       - name: triage_n
         sql: '{CUBE}."TRIAGE_N"'
         type: sum
@@ -91,6 +92,7 @@ cubes:
       - name: lab_coverage_pct
         sql: '{CUBE}."LAB_COVERAGE_PCT"'
         type: avg
+        drill_members: [period_date, cons_rbi_label, imaging_rbi_label, lab_rbi_label, pharm_rbi_label]
       - name: lab_p50_mins
         sql: '{CUBE}."LAB_P50_MINS"'
         type: sum
@@ -157,6 +159,7 @@ cubes:
       - name: conversion_rate_pct
         sql: '{CUBE}."CONVERSION_RATE_PCT"'
         type: avg
+        drill_members: [period_date, cons_rbi_label, imaging_rbi_label, lab_rbi_label, pharm_rbi_label]
       - name: count
         type: count
 

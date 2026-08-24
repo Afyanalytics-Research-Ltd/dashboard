@@ -9,14 +9,17 @@ cubes:
       - name: facility
         sql: "{CUBE}.\"FACILITY\""
         type: string
+        primary_key: true
 
       - name: ward_category
         sql: "{CUBE}.\"WARD_CATEGORY\""
         type: string
+        primary_key: true
 
       - name: admission_month
         sql: "{CUBE}.\"ADMISSION_MONTH\""
         type: time
+        primary_key: true
 
     measures:
       # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:04:12.517158+00:00
@@ -25,11 +28,13 @@ cubes:
         type: sum
         title: Median Ward Length of Stay (days)
         description: Median length of stay in days, broken down by ward_category, facility, and admission_month — use for "median length of stay" / "median LOS" questions about a specific ward or ward category.
+        drill_members: [admission_month, facility, ward_category]
       - name: admissions
         sql: '{CUBE}."ADMISSIONS"'
         type: sum
       - name: count
         type: count
+        drill_members: [admission_month, facility, ward_category]
 
     pre_aggregations:
       # Pre-aggregation definitions go here.

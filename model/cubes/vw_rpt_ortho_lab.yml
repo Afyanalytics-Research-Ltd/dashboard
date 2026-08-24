@@ -3,7 +3,10 @@ cubes:
     sql_table: "\"REPORTING\".\"VW_RPT_ORTHO_LAB\""
     data_source: default
 
-    joins: []
+    joins:
+      - name: vw_rpt_ortho_patient_journey
+        sql: "{CUBE}.\"VISIT_ID\" = {vw_rpt_ortho_patient_journey}.\"VISIT_ID\""
+        relationship: many_to_one
 
     dimensions:
       - name: accept_reject
@@ -41,6 +44,7 @@ cubes:
       - name: labno
         sql: "{CUBE}.\"LABNO\""
         type: string
+        primary_key: true
 
       - name: link_confidence
         sql: "{CUBE}.\"LINK_CONFIDENCE\""
@@ -81,6 +85,7 @@ cubes:
       - name: visit_id
         sql: "{CUBE}.\"VISIT_ID\""
         type: string
+        primary_key: true
 
       - name: visit_type
         sql: "{CUBE}.\"VISIT_TYPE\""
@@ -133,8 +138,10 @@ cubes:
       - name: result_tat_mins
         sql: '{CUBE}."RESULT_TAT_MINS"'
         type: sum
+        drill_members: [visit_date, facility, section, status]
       - name: count
         type: count
+        drill_members: [visit_date, facility, section, status, visit_id]
 
     pre_aggregations:
       # Pre-aggregation definitions go here.

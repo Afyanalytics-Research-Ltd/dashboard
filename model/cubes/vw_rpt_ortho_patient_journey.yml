@@ -77,6 +77,7 @@ cubes:
       - name: visit_id
         sql: "{CUBE}.\"VISIT_ID\""
         type: string
+        primary_key: true
 
       - name: visit_type
         sql: "{CUBE}.\"VISIT_TYPE\""
@@ -142,8 +143,10 @@ cubes:
       - name: los_hours
         sql: '{CUBE}."LOS_HOURS"'
         type: sum
+        drill_members: [visit_date, facility, ward_type, visit_id]
       - name: count
         type: count
+        drill_members: [visit_date, facility, gender, disposition, visit_id]
 
       - name: imaging_count
         sql: "{CUBE}.\"IMAGING_COUNT\""

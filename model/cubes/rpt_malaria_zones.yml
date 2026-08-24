@@ -41,6 +41,8 @@ cubes:
       - name: zone_label
         sql: "{CUBE}.\"ZONE_LABEL\""
         type: string
+        primary_key: true
+        description: Malaria transmission zone — unique per row (4 zones); join target for the other rpt_malaria_* tables' zone_label.
 
       - name: data_end_date
         sql: "{CUBE}.\"DATA_END_DATE\""
@@ -75,10 +77,12 @@ cubes:
         type: sum
       - name: count
         type: count
+        drill_members: [zone_label, county, transmission_zone, primary_sub_county]
 
       - name: valid_visit_count
         sql: "{CUBE}.\"VALID_VISIT_COUNT\""
         type: sum
+        drill_members: [zone_label, county, transmission_zone]
 
     pre_aggregations:
       # Pre-aggregation definitions go here.

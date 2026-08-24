@@ -3,7 +3,10 @@ cubes:
     sql_table: "\"REPORTING\".\"RPT_ORTHO_IMAGING\""
     data_source: default
 
-    joins: []
+    joins:
+      - name: rpt_ortho_patient_journey
+        sql: "{CUBE}.\"VISIT_ID\" = {rpt_ortho_patient_journey}.\"VISIT_ID\""
+        relationship: many_to_one
 
     dimensions:
       - name: age_group
@@ -49,6 +52,7 @@ cubes:
       - name: radno
         sql: "{CUBE}.\"RADNO\""
         type: string
+        primary_key: true
 
       - name: request_time
         sql: "{CUBE}.\"REQUEST_TIME\""
@@ -77,6 +81,7 @@ cubes:
       - name: visit_id
         sql: "{CUBE}.\"VISIT_ID\""
         type: string
+        primary_key: true
 
       - name: visit_type
         sql: "{CUBE}.\"VISIT_TYPE\""
@@ -121,11 +126,13 @@ cubes:
       - name: result_tat_mins
         sql: '{CUBE}."RESULT_TAT_MINS"'
         type: sum
+        drill_members: [visit_date, facility, modality_group, status, visit_id]
       - name: result_tat_days
         sql: '{CUBE}."RESULT_TAT_DAYS"'
         type: sum
       - name: count
         type: count
+        drill_members: [visit_date, facility, modality_group, status, visit_id]
 
     pre_aggregations:
       # Pre-aggregation definitions go here.

@@ -23,6 +23,7 @@ cubes:
       - name: total_sessions
         sql: '{CUBE}."TOTAL_SESSIONS"'
         type: sum
+        drill_members: [session_month, facility, dialysis_ward]
       - name: distinct_patients
         sql: '{CUBE}."DISTINCT_PATIENTS"'
         type: sum
@@ -44,6 +45,7 @@ cubes:
       - name: total_dialysis_revenue
         sql: '{CUBE}."TOTAL_DIALYSIS_REVENUE"'
         type: sum
+        drill_members: [session_month, facility, dialysis_ward]
       - name: insured_revenue
         sql: '{CUBE}."INSURED_REVENUE"'
         type: sum
@@ -58,6 +60,7 @@ cubes:
         type: sum
         title: Dialysis Revenue per Session (KES)
         description: Average dialysis revenue per session, by facility — use to compare dialysis revenue per session between facilities (e.g. TENRI vs KSH).
+        drill_members: [session_month, facility, dialysis_ward]
       - name: count
         type: count
 

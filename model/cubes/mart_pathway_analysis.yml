@@ -3,7 +3,19 @@ cubes:
     sql_table: "\"REPORTING\".\"MART_PATHWAY_ANALYSIS\""
     data_source: default
 
-    joins: []
+    # mart_pathway_analysis is a twin hub of rpt_ortho_patient_journey (same
+    # VISIT_ID grain, 423,386 rows). It previously carried a full duplicate copy
+    # of every ortho satellite join, which made rpt_ortho_patient_journey and
+    # mart_pathway_analysis into two parallel hubs — that gave every pair of
+    # satellite cubes (e.g. rpt_ortho_imaging <-> rpt_ortho_lab) two equal-length
+    # join paths (one via each hub), which Cube's join graph resolver treats as
+    # ambiguous. Instead, this cube joins to rpt_ortho_patient_journey as a plain
+    # one_to_one satellite — its measures/dimensions are still reachable through
+    # the single canonical hub, without creating alternate routes.
+    joins:
+      - name: rpt_ortho_patient_journey
+        sql: "{CUBE}.\"VISIT_ID\" = {rpt_ortho_patient_journey}.\"VISIT_ID\""
+        relationship: one_to_one
 
     dimensions:
       - name: composite_patient_id
@@ -77,6 +89,7 @@ cubes:
       - name: visit_id
         sql: "{CUBE}.\"VISIT_ID\""
         type: string
+        primary_key: true
 
       - name: visit_type
         sql: "{CUBE}.\"VISIT_TYPE\""
@@ -100,6 +113,7 @@ cubes:
       - name: los_hours
         sql: '{CUBE}."LOS_HOURS"'
         type: sum
+        drill_members: [visit_date, facility, visit_type, drop_off_stage, visit_id]
       - name: pathway_complete
         sql: '{CUBE}."PATHWAY_COMPLETE"'
         type: sum
@@ -108,6 +122,7 @@ cubes:
         type: sum
       - name: count
         type: count
+        drill_members: [visit_date, facility, visit_type, drop_off_stage, visit_id]
 
       - name: imaging_count
         sql: "{CUBE}.\"IMAGING_COUNT\""
@@ -140,6 +155,7 @@ cubes:
       - name: uncollected_value
         sql: "{CUBE}.\"UNCOLLECTED_VALUE\""
         type: sum
+        drill_members: [visit_date, facility, visit_type, drop_off_stage, visit_id]
 
     pre_aggregations:
       # Pre-aggregation definitions go here.

@@ -1,0 +1,31 @@
+{
+  "facility": "SPH",
+  "date": "25 Aug 2026",
+  "count": 4,
+  "notices": [
+    {
+      "level": "CRITICAL",
+      "title": "Patient Waiting \u2014 Consult",
+      "metric": "Median 116 min",
+      "action": "Review department TAT breakdown and staffing. See Patient Waiting page for detail."
+    },
+    {
+      "level": "CRITICAL",
+      "title": "Patient Drop-off \u2014 Critical",
+      "metric": "OPD ghost rate: 4.5% \u2014 Post-Registration is the primary exit stage.",
+      "action": "Investigate Post-Registration exit stage \u2014 review staffing and workflow."
+    },
+    {
+      "level": "CRITICAL",
+      "title": "Revenue Leakage",
+      "metric": "PHYSIOTHERAPY (REGULAR) drives the most uncollected revenue.",
+      "action": "Finance review: PHYSIOTHERAPY (REGULAR) \u2014 54% leakage rate."
+    },
+    {
+      "level": "WATCH",
+      "title": "Diagnostics \u2014 Delay Detected",
+      "metric": "Cardiac imaging slow \u2014 87 min median \u00b7 44% within 1 hr. Lab delays in collection queue \u2014 slowest 10% wait over 99 min.",
+      "action": "Cardiac: investigate scheduling and booking. Lab: slowest 10% collection waits 99 min \u00b7 median processing 32 min."
+    }
+  ]
+}

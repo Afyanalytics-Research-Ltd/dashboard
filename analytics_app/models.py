@@ -71,6 +71,14 @@ class Dashboard(models.Model):
     thumbnail = models.ImageField(upload_to='dashboards/thumbnails/', blank=True, null=True)
     is_active = models.BooleanField(default=True)
     is_public = models.BooleanField(default=False)
+    hidden_from_users = models.ManyToManyField(
+        settings.AUTH_USER_MODEL,
+        blank=True,
+        related_name='hidden_dashboards',
+        help_text='Users explicitly denied this dashboard even though it would '
+                  'otherwise be visible to their client — set by a facility '
+                  'administrator via the Permissions page.',
+    )
     view_count = models.PositiveIntegerField(default=0)
     order = models.PositiveIntegerField(default=0)
     created_by = models.ForeignKey(

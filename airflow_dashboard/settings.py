@@ -126,6 +126,7 @@ TEMPLATES = [
                 'django.contrib.messages.context_processors.messages',
                 'core.context_processors.notifications',
                 'core.context_processors.brand_settings',
+                'core.context_processors.module_access',
             ],
         },
     },

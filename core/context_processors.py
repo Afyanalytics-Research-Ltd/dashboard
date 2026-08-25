@@ -45,3 +45,27 @@ def brand_settings(request: HttpRequest) -> dict:
         'APP_NAME': brand.get('APP_NAME', 'Afya DataHub'),
         'APP_VERSION': brand.get('VERSION', ''),
     }
+
+
+def module_access(request: HttpRequest) -> dict:
+    """
+    Expose each module's effective access for the current user, so templates
+    (the sidebar in particular) can show/hide sections based on the same
+    grant/revoke rules enforced server-side — see
+    authentication.module_access.has_module_access.
+
+    Returns:
+        module_access – dict like {"warehouse": True, "analytics": True,
+        "self_service": False} for the current user; all False for anonymous
+        visitors.
+    """
+    if not (request.user and request.user.is_authenticated):
+        return {'module_access': {}}
+
+    try:
+        from authentication.module_access import ALL_MODULES, has_module_access
+        return {
+            'module_access': {key: has_module_access(request.user, key) for key in ALL_MODULES}
+        }
+    except Exception:
+        return {'module_access': {}}

@@ -742,3 +742,80 @@ class AuthenticationAPITests(APITestCase):
         usernames = [u['username'] for u in response.data['results']]
         self.assertIn('apiuser', usernames)
         self.assertIn('apiadmin', usernames)
+
+
+# ---------------------------------------------------------------------------
+# UserModuleGrant model + module_access helper tests
+# ---------------------------------------------------------------------------
+
+class UserModuleGrantModelTests(TestCase):
+
+    def setUp(self):
+        self.user = make_user('grant_target')
+        self.admin = make_user('grant_admin', role=ROLE_CLIENT_ADMIN)
+
+    def test_create_grant(self):
+        from .models import UserModuleGrant
+        grant = UserModuleGrant.objects.create(
+            user=self.user, module_key=UserModuleGrant.MODULE_WAREHOUSE,
+            is_granted=True, granted_by=self.admin,
+        )
+        self.assertTrue(grant.is_granted)
+        self.assertIn('granted', str(grant))
+
+    def test_unique_per_user_module(self):
+        from django.db import IntegrityError
+        from .models import UserModuleGrant
+        UserModuleGrant.objects.create(user=self.user, module_key=UserModuleGrant.MODULE_WAREHOUSE)
+        with self.assertRaises(IntegrityError):
+            UserModuleGrant.objects.create(user=self.user, module_key=UserModuleGrant.MODULE_WAREHOUSE)
+
+
+class ModuleAccessTests(TestCase):
+    """authentication/module_access.py — role defaults + explicit overrides."""
+
+    def setUp(self):
+        self.facility_user = make_user('mod_facility_user', role=ROLE_FACILITY_ADMIN)
+        self.client_admin = make_user('mod_client_admin', role=ROLE_CLIENT_ADMIN)
+        self.superuser = make_superuser('mod_superuser')
+
+    def test_superuser_always_has_access(self):
+        from .module_access import has_module_access
+        self.assertTrue(has_module_access(self.superuser, 'warehouse'))
+        self.assertTrue(has_module_access(self.superuser, 'analytics'))
+        self.assertTrue(has_module_access(self.superuser, 'self_service'))
+
+    def test_warehouse_default_requires_client_admin(self):
+        from .module_access import has_module_access
+        self.assertFalse(has_module_access(self.facility_user, 'warehouse'))
+        self.assertTrue(has_module_access(self.client_admin, 'warehouse'))
+
+    def test_analytics_and_self_service_open_by_default(self):
+        from .module_access import has_module_access
+        self.assertTrue(has_module_access(self.facility_user, 'analytics'))
+        self.assertTrue(has_module_access(self.facility_user, 'self_service'))
+
+    def test_explicit_grant_overrides_default_deny(self):
+        from .models import UserModuleGrant
+        from .module_access import has_module_access
+        UserModuleGrant.objects.create(
+            user=self.facility_user, module_key=UserModuleGrant.MODULE_WAREHOUSE, is_granted=True,
+        )
+        self.assertTrue(has_module_access(self.facility_user, 'warehouse'))
+
+    def test_explicit_revoke_overrides_default_allow(self):
+        from .models import UserModuleGrant
+        from .module_access import has_module_access
+        UserModuleGrant.objects.create(
+            user=self.client_admin, module_key=UserModuleGrant.MODULE_WAREHOUSE, is_granted=False,
+        )
+        self.assertFalse(has_module_access(self.client_admin, 'warehouse'))
+
+    def test_get_module_overrides(self):
+        from .models import UserModuleGrant
+        from .module_access import get_module_overrides
+        UserModuleGrant.objects.create(
+            user=self.facility_user, module_key=UserModuleGrant.MODULE_WAREHOUSE, is_granted=True,
+        )
+        overrides = get_module_overrides(self.facility_user)
+        self.assertEqual(overrides, {'warehouse': True})

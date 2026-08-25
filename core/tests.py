@@ -350,3 +350,131 @@ class PermissionsTests(TestCase):
         self.client.force_login(self.user)
         resp = self.client.get('/core/notifications/')
         self.assertEqual(resp.status_code, 200)
+
+
+# ---------------------------------------------------------------------------
+# PermissionsView — facility-scoped user management
+# ---------------------------------------------------------------------------
+
+class PermissionsViewTests(TestCase):
+
+    def setUp(self):
+        from django.contrib.auth.models import Group
+
+        from authentication.roles import ROLE_CLIENT_ADMIN, ROLE_FACILITY_ADMIN
+
+        def _set_role(user, role):
+            # RoleRequiredMixin checks Django Group membership (authentication.roles.in_role),
+            # so the test user needs the group, not just profile.role, to pass the view's gate.
+            user.profile.role = role
+            user.profile.save()
+            group, _ = Group.objects.get_or_create(name=role)
+            user.groups.add(group)
+
+        self.client_org = make_client(name='Perm Test Hosp', slug='perm-test-hosp')
+        self.facility_a = make_facility(self.client_org, name='Facility A', slug='facility-a')
+        self.facility_b = make_facility(self.client_org, name='Facility B', slug='facility-b')
+
+        self.facility_admin = make_user('perm_facility_admin')
+        _set_role(self.facility_admin, ROLE_FACILITY_ADMIN)
+        self.facility_admin.profile.facility = self.facility_a
+        self.facility_admin.profile.client = self.client_org
+        self.facility_admin.profile.save()
+
+        self.same_facility_user = make_user('perm_same_facility')
+        _set_role(self.same_facility_user, ROLE_FACILITY_ADMIN)
+        self.same_facility_user.profile.facility = self.facility_a
+        self.same_facility_user.profile.client = self.client_org
+        self.same_facility_user.profile.save()
+
+        self.other_facility_user = make_user('perm_other_facility')
+        _set_role(self.other_facility_user, ROLE_FACILITY_ADMIN)
+        self.other_facility_user.profile.facility = self.facility_b
+        self.other_facility_user.profile.client = self.client_org
+        self.other_facility_user.profile.save()
+
+        self.client_admin = make_user('perm_client_admin')
+        _set_role(self.client_admin, ROLE_CLIENT_ADMIN)
+        self.client_admin.profile.client = self.client_org
+        self.client_admin.profile.save()
+
+        self.c = TestClient()
+
+    def test_requires_login(self):
+        resp = self.c.get(reverse('core:permissions'))
+        self.assertEqual(resp.status_code, 302)
+
+    def test_facility_admin_sees_only_own_facility_users(self):
+        self.c.force_login(self.facility_admin)
+        resp = self.c.get(reverse('core:permissions'))
+        self.assertEqual(resp.status_code, 200)
+        managed = resp.context['managed_users']
+        self.assertIn(self.same_facility_user, managed)
+        self.assertNotIn(self.other_facility_user, managed)
+        self.assertNotIn(self.facility_admin, managed)  # never manages self
+
+    def test_client_admin_sees_whole_client(self):
+        self.c.force_login(self.client_admin)
+        resp = self.c.get(reverse('core:permissions'))
+        managed = resp.context['managed_users']
+        self.assertIn(self.same_facility_user, managed)
+        self.assertIn(self.other_facility_user, managed)
+        self.assertIn(self.facility_admin, managed)
+
+    def test_facility_admin_can_grant_module_to_own_user(self):
+        self.c.force_login(self.facility_admin)
+        resp = self.c.post(reverse('core:permissions'), {
+            'action': 'set_module',
+            'user_id': self.same_facility_user.pk,
+            'module_key': 'warehouse',
+            'is_granted': 'true',
+        })
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.json()['ok'])
+        from authentication.module_access import has_module_access
+        self.assertTrue(has_module_access(self.same_facility_user, 'warehouse'))
+
+    def test_facility_admin_cannot_modify_other_facility_user(self):
+        self.c.force_login(self.facility_admin)
+        resp = self.c.post(reverse('core:permissions'), {
+            'action': 'set_module',
+            'user_id': self.other_facility_user.pk,
+            'module_key': 'warehouse',
+            'is_granted': 'true',
+        })
+        self.assertEqual(resp.status_code, 404)
+
+    def test_clear_module_reverts_to_default(self):
+        from authentication.models import UserModuleGrant
+        from authentication.module_access import has_module_access
+
+        UserModuleGrant.objects.create(
+            user=self.same_facility_user, module_key='warehouse', is_granted=True,
+        )
+        self.c.force_login(self.facility_admin)
+        resp = self.c.post(reverse('core:permissions'), {
+            'action': 'clear_module',
+            'user_id': self.same_facility_user.pk,
+            'module_key': 'warehouse',
+        })
+        self.assertTrue(resp.json()['ok'])
+        self.assertFalse(has_module_access(self.same_facility_user, 'warehouse'))  # back to role default
+
+    def test_toggle_dashboard_hides_for_target_user(self):
+        from analytics_app.models import Dashboard
+
+        dashboard = Dashboard.objects.create(
+            name='Perm Test Dashboard', slug='perm-test-dashboard',
+            client=self.client_org, streamlit_url='http://localhost:8501/?d=1',
+        )
+        self.c.force_login(self.facility_admin)
+        resp = self.c.post(reverse('core:permissions'), {
+            'action': 'toggle_dashboard',
+            'user_id': self.same_facility_user.pk,
+            'dashboard_id': dashboard.pk,
+            'hidden': 'true',
+        })
+        self.assertTrue(resp.json()['ok'])
+        self.assertTrue(
+            dashboard.hidden_from_users.filter(pk=self.same_facility_user.pk).exists()
+        )

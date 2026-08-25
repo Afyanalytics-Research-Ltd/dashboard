@@ -20,7 +20,7 @@ from django.utils import timezone
 from django.views import View
 from django.views.decorators.http import require_POST
 
-from authentication.roles import ROLE_CLIENT_ADMIN
+from authentication.module_access import MODULE_WAREHOUSE, has_module_access
 from core.models import AuditLog
 
 from .forms import (
@@ -45,6 +45,7 @@ from .forms import (
     format_table_text,
 )
 from .models import SnowflakeQueryLog, TrackedSpreadsheet
+from .services.facility_scope import FacilityScopeError, get_facility_scope, validate_query_scope
 from .services.snowflake import SnowflakeClient, SnowflakeQueryError
 from .sheet_service import SheetsServiceError, get_service, hex_to_rgb01
 
@@ -54,15 +55,13 @@ logger = logging.getLogger(__name__)
 
 
 def _is_warehouse_user(user) -> bool:
-    """True if the user may access the warehouse (superuser or Client Admin)."""
-    if not user or not user.is_authenticated:
-        return False
-    if user.is_superuser:
-        return True
-    if hasattr(user, 'profile') and user.profile.role == ROLE_CLIENT_ADMIN:
-        return True
-    # Also accept group-based role (Django Groups)
-    return user.groups.filter(name=ROLE_CLIENT_ADMIN).exists()
+    """True if the user may access the warehouse.
+
+    Default: superuser or Client Admin. A facility administrator can grant
+    or revoke this per-user via the Permissions page — see
+    authentication.module_access.has_module_access.
+    """
+    return has_module_access(user, MODULE_WAREHOUSE)
 
 
 def _require_warehouse_user(request: HttpRequest) -> bool:
@@ -294,6 +293,8 @@ class SnowflakeQueryView(LoginRequiredMixin, UserPassesTestMixin, View):
             import time as _time
             t0 = _time.monotonic()
             try:
+                scope = get_facility_scope(request.user)
+                validate_query_scope(sql, scope)
                 client = SnowflakeClient()
                 df = client.query(sql, max_rows=10_000)
                 elapsed_ms = int((_time.monotonic() - t0) * 1000)

@@ -119,6 +119,8 @@ class HomeView(LoginRequiredMixin, TemplateView):
             qs = qs.filter(client=client_obj)
         elif not user.is_superuser:
             qs = qs.none()
+        if not user.is_superuser:
+            qs = qs.exclude(hidden_from_users=user)
 
         ctx.update({
             'sidebar_section': 'home',
@@ -155,6 +157,8 @@ class DashboardListView(LoginRequiredMixin, BreadcrumbMixin, ListView):
             qs = qs.filter(client=client_obj)
         elif not user.is_superuser:
             qs = qs.none()
+        if not user.is_superuser:
+            qs = qs.exclude(hidden_from_users=user)
 
         q = self.request.GET.get('q', '').strip()
         if q:
@@ -204,6 +208,9 @@ class DashboardDetailView(LoginRequiredMixin, BreadcrumbMixin, LoggingMixin, Det
         if not self.request.user.is_superuser:
             client_obj = _get_client_obj(self.request.user)
             if obj.client and client_obj and obj.client != client_obj:
+                from django.core.exceptions import PermissionDenied
+                raise PermissionDenied('You do not have access to this dashboard.')
+            if obj.hidden_from_users.filter(pk=self.request.user.pk).exists():
                 from django.core.exceptions import PermissionDenied
                 raise PermissionDenied('You do not have access to this dashboard.')
         return obj

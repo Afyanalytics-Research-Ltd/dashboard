@@ -276,3 +276,68 @@ def _save_profile(sender, instance, **kwargs):
         except Exception:
             # Profile may not exist yet during the created signal; ignore.
             pass
+
+
+class UserModuleGrant(models.Model):
+    """An explicit per-user override of module-level access.
+
+    Module access normally falls out of the user's role (e.g. only Client
+    Admins can reach the Warehouse module by default — see
+    ``authentication.module_access.has_module_access``). A facility
+    administrator can use this model to grant a specific user access to a
+    module they wouldn't otherwise have, or to explicitly revoke a module
+    a user would otherwise have by default.
+
+    One row per (user, module_key) — the presence of a row always wins over
+    the role-based default; ``is_granted`` says which way.
+
+    Non-technical explanation:
+        Think of each user's default access as coming from their job title
+        (role). This table is a short list of individual exceptions to that
+        default — "even though Jane's a Facility Admin, let her use the
+        Warehouse too" or "even though a Client Admin usually can, don't let
+        this particular account touch the chatbot."
+    """
+
+    MODULE_WAREHOUSE = 'warehouse'
+    MODULE_ANALYTICS = 'analytics'
+    MODULE_SELF_SERVICE = 'self_service'
+
+    MODULE_CHOICES = [
+        (MODULE_WAREHOUSE, 'Warehouse (Snowflake SQL & schema browser)'),
+        (MODULE_ANALYTICS, 'Analytics Dashboards'),
+        (MODULE_SELF_SERVICE, 'AI Chatbot / Self-Service Query'),
+    ]
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='module_grants',
+    )
+    module_key = models.CharField(max_length=30, choices=MODULE_CHOICES)
+    is_granted = models.BooleanField(
+        default=True,
+        help_text='True = explicitly grant this module; False = explicitly revoke it.',
+    )
+    granted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='module_grants_issued',
+        help_text='The administrator who set this override.',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'User Module Grant'
+        verbose_name_plural = 'User Module Grants'
+        constraints = [
+            models.UniqueConstraint(fields=['user', 'module_key'], name='unique_user_module_grant'),
+        ]
+        ordering = ['user__username', 'module_key']
+
+    def __str__(self) -> str:
+        verb = 'granted' if self.is_granted else 'revoked'
+        return f'{self.user.username}: {self.module_key} {verb}'

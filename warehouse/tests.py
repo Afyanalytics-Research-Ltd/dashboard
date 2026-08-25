@@ -14,6 +14,9 @@ Test classes:
     FormsTests                          — all form validations
     WarehouseAPITests                   — REST API (SpreadsheetViewSet)
     SnowflakeAPITests                   — REST API (Snowflake endpoints)
+    FacilityScopeUnitTests              — facility_scope.py pure-function behavior
+    FacilityScopedQueryViewTests        — SnowflakeQueryView enforcing facility scope
+    FacilityScopedAPITests              — Snowflake API endpoints enforcing facility scope
 """
 
 import json
@@ -888,3 +891,224 @@ class SnowflakeAPITests(TestCase):
         MockClient.return_value.get_tables.side_effect = SnowflakeQueryError("conn fail")
         resp = self.api_client.get("/api/v1/warehouse/snowflake/tables/")
         self.assertEqual(resp.status_code, 503)
+
+
+# ════════════════════════════════════════ FACILITY SCOPE TESTS
+
+def _make_facility_user(username: str, facility_name: str, reporting_source_schema: str):
+    """Create a user whose profile is linked to a real Facility row.
+
+    Mirrors how agents/facility.py's resolve_facility_from_user() actually
+    resolves a canonical key in production: through a real UserProfile →
+    Facility relationship, not a mock — so these tests exercise the real
+    resolution path end to end, only mocking the Snowflake connection itself.
+    """
+    from core.models import Client as OrgClient
+    from core.models import Facility
+
+    org, _ = OrgClient.objects.get_or_create(name="Facility Scope Org", slug="fs-org")
+    facility = Facility.objects.create(
+        client=org,
+        name=facility_name,
+        slug=facility_name.lower().replace(" ", "-"),
+        reporting_source_schema=reporting_source_schema,
+    )
+    user = _make_user(username, role=ROLE_CLIENT_ADMIN)
+    user.profile.facility = facility
+    user.profile.save(update_fields=["facility"])
+    return user
+
+
+class FacilityScopeUnitTests(TestCase):
+    """Pure-function tests for warehouse/services/facility_scope.py."""
+
+    def setUp(self):
+        self.kisumu_user = _make_facility_user("kisumu_fac_user", "Kisumu County Hospital", "Kisumu")
+        self.client_admin_no_facility = _make_admin()  # no facility linked → unrestricted
+
+    def test_get_scope_none_for_unlinked_facility(self):
+        from .services.facility_scope import get_facility_scope
+        self.assertIsNone(get_facility_scope(self.client_admin_no_facility))
+
+    def test_get_scope_resolves_kisumu(self):
+        from .services.facility_scope import get_facility_scope
+        scope = get_facility_scope(self.kisumu_user)
+        self.assertIsNotNone(scope)
+        self.assertEqual(scope.facility_key, "KISUMU")
+        self.assertEqual(scope.clean_schema, "KISUMU_CLEAN")
+        self.assertEqual(scope.allowed_schemas, frozenset({"KISUMU_CLEAN"}))
+
+    def test_validate_noop_when_unrestricted(self):
+        from .services.facility_scope import validate_query_scope
+        # Should not raise, even for a schema/table the user shouldn't otherwise see.
+        validate_query_scope('SELECT * FROM "KAKAMEGA_CLEAN"."SOME_TABLE"', None)
+
+    def test_validate_allows_own_clean_schema(self):
+        from .services.facility_scope import get_facility_scope, validate_query_scope
+        scope = get_facility_scope(self.kisumu_user)
+        validate_query_scope('SELECT * FROM "KISUMU_CLEAN"."PATIENTS" LIMIT 10', scope)
+
+    def test_validate_blocks_other_facility_clean_schema(self):
+        from .services.facility_scope import FacilityScopeError, get_facility_scope, validate_query_scope
+        scope = get_facility_scope(self.kisumu_user)
+        with self.assertRaises(FacilityScopeError):
+            validate_query_scope('SELECT * FROM "KAKAMEGA_CLEAN"."PATIENTS"', scope)
+
+    def test_validate_blocks_raw_schema(self):
+        from .services.facility_scope import FacilityScopeError, get_facility_scope, validate_query_scope
+        scope = get_facility_scope(self.kisumu_user)
+        with self.assertRaises(FacilityScopeError):
+            validate_query_scope('SELECT * FROM "KISUMU_RAW"."PATIENTS"', scope)
+
+    def test_validate_blocks_reporting_schema(self):
+        """REPORTING is always blocked for facility-scoped users, filtered or not —
+        it pools every facility's rows behind one column, which a raw-SQL
+        query can't be reliably forced to filter, so it's off-limits entirely."""
+        from .services.facility_scope import FacilityScopeError, get_facility_scope, validate_query_scope
+        scope = get_facility_scope(self.kisumu_user)
+        with self.assertRaises(FacilityScopeError):
+            validate_query_scope("SELECT * FROM REPORTING.RPT_CASE_MIX", scope)
+        with self.assertRaises(FacilityScopeError):
+            validate_query_scope(
+                "SELECT * FROM REPORTING.RPT_CASE_MIX WHERE source_schema ILIKE '%Kisumu%'",
+                scope,
+            )
+
+    def test_filter_tables_unrestricted_passthrough(self):
+        from .services.facility_scope import filter_tables_for_scope
+        tables = [{"SCHEMA_NAME": "KISUMU_CLEAN"}, {"SCHEMA_NAME": "STAGING"}]
+        self.assertEqual(filter_tables_for_scope(tables, None), tables)
+
+    def test_filter_tables_scoped(self):
+        from .services.facility_scope import filter_tables_for_scope, get_facility_scope
+        scope = get_facility_scope(self.kisumu_user)
+        tables = [
+            {"SCHEMA_NAME": "KISUMU_CLEAN", "TABLE_NAME": "A"},
+            {"SCHEMA_NAME": "KISUMU_RAW", "TABLE_NAME": "B"},
+            {"SCHEMA_NAME": "KAKAMEGA_CLEAN", "TABLE_NAME": "C"},
+            {"SCHEMA_NAME": "REPORTING", "TABLE_NAME": "D"},
+            {"SCHEMA_NAME": "STAGING", "TABLE_NAME": "E"},
+        ]
+        result = filter_tables_for_scope(tables, scope)
+        schemas = {t["SCHEMA_NAME"] for t in result}
+        self.assertEqual(schemas, {"KISUMU_CLEAN"})
+
+
+class FacilityScopedQueryViewTests(TestCase):
+    """SnowflakeQueryView enforcing facility scope for a facility-linked user."""
+
+    def setUp(self):
+        self.user = _make_facility_user("kisumu_view_user", "Kisumu County Hospital", "Kisumu")
+        self.c = Client()
+        self.c.force_login(self.user)
+
+    @patch("warehouse.views.SnowflakeClient")
+    def test_own_clean_schema_query_succeeds(self, MockClient):
+        MockClient.return_value.query.return_value = pd.DataFrame({"x": [1]})
+        resp = self.c.post(reverse("warehouse:snowflake"), {
+            "query": 'SELECT * FROM "KISUMU_CLEAN"."SOME_TABLE" LIMIT 10',
+        })
+        self.assertEqual(resp.status_code, 200)
+        self.assertIsNone(resp.context["error_msg"])
+
+    @patch("warehouse.views.SnowflakeClient")
+    def test_other_facility_schema_blocked(self, MockClient):
+        resp = self.c.post(reverse("warehouse:snowflake"), {
+            "query": 'SELECT * FROM "KAKAMEGA_CLEAN"."SOME_TABLE" LIMIT 10',
+        })
+        self.assertEqual(resp.status_code, 200)
+        self.assertIsNotNone(resp.context["error_msg"])
+        self.assertIn("KAKAMEGA_CLEAN", resp.context["error_msg"])
+        MockClient.return_value.query.assert_not_called()
+
+    @patch("warehouse.views.SnowflakeClient")
+    def test_reporting_always_blocked(self, MockClient):
+        """REPORTING is off-limits for facility-scoped users, filtered or not."""
+        resp = self.c.post(reverse("warehouse:snowflake"), {
+            "query": "SELECT * FROM REPORTING.RPT_CASE_MIX LIMIT 10",
+        })
+        self.assertEqual(resp.status_code, 200)
+        self.assertIsNotNone(resp.context["error_msg"])
+        MockClient.return_value.query.assert_not_called()
+
+        resp2 = self.c.post(reverse("warehouse:snowflake"), {
+            "query": "SELECT * FROM REPORTING.RPT_CASE_MIX WHERE source_schema ILIKE '%Kisumu%' LIMIT 10",
+        })
+        self.assertIsNotNone(resp2.context["error_msg"])
+        MockClient.return_value.query.assert_not_called()
+
+    @patch("warehouse.views.SnowflakeClient")
+    def test_raw_schema_blocked(self, MockClient):
+        resp = self.c.post(reverse("warehouse:snowflake"), {
+            "query": 'SELECT * FROM "KISUMU_RAW"."SOME_TABLE" LIMIT 10',
+        })
+        self.assertEqual(resp.status_code, 200)
+        self.assertIsNotNone(resp.context["error_msg"])
+        MockClient.return_value.query.assert_not_called()
+
+    @patch("warehouse.views.SnowflakeClient")
+    def test_unrestricted_admin_unaffected(self, MockClient):
+        """A Client Admin with no linked Facility keeps full, unscoped access."""
+        MockClient.return_value.query.return_value = pd.DataFrame({"x": [1]})
+        unrestricted = _make_user("unrestricted_admin", role=ROLE_CLIENT_ADMIN)
+        c = Client()
+        c.force_login(unrestricted)
+        resp = c.post(reverse("warehouse:snowflake"), {
+            "query": 'SELECT * FROM "KAKAMEGA_CLEAN"."SOME_TABLE" LIMIT 10',
+        })
+        self.assertEqual(resp.status_code, 200)
+        self.assertIsNone(resp.context["error_msg"])
+
+
+class FacilityScopedAPITests(TestCase):
+    """DRF Snowflake endpoints enforcing facility scope."""
+
+    def setUp(self):
+        self.user = _make_facility_user("kisumu_api_user", "Kisumu County Hospital", "Kisumu")
+        self.api_client = APIClient()
+        self.api_client.force_authenticate(user=self.user)
+
+    @patch("warehouse.api.SnowflakeClient")
+    def test_query_api_blocks_other_facility(self, MockClient):
+        resp = self.api_client.post(
+            "/api/v1/warehouse/snowflake/query/",
+            {"query": 'SELECT * FROM "KAKAMEGA_CLEAN"."SOME_TABLE"'},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 403)
+        MockClient.return_value.query.assert_not_called()
+
+    @patch("warehouse.api.SnowflakeClient")
+    def test_query_api_allows_own_clean_schema(self, MockClient):
+        MockClient.return_value.query.return_value = pd.DataFrame({"x": [1]})
+        resp = self.api_client.post(
+            "/api/v1/warehouse/snowflake/query/",
+            {"query": 'SELECT * FROM "KISUMU_CLEAN"."SOME_TABLE"'},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 200)
+
+    @patch("warehouse.api.SnowflakeClient")
+    def test_query_api_blocks_unfiltered_reporting(self, MockClient):
+        resp = self.api_client.post(
+            "/api/v1/warehouse/snowflake/query/",
+            {"query": "SELECT * FROM REPORTING.RPT_CASE_MIX"},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 403)
+        MockClient.return_value.query.assert_not_called()
+
+    @patch("warehouse.api.SnowflakeClient")
+    def test_tables_api_scopes_to_facility(self, MockClient):
+        MockClient.return_value.get_tables.return_value = pd.DataFrame({
+            "SCHEMA_NAME": ["KISUMU_CLEAN", "KISUMU_RAW", "KAKAMEGA_CLEAN", "REPORTING"],
+            "TABLE_NAME": ["A", "B", "C", "D"],
+            "TABLE_TYPE": ["BASE TABLE"] * 4,
+            "ROW_COUNT": [1, 2, 3, 4],
+            "BYTES": [1, 2, 3, 4],
+            "LAST_ALTERED": [None, None, None, None],
+        })
+        resp = self.api_client.get("/api/v1/warehouse/snowflake/tables/")
+        self.assertEqual(resp.status_code, 200)
+        schemas = {t["SCHEMA_NAME"] for t in resp.data["tables"]}
+        self.assertEqual(schemas, {"KISUMU_CLEAN"})

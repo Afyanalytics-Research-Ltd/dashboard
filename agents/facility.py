@@ -144,7 +144,7 @@ def _profile_to_facility_key(profile) -> str | None:
             return key
 
     # 2. Dedicated schema field on the Facility model (if it exists)
-    for field in ("schema_name", "source_schema", "code"):
+    for field in ("reporting_source_schema", "schema_name", "source_schema", "code"):
         val = getattr(facility_obj, field, None)
         if val:
             candidate = str(val).upper().replace("_CLEAN", "")

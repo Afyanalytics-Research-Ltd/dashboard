@@ -43,8 +43,8 @@ def clinical_priority(
     therapeutic_subclass: str,
 ) -> str:
     """Classify a product's clinical criticality tier."""
-    subclass = (therapeutic_subclass or "").strip()
-    t_class = (therapeutic_class or "").strip()
+    subclass = (therapeutic_subclass if isinstance(therapeutic_subclass, str) else "").strip()
+    t_class  = (therapeutic_class    if isinstance(therapeutic_class,    str) else "").strip()
 
     if subclass in CRITICAL_THERAPEUTIC_SUBCLASSES:
         return PRIORITY_CRITICAL

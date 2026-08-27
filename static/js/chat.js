@@ -8,12 +8,21 @@
 
   // ---- Configuration ------------------------------------------------------
   var WS_PATH = '/ws/analytics/chat/';
-  var RECONNECT_DELAY_MS = 3000;
-  var MAX_RECONNECTS = 5;
+  // Exponential backoff with jitter (base/max/jitter factor per standard
+  // WebSocket reconnection guidance) — avoids every open tab hammering the
+  // server at the same instant after e.g. a dev-server restart, while
+  // still reconnecting quickly on the first attempt or two.
+  var RECONNECT_BASE_MS = 1000;
+  var RECONNECT_MAX_MS = 10000;
+  var RECONNECT_JITTER = 0.5;
+  var MAX_RECONNECTS = 10;
+  var SESSION_STORAGE_KEY = 'afyaChatSessionKey';
 
   // ---- DOM references (populated in init) ---------------------------------
   var elFab, elPanel, elCloseBtn, elMessages, elTyping;
   var elInput, elSendBtn, elStatus, elStatusDot, elBadge, elSuggestions;
+  var elHistoryBtn, elNewChatBtn, elHistoryOverlay, elHistoryCloseBtn, elHistoryList;
+  var elLightbox;
 
   // ---- State --------------------------------------------------------------
   var ws = null;
@@ -21,6 +30,10 @@
   var panelOpen = false;
   var unreadCount = 0;
   var connected = false;
+  var currentSessionKey = null;
+  try {
+    currentSessionKey = window.localStorage.getItem(SESSION_STORAGE_KEY) || null;
+  } catch (err) { /* localStorage unavailable (private mode, etc.) — fine, just no persistence */ }
 
   // =========================================================================
   // Bootstrap
@@ -38,6 +51,12 @@
     elStatusDot  = document.getElementById('chatbotStatusDot');
     elBadge      = document.getElementById('chatbotBadge');
     elSuggestions = document.getElementById('chatbotSuggestions');
+    elHistoryBtn      = document.getElementById('chatbotHistoryBtn');
+    elNewChatBtn      = document.getElementById('chatbotNewChatBtn');
+    elHistoryOverlay  = document.getElementById('chatbotHistoryOverlay');
+    elHistoryCloseBtn = document.getElementById('chatbotHistoryCloseBtn');
+    elHistoryList     = document.getElementById('chatbotHistoryList');
+    elLightbox        = document.getElementById('chatbotLightbox');
 
     // If the FAB doesn't exist the user isn't authenticated — bail out.
     if (!elFab) return;
@@ -79,9 +98,28 @@
       });
     }
 
-    // Keyboard: close on Escape
+    if (elHistoryBtn) elHistoryBtn.addEventListener('click', openHistory);
+    if (elHistoryCloseBtn) elHistoryCloseBtn.addEventListener('click', closeHistory);
+    if (elNewChatBtn) elNewChatBtn.addEventListener('click', startNewChat);
+
+    if (elLightbox) {
+      elLightbox.addEventListener('click', function (e) {
+        if (e.target === elLightbox || e.target.closest('.chatbot-lightbox-close')) {
+          closeLightbox();
+        }
+      });
+    }
+
+    // Keyboard: close on Escape — lightbox first, then history, then panel.
     document.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape' && panelOpen) closePanel();
+      if (e.key !== 'Escape') return;
+      if (elLightbox && elLightbox.classList.contains('show')) {
+        closeLightbox();
+      } else if (panelOpen && elHistoryOverlay && !elHistoryOverlay.classList.contains('d-none')) {
+        closeHistory();
+      } else if (panelOpen) {
+        closePanel();
+      }
     });
 
     // Mobile: tap outside to close
@@ -128,28 +166,60 @@
 
   // =========================================================================
   // WebSocket lifecycle
+  //
+  // Single-flight, generation-tagged: every connect() bumps `connGen` and
+  // captures it in each handler's closure. A handler that fires after its
+  // generation has been superseded (a stale/orphaned socket from a race —
+  // e.g. a pending reconnect timer firing right as something else also
+  // calls connect()) is a no-op instead of mutating shared state like
+  // currentSessionKey out of order. Without this, two live sockets could
+  // each resolve their own 'session' message and stomp on each other —
+  // the actual cause of "hot reload sometimes starts a new conversation"
+  // and "switching back to a conversation shows no history": whichever
+  // socket's message landed last won, regardless of which one the user
+  // actually meant to be using.
   // =========================================================================
+
+  var connGen = 0;
+  var pendingReconnectTimer = null;
 
   function wsUrl() {
     var proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    return proto + '//' + window.location.host + WS_PATH;
+    var url = proto + '//' + window.location.host + WS_PATH;
+    if (currentSessionKey) {
+      url += '?session=' + encodeURIComponent(currentSessionKey);
+    }
+    return url;
   }
 
   function connect() {
+    if (pendingReconnectTimer) {
+      clearTimeout(pendingReconnectTimer);
+      pendingReconnectTimer = null;
+    }
     if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) {
       return;
     }
+    // A previous socket that's merely closING (not yet closed) is about to
+    // fire its own onclose — neutralise its handlers first so that doesn't
+    // schedule a second, redundant reconnect once this new one is live.
+    if (ws) {
+      ws.onopen = ws.onmessage = ws.onerror = ws.onclose = null;
+    }
 
+    var myGen = ++connGen;
     setStatus(false);
     ws = new WebSocket(wsUrl());
 
     ws.onopen = function () {
+      if (myGen !== connGen) return; // superseded by a newer connect() — ignore
       reconnectCount = 0;
       setStatus(true);
       if (elSuggestions) elSuggestions.classList.remove('d-none');
     };
 
     ws.onmessage = function (event) {
+      if (myGen !== connGen) return;
       try {
         handleServerMessage(JSON.parse(event.data));
       } catch (err) {
@@ -162,12 +232,15 @@
     };
 
     ws.onclose = function () {
+      if (myGen !== connGen) return;
       setStatus(false);
       if (elSuggestions) elSuggestions.classList.add('d-none');
 
       if (panelOpen && reconnectCount < MAX_RECONNECTS) {
+        var delay = Math.min(RECONNECT_BASE_MS * Math.pow(2, reconnectCount), RECONNECT_MAX_MS);
+        delay *= (1 - RECONNECT_JITTER) + Math.random() * RECONNECT_JITTER;
         reconnectCount++;
-        setTimeout(connect, RECONNECT_DELAY_MS);
+        pendingReconnectTimer = setTimeout(connect, delay);
       }
     };
   }
@@ -177,6 +250,16 @@
   // =========================================================================
 
   function handleServerMessage(data) {
+    if (data.type === 'session') {
+      currentSessionKey = data.session_key;
+      try { window.localStorage.setItem(SESSION_STORAGE_KEY, currentSessionKey); } catch (err) { /* ignore */ }
+      // A resumed session already has messages in the DB — pull them in.
+      // A brand-new session has nothing to load; the server's canned
+      // welcome arrives next as an ordinary 'message' event.
+      if (!data.is_new) loadSessionHistory(currentSessionKey);
+      return;
+    }
+
     if (data.type === 'typing') {
       elTyping.classList.toggle('d-none', !data.status);
       return;
@@ -185,7 +268,12 @@
     elTyping.classList.add('d-none');
 
     if (data.type === 'message') {
-      appendBubble(data.role || 'assistant', data.content || '');
+      if (data.chart && data.chart.image_base64) {
+        var src = 'data:' + (data.chart.mime || 'image/png') + ';base64,' + data.chart.image_base64;
+        appendAnswerWithChart(data.role || 'assistant', data.content || '', src, data.chart.caption);
+      } else {
+        appendBubble(data.role || 'assistant', data.content || '');
+      }
       if (!panelOpen) bumpUnread();
     }
   }
@@ -213,6 +301,119 @@
   }
 
   // =========================================================================
+  // Conversation history — session switching, listing, resuming
+  // =========================================================================
+
+  function loadSessionHistory(sessionKey) {
+    fetch('/analytics/chat/history/?session=' + encodeURIComponent(sessionKey), { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        elMessages.innerHTML = '';
+        (data.messages || []).forEach(function (m) {
+          if (m.chart_url) {
+            appendAnswerWithChart(m.role, m.content, m.chart_url, m.chart_caption);
+          } else {
+            appendBubble(m.role, m.content);
+          }
+        });
+        if (elSuggestions) elSuggestions.classList.add('d-none');
+      })
+      .catch(function (err) { console.error('[Afya Chat] history load error:', err); });
+  }
+
+  function openHistory() {
+    if (!elHistoryOverlay) return;
+    loadSessionList();
+    elHistoryOverlay.classList.remove('d-none');
+  }
+
+  function closeHistory() {
+    if (elHistoryOverlay) elHistoryOverlay.classList.add('d-none');
+  }
+
+  function loadSessionList() {
+    if (!elHistoryList) return;
+    elHistoryList.innerHTML = '<div class="chatbot-history-empty">Loading…</div>';
+    fetch('/analytics/chat/sessions/', { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (data) { renderSessionList(data.sessions || []); })
+      .catch(function () {
+        elHistoryList.innerHTML = '<div class="chatbot-history-empty">Could not load history.</div>';
+      });
+  }
+
+  function renderSessionList(sessions) {
+    elHistoryList.innerHTML = '';
+
+    if (!sessions.length) {
+      elHistoryList.innerHTML = '<div class="chatbot-history-empty">' +
+        '<i class="bi bi-chat-square-dots d-block mb-2" style="font-size:24px;opacity:.4;"></i>' +
+        'No past conversations yet.</div>';
+      return;
+    }
+
+    sessions.forEach(function (s) {
+      var item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'chatbot-history-item' + (s.session_key === currentSessionKey ? ' active' : '');
+      item.innerHTML =
+        '<div class="chatbot-history-item-title">' + escapeHtml(s.title) + '</div>' +
+        (s.preview ? '<div class="chatbot-history-item-preview">' + escapeHtml(s.preview) + '</div>' : '') +
+        '<div class="chatbot-history-item-time">' + formatRelativeTime(s.last_activity) +
+        ' · ' + s.message_count + ' message' + (s.message_count === 1 ? '' : 's') + '</div>';
+      item.addEventListener('click', function () { switchToSession(s.session_key); });
+      elHistoryList.appendChild(item);
+    });
+  }
+
+  function switchToSession(sessionKey) {
+    closeHistory();
+    if (sessionKey === currentSessionKey && connected) return;
+    currentSessionKey = sessionKey;
+    try { window.localStorage.setItem(SESSION_STORAGE_KEY, currentSessionKey); } catch (err) { /* ignore */ }
+    elMessages.innerHTML = '';
+    reconnect();
+  }
+
+  function startNewChat() {
+    closeHistory();
+    currentSessionKey = null;
+    try { window.localStorage.removeItem(SESSION_STORAGE_KEY); } catch (err) { /* ignore */ }
+    elMessages.innerHTML = '';
+    reconnect();
+  }
+
+  function reconnect() {
+    // A deliberate switch (new chat / different conversation), not a
+    // dropped connection — bump the generation and sever the old socket's
+    // handlers up front so nothing it does afterward (including its own
+    // close event) can race with the fresh connect() below.
+    reconnectCount = 0;
+    if (pendingReconnectTimer) {
+      clearTimeout(pendingReconnectTimer);
+      pendingReconnectTimer = null;
+    }
+    if (ws) {
+      ws.onopen = ws.onmessage = ws.onerror = ws.onclose = null;
+      ws.close();
+      ws = null; // let connect()'s "already open" guard see nothing here
+    }
+    connect();
+  }
+
+  function formatRelativeTime(iso) {
+    var d = new Date(iso);
+    var mins = Math.round((Date.now() - d.getTime()) / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return mins + 'm ago';
+    var hrs = Math.round(mins / 60);
+    if (hrs < 24) return hrs + 'h ago';
+    var days = Math.round(hrs / 24);
+    if (days < 7) return days + 'd ago';
+    return d.toLocaleDateString();
+  }
+
+  // =========================================================================
   // DOM helpers
   // =========================================================================
 
@@ -222,6 +423,83 @@
     div.innerHTML = renderMarkdown(content);
     elMessages.appendChild(div);
     scrollToBottom();
+  }
+
+  function appendAnswerWithChart(role, content, chartSrc, chartCaption) {
+    var caption = chartCaption || 'Chart';
+
+    var wrap = document.createElement('div');
+    wrap.className = 'chat-bubble ' + role + ' chat-bubble-tabbed';
+
+    var tabs = document.createElement('div');
+    tabs.className = 'chat-tabs';
+    tabs.innerHTML =
+      '<button type="button" class="chat-tab active" data-tab="answer"><i class="bi bi-chat-left-text"></i> Answer</button>' +
+      '<button type="button" class="chat-tab" data-tab="chart"><i class="bi bi-bar-chart-line"></i> Chart</button>';
+    tabs.addEventListener('click', function (e) {
+      var btn = e.target.closest('.chat-tab');
+      if (!btn) return;
+      var target = btn.dataset.tab;
+      tabs.querySelectorAll('.chat-tab').forEach(function (t) { t.classList.toggle('active', t === btn); });
+      wrap.querySelectorAll('.chat-tab-panel').forEach(function (p) {
+        p.classList.toggle('active', p.classList.contains('chat-tab-panel-' + target));
+      });
+    });
+    wrap.appendChild(tabs);
+
+    var answerPanel = document.createElement('div');
+    answerPanel.className = 'chat-tab-panel chat-tab-panel-answer active';
+    answerPanel.innerHTML = renderMarkdown(content);
+    wrap.appendChild(answerPanel);
+
+    var chartPanel = document.createElement('div');
+    chartPanel.className = 'chat-tab-panel chat-tab-panel-chart';
+
+    var frame = document.createElement('div');
+    frame.className = 'chat-chart-frame';
+
+    var img = document.createElement('img');
+    img.src = chartSrc;
+    img.alt = caption;
+    img.title = 'Click to view full size';
+    img.addEventListener('click', function () { openLightbox(chartSrc, caption); });
+    frame.appendChild(img);
+
+    var expandBtn = document.createElement('button');
+    expandBtn.type = 'button';
+    expandBtn.className = 'chat-chart-frame-expand';
+    expandBtn.title = 'View full size';
+    expandBtn.setAttribute('aria-label', 'View full size');
+    expandBtn.innerHTML = '<i class="bi bi-arrows-fullscreen"></i>';
+    expandBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      openLightbox(chartSrc, caption);
+    });
+    frame.appendChild(expandBtn);
+    chartPanel.appendChild(frame);
+
+    if (chartCaption) {
+      var captionEl = document.createElement('div');
+      captionEl.className = 'chat-chart-caption';
+      captionEl.textContent = caption;
+      chartPanel.appendChild(captionEl);
+    }
+
+    wrap.appendChild(chartPanel);
+    elMessages.appendChild(wrap);
+    scrollToBottom();
+  }
+
+  function openLightbox(src, caption) {
+    if (!elLightbox) return;
+    var img = elLightbox.querySelector('img');
+    img.src = src;
+    img.alt = caption || 'Chart';
+    elLightbox.classList.add('show');
+  }
+
+  function closeLightbox() {
+    if (elLightbox) elLightbox.classList.remove('show');
   }
 
   function appendSystemNote(text) {

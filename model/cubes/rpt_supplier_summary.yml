@@ -1,0 +1,57 @@
+cubes:
+  - name: rpt_supplier_summary
+    sql_table: "\"REPORTING\".\"RPT_SUPPLIER_SUMMARY\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: facility
+        sql: "{CUBE}.\"FACILITY\""
+        type: string
+
+      - name: supplier_id
+        sql: "{CUBE}.\"SUPPLIER_ID\""
+        type: string
+        primary_key: true
+
+      - name: supplier_name
+        sql: "{CUBE}.\"SUPPLIER_NAME\""
+        type: string
+
+      - name: first_activity
+        sql: "{CUBE}.\"FIRST_ACTIVITY\""
+        type: time
+
+      - name: last_activity
+        sql: "{CUBE}.\"LAST_ACTIVITY\""
+        type: time
+
+    measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:03:52.750966+00:00
+      - name: purchase_orders
+        sql: '{CUBE}."PURCHASE_ORDERS"'
+        type: sum
+      - name: goods_received_docs
+        sql: '{CUBE}."GOODS_RECEIVED_DOCS"'
+        type: sum
+      - name: distinct_items
+        sql: '{CUBE}."DISTINCT_ITEMS"'
+        type: sum
+      - name: count
+        type: count
+        drill_members: [facility, supplier_name, supplier_id]
+
+      - name: ordered_value
+        sql: "{CUBE}.\"ORDERED_VALUE\""
+        type: sum
+        drill_members: [facility, supplier_name, supplier_id]
+
+      - name: received_value
+        sql: "{CUBE}.\"RECEIVED_VALUE\""
+        type: sum
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

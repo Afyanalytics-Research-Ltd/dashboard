@@ -1,0 +1,49 @@
+services:
+  mlflow-db:
+    restart: always
+    image: postgres:16
+    container_name: mlflow-db
+    environment:
+      POSTGRES_USER: ${MLFLOW_DB_USER}
+      POSTGRES_PASSWORD: ${MLFLOW_DB_PASSWORD}
+      POSTGRES_DB: ${MLFLOW_DB_NAME}
+    volumes:
+      - mlflow-pg-data:/var/lib/postgresql/data
+    networks:
+      - dashboard-net
+
+  mlflow:
+    restart: always
+    build: ./mlflow/
+    container_name: mlflow-container
+    ports:
+      - "5555:5555"
+    volumes:
+      - mlflow-artifacts:/mlflow/artifacts
+    environment:
+      MLFLOW_DB_USER: ${MLFLOW_DB_USER}
+      MLFLOW_DB_PASSWORD: ${MLFLOW_DB_PASSWORD}
+      MLFLOW_DB_NAME: ${MLFLOW_DB_NAME}
+    command:
+      - mlflow
+      - server
+      - --backend-store-uri
+      - postgresql://${MLFLOW_DB_USER}:${MLFLOW_DB_PASSWORD}@mlflow-db/${MLFLOW_DB_NAME}
+      - --default-artifact-root
+      - /mlflow/artifacts
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "5555"
+    depends_on:
+      - mlflow-db
+    networks:
+      - dashboard-net
+
+volumes:
+  mlflow-pg-data:
+  mlflow-artifacts:
+
+networks:
+  dashboard-net:
+    name: dashboard-net

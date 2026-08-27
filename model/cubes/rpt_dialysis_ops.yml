@@ -1,0 +1,70 @@
+cubes:
+  - name: rpt_dialysis_ops
+    sql_table: "\"REPORTING\".\"RPT_DIALYSIS_OPS\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: is_partial_month
+        sql: "{CUBE}.\"IS_PARTIAL_MONTH\""
+        type: boolean
+
+      - name: invoice_month
+        sql: "{CUBE}.\"INVOICE_MONTH\""
+        type: time
+
+    measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T12:59:45.591882+00:00
+      - name: sessions_billed
+        sql: '{CUBE}."SESSIONS_BILLED"'
+        type: sum
+        drill_members: [invoice_month, is_partial_month]
+      - name: sessions_insured
+        sql: '{CUBE}."SESSIONS_INSURED"'
+        type: sum
+        title: Insured Dialysis Sessions (count)
+        description: Count of dialysis sessions paid by insurance, per month — divide by sessions_billed for the insured percentage.
+      - name: sessions_cash
+        sql: '{CUBE}."SESSIONS_CASH"'
+        type: sum
+        title: Cash Dialysis Sessions (count)
+
+      - name: insured_pct
+        sql: "{sessions_insured} * 100.0 / NULLIF({sessions_billed}, 0)"
+        type: number
+        format: percent
+        title: Insured Dialysis Session Share (%)
+        description: Percentage of billed dialysis sessions paid by insurance — sessions_insured / sessions_billed. Use for "proportion of dialysis sessions insured vs cash" questions.
+        drill_members: [invoice_month, is_partial_month]
+
+      - name: session_fee_revenue
+        sql: '{CUBE}."SESSION_FEE_REVENUE"'
+        type: sum
+        title: Dialysis Session Fee Revenue (KES)
+      - name: total_dialysis_revenue
+        sql: '{CUBE}."TOTAL_DIALYSIS_REVENUE"'
+        type: sum
+        title: Total Dialysis Revenue (KES)
+      - name: ancillary_revenue
+        sql: '{CUBE}."ANCILLARY_REVENUE"'
+        type: sum
+        title: Dialysis Ancillary Revenue (KES)
+      - name: avg_session_fee
+        sql: '{CUBE}."AVG_SESSION_FEE"'
+        type: avg
+        title: Average Dialysis Session Fee (KES)
+      - name: utilisation_pct_theoretical
+        sql: '{CUBE}."UTILISATION_PCT_THEORETICAL"'
+        type: sum
+        format: percent
+        title: Dialysis Utilisation Rate (% of theoretical capacity)
+        description: Monthly dialysis machine/chair utilisation as a percentage of theoretical maximum capacity — use for "dialysis utilisation rate", "is dialysis utilisation improving", and "dropped below X% of theoretical capacity" questions. Filter is_partial_month = false for complete months only.
+        drill_members: [invoice_month, is_partial_month]
+      - name: count
+        type: count
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

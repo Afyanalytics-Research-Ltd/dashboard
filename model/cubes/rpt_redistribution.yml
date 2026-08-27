@@ -1,0 +1,80 @@
+cubes:
+  - name: rpt_redistribution
+    sql_table: "\"REPORTING\".\"RPT_REDISTRIBUTION\""
+    data_source: default
+
+    joins:
+      - name: canonical_keys
+        sql: "{CUBE}.\"CANONICAL_PRODUCT_ID\" = {canonical_keys}.\"CANONICAL_PRODUCT_ID\""
+        relationship: many_to_one
+
+    dimensions:
+      - name: canonical_name
+        sql: "{CUBE}.\"CANONICAL_NAME\""
+        type: string
+        primary_key: true
+
+      - name: clinical_priority
+        sql: "{CUBE}.\"CLINICAL_PRIORITY\""
+        type: string
+
+      - name: deficit_facility
+        sql: "{CUBE}.\"DEFICIT_FACILITY\""
+        type: string
+        primary_key: true
+
+      - name: inn_name
+        sql: "{CUBE}.\"INN_NAME\""
+        type: string
+
+      - name: surplus_facility
+        sql: "{CUBE}.\"SURPLUS_FACILITY\""
+        type: string
+        primary_key: true
+
+      - name: therapeutic_class
+        sql: "{CUBE}.\"THERAPEUTIC_CLASS\""
+        type: string
+
+      - name: therapeutic_subclass
+        sql: "{CUBE}.\"THERAPEUTIC_SUBCLASS\""
+        type: string
+
+      - name: deficit_data_as_of
+        sql: "{CUBE}.\"DEFICIT_DATA_AS_OF\""
+        type: time
+
+      - name: surplus_data_as_of
+        sql: "{CUBE}.\"SURPLUS_DATA_AS_OF\""
+        type: time
+
+    measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:03:33.270753+00:00
+      - name: deficit_soh
+        sql: '{CUBE}."DEFICIT_SOH"'
+        type: sum
+      - name: deficit_consumption_30d
+        sql: '{CUBE}."DEFICIT_CONSUMPTION_30D"'
+        type: sum
+      - name: surplus_soh
+        sql: '{CUBE}."SURPLUS_SOH"'
+        type: sum
+      - name: surplus_dos
+        sql: '{CUBE}."SURPLUS_DOS"'
+        type: sum
+      - name: data_horizon_gap_months
+        sql: '{CUBE}."DATA_HORIZON_GAP_MONTHS"'
+        type: sum
+      - name: count
+        type: count
+        drill_members: [deficit_facility, surplus_facility, therapeutic_class]
+
+      - name: suggested_transfer_qty
+        sql: "{CUBE}.\"SUGGESTED_TRANSFER_QTY\""
+        type: sum
+        drill_members: [deficit_facility, surplus_facility, therapeutic_class]
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

@@ -1,0 +1,20 @@
+cubes:
+  - name: unrestricted_roles
+    sql_table: "\"REPORTING\".\"UNRESTRICTED_ROLES\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: role_name
+        sql: "{CUBE}.\"ROLE_NAME\""
+        type: string
+
+    measures:
+      - name: count
+        type: count
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

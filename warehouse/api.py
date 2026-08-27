@@ -20,7 +20,7 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from authentication.roles import ROLE_CLIENT_ADMIN
+from authentication.module_access import MODULE_WAREHOUSE, has_module_access
 from core.models import AuditLog
 
 from .models import SnowflakeQueryLog, TrackedSpreadsheet
@@ -29,6 +29,7 @@ from .serializers import (
     SnowflakeQuerySerializer,
     TrackedSpreadsheetSerializer,
 )
+from .services.facility_scope import FacilityScopeError, filter_tables_for_scope, get_facility_scope, validate_query_scope
 from .services.snowflake import SnowflakeClient, SnowflakeQueryError
 from .sheet_service import SheetsServiceError, get_service
 
@@ -37,13 +38,8 @@ User = get_user_model()
 
 
 def _is_warehouse_user(user) -> bool:
-    if not user or not user.is_authenticated:
-        return False
-    if user.is_superuser:
-        return True
-    if hasattr(user, "profile") and user.profile.role == ROLE_CLIENT_ADMIN:
-        return True
-    return user.groups.filter(name=ROLE_CLIENT_ADMIN).exists()
+    """True if the user may access the warehouse (see authentication.module_access)."""
+    return has_module_access(user, MODULE_WAREHOUSE)
 
 
 class IsWarehouseUser(permissions.BasePermission):
@@ -203,6 +199,17 @@ class SnowflakeQueryAPIView(APIView):
         )
         t0 = time.monotonic()
         try:
+            scope = get_facility_scope(request.user)
+            try:
+                validate_query_scope(sql, scope)
+            except FacilityScopeError as exc:
+                elapsed_ms = int((time.monotonic() - t0) * 1000)
+                log.status = "error"
+                log.error_message = str(exc)
+                log.execution_time_ms = elapsed_ms
+                log.save(update_fields=["status", "error_message", "execution_time_ms"])
+                return Response({"error": str(exc)}, status=status.HTTP_403_FORBIDDEN)
+
             client = SnowflakeClient()
             df = client.query(sql, max_rows=max_rows)
             elapsed_ms = int((time.monotonic() - t0) * 1000)
@@ -314,4 +321,6 @@ class SnowflakeTablesAPIView(APIView):
             logger.error("SnowflakeTablesAPIView error: %s", exc)
             return Response({"error": str(exc)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
+        scope = get_facility_scope(request.user)
+        tables = filter_tables_for_scope(tables, scope)
         return Response({"tables": tables, "count": len(tables)})

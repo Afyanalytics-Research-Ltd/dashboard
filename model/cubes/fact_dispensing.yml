@@ -1,0 +1,201 @@
+cubes:
+  - name: fact_dispensing
+    sql_table: "\"REPORTING\".\"FACT_DISPENSING\""
+    data_source: default
+
+    # canonical_product_id is the join key to canonical_product_taxonomy
+    # (which carries therapeutic_class/canonical_name) — both columns exist
+    # on the live Snowflake tables (confirmed via DESCRIBE TABLE) but this
+    # cube previously declared no join at all, so any question needing a
+    # breakdown by drug name or therapeutic class (stockout rate by class,
+    # top-dispensed drug, cost by therapeutic class, etc.) had no way to
+    # reach that data through the semantic layer, regardless of retrieval.
+    joins:
+      - name: canonical_product_taxonomy
+        sql: "{CUBE}.\"CANONICAL_PRODUCT_ID\" = {canonical_product_taxonomy}.\"CANONICAL_PRODUCT_ID\""
+        relationship: many_to_one
+
+      - name: canonical_keys
+        sql: "{CUBE}.\"CANONICAL_PRODUCT_ID\" = {canonical_keys}.\"CANONICAL_PRODUCT_ID\""
+        relationship: many_to_one
+
+      - name: fact_patient_dispensing
+        sql: "{CUBE}.\"SK_VISIT_ID\" = {fact_patient_dispensing}.\"SK_VISIT_ID\""
+        relationship: many_to_one
+
+    dimensions:
+      - name: dispensed_from_negative_stock
+        sql: "{CUBE}.\"DISPENSED_FROM_NEGATIVE_STOCK\""
+        type: boolean
+
+      - name: is_stockout_dispense
+        sql: "{CUBE}.\"IS_STOCKOUT_DISPENSE\""
+        type: boolean
+
+      - name: product_id
+        sql: "{CUBE}.\"PRODUCT_ID\""
+        type: string
+
+      - name: canonical_product_id
+        sql: "{CUBE}.\"CANONICAL_PRODUCT_ID\""
+        type: number
+        description: Join key to canonical_product_taxonomy — use to break down dispensing by drug name (canonical_name) or therapeutic_class.
+
+      - name: patient_id
+        sql: "{CUBE}.\"PATIENT_ID\""
+        type: number
+
+      - name: sk_detail_id
+        sql: "{CUBE}.\"SK_DETAIL_ID\""
+        type: string
+        primary_key: true
+
+      - name: sk_patient_id
+        sql: "{CUBE}.\"SK_PATIENT_ID\""
+        type: string
+
+      - name: sk_visit_id
+        sql: "{CUBE}.\"SK_VISIT_ID\""
+        type: string
+
+      - name: source_schema
+        sql: "{CUBE}.\"SOURCE_SCHEMA\""
+        type: string
+
+      - name: dispensed_at
+        sql: "{CUBE}.\"DISPENSED_AT\""
+        type: time
+
+      - name: dispensing_month
+        sql: "{CUBE}.\"DISPENSING_MONTH\""
+        type: time
+
+    measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T12:58:19.340235+00:00
+      - name: quantity_dispensed
+        sql: '{CUBE}."QUANTITY_DISPENSED"'
+        type: sum
+        title: Units Dispensed
+        description: Total quantity/units of a drug dispensed — use for "how many units dispensed", "total X dispensed" questions, broken down by canonical_product_taxonomy.canonical_name or therapeutic_class via the canonical_product_id join.
+        drill_members: [dispensing_month, source_schema, canonical_product_id]
+      - name: payment_status
+        sql: '{CUBE}."PAYMENT_STATUS"'
+        type: sum
+      - name: is_invoiced
+        sql: '{CUBE}."IS_INVOICED"'
+        type: sum
+      - name: soh_before
+        sql: '{CUBE}."SOH_BEFORE"'
+        type: sum
+        title: Stock on Hand Before Dispense (units)
+      - name: soh_after_raw
+        sql: '{CUBE}."SOH_AFTER_RAW"'
+        type: sum
+      - name: soh_after_display
+        sql: '{CUBE}."SOH_AFTER_DISPLAY"'
+        type: sum
+        title: Stock on Hand After Dispense (units)
+        description: Stock-on-hand units remaining right after this dispense — a value of 0 indicates a stockout at that moment. Use with dimensions.dispensing_month grouped and a count-distinct pattern for "days at zero stock" / stockout rate / stockout frequency questions.
+      - name: dispensing_year
+        sql: '{CUBE}."DISPENSING_YEAR"'
+        type: sum
+      - name: dispensing_month_num
+        sql: '{CUBE}."DISPENSING_MONTH_NUM"'
+        type: sum
+      - name: count
+        type: count
+        title: Dispense Events (count)
+        description: Count of individual dispense line-item events — use for "total dispenses" questions, or filtered by dispensed_from_negative_stock/is_stockout_dispense for negative-stock/stockout dispense counts.
+        drill_members: [dispensed_at, source_schema, canonical_product_id, sk_detail_id]
+
+      - name: discount
+        sql: "{CUBE}.\"DISCOUNT\""
+        type: sum
+
+      - name: dispensing_event_total
+        sql: "{CUBE}.\"DISPENSING_EVENT_TOTAL\""
+        type: sum
+
+      - name: line_total
+        sql: "{CUBE}.\"LINE_TOTAL\""
+        type: sum
+        title: Drug Cost (KES)
+        description: Total cost/spend for dispensed line items, in KES — use for "drug spend", "drug cost", "which therapeutic class costs the most" questions.
+
+      - name: unit_price
+        sql: "{CUBE}.\"UNIT_PRICE\""
+        type: sum
+        title: Unit Price (KES, summed)
+        description: Sum of per-line unit prices — rarely what's wanted; for "average unit price" questions use avg_unit_price instead.
+
+      - name: avg_unit_price
+        sql: "{CUBE}.\"UNIT_PRICE\""
+        type: avg
+        title: Average Unit Price (KES)
+        description: Average price per unit for a dispensed item, by canonical_name (via the canonical_product_id join) — use for "average unit price by product" questions.
+
+      - name: dispensed_from_negative_stock_count
+        sql: 'IFF({CUBE}."DISPENSED_FROM_NEGATIVE_STOCK", 1, 0)'
+        type: sum
+        title: Dispenses From Negative Stock (count)
+        description: Count of dispense events where stock had already gone negative before this dispense.
+
+      - name: stockout_dispense_count
+        sql: 'IFF({CUBE}."IS_STOCKOUT_DISPENSE", 1, 0)'
+        type: sum
+        title: Stockout Dispenses (count)
+        description: Count of dispense events flagged as occurring during a stockout.
+
+      - name: negative_stock_rate
+        sql: "{dispensed_from_negative_stock_count} / NULLIF({count}, 0)"
+        type: number
+        format: percent
+        title: Negative Stock Rate
+        description: Share of dispense events made from already-negative stock — dispensed_from_negative_stock_count / count. Use for "negative stock rate" questions, broken down by canonical_name/therapeutic_class or facility.
+
+      - name: distinct_patients
+        sql: "{CUBE}.\"PATIENT_ID\""
+        type: count_distinct
+        title: Distinct Patients (count)
+        description: Count of distinct patients across dispense events — use for "distinct patients dispensed" / "cost per patient" questions.
+
+      - name: days_at_zero_stock
+        sql: "{CUBE}.\"DISPENSING_MONTH\""
+        type: count_distinct
+        filters:
+          - sql: "{CUBE}.\"SOH_AFTER_DISPLAY\" = 0"
+        title: Days at Zero Stock
+        description: Count of distinct dispensing_month periods where stock-on-hand hit zero after a dispense — the numerator of stockout_frequency.
+
+      - name: total_transaction_days
+        sql: "{CUBE}.\"DISPENSING_MONTH\""
+        type: count_distinct
+        title: Total Transaction Days
+        description: Count of distinct dispensing_month periods with any dispense activity — the denominator of stockout_frequency.
+
+      - name: stockout_frequency
+        sql: "{days_at_zero_stock} / NULLIF({total_transaction_days}, 0)"
+        type: number
+        format: percent
+        title: Stockout Frequency / Rate
+        description: Rate at which a product/therapeutic class/facility was out of stock — days_at_zero_stock / total_transaction_days. Use for "stockout rate", "stockout frequency", "which product/drug is stocking out" questions, broken down by canonical_name or therapeutic_class (via the canonical_product_id join) or dispensing_month for trends.
+        drill_members: [dispensing_month, source_schema, canonical_product_id]
+
+      - name: avg_line_total
+        sql: "{line_total} / NULLIF({count}, 0)"
+        type: number
+        format: currency
+        title: Average Line Total per Dispense (KES)
+        description: Average cost per dispense line item — line_total / count. Use for "average line total per dispense" questions.
+
+      - name: cost_per_patient
+        sql: "{line_total} / NULLIF({distinct_patients}, 0)"
+        type: number
+        format: currency
+        title: Drug Cost per Patient (KES)
+        description: Total drug cost divided by distinct patients — use for "cost per patient per month" questions, grouped by dispensing_month.
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

@@ -487,3 +487,77 @@ class SnowflakeQueryForm(forms.Form):
                 "Only read-only SELECT queries are allowed."
             )
         return sql
+
+
+# ──────────────────────────────────────────── spreadsheet analyst
+
+from pathlib import Path as _Path
+
+from django.conf import settings as _settings
+
+from .models import Workbook
+
+ANALYST_ALLOWED_SUFFIXES = {".xlsx", ".xlsm", ".xls", ".csv", ".tsv"}
+ANALYST_MAX_UPLOAD_BYTES = getattr(_settings, "ANALYST_MAX_UPLOAD_BYTES", 50 * 1024 * 1024)
+
+
+class WorkbookUploadForm(forms.ModelForm):
+    class Meta:
+        model = Workbook
+        fields = ["file"]
+        widgets = {
+            "file": forms.ClearableFileInput(
+                attrs={"accept": ".xlsx,.xlsm,.xls,.csv,.tsv", "class": "file-input"}
+            )
+        }
+
+    def clean_file(self):
+        upload = self.cleaned_data["file"]
+        suffix = _Path(upload.name).suffix.lower()
+        if suffix not in ANALYST_ALLOWED_SUFFIXES:
+            raise forms.ValidationError(
+                f"Unsupported file type '{suffix}'. "
+                f"Upload one of: {', '.join(sorted(ANALYST_ALLOWED_SUFFIXES))}."
+            )
+        if upload.size > ANALYST_MAX_UPLOAD_BYTES:
+            raise forms.ValidationError(
+                f"File is {upload.size / 1e6:.1f} MB; the limit is "
+                f"{ANALYST_MAX_UPLOAD_BYTES / 1e6:.0f} MB."
+            )
+        return upload
+
+
+class GoogleSheetLinkForm(forms.Form):
+    """Link an existing Google Sheet instead of uploading a file. The sheet
+    must be shared with this app's service account (see
+    warehouse/services/google_sheets_import.py)."""
+
+    id_or_url = forms.CharField(
+        label="Google Sheet URL or ID",
+        widget=forms.TextInput(attrs={
+            **_ctrl("font-monospace"),
+            "placeholder": "https://docs.google.com/spreadsheets/d/… or just the ID",
+        }),
+        error_messages={"required": "Please paste a Google Sheets URL or ID."},
+    )
+
+    def clean_id_or_url(self) -> str:
+        from .services.google_sheets_import import extract_spreadsheet_id
+
+        spreadsheet_id = extract_spreadsheet_id(self.cleaned_data["id_or_url"])
+        if not spreadsheet_id:
+            raise forms.ValidationError("That doesn't look like a valid Google Sheets URL or ID.")
+        return spreadsheet_id
+
+
+class AnalystQuestionForm(forms.Form):
+    question = forms.CharField(
+        widget=forms.Textarea(
+            attrs={
+                "rows": 2,
+                "placeholder": "Ask about the data, or say 'analyse this workbook'…",
+                "class": "question-input",
+            }
+        ),
+        max_length=4000,
+    )

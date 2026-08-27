@@ -1,0 +1,29 @@
+cubes:
+  - name: rpt_malaria_age_groups
+    sql_table: "\"REPORTING\".\"RPT_MALARIA_AGE_GROUPS\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: age_group_label
+        sql: "{CUBE}.\"AGE_GROUP_LABEL\""
+        type: string
+
+      - name: age_group_raw
+        sql: "{CUBE}.\"AGE_GROUP_RAW\""
+        type: string
+
+    measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:00:50.651466+00:00
+      - name: age_tier_order
+        sql: '{CUBE}."AGE_TIER_ORDER"'
+        type: sum
+      - name: count
+        type: count
+        drill_members: [age_group_label, age_group_raw]
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

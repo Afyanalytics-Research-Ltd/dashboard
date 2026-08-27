@@ -1,13 +1,11 @@
-version: "3"
-
 services:
   web:
     restart: always
     build: .
     expose:
       - "8000"
-    links:
-      - redis:redis
+    ports:
+      - "8000:8000"
     volumes:
       - web-django:/usr/src/app
       - web-static:/usr/src/app/static
@@ -15,30 +13,9 @@ services:
     environment:
       DEBUG: "true"
     entrypoint: ["/bin/bash", "+x", "/entrypoint.sh"]
-  
-  streamlit:
-    restart: always
-    build: .
-    container_name: streamlit-container
-    expose:
-      - "8501"
-    ports:
-      - "8501:8501"
-    volumes:
-      - ./:/usr/src/app
-    env_file: .env
-    working_dir: /usr/src/app
-    depends_on:
-      - postgres
-      - redis
-    command: >
-      streamlit run analytics_app/dashboards/dynamic_file_loader.py
-      --server.port=8501
-      --server.address=0.0.0.0
-      --server.headless=true
-      --server.enableCORS=false
-      --server.enableXsrfProtection=false
-      
+    networks:
+      - dashboard-net
+
   postgres:
     image: postgres:latest
     container_name: postgres-container
@@ -52,9 +29,9 @@ services:
       - /opt/postgres-data:/var/lib/postgresql
     ports:
       - "5432:5432"
+    networks:
+      - dashboard-net
 
-  
-  
   redis:
     restart: always
     image: redis:latest
@@ -62,10 +39,14 @@ services:
       - "6379:6379"
     volumes:
       - redisdata:/data
-
-  
+    networks:
+      - dashboard-net
 
 volumes:
   web-django:
   web-static:
   redisdata:
+
+networks:
+  dashboard-net:
+    name: dashboard-net

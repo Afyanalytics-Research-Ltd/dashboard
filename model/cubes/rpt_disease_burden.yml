@@ -1,0 +1,45 @@
+cubes:
+  - name: rpt_disease_burden
+    sql_table: "\"REPORTING\".\"RPT_DISEASE_BURDEN\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: disease_group
+        sql: "{CUBE}.\"DISEASE_GROUP\""
+        type: string
+
+      - name: facility
+        sql: "{CUBE}.\"FACILITY\""
+        type: string
+
+      - name: source_schema
+        sql: "{CUBE}.\"SOURCE_SCHEMA\""
+        type: string
+
+      - name: signal_month
+        sql: "{CUBE}.\"SIGNAL_MONTH\""
+        type: time
+
+    measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T12:59:51.380887+00:00
+      - name: icd10_visits
+        sql: '{CUBE}."ICD10_VISITS"'
+        type: sum
+        drill_members: [signal_month, disease_group, facility]
+      - name: lab_events
+        sql: '{CUBE}."LAB_EVENTS"'
+        type: sum
+      - name: count
+        type: count
+        drill_members: [signal_month, disease_group, facility]
+
+      - name: rx_count
+        sql: "{CUBE}.\"RX_COUNT\""
+        type: sum
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

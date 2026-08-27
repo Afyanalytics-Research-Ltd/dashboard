@@ -1,0 +1,439 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Support & Ticketing{% endblock %}
+{% block page_title %}Support & Ticketing{% endblock %}
+
+{% block breadcrumbs %}
+<div class="afya-breadcrumb-bar">
+  <nav aria-label="breadcrumb">
+    <ol class="breadcrumb mb-0">
+      <li class="breadcrumb-item"><a href="{% url 'analytics:home' %}">Home</a></li>
+      <li class="breadcrumb-item active" aria-current="page">Support &amp; Ticketing</li>
+    </ol>
+  </nav>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+  .support-tabs .nav-link {
+    border: none;
+    border-radius: 10px;
+    font-weight: 700;
+    font-size: 13.5px;
+    color: var(--afya-muted);
+    padding: .55rem 1.1rem;
+  }
+  .support-tabs .nav-link.active { background: var(--afya-blue); color: #fff; }
+  .support-search { max-width: 320px; }
+  .empty-mini { text-align: center; padding: 2.5rem 1rem; color: var(--afya-muted); font-size: 13px; }
+  .board-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+  @media (max-width: 1100px) { .board-row { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 640px)  { .board-row { grid-template-columns: 1fr; } }
+  .board-col-count {
+    background: var(--afya-surface);
+    border-radius: 999px;
+    padding: 1px 9px;
+    font-size: 11px;
+  }
+  .ticket-card { animation: tc-rise .4s cubic-bezier(.2,.8,.2,1) both; }
+  @keyframes tc-rise { from { opacity:0; transform: translateY(10px); } to { opacity:1; transform:translateY(0); } }
+  .comment-bubble { background: var(--afya-bg); border-radius: 12px; padding: 10px 12px; margin-bottom: 8px; }
+  .comment-bubble.internal { background: #fff7ed; border: 1px dashed var(--afya-orange); }
+  .comment-meta { font-size: 11px; color: var(--afya-muted); margin-bottom: 3px; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<div class="support-hero">
+  <div class="d-flex align-items-center justify-content-between flex-wrap gap-3">
+    <div>
+      <div style="font-size:.7rem;font-weight:800;letter-spacing:2px;text-transform:uppercase;color:rgba(96,198,255,.9);margin-bottom:.4rem;">
+        <i class="bi bi-life-preserver me-1"></i>Afya DataHub
+      </div>
+      <h1 style="font-size:clamp(1.6rem,3vw,2.2rem);font-weight:900;letter-spacing:-.03em;margin-bottom:.4rem;">
+        Support &amp; Ticketing
+      </h1>
+      <p style="color:rgba(255,255,255,.6);max-width:480px;font-size:.9rem;margin-bottom:0;">
+        Report issues, suggest improvements, or request brand-new features — and track every one through to resolution.
+      </p>
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+      <div class="support-stat text-center">
+        <div class="support-stat-num">{{ my_tickets|length }}</div>
+        <div class="support-stat-label">My Tickets</div>
+      </div>
+      {% if is_support_staff %}
+      <div class="support-stat text-center">
+        <div class="support-stat-num">{{ open_count }}</div>
+        <div class="support-stat-label">Open (All)</div>
+      </div>
+      <div class="support-stat text-center">
+        <div class="support-stat-num">{{ total_count }}</div>
+        <div class="support-stat-label">Total (All)</div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="d-flex gap-2 flex-wrap mt-3">
+    <button class="btn btn-hero-white btn-sm" data-bs-toggle="modal" data-bs-target="#ticketIssueModal">
+      <i class="bi bi-exclamation-octagon-fill me-1"></i>Report an Issue
+    </button>
+    <button class="btn btn-hero-ghost btn-sm" data-bs-toggle="modal" data-bs-target="#ticketSuggestionModal">
+      <i class="bi bi-lightbulb-fill me-1"></i>Suggest an Improvement
+    </button>
+    <button class="btn btn-hero-ghost btn-sm" data-bs-toggle="modal" data-bs-target="#ticketFeatureModal">
+      <i class="bi bi-stars me-1"></i>Request a Feature
+    </button>
+  </div>
+</div>
+
+<div class="px-2 px-md-0">
+
+  {% if is_support_staff %}
+  <ul class="nav support-tabs gap-2 mb-3" role="tablist">
+    <li class="nav-item">
+      <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tabBoard" type="button">
+        <i class="bi bi-kanban me-1"></i>All Tickets (Board)
+      </button>
+    </li>
+    <li class="nav-item">
+      <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabMine" type="button">
+        <i class="bi bi-person-lines-fill me-1"></i>My Tickets
+      </button>
+    </li>
+  </ul>
+  {% endif %}
+
+  <div class="tab-content">
+
+    {% if is_support_staff %}
+    <!-- ============ STAFF KANBAN BOARD ============ -->
+    <div class="tab-pane fade show active" id="tabBoard">
+      <div class="d-flex justify-content-end mb-2">
+        <div class="position-relative support-search">
+          <i class="bi bi-search" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--afya-muted);"></i>
+          <input type="search" id="boardSearch" class="form-control ps-5" placeholder="Filter board by keyword…" autocomplete="off">
+        </div>
+      </div>
+
+      <div class="board-row">
+        {% for col in board_columns %}
+        <div class="board-col" data-status="{{ col.key }}">
+          <div class="board-col-header">
+            <span>{{ col.label }}</span>
+            <span class="board-col-count">{{ col.count }}</span>
+          </div>
+          <div class="board-col-body" data-status-drop="{{ col.key }}">
+            {% for t in col.tickets %}
+            <div class="ticket-card tc-{{ t.status_color }}" draggable="true"
+                 data-ticket-id="{{ t.pk }}" data-search="{{ t.subject|lower }} {{ t.created_by.username|default:'' }}">
+              <div class="d-flex justify-content-between align-items-start">
+                <span class="badge rounded-pill badge-priority-{{ t.priority }}" style="font-size:10px;">
+                  {{ t.get_priority_display }}
+                </span>
+                <i class="bi {{ t.type_icon }} text-muted" title="{{ t.get_ticket_type_display }}"></i>
+              </div>
+              <div class="ticket-card-subject mt-2">{{ t.subject }}</div>
+              <div class="ticket-card-meta">
+                <i class="bi bi-person"></i>
+                {{ t.created_by.get_full_name|default:t.created_by.username|default:"Unknown" }}
+                <span>&middot;</span>
+                <span>{{ t.created_at|date:"d M" }}</span>
+              </div>
+            </div>
+            {% empty %}
+            <div class="empty-mini"><i class="bi bi-inboxes d-block mb-1" style="font-size:22px;opacity:.4;"></i>Nothing here</div>
+            {% endfor %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- ============ MY TICKETS ============ -->
+    <div class="tab-pane fade {% if not is_support_staff %}show active{% endif %}" id="tabMine">
+      {% if my_tickets %}
+      <div class="row g-3" id="myTicketsGrid">
+        {% for t in my_tickets %}
+        <div class="col-12 col-md-6 col-lg-4">
+          <div class="ticket-card tc-{{ t.status_color }}" data-ticket-id="{{ t.pk }}">
+            <div class="d-flex justify-content-between align-items-start">
+              <span class="badge rounded-pill" style="background:var(--afya-blue-light);color:var(--afya-blue);font-size:10px;">
+                {{ t.get_status_display }}
+              </span>
+              <i class="bi {{ t.type_icon }} text-muted"></i>
+            </div>
+            <div class="ticket-card-subject mt-2">{{ t.subject }}</div>
+            <div class="ticket-card-meta">
+              <i class="bi bi-calendar3"></i> {{ t.created_at|date:"d M Y" }}
+              {% if t.assigned_to %}<span>&middot;</span><i class="bi bi-person-check"></i> {{ t.assigned_to.get_full_name|default:t.assigned_to.username }}{% endif %}
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="card">
+        <div class="empty-state">
+          <div class="empty-state-icon"><i class="bi bi-life-preserver"></i></div>
+          <div class="empty-state-title">No tickets yet</div>
+          <div class="empty-state-desc">Use the buttons above to report an issue, suggest an improvement, or request a feature.</div>
+        </div>
+      </div>
+      {% endif %}
+    </div>
+
+  </div>
+</div>
+
+<!-- ============ SHARED TICKET DETAIL MODAL ============ -->
+<div class="modal fade" id="ticketDetailModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content" style="border:none;border-radius:16px;overflow:hidden;">
+      <div class="modal-header" style="background:var(--afya-cool-blue);color:#fff;">
+        <div>
+          <h5 class="modal-title mb-0" id="ticketDetailSubject">&nbsp;</h5>
+          <div class="small" id="ticketDetailMeta" style="color:rgba(255,255,255,.7);"></div>
+        </div>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" style="max-height:70vh;overflow-y:auto;">
+        <div id="ticketDetailLoading" class="text-center py-5">
+          <div class="spinner-border text-primary" role="status"></div>
+        </div>
+        <div id="ticketDetailContent" class="d-none">
+          <p id="ticketDetailDescription" class="mb-3" style="white-space:pre-wrap;"></p>
+
+          <img id="ticketDetailAttachment" src="" alt="Attachment" class="img-fluid rounded mb-3 d-none" style="max-height:220px;" />
+
+          {% if is_support_staff %}
+          <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
+            <label class="form-label fw-semibold mb-0" style="font-size:12.5px;">Status:</label>
+            <select id="ticketDetailStatus" class="form-select form-select-sm" style="width:auto;">
+              {% for key, label in status_choices %}
+              <option value="{{ key }}">{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          {% endif %}
+
+          <hr />
+          <h6 class="fw-bold" style="font-size:13px;"><i class="bi bi-chat-left-text me-1"></i>Discussion</h6>
+          <div id="ticketDetailComments"></div>
+
+          <form id="ticketDetailCommentForm" class="mt-3">
+            <textarea id="ticketDetailCommentBody" class="form-control mb-2" rows="2" placeholder="Write a reply…"></textarea>
+            <div class="d-flex justify-content-between align-items-center">
+              {% if is_support_staff %}
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="ticketDetailInternal">
+                <label class="form-check-label" for="ticketDetailInternal" style="font-size:12px;">Internal note (staff only)</label>
+              </div>
+              {% else %}
+              <span></span>
+              {% endif %}
+              <button type="submit" class="btn btn-afya-primary btn-sm">
+                <i class="bi bi-send-fill me-1"></i>Reply
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  'use strict';
+
+  var detailModalEl = document.getElementById('ticketDetailModal');
+  var detailModal = new bootstrap.Modal(detailModalEl);
+  var currentTicketId = null;
+  var isStaff = {{ is_support_staff|yesno:"true,false" }};
+
+  function statusUrl(id) { return '/core/support/tickets/' + id + '/status/'; }
+  function detailUrl(id) { return '/core/support/tickets/' + id + '/'; }
+  function commentUrl(id) { return '/core/support/tickets/' + id + '/comment/'; }
+
+  function getCsrf() {
+    var el = document.querySelector('#ticketIssueModal [name=csrfmiddlewaretoken]');
+    return el ? el.value : '';
+  }
+
+  function renderComments(comments) {
+    var wrap = document.getElementById('ticketDetailComments');
+    if (!comments.length) {
+      wrap.innerHTML = '<div class="text-muted" style="font-size:12.5px;">No replies yet.</div>';
+      return;
+    }
+    wrap.innerHTML = comments.map(function (c) {
+      return '<div class="comment-bubble' + (c.is_internal ? ' internal' : '') + '">' +
+        '<div class="comment-meta">' + (c.is_internal ? '<i class="bi bi-eye-slash me-1"></i>' : '') +
+        '<strong>' + escapeHtml(c.author) + '</strong> &middot; ' + c.created_at + '</div>' +
+        '<div style="font-size:13.5px;white-space:pre-wrap;">' + escapeHtml(c.body) + '</div></div>';
+    }).join('');
+  }
+
+  function escapeHtml(s) {
+    var d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  function openTicket(id) {
+    currentTicketId = id;
+    document.getElementById('ticketDetailLoading').classList.remove('d-none');
+    document.getElementById('ticketDetailContent').classList.add('d-none');
+    document.getElementById('ticketDetailSubject').textContent = 'Loading…';
+    document.getElementById('ticketDetailMeta').textContent = '';
+    detailModal.show();
+
+    fetch(detailUrl(id), { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data.ok) return;
+        var t = data.ticket;
+        document.getElementById('ticketDetailSubject').textContent = t.subject;
+        document.getElementById('ticketDetailMeta').textContent =
+          t.ticket_type_display + ' · ' + t.status_display + ' · by ' + t.created_by + ' · ' + t.created_at;
+        document.getElementById('ticketDetailDescription').textContent = t.description;
+
+        var img = document.getElementById('ticketDetailAttachment');
+        if (t.attachment_url) { img.src = t.attachment_url; img.classList.remove('d-none'); }
+        else { img.classList.add('d-none'); }
+
+        var statusSelect = document.getElementById('ticketDetailStatus');
+        if (statusSelect) statusSelect.value = t.status;
+
+        renderComments(data.comments);
+        document.getElementById('ticketDetailLoading').classList.add('d-none');
+        document.getElementById('ticketDetailContent').classList.remove('d-none');
+      });
+  }
+  window.openTicket = openTicket;
+
+  document.addEventListener('click', function (e) {
+    var card = e.target.closest('.ticket-card');
+    if (card && card.dataset.ticketId) openTicket(card.dataset.ticketId);
+  });
+
+  // ---- Status change (staff) ----
+  var statusSelect = document.getElementById('ticketDetailStatus');
+  if (statusSelect) {
+    statusSelect.addEventListener('change', function () {
+      var body = new FormData();
+      body.append('csrfmiddlewaretoken', getCsrf());
+      body.append('status', statusSelect.value);
+      fetch(statusUrl(currentTicketId), { method: 'POST', body: body, credentials: 'same-origin' })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (data.ok) {
+            window.AfyaToast.show('Ticket moved to "' + data.status_display + '".', 'success');
+            var card = document.querySelector('.ticket-card[data-ticket-id="' + currentTicketId + '"]');
+            var newCol = document.querySelector('.board-col-body[data-status-drop="' + data.status + '"]');
+            if (card && newCol) newCol.prepend(card);
+          } else {
+            window.AfyaToast.show(data.error || 'Could not update status.', 'danger');
+          }
+        });
+    });
+  }
+
+  // ---- Add comment ----
+  var commentForm = document.getElementById('ticketDetailCommentForm');
+  if (commentForm) {
+    commentForm.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var textarea = document.getElementById('ticketDetailCommentBody');
+      var internalCheckbox = document.getElementById('ticketDetailInternal');
+      if (!textarea.value.trim()) return;
+
+      var body = new FormData();
+      body.append('csrfmiddlewaretoken', getCsrf());
+      body.append('body', textarea.value.trim());
+      if (internalCheckbox && internalCheckbox.checked) body.append('is_internal', 'true');
+
+      fetch(commentUrl(currentTicketId), { method: 'POST', body: body, credentials: 'same-origin' })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (!data.ok) { window.AfyaToast.show(data.error || 'Could not post reply.', 'danger'); return; }
+          textarea.value = '';
+          if (internalCheckbox) internalCheckbox.checked = false;
+          openTicket(currentTicketId);
+        });
+    });
+  }
+
+  // ---- Drag & drop (staff board) ----
+  if (isStaff) {
+    var dragged = null;
+
+    document.addEventListener('dragstart', function (e) {
+      var card = e.target.closest('.ticket-card[draggable="true"]');
+      if (!card) return;
+      dragged = card;
+      card.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    document.addEventListener('dragend', function (e) {
+      var card = e.target.closest('.ticket-card');
+      if (card) card.classList.remove('dragging');
+      document.querySelectorAll('.board-col.drag-over').forEach(function (c) { c.classList.remove('drag-over'); });
+    });
+    document.querySelectorAll('.board-col').forEach(function (col) {
+      col.addEventListener('dragover', function (e) {
+        e.preventDefault();
+        col.classList.add('drag-over');
+      });
+      col.addEventListener('dragleave', function () { col.classList.remove('drag-over'); });
+      col.addEventListener('drop', function (e) {
+        e.preventDefault();
+        col.classList.remove('drag-over');
+        if (!dragged) return;
+        var newStatus = col.dataset.status;
+        var body = document.getElementById('ticketDetailCommentBody'); // noop reference to keep scope
+        var dropBody = col.querySelector('.board-col-body');
+        dropBody.prepend(dragged);
+
+        var fd = new FormData();
+        fd.append('csrfmiddlewaretoken', getCsrf());
+        fd.append('status', newStatus);
+        fetch(statusUrl(dragged.dataset.ticketId), { method: 'POST', body: fd, credentials: 'same-origin' })
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            if (data.ok) window.AfyaToast.show('Moved to "' + data.status_display + '".', 'success');
+            else window.AfyaToast.show(data.error || 'Could not move ticket.', 'danger');
+          });
+        dragged = null;
+      });
+    });
+  }
+
+  // ---- Board search filter ----
+  var boardSearch = document.getElementById('boardSearch');
+  if (boardSearch) {
+    boardSearch.addEventListener('input', function () {
+      var q = boardSearch.value.toLowerCase().trim();
+      document.querySelectorAll('.board-col-body .ticket-card').forEach(function (card) {
+        var haystack = card.dataset.search || '';
+        card.style.display = (!q || haystack.indexOf(q) !== -1) ? '' : 'none';
+      });
+    });
+  }
+
+  // ---- New ticket created elsewhere on this page -> refresh softly ----
+  window.onTicketCreated = function () {
+    setTimeout(function () { window.location.reload(); }, 900);
+  };
+})();
+</script>
+{% endblock %}

@@ -27,7 +27,13 @@ _INTENT_PATTERNS = {
     'patients':    [r'\bpatients?\b', r'\badmissions?\b', r'\boutpatients?\b', r'\binpatients?\b', r'\bvisits?\b'],
     'staff':       [r'\bstaff\b', r'\bemployees?\b', r'\bworkers?\b', r'\bpersonnel\b', r'\bheadcount\b'],
     'financials':  [r'\bfinanci', r'\brevenue\b', r'\bbilling\b', r'\bcosts?\b', r'\bexpenses?\b', r'\bbudget\b'],
-    'dashboards':  [r'\bdashboards?\b', r'\breports?\b', r'\bcharts?\b', r'\banalytics\b', r'\bvisuali'],
+    # NOTE: deliberately does NOT match bare chart/graph/visuali[sz]e words —
+    # those are already fully owned by agents/charts.py's is_pure_chart_request
+    # / wants_visualization (checked earlier, in consumers.py:receive()). A
+    # query like "show me the chart by sex" has real analytical content (the
+    # "by sex" breakdown) and must reach the analytics agent, not get stolen
+    # into this dashboard-listing bucket just because it says "chart".
+    'dashboards':  [r'\bdashboards?\b', r'\breports?\b', r'\banalytics\b'],
     'operations':  [r'\boperati', r'\bperform', r'\befficiency\b', r'\bkpis?\b', r'\bmetrics?\b'],
 }
 

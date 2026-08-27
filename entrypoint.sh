@@ -18,20 +18,28 @@ python3 manage.py migrate  &
 # echo " "
 # python manage.py loaddata initialization.yaml
 # echo " "
-# echo "<<<<<<<<<<<<<<<<<<<< START Celery >>>>>>>>>>>>>>>>>>>>>>>>"
+echo "<<<<<<<<<<<<<<<<<<<< START Celery >>>>>>>>>>>>>>>>>>>>>>>>"
 
-# # # start Celery worker
-# celery -A airflow_dashboard worker --loglevel=info &
+# Backs Agent Configuration's "Generate Missing Metrics" / "Rebuild
+# Embeddings" background tasks (agents/tasks.py). No periodic tasks exist
+# yet, so no celery beat is started.
+celery -A airflow_dashboard worker --loglevel=info &
 
 # # # start celery beat
 # celery -A airflow_dashboard beat --loglevel=info &
 
 # sleep 5
 
-# Start Gunicorn WSGI
-#gunicorn --bind 0.0.0.0:8000 airflow_dashboard.wsgi --workers=2 &
-
-# Start Daphne ASGI for WebSockets
-#daphne -b 0.0.0.0 -p 8001 airflow_dashboard.asgi:application 
-
+echo "<<<<<<<<<<<<<<<<<<<< START Daphne (ASGI: HTTP + WebSocket) >>>>>>>>>>>>>>>>>>>>>>>>"
+# manage.py runserver is Django's dev server — single-threaded and not
+# meant for production. daphne is the real ASGI server this project
+# already depends on (see airflow_dashboard/asgi.py, which routes both
+# plain HTTP and the /ws/ Channels websocket through one `application`).
+# --proxy-headers trusts X-Forwarded-Proto/-For from nginx (see
+# nginx/snippets/proxy-headers.conf) so request.is_secure() and the
+# client IP are correct behind the reverse proxy.
+# `exec` replaces this shell process with daphne so Docker's SIGTERM on
+# `docker stop` reaches it directly for a clean shutdown, instead of
+# being swallowed by bash.
+#exec daphne -b 0.0.0.0 -p 8000 --proxy-headers airflow_dashboard.asgi:application
 python3 manage.py runserver 0.0.0.0:8000

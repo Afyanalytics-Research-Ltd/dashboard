@@ -1,0 +1,119 @@
+cubes:
+  - name: rpt_retention
+    sql_table: "\"REPORTING\".\"RPT_RETENTION\""
+    data_source: default
+
+    joins: []
+
+    # One row per patient (per source_schema). LTFU ("lost to follow-up") is
+    # measured from last_visit_date to MAX(last_visit_date) per
+    # source_schema — NOT CURRENT_DATE — so lifecycle_status is already
+    # correctly computed upstream; this cube just needs to count/filter by
+    # it, not recompute it.
+    dimensions:
+      - name: source_schema
+        sql: "{CUBE}.\"SOURCE_SCHEMA\""
+        type: string
+
+      - name: patient_id
+        sql: "{CUBE}.\"PATIENT_ID\""
+        type: number
+        # ~97% unique (36,784 distinct / 37,989 rows) — not a hard guarantee,
+        # but the best available key in this cube, used as primary_key since
+        # Cube requires one to support joins from other cubes into this hub.
+        primary_key: true
+
+      - name: last_clinician_user
+        sql: "{CUBE}.\"LAST_CLINICIAN_USER\""
+        type: number
+
+      - name: exit_visit_bucket
+        sql: "{CUBE}.\"EXIT_VISIT_BUCKET\""
+        type: string
+        description: Bucketed visit-count-at-dropout (e.g. "1st visit", "2-5 visits") — for "at what visit count do chronic patients drop out" questions.
+
+      - name: last_burden_group
+        sql: "{CUBE}.\"LAST_BURDEN_GROUP\""
+        type: string
+
+      - name: last_clean_diagnosis
+        sql: "{CUBE}.\"LAST_CLEAN_DIAGNOSIS\""
+        type: string
+
+      - name: age_group
+        sql: "{CUBE}.\"AGE_GROUP\""
+        type: string
+
+      - name: gender
+        sql: "{CUBE}.\"GENDER\""
+        type: string
+
+      - name: payment_mode
+        sql: "{CUBE}.\"PAYMENT_MODE\""
+        type: string
+
+      - name: is_chronic
+        sql: "{CUBE}.\"IS_CHRONIC\""
+        type: number
+        description: 0/1 flag — filter to 1 for "chronic patients" questions (nearly all retention/LTFU questions are scoped to chronic patients).
+
+      - name: primary_chronic_disease_group
+        sql: "{CUBE}.\"PRIMARY_CHRONIC_DISEASE_GROUP\""
+        type: string
+
+      - name: lifecycle_status
+        sql: "{CUBE}.\"LIFECYCLE_STATUS\""
+        type: string
+        description: 'Patient retention bucket, e.g. "LTFU (180+ days)", "Lapsing (91–180 days)", "Active". Filter/count by this for LTFU-rate and lapsing-rate questions.'
+
+      - name: first_visit_date
+        sql: "{CUBE}.\"FIRST_VISIT_DATE\""
+        type: time
+
+      - name: last_visit_date
+        sql: "{CUBE}.\"LAST_VISIT_DATE\""
+        type: time
+
+    measures:
+      - name: total_patients
+        sql: "{CUBE}.\"PATIENT_ID\""
+        type: count_distinct
+        title: Patients (count)
+        description: Distinct patient count — break down by lifecycle_status, last_burden_group, payment_mode, age_group, gender, or primary_chronic_disease_group. Filter is_chronic=1 for chronic-patient-only questions.
+        drill_members: [last_visit_date, source_schema, lifecycle_status, payment_mode, patient_id]
+
+      - name: ltfu_patients
+        sql: "{CUBE}.\"PATIENT_ID\""
+        type: count_distinct
+        filters:
+          - sql: "{CUBE}.\"LIFECYCLE_STATUS\" = 'LTFU (180+ days)'"
+        title: LTFU Patients (count)
+        description: Distinct patients lost to follow-up (180+ days since last visit).
+
+      - name: ltfu_rate_pct
+        sql: "{ltfu_patients} * 100.0 / NULLIF({total_patients}, 0)"
+        type: number
+        format: percent
+        title: LTFU Rate (%)
+        description: TRUE lost-to-follow-up rate — ltfu_patients / total_patients — correct at any grouping (by last_burden_group, payment_mode, gender, age_group, primary_chronic_disease_group). Use for "LTFU rate for chronic patients", "which disease burden group has the highest LTFU rate" questions.
+        drill_members: [last_visit_date, source_schema, last_burden_group, primary_chronic_disease_group, patient_id]
+
+      - name: lapsing_patients
+        sql: "{CUBE}.\"PATIENT_ID\""
+        type: count_distinct
+        filters:
+          - sql: "{CUBE}.\"LIFECYCLE_STATUS\" = 'Lapsing (91–180 days)'"
+        title: Lapsing Patients (count)
+        description: Distinct patients in the lapsing window (91-180 days since last visit).
+
+      - name: lapsing_pct
+        sql: "{lapsing_patients} * 100.0 / NULLIF({total_patients}, 0)"
+        type: number
+        format: percent
+        title: Lapsing Rate (%)
+        description: Percentage of patients in the lapsing window (91-180 days) — lapsing_patients / total_patients.
+        drill_members: [last_visit_date, source_schema, payment_mode, patient_id]
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started

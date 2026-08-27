@@ -1,0 +1,90 @@
+cubes:
+  - name: rpt_malaria_zones
+    sql_table: "\"REPORTING\".\"RPT_MALARIA_ZONES\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: analytical_caveats
+        sql: "{CUBE}.\"ANALYTICAL_CAVEATS\""
+        type: string
+
+      - name: county
+        sql: "{CUBE}.\"COUNTY\""
+        type: string
+
+      - name: itn_use_access_ratio_category
+        sql: "{CUBE}.\"ITN_USE_ACCESS_RATIO_CATEGORY\""
+        type: string
+
+      - name: papfpr_range_pct
+        sql: "{CUBE}.\"PAPFPR_RANGE_PCT\""
+        type: string
+
+      - name: primary_sub_county
+        sql: "{CUBE}.\"PRIMARY_SUB_COUNTY\""
+        type: string
+
+      - name: source_schema
+        sql: "{CUBE}.\"SOURCE_SCHEMA\""
+        type: string
+
+      - name: testing_method
+        sql: "{CUBE}.\"TESTING_METHOD\""
+        type: string
+
+      - name: transmission_zone
+        sql: "{CUBE}.\"TRANSMISSION_ZONE\""
+        type: string
+
+      - name: zone_label
+        sql: "{CUBE}.\"ZONE_LABEL\""
+        type: string
+        primary_key: true
+        description: Malaria transmission zone — unique per row (4 zones); join target for the other rpt_malaria_* tables' zone_label.
+
+      - name: data_end_date
+        sql: "{CUBE}.\"DATA_END_DATE\""
+        type: time
+
+      - name: data_start_date
+        sql: "{CUBE}.\"DATA_START_DATE\""
+        type: time
+
+    measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:01:37.223713+00:00
+      - name: malaria_incidence_per_1000_2022
+        sql: '{CUBE}."MALARIA_INCIDENCE_PER_1000_2022"'
+        type: sum
+      - name: itn_hh_ownership_pct_kmis2020_national
+        sql: '{CUBE}."ITN_HH_OWNERSHIP_PCT_KMIS2020_NATIONAL"'
+        type: sum
+      - name: itn_u5_use_pct_kmis2020_national
+        sql: '{CUBE}."ITN_U5_USE_PCT_KMIS2020_NATIONAL"'
+        type: sum
+      - name: itn_pregnant_use_pct_kmis2020_national
+        sql: '{CUBE}."ITN_PREGNANT_USE_PCT_KMIS2020_NATIONAL"'
+        type: sum
+      - name: itn_population_access_pct_kmis2020_national
+        sql: '{CUBE}."ITN_POPULATION_ACCESS_PCT_KMIS2020_NATIONAL"'
+        type: sum
+      - name: itn_population_slept_under_pct_kmis2020_national
+        sql: '{CUBE}."ITN_POPULATION_SLEPT_UNDER_PCT_KMIS2020_NATIONAL"'
+        type: sum
+      - name: sub_county_pop
+        sql: '{CUBE}."SUB_COUNTY_POP"'
+        type: sum
+      - name: count
+        type: count
+        drill_members: [zone_label, county, transmission_zone, primary_sub_county]
+
+      - name: valid_visit_count
+        sql: "{CUBE}.\"VALID_VISIT_COUNT\""
+        type: sum
+        drill_members: [zone_label, county, transmission_zone]
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

@@ -1,37 +1,34 @@
-# without ssl
-# server {
-#     listen 80;
-#     listen [::]:80;
-#     location ~ /.well-known  {
-#         allow all;
-#     }
+# =============================================================================
+# Afya DataHub — production nginx reverse proxy
+#
+# Every proxied service lives on the same docker-compose network
+# (dashboard-net), so upstream targets below are container/service names,
+# not host-published ports.
+#
+# Every location uses `resolver 127.0.0.11 + set $var + proxy_pass $var`
+# instead of a literal `proxy_pass http://name:port;`. Docker's embedded
+# DNS is at 127.0.0.11; with a literal proxy_pass, nginx resolves the
+# backend's IP ONCE at config load and caches it — after any backend
+# container restart (a redeploy, a crash recovery) the IP changes and
+# nginx keeps hammering the old one, 502ing until nginx itself is also
+# restarted. The resolver+variable form re-resolves per request, so a
+# backend can be redeployed independently without touching nginx at all.
+# This is the actual "seamless deployments" mechanism, not a stylistic
+# choice — keep it on every block added here.
+#
+# Subpath services (anything other than / and /ws/) pass the ORIGINAL
+# request path straight through unchanged (proxy_pass to a bare variable,
+# no trailing path segment) rather than stripping the location prefix.
+# That only works correctly if the backend itself is told to expect that
+# prefix — see the per-service comments below for the exact setting each
+# one needs. Without it, the app itself will still generate root-relative
+# links/assets and partially break even though nginx is routing correctly.
+# =============================================================================
 
-#     location /static/ {
-#         alias /www/static/;
-#     }
-
-#     location / {
-#         proxy_pass http://web:8000;
-#         proxy_set_header Host $host;
-#         proxy_set_header X-Real-IP $remote_addr;
-#         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-#     }
-    
-#     location /dashboard/ {
-#         resolver 127.0.0.11 valid=30s;
-#         set $streamlit_upstream http://streamlit:8501;
-#         proxy_pass $streamlit_upstream;
-#         proxy_http_version 1.1;
-#         proxy_set_header Upgrade $http_upgrade;
-#         proxy_set_header Connection "upgrade";
-#         proxy_set_header Host $host;
-#         proxy_set_header X-Real-IP $remote_addr;
-#         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-#         proxy_set_header X-Forwarded-Proto $scheme;
-#         proxy_read_timeout 86400;
-#     }
-# }
-
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
 
 # HTTP — redirect everything to HTTPS, but keep ACME challenge open for renewals
 server {
@@ -73,29 +70,201 @@ server {
         alias /www/static/;
     }
 
-    # Streamlit dashboard
+    # -------------------------------------------------------------------
+    # Django Channels — WebSocket chat (self_service + warehouse analyst).
+    # A dedicated, always-upgrade path: every request here is a real
+    # `new WebSocket(...)` call from chat.js, never plain HTTP, so a
+    # hardcoded Upgrade/Connection pair (as originally supplied) is exactly
+    # correct here — no ambiguity to resolve with $connection_upgrade.
+    # proxy_read_timeout is set long (86400s = 24h) because a WebSocket is
+    # a long-lived connection, not a single request/response — the default
+    # 60s would silently kill an idle-but-open chat session.
+    # -------------------------------------------------------------------
+    location /ws/ {
+        resolver 127.0.0.11 valid=30s;
+        set $django_ws_upstream http://web:8000;
+        proxy_pass $django_ws_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        include /etc/nginx/snippets/proxy-headers.conf;
+        proxy_read_timeout 86400s;
+        proxy_redirect off;
+    }
+
+    # -------------------------------------------------------------------
+    # Streamlit dashboard — mixes plain HTTP (initial page, static assets)
+    # and a WebSocket (Streamlit's live component protocol) on the SAME
+    # path, which is exactly the case $connection_upgrade exists for:
+    # "upgrade" only when the client actually asked for one, "close"
+    # otherwise, rather than forcing every request through as if it were
+    # a WebSocket handshake.
+    # NOTE: the streamlit service is started without --server.baseUrlPath,
+    # so it doesn't itself know it's mounted under /streamlitdashboard —
+    # if internal Streamlit asset/API links ever break under this path,
+    # add `--server.baseUrlPath=streamlitdashboard` to the streamlit
+    # service's command in docker-compose.streamlit.yaml.
+    # -------------------------------------------------------------------
     location /streamlitdashboard {
         resolver 127.0.0.11 valid=30s;
         set $streamlit_upstream http://streamlit:8501;
         proxy_pass $streamlit_upstream;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 86400;
+        proxy_set_header Connection $connection_upgrade;
+        include /etc/nginx/snippets/proxy-headers.conf;
+        proxy_read_timeout 86400s;
     }
 
-    
+    # -------------------------------------------------------------------
+    # Redash — BI dashboards embedded/linked from the main app.
+    # NOTE: Redash generates absolute URLs assuming it's mounted at "/".
+    # Set REDASH_ROOT_URL_PATH_PREFIX=/redash (env, on the redash-server
+    # service in docker-compose.redash.yaml) so its own links/assets match
+    # this prefix — without it, the page loads but internal navigation and
+    # asset paths will 404.
+    # -------------------------------------------------------------------
+    location /redash/ {
+        resolver 127.0.0.11 valid=30s;
+        set $redash_upstream http://redash-server:5000;
+        proxy_pass $redash_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        include /etc/nginx/snippets/proxy-headers.conf;
+        proxy_read_timeout 300s;
+    }
 
-    # Django app
+    # -------------------------------------------------------------------
+    # Cube.js — semantic layer API (REST/GraphQL, consumed by the Django
+    # backend and any analyst-facing query UI). Upgrade headers included
+    # since Cube can optionally be run with its WebSocket transport; a
+    # harmless no-op if that's not enabled.
+    # -------------------------------------------------------------------
+    location /cube/ {
+        resolver 127.0.0.11 valid=30s;
+        set $cube_upstream http://cube:4000;
+        proxy_pass $cube_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        include /etc/nginx/snippets/proxy-headers.conf;
+        proxy_read_timeout 120s;
+    }
+
+    # -------------------------------------------------------------------
+    # Airflow webserver — pipeline monitoring UI.
+    # NOTE: set AIRFLOW__WEBSERVER__BASE_URL=https://datahub.afyaanalytics.com/airflow
+    # on the airflow-apiserver service so Airflow's own generated links
+    # (task logs, graph view redirects, etc.) match this prefix.
+    # -------------------------------------------------------------------
+    location /airflow/ {
+        resolver 127.0.0.11 valid=30s;
+        set $airflow_upstream http://airflow-apiserver:8080;
+        proxy_pass $airflow_upstream;
+        include /etc/nginx/snippets/proxy-headers.conf;
+        proxy_read_timeout 300s;
+    }
+
+    # -------------------------------------------------------------------
+    # Kafka UI (Provectus) — broker/topic inspection, internal/ops use.
+    # NOTE: set SERVER_SERVLET_CONTEXT_PATH=/kafka-ui on the kafka-ui
+    # service so its static assets resolve under this prefix instead of
+    # assuming root.
+    # -------------------------------------------------------------------
+    location /kafka-ui/ {
+        resolver 127.0.0.11 valid=30s;
+        set $kafka_ui_upstream http://kafka-ui:8090;
+        proxy_pass $kafka_ui_upstream;
+        include /etc/nginx/snippets/proxy-headers.conf;
+        proxy_read_timeout 120s;
+    }
+
+    # -------------------------------------------------------------------
+    # MLflow — experiment tracking UI, internal/ops use.
+    # -------------------------------------------------------------------
+    location /mlflow/ {
+        resolver 127.0.0.11 valid=30s;
+        set $mlflow_upstream http://mlflow:5555;
+        proxy_pass $mlflow_upstream;
+        include /etc/nginx/snippets/proxy-headers.conf;
+        proxy_read_timeout 120s;
+    }
+
+    # -------------------------------------------------------------------
+    # Spark master / worker web UIs — job monitoring, internal/ops use.
+    # -------------------------------------------------------------------
+    location /spark/ {
+        resolver 127.0.0.11 valid=30s;
+        set $spark_master_upstream http://spark-master:8080;
+        proxy_pass $spark_master_upstream;
+        include /etc/nginx/snippets/proxy-headers.conf;
+        proxy_read_timeout 120s;
+    }
+
+    location /spark-worker/ {
+        resolver 127.0.0.11 valid=30s;
+        set $spark_worker_upstream http://spark-worker:8081;
+        proxy_pass $spark_worker_upstream;
+        include /etc/nginx/snippets/proxy-headers.conf;
+        proxy_read_timeout 120s;
+    }
+
+    # -------------------------------------------------------------------
+    # Marquez — data lineage. marquez-web is the human-browsable UI;
+    # marquez-api exposes the raw HTTP API/Swagger for tooling.
+    # -------------------------------------------------------------------
+    location /marquez/ {
+        resolver 127.0.0.11 valid=30s;
+        set $marquez_web_upstream http://marquez-web:3000;
+        proxy_pass $marquez_web_upstream;
+        include /etc/nginx/snippets/proxy-headers.conf;
+        proxy_read_timeout 120s;
+    }
+
+    location /marquez-api/ {
+        resolver 127.0.0.11 valid=30s;
+        set $marquez_api_upstream http://marquez:5000;
+        proxy_pass $marquez_api_upstream;
+        include /etc/nginx/snippets/proxy-headers.conf;
+        proxy_read_timeout 120s;
+    }
+
+    # -------------------------------------------------------------------
+    # dbt docs — generated data-model documentation site, static content.
+    # -------------------------------------------------------------------
+    location /dbt-docs/ {
+        resolver 127.0.0.11 valid=30s;
+        set $dbt_docs_upstream http://dbt-ui:8080;
+        proxy_pass $dbt_docs_upstream;
+        include /etc/nginx/snippets/proxy-headers.conf;
+        proxy_read_timeout 60s;
+    }
+
+    # -------------------------------------------------------------------
+    # DataHub — metadata catalog UI, internal/ops use.
+    # -------------------------------------------------------------------
+    location /datahub/ {
+        resolver 127.0.0.11 valid=30s;
+        set $datahub_upstream http://datahub-frontend-react:9002;
+        proxy_pass $datahub_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        include /etc/nginx/snippets/proxy-headers.conf;
+        proxy_read_timeout 120s;
+    }
+
+    # -------------------------------------------------------------------
+    # Django app — catch-all, must stay last for readability (nginx
+    # itself matches the longest prefix regardless of declaration order,
+    # so this being last doesn't affect correctness, only clarity).
+    # -------------------------------------------------------------------
     location / {
-        proxy_pass http://web:8000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
+        resolver 127.0.0.11 valid=30s;
+        set $django_upstream http://web:8000;
+        proxy_pass $django_upstream;
+        include /etc/nginx/snippets/proxy-headers.conf;
+        proxy_read_timeout 120s;
     }
 }

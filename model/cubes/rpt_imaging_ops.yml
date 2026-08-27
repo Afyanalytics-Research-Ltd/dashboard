@@ -1,0 +1,45 @@
+cubes:
+  - name: rpt_imaging_ops
+    sql_table: "\"REPORTING\".\"RPT_IMAGING_OPS\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: facility
+        sql: "{CUBE}.\"FACILITY\""
+        type: string
+
+      - name: modality
+        sql: "{CUBE}.\"MODALITY\""
+        type: string
+
+      - name: revenue_month
+        sql: "{CUBE}.\"REVENUE_MONTH\""
+        type: time
+
+    measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:00:16.934700+00:00
+      - name: sessions
+        sql: '{CUBE}."SESSIONS"'
+        type: sum
+        drill_members: [revenue_month, facility, modality]
+      - name: revenue
+        sql: '{CUBE}."REVENUE"'
+        type: sum
+        title: Imaging Revenue (KES)
+        description: Total imaging revenue, by facility/modality (e.g. "CT / Angio", "Ultrasound")/month — use for "imaging revenue" and "which imaging modality generates the most revenue" questions.
+        drill_members: [revenue_month, facility, modality]
+      - name: avg_per_session
+        sql: '{CUBE}."AVG_PER_SESSION"'
+        type: avg
+        title: Average Imaging Revenue per Session (KES)
+        description: Average revenue per imaging session, by facility/modality — use to compare average session revenue between facilities (e.g. ultrasound revenue between TENRI and KSH).
+        drill_members: [revenue_month, facility, modality]
+      - name: count
+        type: count
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+
+{% block title %}Create Redash Dashboard{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center mt-3">
+    <div class="col-12 col-lg-8">
+        <div class="card">
+            <div class="card-header d-flex align-items-center justify-content-between">
+                <span class="fw-semibold">Create Redash Dashboard — Step 2 of 2</span>
+                <a href="{% url 'analytics:redash_dashboard_create' %}" class="btn btn-outline-secondary btn-sm">
+                    <i class="bi bi-arrow-left me-1"></i>Back
+                </a>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small">
+                    Pick which chart(s) to add to <strong>"{{ dashboard_name }}"</strong>. Submitting
+                    creates the dashboard in Redash, adds these charts as widgets, publishes it, enables
+                    a public link, and adds it to your Dashboards list automatically.
+                </p>
+
+                {% if query_ids %}
+                <form method="post" action="{% url 'analytics:redash_dashboard_refresh_queries' %}"
+                      class="d-flex align-items-center gap-2 mb-3 pb-3 border-bottom">
+                    {% csrf_token %}
+                    <input type="hidden" name="name" value="{{ dashboard_name }}">
+                    {% for qid in query_ids %}
+                    <input type="hidden" name="query_ids" value="{{ qid }}">
+                    {% endfor %}
+                    <button type="submit" class="btn btn-outline-secondary btn-sm">
+                        <i class="bi bi-arrow-clockwise me-1"></i>Refresh Queries
+                    </button>
+                    <span class="text-muted small">
+                        Retries any query below with no cached result yet. Reloads this page —
+                        selections made in the form below will be cleared.
+                    </span>
+                </form>
+                {% endif %}
+
+                <form method="post" action="{% url 'analytics:redash_dashboard_finalize' %}" novalidate>
+                    {% csrf_token %}
+                    <input type="hidden" name="name" value="{{ dashboard_name }}">
+                    <input type="hidden" name="chart_group_count" value="{{ chart_group_count }}">
+
+                    {% for group in chart_groups %}
+                    <div class="mb-4 pb-3 border-bottom">
+                        <div class="fw-semibold mb-1">
+                            {{ group.reporting_query.name }}
+                            {% if group.reporting_query.facility %}
+                            <span class="badge bg-info-subtle text-info-emphasis ms-1">{{ group.reporting_query.facility.name }}</span>
+                            {% endif %}
+                        </div>
+
+                        {% if group.visualizations %}
+                        <div class="ps-3 mb-2">
+                            <div class="text-muted small mb-1">Existing charts</div>
+                            {% for viz in group.visualizations %}
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="visualization_ids"
+                                       value="{{ viz.id }}" id="viz{{ viz.id }}">
+                                <label class="form-check-label" for="viz{{ viz.id }}">
+                                    {{ viz.name|default:viz.type }}
+                                    <span class="text-muted small">({{ viz.type }})</span>
+                                </label>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+
+                        {% if group.columns %}
+                        <div class="ps-3">
+                            <div class="text-muted small mb-1">Or build a new chart from this query</div>
+                            <input type="hidden" name="new_chart_query_id_{{ forloop.counter0 }}" value="{{ group.reporting_query.redash_query_id }}">
+                            <div class="row g-2 align-items-end mb-2">
+                                <div class="col-md-4">
+                                    <label class="form-label small mb-1">Chart name</label>
+                                    <input type="text" class="form-control form-control-sm"
+                                           name="new_chart_name_{{ forloop.counter0 }}" placeholder="Optional — leave blank to skip">
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label small mb-1">Type</label>
+                                    <select class="form-select form-select-sm" name="new_chart_type_{{ forloop.counter0 }}">
+                                        <option value="bar">Bar</option>
+                                        <option value="line">Line</option>
+                                        <option value="area">Area</option>
+                                        <option value="pie">Pie</option>
+                                        <option value="scatter">Scatter</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-5">
+                                    <label class="form-label small mb-1">X-axis column</label>
+                                    <select class="form-select form-select-sm" name="new_chart_x_{{ forloop.counter0 }}">
+                                        {% for col in group.columns %}
+                                        <option value="{{ col }}">{{ col }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                            </div>
+                            <label class="form-label small mb-1">Y-axis column(s)</label>
+                            <div class="d-flex flex-wrap gap-3">
+                                {% for col in group.columns %}
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox"
+                                           name="new_chart_y_{{ forloop.parentloop.counter0 }}" value="{{ col }}"
+                                           id="ychk{{ forloop.parentloop.counter0 }}_{{ forloop.counter0 }}">
+                                    <label class="form-check-label small" for="ychk{{ forloop.parentloop.counter0 }}_{{ forloop.counter0 }}">{{ col }}</label>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        {% else %}
+                        <div class="ps-3 text-muted small">
+                            No cached result yet (waited up to 45s for it to run) — click
+                            <strong>"Refresh Queries"</strong> above to try again, or
+                            <a href="{{ redash_base_url }}/queries/{{ group.reporting_query.redash_query_id }}" target="_blank">
+                                open this query in Redash
+                            </a> directly if it keeps timing out.
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+
+                    <div class="d-flex gap-2 justify-content-end border-top pt-3 mt-2">
+                        <a href="{% url 'analytics:redash_dashboard_create' %}" class="btn btn-outline-secondary">Back</a>
+                        <button type="submit" class="btn btn-afya-primary">
+                            <i class="bi bi-check2 me-1"></i>Create & Publish Dashboard
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

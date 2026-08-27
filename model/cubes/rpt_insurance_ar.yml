@@ -1,0 +1,83 @@
+cubes:
+  - name: rpt_insurance_ar
+    sql_table: "\"REPORTING\".\"RPT_INSURANCE_AR\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: facility
+        sql: "{CUBE}.\"FACILITY\""
+        type: string
+        primary_key: true
+
+      - name: insurer
+        sql: "{CUBE}.\"INSURER\""
+        type: string
+        primary_key: true
+
+      - name: invoice_month
+        sql: "{CUBE}.\"INVOICE_MONTH\""
+        type: time
+        primary_key: true
+
+    measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:00:22.733835+00:00
+      - name: invoices
+        sql: '{CUBE}."INVOICES"'
+        type: sum
+      - name: distinct_visits
+        sql: '{CUBE}."DISTINCT_VISITS"'
+        type: sum
+      - name: total_billed
+        sql: '{CUBE}."TOTAL_BILLED"'
+        type: sum
+      - name: total_collected
+        sql: '{CUBE}."TOTAL_COLLECTED"'
+        type: sum
+      - name: total_outstanding
+        sql: '{CUBE}."TOTAL_OUTSTANDING"'
+        type: sum
+        title: Total Outstanding Insurance AR (KES)
+        description: Total outstanding insurance accounts receivable, by facility/insurer/month. For a breakdown by AGING BUCKET (30/60/90+ days), use rpt_ar_aging.total_outstanding instead.
+      - name: collection_rate_pct
+        sql: '{CUBE}."COLLECTION_RATE_PCT"'
+        type: avg
+        format: percent
+        title: Insurance Collection Rate (%, averaged)
+        description: AVERAGE of a pre-computed per-row rate — not safe when grouping/filtering by facility, insurer, or month, since averaging rates differs from the true rate. Use collection_rate_calc_pct instead.
+      - name: dispatched_invoices
+        sql: '{CUBE}."DISPATCHED_INVOICES"'
+        type: sum
+      - name: dispatch_rate_pct
+        sql: '{CUBE}."DISPATCH_RATE_PCT"'
+        type: avg
+        format: percent
+        title: Invoice Dispatch Rate (%, averaged)
+        description: AVERAGE of a pre-computed per-row rate — not safe when grouping/filtering by insurer or month. Use dispatch_rate_calc_pct instead.
+
+      - name: collection_rate_calc_pct
+        sql: "{total_collected} * 100.0 / NULLIF({total_billed}, 0)"
+        type: number
+        format: percent
+        title: Insurance Collection Rate (%)
+        description: TRUE collection rate — total_collected / total_billed — correct at any grouping. Use for "overall insurance collection rate" / "which insurer has the highest collection rate" questions.
+        drill_members: [invoice_month, facility, insurer]
+
+      - name: dispatch_rate_calc_pct
+        sql: "{dispatched_invoices} * 100.0 / NULLIF({invoices}, 0)"
+        type: number
+        format: percent
+        title: Invoice Dispatch Rate (%)
+        description: TRUE dispatch rate — dispatched_invoices / invoices — correct at any grouping. Use for "insurers with a dispatch rate below 80%" questions.
+      - name: enrolled_patients
+        sql: '{CUBE}."ENROLLED_PATIENTS"'
+        type: sum
+      - name: count
+        type: count
+        drill_members: [invoice_month, facility, insurer]
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

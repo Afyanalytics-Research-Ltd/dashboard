@@ -26,37 +26,45 @@ metrics:
     timeDimensions: []
     filters: []
     limit: 500
-- id: canonical_product_taxonomy_count_metrics
-  name: Canonical Product Taxonomy Count Metrics
-  description: This metric measures the total count of canonical products and the count of
-    duplicate facilities associated with them. Use this metric to analyze product taxonomy
-    data, identify trends in product categorization, and assess the integrity of facility
-    data. Example questions include 'How many unique canonical products are there?' and 'What
-    is the count of duplicate facilities for these products?'
+- id: canonical_product_taxonomy_metrics
+  name: Canonical Product Taxonomy Metrics
+  description: This metric provides insights into the canonical product taxonomy, measuring
+    match confidence, total product count, and facility duplication counts. Use this metric
+    to analyze product categorization accuracy, identify discrepancies in product data across
+    facilities, and assess the effectiveness of the taxonomy. Example questions include 'What
+    is the match confidence for products in a specific category?' or 'How many duplicate products
+    are reported by each facility?'
   cube_query:
     measures:
+    - canonical_product_taxonomy.match_confidence
     - canonical_product_taxonomy.count
     - canonical_product_taxonomy.facility_dup_count
     dimensions:
     - canonical_product_taxonomy.canonical_name
     - canonical_product_taxonomy.facility
     - canonical_product_taxonomy.product_category
-    - canonical_product_taxonomy.product_name
+    - canonical_product_taxonomy.match_type
     - canonical_product_taxonomy.inn_map_status
     timeDimensions:
     - dimension: canonical_product_taxonomy.loaded_at
       granularity: month
     filters: []
     limit: 500
-- id: doctor_note_terms_count
-  name: Count of Doctor Note Terms
-  description: This metric measures the total count of doctor note terms recorded in the system.
-    It can be used to analyze trends in clinical documentation, assess the usage of specific
-    terms, and evaluate the status of clinical syndromes and disease burden groups. Example
-    questions include 'How many doctor note terms were recorded last month?' and 'What is
-    the distribution of terms by status?'
+- id: doctor_note_terms_analysis
+  name: Doctor Note Terms Analysis
+  description: This metric analyzes various terms found in doctor notes, focusing on chronic
+    conditions, pregnancy status, follow-up needs, negations, and noise in the data. Use this
+    metric to understand the prevalence of specific conditions and statuses in patient notes,
+    answering questions like 'How many notes indicate chronic conditions?' or 'What is the
+    count of follow-up terms in the notes?'. Important filters include clinical syndrome and
+    disease burden group.
   cube_query:
     measures:
+    - dim_doctor_note_terms.is_chronic
+    - dim_doctor_note_terms.is_pregnant
+    - dim_doctor_note_terms.is_followup
+    - dim_doctor_note_terms.is_negated
+    - dim_doctor_note_terms.is_noise
     - dim_doctor_note_terms.count
     dimensions:
     - dim_doctor_note_terms.canonical_term
@@ -67,15 +75,63 @@ metrics:
     timeDimensions: []
     filters: []
     limit: 500
-- id: fact_dispensing_metrics
-  name: Dispensing Metrics Overview
-  description: This metric provides insights into the dispensing activities within the hospital,
-    including total counts, discounts applied, and line totals. Use this metric to analyze
-    dispensing trends, identify stockout events, and evaluate financial impacts. Example questions
-    include 'What is the total number of dispenses this month?' and 'How much discount was
-    given on dispenses last quarter?'
+- id: product_match_confidence_metrics
+  name: Product Match Confidence Metrics
+  description: This metric measures the confidence levels of product matches within the hospital
+    system. It includes minimum and average match confidence scores, as well as counts of
+    products and facilities. Use this metric to analyze product matching effectiveness, identify
+    discrepancies, and improve inventory management. Example questions include 'What is the
+    average match confidence for products?' and 'How many products are present in facilities?'
   cube_query:
     measures:
+    - dim_product_canonical.min_match_confidence
+    - dim_product_canonical.avg_match_confidence
+    - dim_product_canonical.count
+    - dim_product_canonical.facility_count
+    - dim_product_canonical.local_product_id_count
+    dimensions:
+    - dim_product_canonical.canonical_name
+    - dim_product_canonical.form_canonical
+    - dim_product_canonical.inn_name
+    - dim_product_canonical.present_in_facilities
+    - dim_product_canonical.strength_canonical
+    timeDimensions:
+    - dimension: dim_product_canonical.dim_loaded_at
+      granularity: month
+    filters: []
+    limit: 500
+- id: facility_role_count
+  name: Facility Role Count
+  description: This metric measures the total count of facility roles mapped within the hospital
+    system. It can be used to analyze the distribution of roles across different facilities.
+    Example questions include 'How many roles are assigned to each facility?' and 'What is
+    the total number of roles available in the system?'.
+  cube_query:
+    measures:
+    - facility_role_map.count
+    dimensions:
+    - facility_role_map.facility_code
+    - facility_role_map.role_name
+    timeDimensions: []
+    filters: []
+    limit: 500
+- id: dispensing_quantity_metrics
+  name: Dispensing Quantity Metrics
+  description: This metric measures various aspects of medication dispensing, including the
+    total quantity dispensed, payment status, and stock levels before and after dispensing.
+    Use this metric to analyze dispensing trends, assess stock management, and evaluate financial
+    performance. Example questions include 'What was the total quantity dispensed last month?'
+    and 'How many items were invoiced during a specific period?'
+  cube_query:
+    measures:
+    - fact_dispensing.quantity_dispensed
+    - fact_dispensing.payment_status
+    - fact_dispensing.is_invoiced
+    - fact_dispensing.soh_before
+    - fact_dispensing.soh_after_raw
+    - fact_dispensing.soh_after_display
+    - fact_dispensing.dispensing_year
+    - fact_dispensing.dispensing_month_num
     - fact_dispensing.count
     - fact_dispensing.discount
     - fact_dispensing.dispensing_event_total
@@ -84,9 +140,13 @@ metrics:
     dimensions:
     - fact_dispensing.dispensed_from_negative_stock
     - fact_dispensing.is_stockout_dispense
-    - fact_dispensing.source_schema
+    - fact_dispensing.product_id
+    - fact_dispensing.sk_detail_id
     - fact_dispensing.sk_patient_id
     - fact_dispensing.sk_visit_id
+    - fact_dispensing.source_schema
+    - fact_dispensing.dispensed_at
+    - fact_dispensing.dispensing_month
     timeDimensions:
     - dimension: fact_dispensing.dispensing_month
       granularity: month
@@ -94,16 +154,21 @@ metrics:
     limit: 500
 - id: inpatient_admissions_metrics
   name: Inpatient Admissions Metrics
-  description: This metric tracks the total number of inpatient admissions and the total visits
-    count within the hospital system. Use this metric to analyze patient admission trends,
-    evaluate the effectiveness of care, and understand patient demographics based on sex and
-    source of admission. Example questions include 'How many inpatient admissions were there
-    last month?' and 'What is the total visit count for male patients?'
+  description: This metric provides insights into inpatient admissions, including total length
+    of stay, readmission rates, and patient demographics such as age and sex. Use this metric
+    to analyze trends in hospital admissions, assess patient outcomes, and identify potential
+    areas for improvement in care. Example questions include 'What is the average age of patients
+    admitted?' and 'How many patients were readmitted within 30 days?'
   cube_query:
     measures:
+    - fact_inpatient_admissions.age
+    - fact_inpatient_admissions.total_los_days
+    - fact_inpatient_admissions.total_readmissions
+    - fact_inpatient_admissions.total_30d_readmissions
     - fact_inpatient_admissions.count
     - fact_inpatient_admissions.total_visits_count
     dimensions:
+    - fact_inpatient_admissions.composite_patient_id
     - fact_inpatient_admissions.sex
     - fact_inpatient_admissions.source_schema
     timeDimensions: []
@@ -111,19 +176,30 @@ metrics:
     limit: 500
 - id: patient_dispensing_metrics
   name: Patient Dispensing Metrics
-  description: This metric tracks the dispensing of medications to patients, including the
-    total number of drugs dispensed, the total cost of these drugs, and counts of unclassified
-    drugs. Use this metric to analyze medication distribution trends over time, assess costs,
-    and identify dispensing patterns. Example questions include 'How many drugs were dispensed
-    last month?' or 'What was the total drug cost for patients in a specific facility?'
+  description: This metric tracks various aspects of patient medication dispensing, including
+    the total units dispensed, distinct products, and specific drug categories such as antibiotics
+    and opioids. Use this metric to analyze dispensing trends over time, assess the cost of
+    drugs dispensed, and understand the types of medications provided to patients. It can
+    help answer questions like 'How many units of antibiotics were dispensed last month?'
+    or 'What is the total cost of chronic drugs dispensed this year?'
   cube_query:
     measures:
-    - fact_patient_dispensing.count
-    - fact_patient_dispensing.drugs_dispensed_count
+    - fact_patient_dispensing.distinct_products
+    - fact_patient_dispensing.total_units_dispensed
+    - fact_patient_dispensing.has_antibiotic
+    - fact_patient_dispensing.has_antimalarial
+    - fact_patient_dispensing.has_arv
+    - fact_patient_dispensing.has_chronic_drug
+    - fact_patient_dispensing.has_opioid
+    - fact_patient_dispensing.has_obstetric_drug
+    - fact_patient_dispensing.has_reserve_antibiotic
+    - fact_patient_dispensing.has_other_drug
     - fact_patient_dispensing.total_drug_cost
+    - fact_patient_dispensing.drugs_dispensed_count
     - fact_patient_dispensing.unclassified_drug_count
     dimensions:
     - fact_patient_dispensing.source_schema
+    - fact_patient_dispensing.dispensing_month
     timeDimensions:
     - dimension: fact_patient_dispensing.dispensing_month
       granularity: month
@@ -134,8 +210,8 @@ metrics:
   description: This metric tracks the count and total amount of financial events related to
     patients, such as payments and invoices. Use it to analyze financial performance, understand
     payment trends, and assess the impact of different payment modes. Example questions include
-    'How many financial events occurred last month?' and 'What was the total amount collected
-    from patient invoices this quarter?'
+    'How many finance events occurred last month?' and 'What was the total amount collected
+    from patient payments this quarter?'
   cube_query:
     measures:
     - fact_patient_finance_events.count
@@ -143,7 +219,6 @@ metrics:
     dimensions:
     - fact_patient_finance_events.event_type
     - fact_patient_finance_events.invoice_no
-    - fact_patient_finance_events.patient_id
     - fact_patient_finance_events.payment_mode
     - fact_patient_finance_events.source_schema
     - fact_patient_finance_events.source_table
@@ -152,34 +227,296 @@ metrics:
       granularity: month
     filters: []
     limit: 500
-- id: patient_invoice_counts
-  name: Patient Invoice Counts
-  description: This metric measures the total number of patient invoices and the count of
-    events associated with those invoices. It can be used to analyze billing activity over
-    time, identify trends in patient invoicing, and assess the volume of services rendered.
-    Useful questions include 'How many invoices were generated last month?' or 'What is the
-    event count for invoices in a specific facility?'
+- id: patient_invoice_summary
+  name: Patient Invoice Summary
+  description: This metric provides a comprehensive overview of patient invoices, including
+    total billed amounts, payments received, and outstanding balances. Use this metric to
+    analyze financial performance, track payment trends, and assess the efficiency of billing
+    processes. It answers questions like 'What is the total amount billed this month?' and
+    'How much is currently due from patients?'
   cube_query:
     measures:
+    - fact_patient_invoice.total_billed
+    - fact_patient_invoice.total_patient_invoice
+    - fact_patient_invoice.total_paid_eval
+    - fact_patient_invoice.total_transactions
+    - fact_patient_invoice.total_waived
+    - fact_patient_invoice.balance_due
     - fact_patient_invoice.count
     - fact_patient_invoice.event_count
     dimensions:
     - fact_patient_invoice.facility_key
+    - fact_patient_invoice.invoice_key
     - fact_patient_invoice.patient_id
     timeDimensions:
     - dimension: fact_patient_invoice.first_event_date
       granularity: month
     filters: []
     limit: 500
-- id: ar_aging_count_by_facility_and_bucket
-  name: Accounts Receivable Aging Count
-  description: This metric measures the count of accounts receivable aging records, categorized
-    by aging bucket and facility. Use this metric to analyze the distribution of outstanding
-    receivables over time, helping to identify trends in collections and outstanding balances.
-    Example questions include 'How many accounts are overdue by 30 days at each facility?'
-    and 'What is the count of receivables in each aging bucket for the last invoice month?'
+- id: procurement_metrics_overview
+  name: Procurement Metrics Overview
+  description: This metric provides a comprehensive overview of procurement activities, measuring
+    the total count, line value, quantity, and unit price of items procured. Use this metric
+    to analyze procurement trends over time, assess supplier performance, and evaluate product
+    categories. Example questions include 'What is the total quantity of items procured this
+    month?' and 'How does the unit price vary by supplier?'
   cube_query:
     measures:
+    - fact_procurement.count
+    - fact_procurement.line_value
+    - fact_procurement.quantity
+    - fact_procurement.unit_price
+    dimensions:
+    - fact_procurement.canonical_name
+    - fact_procurement.doc_code
+    - fact_procurement.doc_type
+    - fact_procurement.inn_name
+    - fact_procurement.item_name
+    - fact_procurement.product_category
+    - fact_procurement.supplier_name
+    - fact_procurement.therapeutic_class
+    timeDimensions:
+    - dimension: fact_procurement.doc_month
+      granularity: month
+    filters: []
+    limit: 500
+- id: mart_capacity_overview
+  name: Mart Capacity Overview
+  description: 'This metric provides a comprehensive overview of the hospital''s capacity,
+    including total census and various specialized census figures such as orthopedic, surgical,
+    and medical. It is useful for understanding patient flow and resource allocation over
+    time. Example questions include: ''What is the total census for the last month?'' or ''How
+    many surgical cases were performed last week?'''
+  cube_query:
+    measures:
+    - mart_capacity.total_census
+    - mart_capacity.ortho_census
+    - mart_capacity.surgical_census
+    - mart_capacity.medical_census
+    - mart_capacity.obsgyn_census
+    - mart_capacity.maternity_census
+    - mart_capacity.census_14d_avg
+    - mart_capacity.ortho_14d_avg
+    - mart_capacity.theatre_cases
+    - mart_capacity.theatre_14d_avg
+    - mart_capacity.lab_orders
+    - mart_capacity.lab_14d_avg
+    - mart_capacity.opd_v2_visits
+    - mart_capacity.opd_14d_avg
+    - mart_capacity.opd_no_consult_proxy
+    - mart_capacity.opd_no_consult_pct
+    - mart_capacity.v1_census_excluded
+    - mart_capacity.count
+    dimensions:
+    - mart_capacity.day_name
+    timeDimensions:
+    - dimension: mart_capacity.period_date
+      granularity: month
+    filters: []
+    limit: 500
+- id: mart_operational_kpis_overview
+  name: Operational KPIs Overview
+  description: This metric provides a comprehensive overview of key operational performance
+    indicators in the hospital system, including outpatient visits, triage times, consultation
+    metrics, and pharmacy fulfillment rates. Use this metric to assess overall efficiency
+    and patient flow, answering questions like 'What is the average wait time for consultations?'
+    or 'How many outpatient visits occurred this month?'. Important filters include facility
+    and date range.
+  cube_query:
+    measures:
+    - mart_operational_kpis.opd_visits
+    - mart_operational_kpis.triage_n
+    - mart_operational_kpis.triage_coverage_pct
+    - mart_operational_kpis.triage_p50_mins
+    - mart_operational_kpis.cons_n
+    - mart_operational_kpis.cons_coverage_pct
+    - mart_operational_kpis.cons_p50_mins
+    - mart_operational_kpis.cons_14d_avg
+    - mart_operational_kpis.cons_rbi
+    - mart_operational_kpis.pharm_tat_denominator
+    - mart_operational_kpis.pharm_tat_n
+    - mart_operational_kpis.pharm_tat_coverage_pct
+    - mart_operational_kpis.pharm_tat_p50_mins
+    - mart_operational_kpis.pharm_14d_avg
+    - mart_operational_kpis.pharm_rbi
+    - mart_operational_kpis.cycle_n
+    - mart_operational_kpis.cycle_coverage_pct
+    - mart_operational_kpis.cycle_p50_mins
+    - mart_operational_kpis.lab_denominator
+    - mart_operational_kpis.lab_n
+    - mart_operational_kpis.lab_coverage_pct
+    - mart_operational_kpis.lab_p50_mins
+    - mart_operational_kpis.lab_14d_avg
+    - mart_operational_kpis.lab_rbi
+    - mart_operational_kpis.imaging_denominator
+    - mart_operational_kpis.imaging_n
+    - mart_operational_kpis.imaging_coverage_pct
+    - mart_operational_kpis.imaging_p50_mins
+    - mart_operational_kpis.imaging_14d_avg
+    - mart_operational_kpis.imaging_rbi
+    - mart_operational_kpis.theatre_requests
+    - mart_operational_kpis.theatre_completed
+    - mart_operational_kpis.theatre_completion_pct
+    - mart_operational_kpis.theatre_sched_p50_days
+    - mart_operational_kpis.pharmacy_orders
+    - mart_operational_kpis.pharmacy_served
+    - mart_operational_kpis.pharmacy_fulfilment_pct
+    - mart_operational_kpis.pharm_disp_n
+    - mart_operational_kpis.pharm_disp_coverage_pct
+    - mart_operational_kpis.pharm_dispensing_p50_mins
+    - mart_operational_kpis.opd_conversion_denom
+    - mart_operational_kpis.opd_converted
+    - mart_operational_kpis.conversion_rate_pct
+    - mart_operational_kpis.count
+    dimensions:
+    - mart_operational_kpis.cons_rbi_label
+    - mart_operational_kpis.imaging_rbi_label
+    - mart_operational_kpis.lab_rbi_label
+    - mart_operational_kpis.pharm_rbi_label
+    timeDimensions:
+    - dimension: mart_operational_kpis.period_date
+      granularity: month
+    filters: []
+    limit: 500
+- id: mart_pathway_analysis_metrics
+  name: Pathway Analysis Metrics
+  description: This metric provides insights into various aspects of patient pathways, including
+    age, time to consult, length of stay, and counts of procedures and orders. Use this metric
+    to analyze patient flow, identify bottlenecks, and assess the efficiency of care delivery.
+    Example questions include 'What is the average time to consult for patients in a specific
+    diagnostic pathway?' and 'How many imaging procedures were performed last month?'
+  cube_query:
+    measures:
+    - mart_pathway_analysis.age
+    - mart_pathway_analysis.time_to_consult_mins
+    - mart_pathway_analysis.opd_cycle_mins
+    - mart_pathway_analysis.los_hours
+    - mart_pathway_analysis.pathway_complete
+    - mart_pathway_analysis.incomplete_care
+    - mart_pathway_analysis.count
+    - mart_pathway_analysis.imaging_count
+    - mart_pathway_analysis.lab_order_count
+    - mart_pathway_analysis.pharmacy_item_count
+    - mart_pathway_analysis.proc_paid_count
+    - mart_pathway_analysis.proc_request_count
+    - mart_pathway_analysis.proc_unpaid_count
+    - mart_pathway_analysis.theatre_procedure_count
+    - mart_pathway_analysis.uncollected_value
+    dimensions:
+    - mart_pathway_analysis.facility
+    - mart_pathway_analysis.diagnostic_pathway
+    - mart_pathway_analysis.gender
+    - mart_pathway_analysis.had_admission
+    - mart_pathway_analysis.had_imaging
+    - mart_pathway_analysis.had_lab_order
+    - mart_pathway_analysis.had_pharmacy
+    - mart_pathway_analysis.had_proc_request
+    - mart_pathway_analysis.had_theatre
+    - mart_pathway_analysis.visit_type
+    - mart_pathway_analysis.visit_date
+    timeDimensions:
+    - dimension: mart_pathway_analysis.visit_date
+      granularity: month
+    filters: []
+    limit: 500
+- id: mart_revenue_leakage_metrics
+  name: Revenue Leakage Metrics
+  description: This metric tracks various aspects of revenue leakage within the hospital system,
+    including paid amounts, uncollected values, and time to consult. Use this metric to analyze
+    financial performance, identify areas of revenue loss, and assess the efficiency of patient
+    consultations. Example questions include 'What is the total uncollected value this month?'
+    or 'How long does it take on average to consult patients with revenue leakage?'
+  cube_query:
+    measures:
+    - mart_revenue_leakage.paid
+    - mart_revenue_leakage.is_leakage
+    - mart_revenue_leakage.los_hours
+    - mart_revenue_leakage.time_to_consult_mins
+    - mart_revenue_leakage.count
+    - mart_revenue_leakage.uncollected_value
+    - mart_revenue_leakage.unit_price
+    dimensions:
+    - mart_revenue_leakage.facility
+    - mart_revenue_leakage.disposition
+    - mart_revenue_leakage.is_collected
+    - mart_revenue_leakage.proc_category
+    - mart_revenue_leakage.request_name
+    - mart_revenue_leakage.source_system
+    - mart_revenue_leakage.visit_type
+    - mart_revenue_leakage.ward_type
+    timeDimensions:
+    - dimension: mart_revenue_leakage.request_date
+      granularity: month
+    filters: []
+    limit: 500
+- id: admission_tat_metrics
+  name: Admission Turnaround Time Metrics
+  description: This metric tracks various aspects of admission turnaround times, including
+    total admissions, fast track admissions, and their respective percentages. It also provides
+    median and 75th percentile turnaround times in minutes. Use this metric to analyze efficiency
+    in patient admissions and identify trends over time. Example questions include 'What is
+    the average turnaround time for admissions this month?' or 'How many fast track admissions
+    were processed last quarter?'
+  cube_query:
+    measures:
+    - rpt_admission_tat.total_admissions
+    - rpt_admission_tat.fast_track
+    - rpt_admission_tat.fast_pct
+    - rpt_admission_tat.p50_tat_min
+    - rpt_admission_tat.p75_tat_min
+    - rpt_admission_tat.count
+    dimensions:
+    - rpt_admission_tat.tat_month
+    timeDimensions:
+    - dimension: rpt_admission_tat.tat_month
+      granularity: month
+    filters: []
+    limit: 500
+- id: admission_tat_metrics_rpt_admission_tat_bimodal
+  name: Admission Turnaround Time Metrics
+  description: 'This metric tracks various aspects of admission turnaround times, including
+    total admissions, evaluations, and the performance of fast and slow pathways. Use this
+    metric to analyze patient flow efficiency and identify bottlenecks in the admission process.
+    Example questions include: ''What is the average turnaround time for admissions this month?''
+    or ''How many patients were admitted through the fast track last week?'''
+  cube_query:
+    measures:
+    - rpt_admission_tat_bimodal.day_num
+    - rpt_admission_tat_bimodal.total_admissions
+    - rpt_admission_tat_bimodal.fast_track
+    - rpt_admission_tat_bimodal.slow_pathway
+    - rpt_admission_tat_bimodal.fast_pct
+    - rpt_admission_tat_bimodal.p50_tat_min
+    - rpt_admission_tat_bimodal.p75_tat_min
+    - rpt_admission_tat_bimodal.total_evaluations
+    - rpt_admission_tat_bimodal.count
+    dimensions:
+    - rpt_admission_tat_bimodal.day_name
+    timeDimensions: []
+    filters: []
+    limit: 500
+- id: ar_aging_metrics
+  name: Accounts Receivable Aging Metrics
+  description: This metric provides insights into the aging of accounts receivable, measuring
+    total billed, collected, and outstanding amounts, as well as collection and dispatch rates.
+    Use this metric to analyze the efficiency of billing and collections over time, and to
+    answer questions about invoice performance by facility or insurer. Important filters include
+    aging bucket and facility to drill down into specific areas of concern.
+  cube_query:
+    measures:
+    - rpt_ar_aging.invoices
+    - rpt_ar_aging.distinct_visits
+    - rpt_ar_aging.total_billed
+    - rpt_ar_aging.total_collected
+    - rpt_ar_aging.total_outstanding
+    - rpt_ar_aging.collection_rate_pct
+    - rpt_ar_aging.dispatched_invoices
+    - rpt_ar_aging.dispatch_rate_pct
+    - rpt_ar_aging.avg_days_to_dispatch
+    - rpt_ar_aging.avg_days_to_collection
+    - rpt_ar_aging.avg_days_outstanding
+    - rpt_ar_aging.overpaid_invoices
+    - rpt_ar_aging.overpayment_kes
     - rpt_ar_aging.count
     dimensions:
     - rpt_ar_aging.aging_bucket
@@ -192,13 +529,28 @@ metrics:
     limit: 500
 - id: bed_occupancy_metrics
   name: Bed Occupancy Metrics
-  description: This metric measures the total count of bed occupancy and the average admission
-    cost across different facilities and wards. Use this to analyze trends in bed usage and
-    associated costs over time. Example questions include 'What is the average admission cost
-    for the pediatric ward this month?' or 'How many beds were occupied in the main facility
-    last month?'
+  description: This metric provides insights into bed occupancy rates, admissions, and revenue
+    for different facilities. It measures open, insured, and cash admissions, average length
+    of stay, and total admission revenue. Use this metric to answer questions about bed utilization,
+    financial performance, and patient flow trends over time, particularly by facility and
+    ward category.
   cube_query:
     measures:
+    - rpt_bed_occupancy.open_admissions
+    - rpt_bed_occupancy.insured_admissions
+    - rpt_bed_occupancy.cash_admissions
+    - rpt_bed_occupancy.avg_los_days
+    - rpt_bed_occupancy.total_admission_revenue
+    - rpt_bed_occupancy.insured_revenue
+    - rpt_bed_occupancy.cash_revenue
+    - rpt_bed_occupancy.bor_pct
+    - rpt_bed_occupancy.bti_days
+    - rpt_bed_occupancy.btr
+    - rpt_bed_occupancy.days_in_month
+    - rpt_bed_occupancy.bed_count
+    - rpt_bed_occupancy.total_bed_days
+    - rpt_bed_occupancy.discharged_admissions
+    - rpt_bed_occupancy.total_admissions
     - rpt_bed_occupancy.count
     - rpt_bed_occupancy.avg_admission_cost
     dimensions:
@@ -211,15 +563,47 @@ metrics:
       granularity: month
     filters: []
     limit: 500
-- id: dialysis_session_count
-  name: Dialysis Session Count
-  description: This metric measures the total number of dialysis sessions conducted within
-    a specified time frame. It can be used to analyze trends in dialysis treatment over time,
-    assess resource allocation, and evaluate facility performance. Example questions include
-    'How many dialysis sessions were held last month?' or 'What is the session count by facility
-    for the past year?'
+- id: monthly_critical_admission_rates
+  name: Monthly Critical Admission Rates
+  description: This metric tracks the total number of critical cases, admissions, non-admissions,
+    and the non-admission rate percentage on a monthly basis. Use this metric to analyze trends
+    in critical care admissions and understand the efficiency of patient management. Example
+    questions include 'What was the non-admission rate for critical cases last month?' or
+    'How many critical patients were admitted this month?'
   cube_query:
     measures:
+    - rpt_cd12_monthly_rate.total_critical
+    - rpt_cd12_monthly_rate.admitted
+    - rpt_cd12_monthly_rate.not_admitted
+    - rpt_cd12_monthly_rate.non_admission_rate_pct
+    - rpt_cd12_monthly_rate.count
+    dimensions:
+    - rpt_cd12_monthly_rate.critical_month
+    timeDimensions:
+    - dimension: rpt_cd12_monthly_rate.critical_month
+      granularity: month
+    filters: []
+    limit: 500
+- id: dialysis_sessions_overview
+  name: Dialysis Sessions Overview
+  description: This metric provides a comprehensive overview of dialysis sessions, including
+    total sessions, distinct patients, and revenue generated. Use it to analyze trends in
+    dialysis care, assess facility performance, and understand patient engagement. Example
+    questions include 'How many dialysis sessions were conducted last month?' and 'What was
+    the average duration of sessions in the last quarter?'
+  cube_query:
+    measures:
+    - rpt_dialysis.total_sessions
+    - rpt_dialysis.distinct_patients
+    - rpt_dialysis.avg_duration_hrs
+    - rpt_dialysis.total_duration_min
+    - rpt_dialysis.total_duration_hrs
+    - rpt_dialysis.billed_visits
+    - rpt_dialysis.total_dialysis_revenue
+    - rpt_dialysis.insured_revenue
+    - rpt_dialysis.cash_revenue
+    - rpt_dialysis.distinct_insurers
+    - rpt_dialysis.revenue_per_session
     - rpt_dialysis.count
     dimensions:
     - rpt_dialysis.dialysis_ward
@@ -229,15 +613,44 @@ metrics:
       granularity: month
     filters: []
     limit: 500
-- id: disease_burden_metrics
-  name: Disease Burden Metrics
-  description: This metric measures the total count of disease cases and the count of prescriptions
-    related to those diseases across different facilities. Use this metric to analyze disease
-    prevalence and treatment patterns over time. Example questions include 'What is the total
-    disease burden for each facility this month?' and 'How many prescriptions were issued
-    for each disease group last month?'
+- id: dialysis_operations_revenue_metrics
+  name: Dialysis Operations Revenue Metrics
+  description: This metric provides insights into the financial performance of dialysis operations,
+    measuring total revenue, session fees, and the breakdown of billed sessions by payment
+    type. Use this metric to analyze revenue trends, assess the impact of insurance versus
+    cash payments, and evaluate operational efficiency. Example questions include 'What is
+    the total dialysis revenue for the last month?' and 'How many sessions were billed to
+    insurance compared to cash?'.
   cube_query:
     measures:
+    - rpt_dialysis_ops.sessions_billed
+    - rpt_dialysis_ops.sessions_insured
+    - rpt_dialysis_ops.sessions_cash
+    - rpt_dialysis_ops.session_fee_revenue
+    - rpt_dialysis_ops.total_dialysis_revenue
+    - rpt_dialysis_ops.ancillary_revenue
+    - rpt_dialysis_ops.avg_session_fee
+    - rpt_dialysis_ops.utilisation_pct_theoretical
+    - rpt_dialysis_ops.count
+    dimensions:
+    - rpt_dialysis_ops.is_partial_month
+    timeDimensions:
+    - dimension: rpt_dialysis_ops.invoice_month
+      granularity: month
+    filters: []
+    limit: 500
+- id: disease_burden_metrics
+  name: Disease Burden Metrics
+  description: This metric provides insights into the burden of diseases within the hospital
+    system, measuring the number of visits, lab events, total counts, and prescription counts
+    associated with various disease groups. Use this metric to analyze trends over time, assess
+    the impact of specific diseases on healthcare resources, and identify high-burden areas.
+    Example questions include 'How many visits were attributed to diabetes last month?' or
+    'What is the total lab event count for respiratory diseases this year?'
+  cube_query:
+    measures:
+    - rpt_disease_burden.icd10_visits
+    - rpt_disease_burden.lab_events
     - rpt_disease_burden.count
     - rpt_disease_burden.rx_count
     dimensions:
@@ -249,37 +662,60 @@ metrics:
       granularity: month
     filters: []
     limit: 500
-- id: rpt_dispensing_trends_overview
-  name: Dispensing Trends Overview
-  description: This metric provides insights into the total number of dispensings and their
-    associated values over time. It can be used to analyze trends in medication dispensing
-    across different facilities and therapeutic classes. Example questions include 'What are
-    the total dispensing values by facility this month?' or 'How many dispensings occurred
-    for each therapeutic class last quarter?'
+- id: dispensing_trends_total_units_dispensed
+  name: Total Units Dispensed
+  description: This metric measures the total number of units dispensed across various facilities
+    and therapeutic classes over time. It is useful for analyzing dispensing trends, understanding
+    patient access to medications, and evaluating the performance of different facilities.
+    Example questions include 'What were the total units dispensed last month?' and 'How do
+    dispensing trends compare across different therapeutic classes?'
   cube_query:
     measures:
-    - rpt_dispensing_trends.count
-    - rpt_dispensing_trends.total_dispensing_value
+    - rpt_dispensing_trends.total_units_dispensed
     dimensions:
-    - rpt_dispensing_trends.canonical_name
     - rpt_dispensing_trends.facility
-    - rpt_dispensing_trends.inn_name
     - rpt_dispensing_trends.therapeutic_class
-    - rpt_dispensing_trends.therapeutic_subclass
+    - rpt_dispensing_trends.canonical_name
     timeDimensions:
     - dimension: rpt_dispensing_trends.dispensing_month
       granularity: month
     filters: []
     limit: 500
-- id: rpt_dos_watchlist_count
-  name: Count of Watchlist Items
-  description: This metric measures the total count of items on the DOS watchlist, providing
-    insights into inventory management and medication monitoring. Use it to answer questions
-    about the number of items flagged for review, track trends over time, or assess the impact
-    of reorder urgency. Important filters include facility and therapeutic class to narrow
-    down specific areas of concern.
+- id: doctor_performance_metrics
+  name: Doctor Performance Metrics
+  description: This metric tracks the performance of doctors based on evaluations, admissions,
+    and conversion rates over time. Use it to analyze how different doctors are performing
+    in terms of patient interactions and outcomes. Example questions include 'What is the
+    conversion rate for Dr. Smith this month?' or 'How many evaluations did Dr. Jones receive
+    last quarter?'
   cube_query:
     measures:
+    - rpt_doctor_performance.evaluations
+    - rpt_doctor_performance.admissions
+    - rpt_doctor_performance.conversion_rate_pct
+    - rpt_doctor_performance.count
+    dimensions:
+    - rpt_doctor_performance.username
+    timeDimensions:
+    - dimension: rpt_doctor_performance.visit_month
+      granularity: month
+    filters: []
+    limit: 500
+- id: rpt_dos_watchlist_inventory_metrics
+  name: Inventory Metrics for DOS Watchlist
+  description: This metric provides insights into the inventory status of drugs on the DOS
+    watchlist, including current stock on hand, total dispensed in the last 30 days, and average
+    daily consumption. Use this metric to assess drug availability, identify potential shortages,
+    and manage reorder urgency. Example questions include 'What is the average daily consumption
+    of a specific drug?' and 'How many days of stock are remaining for a facility?'
+  cube_query:
+    measures:
+    - rpt_dos_watchlist.current_soh_raw
+    - rpt_dos_watchlist.current_soh
+    - rpt_dos_watchlist.total_dispensed_30d
+    - rpt_dos_watchlist.avg_daily_consumption
+    - rpt_dos_watchlist.active_dispensing_days
+    - rpt_dos_watchlist.days_of_stock_remaining
     - rpt_dos_watchlist.count
     dimensions:
     - rpt_dos_watchlist.canonical_name
@@ -293,15 +729,45 @@ metrics:
       granularity: month
     filters: []
     limit: 500
-- id: insurance_ar_count_by_facility
-  name: Insurance Accounts Receivable Count by Facility
-  description: This metric measures the total count of insurance accounts receivable, segmented
-    by facility and insurer. It is useful for analyzing the volume of outstanding insurance
-    claims over time. Example questions include 'How many insurance accounts receivable do
-    we have for each facility this month?' and 'What is the trend in accounts receivable by
-    insurer?'
+- id: imaging_operations_metrics
+  name: Imaging Operations Metrics
+  description: This metric provides insights into imaging operations by measuring the number
+    of sessions, total revenue, average revenue per session, and the count of operations.
+    Use this metric to analyze performance across different facilities and modalities over
+    time. Example questions include 'What was the revenue from imaging sessions last month?'
+    or 'How many sessions were conducted at each facility?'
   cube_query:
     measures:
+    - rpt_imaging_ops.sessions
+    - rpt_imaging_ops.revenue
+    - rpt_imaging_ops.avg_per_session
+    - rpt_imaging_ops.count
+    dimensions:
+    - rpt_imaging_ops.facility
+    - rpt_imaging_ops.modality
+    timeDimensions:
+    - dimension: rpt_imaging_ops.revenue_month
+      granularity: month
+    filters: []
+    limit: 500
+- id: insurance_ar_metrics
+  name: Insurance Accounts Receivable Metrics
+  description: This metric tracks key performance indicators related to insurance accounts
+    receivable, including total billed, collected, and outstanding amounts. Use this metric
+    to analyze the efficiency of billing and collections processes, assess the collection
+    rate, and understand the volume of dispatched invoices. It answers questions like 'What
+    is the total amount billed this month?' or 'How many distinct visits were covered by insurance?'.
+  cube_query:
+    measures:
+    - rpt_insurance_ar.invoices
+    - rpt_insurance_ar.distinct_visits
+    - rpt_insurance_ar.total_billed
+    - rpt_insurance_ar.total_collected
+    - rpt_insurance_ar.total_outstanding
+    - rpt_insurance_ar.collection_rate_pct
+    - rpt_insurance_ar.dispatched_invoices
+    - rpt_insurance_ar.dispatch_rate_pct
+    - rpt_insurance_ar.enrolled_patients
     - rpt_insurance_ar.count
     dimensions:
     - rpt_insurance_ar.facility
@@ -313,12 +779,15 @@ metrics:
     limit: 500
 - id: kakamega_population_metrics
   name: Kakamega Population Metrics
-  description: This metric tracks the total population and visit counts in the Kakamega region.
-    Use it to analyze trends in population and healthcare visits over time, and to answer
-    questions about facility performance and sub-county demographics. Important filters include
-    facility and sub-county to refine your analysis.
+  description: This metric provides insights into the population health in Kakamega, measuring
+    the incidence rate per 1000 individuals, total count of the population, and the number
+    of visits. Use this metric to analyze trends over time, assess healthcare needs, and evaluate
+    the effectiveness of health interventions. It can help answer questions like 'What is
+    the incidence rate of diseases in Kakamega this month?' or 'How many visits were recorded
+    in a specific facility?'
   cube_query:
     measures:
+    - rpt_kakamega_population.incidence_rate_per_1000
     - rpt_kakamega_population.count
     - rpt_kakamega_population.visit_count
     dimensions:
@@ -330,14 +799,41 @@ metrics:
       granularity: month
     filters: []
     limit: 500
-- id: ward_utilisation_metrics
-  name: Ward Utilisation Metrics
-  description: This metric measures the count and percentage of total utilisation for wards
-    in the Lodwar facility. Use this to analyze how effectively wards are being utilized over
-    time. Example questions include 'What is the total count of patients in each ward?' and
-    'What percentage of total capacity is being used in the Lodwar facility?'
+- id: monthly_lab_visits_analysis
+  name: Monthly Lab Visits Analysis
+  description: This metric provides insights into lab visits on a monthly basis, measuring
+    distinct visits, total components processed, and the percentage of abnormal results. Use
+    this metric to analyze trends in lab activity, assess the quality of lab results, and
+    identify potential issues in patient care. Example questions include 'What is the trend
+    in abnormal lab results over the past few months?' and 'How many distinct lab visits occurred
+    last month?'
   cube_query:
     measures:
+    - rpt_lab_monthly.distinct_visits
+    - rpt_lab_monthly.total_components
+    - rpt_lab_monthly.abnormal_pct
+    - rpt_lab_monthly.count
+    - rpt_lab_monthly.abnormal_count
+    dimensions:
+    - rpt_lab_monthly.lab_month
+    timeDimensions:
+    - dimension: rpt_lab_monthly.lab_month
+      granularity: month
+    filters: []
+    limit: 500
+- id: ward_utilisation_metrics
+  name: Ward Utilisation Metrics
+  description: This metric provides insights into ward utilisation by measuring total admissions,
+    closed admissions, open admissions, average length of stay in days, and the percentage
+    of total admissions. Use this metric to analyze ward performance, identify trends in patient
+    flow, and assess resource allocation. Example questions include 'What is the average length
+    of stay in the ward?' and 'How many open admissions are currently in the facility?'
+  cube_query:
+    measures:
+    - rpt_lodwar_ward_utilisation.total_admissions
+    - rpt_lodwar_ward_utilisation.closed_admissions
+    - rpt_lodwar_ward_utilisation.open_admissions
+    - rpt_lodwar_ward_utilisation.avg_los_days
     - rpt_lodwar_ward_utilisation.count
     - rpt_lodwar_ward_utilisation.pct_of_total
     dimensions:
@@ -347,15 +843,566 @@ metrics:
     timeDimensions: []
     filters: []
     limit: 500
-- id: procedure_revenue_metrics
-  name: Procedure Revenue Metrics
-  description: This metric tracks the total count of procedures and the average item amount
-    billed across different facilities and insurers. Use this metric to analyze revenue trends
-    over time, compare performance by facility, or assess the impact of different payment
-    modes. Example questions include 'What is the average revenue per procedure for each facility
-    this month?' or 'How does the procedure count vary by insurer?'
+- id: malaria_cases_by_age_group
+  name: Malaria Cases by Age Group
+  description: This metric measures the total count of malaria cases segmented by different
+    age groups. It can be used to analyze the distribution of malaria cases across various
+    age tiers, helping to identify which age groups are most affected. Example questions include
+    'How many malaria cases were reported in each age group last month?' and 'What is the
+    trend of malaria cases among children versus adults?'.
   cube_query:
     measures:
+    - rpt_malaria_age_groups.count
+    dimensions:
+    - rpt_malaria_age_groups.age_group_label
+    - rpt_malaria_age_groups.age_group_raw
+    timeDimensions: []
+    filters: []
+    limit: 500
+- id: malaria_care_cascade_metrics
+  name: Malaria Care Cascade Metrics
+  description: This metric tracks the various steps in the malaria care cascade, including
+    dropout rates and counts at each step. Use this metric to analyze patient flow through
+    the malaria care process, identify bottlenecks, and assess the effectiveness of interventions.
+    Example questions include 'What is the dropout rate at each step?' and 'How many patients
+    are progressing through the malaria care cascade?'
+  cube_query:
+    measures:
+    - rpt_malaria_care_cascade.step_order
+    - rpt_malaria_care_cascade.dropout_rate_pct
+    - rpt_malaria_care_cascade.count
+    - rpt_malaria_care_cascade.dropout_count
+    - rpt_malaria_care_cascade.prior_step_count
+    - rpt_malaria_care_cascade.step_count
+    dimensions:
+    - rpt_malaria_care_cascade.branch
+    - rpt_malaria_care_cascade.branch_label
+    - rpt_malaria_care_cascade.confidence_level
+    - rpt_malaria_care_cascade.source_schema
+    - rpt_malaria_care_cascade.step_name
+    - rpt_malaria_care_cascade.zone_label
+    timeDimensions: []
+    filters: []
+    limit: 500
+- id: malaria_cost_analysis
+  name: Malaria Cost Analysis
+  description: This metric provides insights into the costs associated with malaria visits,
+    including median costs per visit and confirmed case. Use this metric to analyze financial
+    impacts, assess cost efficiency, and understand the proportion of visits with associated
+    costs. It answers questions like 'What is the median cost per visit for malaria?' and
+    'How many confirmed cases were reported this month?'
+  cube_query:
+    measures:
+    - rpt_malaria_cost.median_cost_per_visit
+    - rpt_malaria_cost.median_cost_per_confirmed_case
+    - rpt_malaria_cost.count
+    - rpt_malaria_cost.confirmed_count
+    - rpt_malaria_cost.pct_visits_with_cost
+    - rpt_malaria_cost.visit_count
+    - rpt_malaria_cost.visits_with_cost
+    dimensions:
+    - rpt_malaria_cost.cost_data_available
+    - rpt_malaria_cost.detection_source
+    - rpt_malaria_cost.is_tenri_pso_outlier_row
+    - rpt_malaria_cost.source_schema
+    - rpt_malaria_cost.zone_label
+    timeDimensions:
+    - dimension: rpt_malaria_cost.visit_month
+      granularity: month
+    filters: []
+    limit: 500
+- id: malaria_data_quality_completeness
+  name: Malaria Data Quality Completeness Percentage
+  description: This metric measures the completeness percentage of malaria data reported,
+    providing insights into data quality. It can be used to assess the reliability of malaria
+    reporting and identify areas needing improvement. Example questions include 'What is the
+    completeness percentage for malaria data this month?' and 'How does data completeness
+    vary by evidence type?'
+  cube_query:
+    measures:
+    - rpt_malaria_data_quality.completeness_pct
+    - rpt_malaria_data_quality.count
+    dimensions:
+    - rpt_malaria_data_quality.comparison_allowed
+    - rpt_malaria_data_quality.confidence_level
+    - rpt_malaria_data_quality.evidence_type
+    - rpt_malaria_data_quality.known_gap
+    - rpt_malaria_data_quality.metric_name
+    - rpt_malaria_data_quality.reliability_note
+    - rpt_malaria_data_quality.source_schema
+    - rpt_malaria_data_quality.zone_label
+    timeDimensions: []
+    filters: []
+    limit: 500
+- id: malaria_monthly_testing_metrics
+  name: Monthly Malaria Testing Metrics
+  description: This metric tracks various malaria testing rates and related health indicators
+    on a monthly basis. It includes measures such as testing rate, positivity rate, and antibiotic
+    co-prescription rate, which are essential for evaluating malaria control efforts. Use
+    this metric to answer questions about the effectiveness of testing and treatment strategies
+    in different zones, and consider filtering by zone label or validity of positivity month
+    for more targeted insights.
+  cube_query:
+    measures:
+    - rpt_malaria_monthly_zone.testing_rate
+    - rpt_malaria_monthly_zone.positivity_rate
+    - rpt_malaria_monthly_zone.antibiotic_coprescription_rate
+    - rpt_malaria_monthly_zone.sepsis_rate
+    - rpt_malaria_monthly_zone.incidence_per_1000_monthly
+    - rpt_malaria_monthly_zone.antibiotic_confirmed_count
+    - rpt_malaria_monthly_zone.antibiotic_rx_count
+    - rpt_malaria_monthly_zone.antimalarial_count
+    - rpt_malaria_monthly_zone.confirmed_count
+    - rpt_malaria_monthly_zone.sepsis_count
+    - rpt_malaria_monthly_zone.tested_count
+    - rpt_malaria_monthly_zone.visit_count
+    dimensions:
+    - rpt_malaria_monthly_zone.is_valid_positivity_month
+    - rpt_malaria_monthly_zone.source_schema
+    - rpt_malaria_monthly_zone.zone_label
+    timeDimensions:
+    - dimension: rpt_malaria_monthly_zone.visit_month
+      granularity: month
+    filters: []
+    limit: 500
+- id: malaria_recurrence_metrics
+  name: Malaria Recurrence Metrics
+  description: This metric provides insights into malaria recurrence rates across different
+    zones, including patient counts and visit statistics. Use it to analyze the effectiveness
+    of malaria treatment and prevention strategies. Example questions include 'What is the
+    recurrence rate in each zone?' and 'How many patients are recurrent cases in a specific
+    tier?' Filter by recurrence tier or zone label for more targeted analysis.
+  cube_query:
+    measures:
+    - rpt_malaria_recurrence.tier_order
+    - rpt_malaria_recurrence.zone_max_visits
+    - rpt_malaria_recurrence.pct_of_zone_patients
+    - rpt_malaria_recurrence.recurrence_rate
+    - rpt_malaria_recurrence.count
+    - rpt_malaria_recurrence.patient_count
+    - rpt_malaria_recurrence.zone_patient_count
+    - rpt_malaria_recurrence.zone_recurrent_patient_count
+    dimensions:
+    - rpt_malaria_recurrence.recurrence_tier
+    - rpt_malaria_recurrence.source_schema
+    - rpt_malaria_recurrence.zone_label
+    timeDimensions: []
+    filters: []
+    limit: 500
+- id: malaria_treatment_metrics
+  name: Malaria Treatment Metrics
+  description: This metric provides insights into malaria treatment effectiveness and appropriateness
+    across different zones. It measures total visits, treatment rates, and prescription accuracy,
+    helping to answer questions about treatment quality and resource allocation. Use this
+    metric to analyze treatment patterns and identify areas for improvement in malaria care.
+  cube_query:
+    measures:
+    - rpt_malaria_treatment_matrix.cell_order
+    - rpt_malaria_treatment_matrix.total_visits
+    - rpt_malaria_treatment_matrix.cell_pct_of_zone
+    - rpt_malaria_treatment_matrix.empirical_treatment_rate_pct
+    - rpt_malaria_treatment_matrix.documented_act_rate_pct
+    - rpt_malaria_treatment_matrix.over_prescription_rate_pct
+    - rpt_malaria_treatment_matrix.integrity_delta
+    - rpt_malaria_treatment_matrix.count
+    - rpt_malaria_treatment_matrix.cell_count
+    dimensions:
+    - rpt_malaria_treatment_matrix.appropriateness_category
+    - rpt_malaria_treatment_matrix.cell_label
+    - rpt_malaria_treatment_matrix.cell_name
+    - rpt_malaria_treatment_matrix.source_schema
+    - rpt_malaria_treatment_matrix.zone_label
+    timeDimensions: []
+    filters: []
+    limit: 500
+- id: malaria_incidence_and_itn_usage_metrics
+  name: Malaria Incidence and ITN Usage Metrics
+  description: This metric provides insights into malaria incidence rates and insecticide-treated
+    net (ITN) usage among different populations. It measures malaria incidence per 1000 individuals,
+    ITN ownership, and usage rates among households, children under five, and pregnant women.
+    Use this metric to analyze trends in malaria prevention efforts and assess the effectiveness
+    of ITN distribution programs. Important filters include county, transmission zone, and
+    analytical caveats.
+  cube_query:
+    measures:
+    - rpt_malaria_zones.malaria_incidence_per_1000_2022
+    - rpt_malaria_zones.itn_hh_ownership_pct_kmis2020_national
+    - rpt_malaria_zones.itn_u5_use_pct_kmis2020_national
+    - rpt_malaria_zones.itn_pregnant_use_pct_kmis2020_national
+    - rpt_malaria_zones.itn_population_access_pct_kmis2020_national
+    - rpt_malaria_zones.itn_population_slept_under_pct_kmis2020_national
+    - rpt_malaria_zones.sub_county_pop
+    - rpt_malaria_zones.count
+    - rpt_malaria_zones.valid_visit_count
+    dimensions:
+    - rpt_malaria_zones.analytical_caveats
+    - rpt_malaria_zones.county
+    - rpt_malaria_zones.itn_use_access_ratio_category
+    - rpt_malaria_zones.papfpr_range_pct
+    - rpt_malaria_zones.primary_sub_county
+    - rpt_malaria_zones.source_schema
+    - rpt_malaria_zones.testing_method
+    - rpt_malaria_zones.transmission_zone
+    - rpt_malaria_zones.zone_label
+    timeDimensions:
+    - dimension: rpt_malaria_zones.data_end_date
+      granularity: month
+    filters: []
+    limit: 500
+- id: ortho_admissions_count
+  name: Total Ortho Admissions Count
+  description: This metric measures the total number of orthopedic admissions within a specified
+    time frame. It can be used to analyze trends in patient admissions, assess facility performance,
+    and evaluate the impact of orthopedic services. Example questions include 'How many orthopedic
+    admissions occurred last month?' and 'What is the admission count by facility?'.
+  cube_query:
+    measures:
+    - rpt_ortho_admissions.count
+    dimensions:
+    - rpt_ortho_admissions.facility
+    - rpt_ortho_admissions.gender
+    - rpt_ortho_admissions.bed_category
+    - rpt_ortho_admissions.discharge_category
+    timeDimensions:
+    - dimension: rpt_ortho_admissions.admission_month
+      granularity: month
+    filters: []
+    limit: 500
+- id: ortho_busy_periods_metrics
+  name: Orthopedic Busy Periods Metrics
+  description: This metric tracks the busy periods for orthopedic visits, measuring total
+    visits, average visits per day, and the percentage of total visits during peak slots.
+    Use this data to analyze patient flow and identify trends in visit patterns. Example questions
+    include 'What days have the highest orthopedic visit counts?' and 'How does the average
+    number of visits vary by hour of the day?'
+  cube_query:
+    measures:
+    - rpt_ortho_busy_periods.visit_dow
+    - rpt_ortho_busy_periods.hour_of_day
+    - rpt_ortho_busy_periods.total_visits
+    - rpt_ortho_busy_periods.avg_per_day
+    - rpt_ortho_busy_periods.count
+    - rpt_ortho_busy_periods.pct_of_total
+    dimensions:
+    - rpt_ortho_busy_periods.is_peak_slot
+    - rpt_ortho_busy_periods.visit_day_name
+    timeDimensions: []
+    filters: []
+    limit: 500
+- id: ortho_conversion_metrics
+  name: Ortho Conversion Metrics
+  description: This metric tracks various aspects of orthopedic patient conversions, including
+    admission year, days from outpatient to admission, length of stay, and total count of
+    conversions. Use this metric to analyze trends in orthopedic admissions, evaluate the
+    efficiency of the conversion process, and assess patient flow. It can help answer questions
+    like 'How many orthopedic patients were admitted last year?' or 'What is the average length
+    of stay for orthopedic admissions?'
+  cube_query:
+    measures:
+    - rpt_ortho_conversion.admission_year
+    - rpt_ortho_conversion.opd_to_admission_days
+    - rpt_ortho_conversion.los_days
+    - rpt_ortho_conversion.count
+    dimensions:
+    - rpt_ortho_conversion.bed_category
+    - rpt_ortho_conversion.facility
+    - rpt_ortho_conversion.gender
+    - rpt_ortho_conversion.conversion_type
+    - rpt_ortho_conversion.discharge_category
+    - rpt_ortho_conversion.is_direct_admission
+    timeDimensions:
+    - dimension: rpt_ortho_conversion.admission_month
+      granularity: month
+    filters: []
+    limit: 500
+- id: ortho_imaging_visit_metrics
+  name: Orthopedic Imaging Visit Metrics
+  description: This metric tracks various aspects of orthopedic imaging visits, including
+    the total number of visits, turnaround times in minutes and days, and visit counts. Use
+    this metric to analyze trends in imaging visits over time, assess patient demographics,
+    and evaluate service efficiency. Example questions include 'How many orthopedic imaging
+    visits occurred last month?' or 'What is the average turnaround time for imaging results?'
+  cube_query:
+    measures:
+    - rpt_ortho_imaging.visit_year
+    - rpt_ortho_imaging.visit_dow
+    - rpt_ortho_imaging.result_tat_mins
+    - rpt_ortho_imaging.result_tat_days
+    - rpt_ortho_imaging.count
+    dimensions:
+    - rpt_ortho_imaging.age_group
+    - rpt_ortho_imaging.facility
+    - rpt_ortho_imaging.gender
+    - rpt_ortho_imaging.has_result
+    - rpt_ortho_imaging.is_new_patient
+    - rpt_ortho_imaging.modality_group
+    - rpt_ortho_imaging.status
+    - rpt_ortho_imaging.visit_type
+    timeDimensions:
+    - dimension: rpt_ortho_imaging.visit_month
+      granularity: month
+    filters: []
+    limit: 500
+- id: ortho_lab_visit_metrics
+  name: Orthopedic Lab Visit Metrics
+  description: This metric tracks various aspects of orthopedic lab visits, including the
+    total number of visits, results turnaround time, and visit distribution by day of the
+    week. Use this metric to analyze patient flow, assess lab efficiency, and understand trends
+    in orthopedic lab testing. Example questions include 'How many orthopedic lab visits occurred
+    last month?' or 'What is the average turnaround time for lab results?'
+  cube_query:
+    measures:
+    - rpt_ortho_lab.visit_year
+    - rpt_ortho_lab.visit_dow
+    - rpt_ortho_lab.result_tat_mins
+    - rpt_ortho_lab.count
+    dimensions:
+    - rpt_ortho_lab.facility
+    - rpt_ortho_lab.age_group
+    - rpt_ortho_lab.gender
+    - rpt_ortho_lab.status
+    - rpt_ortho_lab.visit_type
+    - rpt_ortho_lab.is_new_patient
+    timeDimensions:
+    - dimension: rpt_ortho_lab.visit_month
+      granularity: month
+    filters: []
+    limit: 500
+- id: ortho_opd_visit_metrics
+  name: Orthopedic Outpatient Visit Metrics
+  description: This metric tracks various aspects of orthopedic outpatient visits, including
+    the count of visits, patient demographics such as age and gender, and visit timing details
+    like hour of day and day of week. Use this metric to analyze trends in patient visits,
+    understand peak times, and evaluate new versus returning patients. Example questions include
+    'How many new patients visited this month?' or 'What is the average age of patients visiting
+    on weekends?'
+  cube_query:
+    measures:
+    - rpt_ortho_opd.hour_of_day
+    - rpt_ortho_opd.arrival_hour
+    - rpt_ortho_opd.visit_year
+    - rpt_ortho_opd.visit_dow
+    - rpt_ortho_opd.age
+    - rpt_ortho_opd.count
+    dimensions:
+    - rpt_ortho_opd.age_group
+    - rpt_ortho_opd.facility
+    - rpt_ortho_opd.gender
+    - rpt_ortho_opd.is_new_patient
+    - rpt_ortho_opd.is_walk_in
+    - rpt_ortho_opd.visit_day_name
+    - rpt_ortho_opd.visit_type
+    timeDimensions:
+    - dimension: rpt_ortho_opd.visit_month
+      granularity: month
+    filters: []
+    limit: 500
+- id: ortho_patient_journey_metrics
+  name: Orthopedic Patient Journey Metrics
+  description: 'This metric provides insights into the orthopedic patient journey, measuring
+    key aspects such as length of stay, imaging and lab orders, and procedure counts. Use
+    this metric to analyze patient demographics, facility performance, and service utilization.
+    Example questions include: ''What is the average length of stay for orthopedic patients?''
+    or ''How many imaging procedures were performed last month?'''
+  cube_query:
+    measures:
+    - rpt_ortho_patient_journey.age
+    - rpt_ortho_patient_journey.los_hours
+    - rpt_ortho_patient_journey.count
+    - rpt_ortho_patient_journey.imaging_count
+    - rpt_ortho_patient_journey.lab_order_count
+    - rpt_ortho_patient_journey.pharmacy_item_count
+    - rpt_ortho_patient_journey.proc_paid_count
+    - rpt_ortho_patient_journey.proc_request_count
+    - rpt_ortho_patient_journey.proc_unpaid_count
+    - rpt_ortho_patient_journey.theatre_procedure_count
+    - rpt_ortho_patient_journey.triage_event_count
+    - rpt_ortho_patient_journey.uncollected_value
+    dimensions:
+    - rpt_ortho_patient_journey.facility
+    - rpt_ortho_patient_journey.gender
+    - rpt_ortho_patient_journey.diagnostic_pathway
+    - rpt_ortho_patient_journey.disposition
+    - rpt_ortho_patient_journey.visit_type
+    - rpt_ortho_patient_journey.had_admission
+    - rpt_ortho_patient_journey.had_imaging
+    - rpt_ortho_patient_journey.had_lab_order
+    - rpt_ortho_patient_journey.had_pharmacy
+    - rpt_ortho_patient_journey.had_proc_request
+    - rpt_ortho_patient_journey.had_theatre
+    - rpt_ortho_patient_journey.had_triage
+    timeDimensions:
+    - dimension: rpt_ortho_patient_journey.visit_date
+      granularity: month
+    filters: []
+    limit: 500
+- id: ortho_pharmacy_order_metrics
+  name: Orthopedic Pharmacy Order Metrics
+  description: This metric tracks various aspects of orthopedic pharmacy orders, including
+    total revenue, quantity ordered, and turnaround time in minutes. Use this metric to analyze
+    order trends, revenue generation, and efficiency in service delivery. Example questions
+    include 'What is the total revenue from orthopedic pharmacy orders this month?' and 'How
+    does the turnaround time vary by facility?'
+  cube_query:
+    measures:
+    - rpt_ortho_pharmacy.order_year
+    - rpt_ortho_pharmacy.order_hour
+    - rpt_ortho_pharmacy.tat_mins
+    - rpt_ortho_pharmacy.revenue_kes
+    - rpt_ortho_pharmacy.count
+    - rpt_ortho_pharmacy.quantity
+    - rpt_ortho_pharmacy.unit_price
+    dimensions:
+    - rpt_ortho_pharmacy.facility
+    - rpt_ortho_pharmacy.is_served
+    - rpt_ortho_pharmacy.item_class
+    - rpt_ortho_pharmacy.item_name
+    - rpt_ortho_pharmacy.order_day_name
+    - rpt_ortho_pharmacy.source_system
+    - rpt_ortho_pharmacy.tat_category
+    timeDimensions:
+    - dimension: rpt_ortho_pharmacy.order_month
+      granularity: month
+    filters: []
+    limit: 500
+- id: ortho_physician_dependence_metrics
+  name: Orthopedic Physician Dependence Metrics
+  description: This metric measures the dependence on orthopedic physicians by tracking admissions,
+    length of stay (LOS) in days, and the total count of patients. It can be used to analyze
+    trends in orthopedic admissions over time, assess physician workload, and evaluate patient
+    outcomes. Example questions include 'How many orthopedic patients were admitted last month?'
+    and 'What is the average length of stay for patients admitted by specific physicians?'.
+  cube_query:
+    measures:
+    - rpt_ortho_physician_dependence.admission_year
+    - rpt_ortho_physician_dependence.los_days
+    - rpt_ortho_physician_dependence.count
+    dimensions:
+    - rpt_ortho_physician_dependence.facility
+    - rpt_ortho_physician_dependence.bed_category
+    - rpt_ortho_physician_dependence.discharge_category
+    - rpt_ortho_physician_dependence.gender
+    - rpt_ortho_physician_dependence.pay_mode
+    - rpt_ortho_physician_dependence.is_discharge_reliable
+    timeDimensions:
+    - dimension: rpt_ortho_physician_dependence.admission_month
+      granularity: month
+    filters: []
+    limit: 500
+- id: ortho_tat_total_visit_time
+  name: Total Visit Time in Orthopedic Triage
+  description: 'This metric measures the total time spent by patients during their orthopedic
+    visits, including time from arrival to triage, consultation, and pharmacy. It can be used
+    to analyze patient flow and efficiency in orthopedic departments. Example questions include:
+    ''What is the average total visit time for new patients?'' or ''How does total visit time
+    vary by facility or age group?'''
+  cube_query:
+    measures:
+    - rpt_ortho_tat.start_to_triage_mins
+    - rpt_ortho_tat.start_to_cons_mins
+    - rpt_ortho_tat.start_to_pharm_mins
+    - rpt_ortho_tat.total_visit_mins
+    - rpt_ortho_tat.count
+    dimensions:
+    - rpt_ortho_tat.facility
+    - rpt_ortho_tat.age_group
+    - rpt_ortho_tat.gender
+    - rpt_ortho_tat.is_new_patient
+    - rpt_ortho_tat.is_walk_in
+    - rpt_ortho_tat.visit_type
+    - rpt_ortho_tat.visit_day_name
+    timeDimensions:
+    - dimension: rpt_ortho_tat.visit_month
+      granularity: month
+    filters: []
+    limit: 500
+- id: ortho_theatre_surgery_metrics
+  name: Orthopedic Theatre Surgery Metrics
+  description: This metric provides insights into various aspects of orthopedic surgeries,
+    including the number of procedures, surgery duration, and time from request to service.
+    Use this metric to analyze trends in surgical performance, patient demographics, and operational
+    efficiency. Example questions include 'What is the average surgery duration for elective
+    procedures?' or 'How many surgeries were performed last month?'
+  cube_query:
+    measures:
+    - rpt_ortho_theatre.procedure_year
+    - rpt_ortho_theatre.procedure_dow
+    - rpt_ortho_theatre.surgery_duration_mins
+    - rpt_ortho_theatre.request_to_planned_days
+    - rpt_ortho_theatre.request_to_service_mins
+    - rpt_ortho_theatre.count
+    dimensions:
+    - rpt_ortho_theatre.age_group
+    - rpt_ortho_theatre.anaesthesia_type
+    - rpt_ortho_theatre.category
+    - rpt_ortho_theatre.facility
+    - rpt_ortho_theatre.gender
+    - rpt_ortho_theatre.is_completed
+    - rpt_ortho_theatre.is_elective
+    - rpt_ortho_theatre.procedure_name
+    - rpt_ortho_theatre.status
+    timeDimensions:
+    - dimension: rpt_ortho_theatre.procedure_month
+      granularity: month
+    filters: []
+    limit: 500
+- id: patient_return_funnel_metrics
+  name: Patient Return Funnel Metrics
+  description: This metric tracks the various outcomes of patients in the return funnel, including
+    those who returned, never returned, and were later admitted. It provides insights into
+    patient behavior and hospital performance, answering questions like 'What percentage of
+    patients returned for care?' and 'How many patients were admitted after returning?'. Use
+    this metric to analyze patient retention and the effectiveness of follow-up care.
+  cube_query:
+    measures:
+    - rpt_patient_return_funnel.total_non_admitted_peak
+    - rpt_patient_return_funnel.returned
+    - rpt_patient_return_funnel.never_returned
+    - rpt_patient_return_funnel.return_pct
+    - rpt_patient_return_funnel.later_admitted
+    - rpt_patient_return_funnel.admitted_of_returned_pct
+    - rpt_patient_return_funnel.median_days_to_return
+    - rpt_patient_return_funnel.count
+    dimensions: []
+    timeDimensions: []
+    filters: []
+    limit: 500
+- id: peak_performance_metrics
+  name: Peak Performance Metrics
+  description: This metric measures key performance indicators related to patient visits,
+    including visit hours, turnaround time in minutes, and total visit counts. Use this metric
+    to analyze peak admission times, assess patient flow, and evaluate operational efficiency.
+    Example questions include 'What are the peak hours for patient visits?' and 'How does
+    turnaround time vary by day of the week?'
+  cube_query:
+    measures:
+    - rpt_peak_performance.visit_hour
+    - rpt_peak_performance.tat_min
+    - rpt_peak_performance.count
+    dimensions:
+    - rpt_peak_performance.day_name
+    - rpt_peak_performance.is_admitted
+    - rpt_peak_performance.time_bucket
+    - rpt_peak_performance.ward_category
+    - rpt_peak_performance.ward_name
+    timeDimensions:
+    - dimension: rpt_peak_performance.visit_month
+      granularity: month
+    filters: []
+    limit: 500
+- id: procedure_revenue_metrics
+  name: Procedure Revenue Metrics
+  description: This metric provides insights into the revenue generated from medical procedures,
+    including total revenue, distinct visits, and average item amounts. Use it to analyze
+    financial performance by facility, insurer, or payment mode. Example questions include
+    'What was the total revenue from procedures last month?' or 'How many distinct visits
+    were recorded for a specific insurer?'
+  cube_query:
+    measures:
+    - rpt_procedure_revenue.line_items
+    - rpt_procedure_revenue.distinct_visits
+    - rpt_procedure_revenue.distinct_invoices
+    - rpt_procedure_revenue.total_revenue
     - rpt_procedure_revenue.count
     - rpt_procedure_revenue.avg_item_amount
     dimensions:
@@ -368,15 +1415,48 @@ metrics:
       granularity: month
     filters: []
     limit: 500
-- id: readmission_metrics
-  name: Readmission Metrics
-  description: This metric tracks the total number of readmissions and the approximate count
-    of readmissions within 30 days of discharge. Use this data to analyze patient outcomes,
-    evaluate discharge processes, and identify trends in readmission rates. It can help answer
-    questions like 'What is the readmission rate by facility or discharge type?' and 'How
-    do payment modes affect readmission counts?'
+- id: procurement_spend_overview
+  name: Procurement Spend Overview
+  description: This metric provides a comprehensive overview of procurement spending, including
+    the total number of documents, lines, and quantities purchased, as well as the total value
+    of these transactions. Use this metric to analyze spending trends over time, assess procurement
+    efficiency, and identify key product categories or facilities driving costs. Example questions
+    include 'What was the total procurement spend last month?' or 'How many documents were
+    processed in a specific category?'
   cube_query:
     measures:
+    - rpt_procurement_spend.documents
+    - rpt_procurement_spend.lines
+    - rpt_procurement_spend.count
+    - rpt_procurement_spend.total_quantity
+    - rpt_procurement_spend.total_value
+    dimensions:
+    - rpt_procurement_spend.canonical_name
+    - rpt_procurement_spend.doc_type
+    - rpt_procurement_spend.facility
+    - rpt_procurement_spend.product_category
+    - rpt_procurement_spend.therapeutic_class
+    timeDimensions:
+    - dimension: rpt_procurement_spend.doc_month
+      granularity: month
+    filters: []
+    limit: 500
+- id: readmission_metrics_overview
+  name: Readmission Metrics Overview
+  description: This metric provides a comprehensive overview of hospital readmissions, including
+    total admissions, readmission rates, and average days between admissions. Use this metric
+    to analyze trends in patient readmissions, assess the effectiveness of discharge planning,
+    and identify areas for improvement. Example questions include 'What is the readmission
+    rate for the last month?' and 'How many patients were readmitted within 30 days?'
+  cube_query:
+    measures:
+    - rpt_readmissions.total_admissions
+    - rpt_readmissions.readmissions
+    - rpt_readmissions.readmission_rate_pct
+    - rpt_readmissions.readmissions_30day
+    - rpt_readmissions.readmission_30day_rate_pct
+    - rpt_readmissions.avg_days_between_admissions
+    - rpt_readmissions.insured_30day_revenue_at_risk
     - rpt_readmissions.count
     - rpt_readmissions.approx_gap_30day_count
     dimensions:
@@ -389,15 +1469,19 @@ metrics:
       granularity: month
     filters: []
     limit: 500
-- id: rpt_redistribution_metrics
-  name: Redistribution Metrics
-  description: This metric tracks the count of redistribution events and the suggested transfer
-    quantities between facilities. Use this to analyze how resources are being allocated,
-    identify deficits and surpluses, and assess clinical priorities. Example questions include
-    'How many redistribution events occurred last month?' and 'What is the suggested transfer
-    quantity for a specific therapeutic class?'
+- id: rpt_redistribution_deficit_surplus_metrics
+  name: Deficit and Surplus Metrics
+  description: This metric tracks the deficit and surplus of stock on hand (SOH) and days
+    of supply (DOS) across facilities. Use it to analyze inventory levels, identify potential
+    shortages, and assess redistribution needs. Example questions include 'What is the current
+    deficit at each facility?' and 'How many suggested transfers are needed to balance inventory?'
   cube_query:
     measures:
+    - rpt_redistribution.deficit_soh
+    - rpt_redistribution.deficit_consumption_30d
+    - rpt_redistribution.surplus_soh
+    - rpt_redistribution.surplus_dos
+    - rpt_redistribution.data_horizon_gap_months
     - rpt_redistribution.count
     - rpt_redistribution.suggested_transfer_qty
     dimensions:
@@ -413,15 +1497,27 @@ metrics:
       granularity: month
     filters: []
     limit: 500
-- id: specialty_admissions_count
-  name: Specialty Admissions Count
-  description: This metric measures the total number of specialty admissions within the hospital
-    system. It can be used to analyze trends in admissions over time, assess the performance
-    of different facilities, and evaluate the impact of payment modes. Example questions include
-    'How many specialty admissions occurred last month?' or 'What is the breakdown of admissions
-    by facility?'
+- id: specialty_admissions_metrics
+  name: Specialty Admissions Metrics
+  description: This metric provides insights into various aspects of specialty admissions,
+    including total admissions, day cases, inpatient stays, and revenue generated from insured
+    and cash admissions. Use this metric to analyze trends in admissions over time, assess
+    the performance of different facilities, and understand the financial impact of admissions.
+    Example questions include 'What were the total admissions last month?' and 'How many inpatient
+    stays occurred in the last quarter?'
   cube_query:
     measures:
+    - rpt_specialty_admissions.total_admissions
+    - rpt_specialty_admissions.day_cases
+    - rpt_specialty_admissions.inpatient_stays
+    - rpt_specialty_admissions.open_admissions
+    - rpt_specialty_admissions.avg_los_days
+    - rpt_specialty_admissions.total_bed_days
+    - rpt_specialty_admissions.insured_admissions
+    - rpt_specialty_admissions.cash_admissions
+    - rpt_specialty_admissions.total_admission_revenue
+    - rpt_specialty_admissions.insured_revenue
+    - rpt_specialty_admissions.cash_revenue
     - rpt_specialty_admissions.count
     dimensions:
     - rpt_specialty_admissions.facility
@@ -432,40 +1528,52 @@ metrics:
       granularity: month
     filters: []
     limit: 500
-- id: rpt_stock_status_count
-  name: Total Stock Status Count
-  description: This metric measures the total count of stock statuses across various facilities
-    and product categories. Use it to analyze inventory levels, identify trends in stock availability,
-    and assess the performance of different therapeutic classes. Example questions include
-    'What is the total stock status count for a specific facility?' or 'How does the stock
-    status vary by product category?'
+- id: stock_status_overview
+  name: Stock Status Overview
+  description: This metric provides insights into the current stock levels of products across
+    facilities, including the current stock on hand, days since last dispense, and total count
+    of items. Use this metric to answer questions about inventory health, such as 'What is
+    the current stock status of a specific product?' or 'How many days has it been since the
+    last dispense of a product?'. Important filters include facility and product category.
   cube_query:
     measures:
+    - rpt_stock_status.current_soh_raw
+    - rpt_stock_status.current_soh
+    - rpt_stock_status.days_since_last_dispense
     - rpt_stock_status.count
     dimensions:
+    - rpt_stock_status.canonical_name
     - rpt_stock_status.facility
+    - rpt_stock_status.inn_name
     - rpt_stock_status.product_category
+    - rpt_stock_status.product_name
     - rpt_stock_status.stock_status
     - rpt_stock_status.therapeutic_class
+    - rpt_stock_status.therapeutic_subclass
     timeDimensions:
     - dimension: rpt_stock_status.last_dispensed_at
       granularity: month
     filters: []
     limit: 500
-- id: stockout_alerts_count
-  name: Stockout Alerts Count
-  description: This metric measures the total number of stockout alerts generated within the
-    hospital system. It is useful for tracking medication availability issues and understanding
-    their impact on patient care. Example questions include 'How many stockout alerts were
-    generated last month?' or 'What facilities reported the highest number of stockout alerts?'.
-    Consider filtering by facility or therapeutic class for more specific insights.
+- id: stockout_alerts_summary
+  name: Stockout Alerts Summary
+  description: This metric provides an overview of stockout alerts, measuring current stock
+    on hand, stockout dispense events, and days in stockout. Use this metric to analyze inventory
+    issues, track product availability, and assess the impact of stockouts on patient care.
+    Example questions include 'How many stockout events occurred last month?' and 'What is
+    the average duration of stockouts for critical medications?'
   cube_query:
     measures:
+    - rpt_stockout_alerts.current_soh_raw
+    - rpt_stockout_alerts.stockout_dispense_events
+    - rpt_stockout_alerts.units_dispensed_at_zero
+    - rpt_stockout_alerts.days_in_stockout
     - rpt_stockout_alerts.count
     dimensions:
-    - rpt_stockout_alerts.facility
     - rpt_stockout_alerts.canonical_name
     - rpt_stockout_alerts.clinical_priority
+    - rpt_stockout_alerts.facility
+    - rpt_stockout_alerts.inn_name
     - rpt_stockout_alerts.product_name
     - rpt_stockout_alerts.therapeutic_class
     - rpt_stockout_alerts.therapeutic_subclass
@@ -474,16 +1582,90 @@ metrics:
       granularity: month
     filters: []
     limit: 500
-- id: theatre_utilization_count
-  name: Theatre Utilization Count
-  description: This metric measures the total count of theatre utilization sessions within
-    a specified time frame. It can be used to analyze how effectively theatre resources are
-    being used across different facilities and types. Example questions include 'How many
-    sessions were booked in the main theatre last month?' or 'What is the utilization count
-    for each booking status?'. Filters can be applied based on facility, theatre name, and
-    booking status for more granular insights.
+- id: supplier_summary_metrics
+  name: Supplier Summary Metrics
+  description: This metric provides an overview of supplier performance, measuring key indicators
+    such as purchase orders, goods received, and distinct items. Use it to analyze supplier
+    efficiency and track ordered versus received values over time. It answers questions like
+    'How many purchase orders were made this month?' or 'What is the total value of goods
+    received from a specific supplier?'.
   cube_query:
     measures:
+    - rpt_supplier_summary.purchase_orders
+    - rpt_supplier_summary.goods_received_docs
+    - rpt_supplier_summary.distinct_items
+    - rpt_supplier_summary.count
+    - rpt_supplier_summary.ordered_value
+    - rpt_supplier_summary.received_value
+    dimensions:
+    - rpt_supplier_summary.facility
+    - rpt_supplier_summary.supplier_id
+    - rpt_supplier_summary.supplier_name
+    timeDimensions:
+    - dimension: rpt_supplier_summary.first_activity
+      granularity: month
+    filters: []
+    limit: 500
+- id: theatre_case_mix_bookings_count
+  name: Theatre Case Mix Bookings and Count
+  description: This metric measures the total number of bookings and the count of cases in
+    the theatre over time. It is useful for analyzing theatre utilization and case distribution
+    by procedure and theatre name. Example questions include 'How many bookings were made
+    for each procedure this month?' and 'What is the count of cases in the theatre for the
+    last quarter?'
+  cube_query:
+    measures:
+    - rpt_theatre_case_mix.bookings
+    - rpt_theatre_case_mix.count
+    dimensions:
+    - rpt_theatre_case_mix.procedure_name
+    - rpt_theatre_case_mix.theatre_name
+    timeDimensions:
+    - dimension: rpt_theatre_case_mix.session_month
+      granularity: month
+    filters: []
+    limit: 500
+- id: theatre_emergency_tat_metrics
+  name: Theatre Emergency Turnaround Time Metrics
+  description: 'This metric measures the turnaround time in minutes for emergency theatre
+    cases, along with the total count of such cases. Use this metric to analyze the efficiency
+    of emergency theatre operations over time. Example questions include: ''What is the average
+    turnaround time for emergency surgeries this month?'' or ''How many emergency cases were
+    handled last week?'''
+  cube_query:
+    measures:
+    - rpt_theatre_emergency_tat.tat_min
+    - rpt_theatre_emergency_tat.count
+    dimensions:
+    - rpt_theatre_emergency_tat.declaration_day
+    timeDimensions:
+    - dimension: rpt_theatre_emergency_tat.booking_ts
+      granularity: month
+    filters: []
+    limit: 500
+- id: theatre_utilization_metrics
+  name: Theatre Utilization Metrics
+  description: This metric provides insights into theatre utilization, including total sessions,
+    completed sessions, and revenue generated. Use it to analyze performance trends over time,
+    assess the efficiency of theatre operations, and understand the breakdown of emergency
+    versus elective sessions. It answers questions like 'What is the completion rate for theatre
+    sessions this month?' and 'How much revenue was generated from insured patients?'
+  cube_query:
+    measures:
+    - rpt_theatre_utilization.total_sessions
+    - rpt_theatre_utilization.completed_sessions
+    - rpt_theatre_utilization.completion_rate_pct
+    - rpt_theatre_utilization.emergency_sessions
+    - rpt_theatre_utilization.elective_sessions
+    - rpt_theatre_utilization.avg_duration_min
+    - rpt_theatre_utilization.total_duration_min
+    - rpt_theatre_utilization.total_duration_hrs
+    - rpt_theatre_utilization.sessions_with_invoice
+    - rpt_theatre_utilization.total_revenue
+    - rpt_theatre_utilization.avg_revenue_per_session
+    - rpt_theatre_utilization.distinct_insurers
+    - rpt_theatre_utilization.insured_revenue
+    - rpt_theatre_utilization.cash_revenue
     - rpt_theatre_utilization.count
     dimensions:
     - rpt_theatre_utilization.booking_status
@@ -495,15 +1677,53 @@ metrics:
       granularity: month
     filters: []
     limit: 500
-- id: upd_admissions_profile_metrics
-  name: Admissions Profile Metrics
-  description: This metric provides insights into the number of admissions and their associated
-    costs within the hospital system. It can be used to analyze trends in admissions by type,
-    payment mode, and patient demographics such as sex. Example questions include 'What is
-    the total admission cost for open admissions this month?' and 'How many admissions were
-    recorded by type in the last quarter?'
+- id: ward_los_metrics
+  name: Ward Length of Stay Metrics
+  description: This metric measures the median length of stay in days, total admissions, and
+    the count of patients in various wards across different facilities. Use this data to analyze
+    patient flow, identify trends in ward usage, and assess the efficiency of care provided.
+    Example questions include 'What is the average length of stay for patients admitted in
+    the last month?' and 'How many admissions occurred in each ward category?'
   cube_query:
     measures:
+    - rpt_ward_los.median_los_days
+    - rpt_ward_los.admissions
+    - rpt_ward_los.count
+    dimensions:
+    - rpt_ward_los.facility
+    - rpt_ward_los.ward_category
+    timeDimensions:
+    - dimension: rpt_ward_los.admission_month
+      granularity: month
+    filters: []
+    limit: 500
+- id: unrestricted_roles_count
+  name: Count of Unrestricted Roles
+  description: This metric measures the total number of unrestricted roles within the system.
+    It can be used to analyze the distribution of roles and assess compliance with access
+    policies. Example questions include 'How many unrestricted roles are currently active?'
+    and 'What are the different types of unrestricted roles available?'.
+  cube_query:
+    measures:
+    - unrestricted_roles.count
+    dimensions:
+    - unrestricted_roles.role_name
+    timeDimensions: []
+    filters: []
+    limit: 500
+- id: upd_admissions_profile_metrics
+  name: Updated Admissions Profile Metrics
+  description: This metric provides insights into patient admissions, including age at admission,
+    length of stay, readmission rates, and associated costs. Use this metric to analyze trends
+    in admissions over time, assess the impact of different admission types, and evaluate
+    readmission patterns. Example questions include 'What is the average age of patients at
+    admission?' and 'How many patients were readmitted within 30 days?'
+  cube_query:
+    measures:
+    - upd_admissions_profile.age_at_admission
+    - upd_admissions_profile.los_days
+    - upd_admissions_profile.is_readmission
+    - upd_admissions_profile.is_30day_readmission
     - upd_admissions_profile.count
     - upd_admissions_profile.admission_cost
     dimensions:
@@ -516,21 +1736,324 @@ metrics:
       granularity: month
     filters: []
     limit: 500
-- id: inventory_profile_metrics
-  name: Inventory Profile Metrics
-  description: This metric provides insights into the inventory profile of drugs, measuring
-    the total count of items and their lifetime drug cost. Use this metric to analyze drug
-    availability and financial impact over time. Example questions include 'What is the total
-    count of drugs dispensed this month?' and 'How much have we spent on drugs in the last
-    quarter?'
+- id: upd_inventory_profile_total_dispensing_visits
+  name: Total Dispensing Visits
+  description: This metric measures the total number of dispensing visits recorded in the
+    inventory profile. It is useful for understanding patient engagement with medication dispensing
+    services. Example questions include 'How many dispensing visits occurred last month?'
+    and 'What is the trend in dispensing visits over time?'. Consider filtering by source
+    schema for more granular insights.
   cube_query:
     measures:
+    - upd_inventory_profile.total_dispensing_visits
+    - upd_inventory_profile.total_drugs_dispensed
+    - upd_inventory_profile.lifetime_units_dispensed
+    - upd_inventory_profile.ever_had_antibiotic
+    - upd_inventory_profile.ever_had_antimalarial
+    - upd_inventory_profile.ever_had_arv
+    - upd_inventory_profile.ever_had_chronic_drug
+    - upd_inventory_profile.ever_had_opioid
+    - upd_inventory_profile.ever_had_obstetric_drug
+    - upd_inventory_profile.ever_had_reserve_antibiotic
+    - upd_inventory_profile.ever_had_other_drug
+    - upd_inventory_profile.total_unclassified_drugs
     - upd_inventory_profile.count
     - upd_inventory_profile.lifetime_drug_cost
     dimensions:
     - upd_inventory_profile.source_schema
     timeDimensions:
     - dimension: upd_inventory_profile.first_dispensed_at
+      granularity: month
+    filters: []
+    limit: 500
+- id: ortho_admissions_count_vw_rpt_ortho_admissions
+  name: Total Ortho Admissions Count
+  description: This metric measures the total number of orthopedic admissions within a specified
+    time frame. It can be used to analyze trends in patient admissions, assess facility performance,
+    and identify peak admission periods. Example questions include 'How many orthopedic admissions
+    occurred last month?' or 'What is the admission count by facility for the last quarter?'
+  cube_query:
+    measures:
+    - vw_rpt_ortho_admissions.count
+    dimensions:
+    - vw_rpt_ortho_admissions.facility
+    - vw_rpt_ortho_admissions.gender
+    - vw_rpt_ortho_admissions.bed_category
+    - vw_rpt_ortho_admissions.discharge_category
+    timeDimensions:
+    - dimension: vw_rpt_ortho_admissions.admission_month
+      granularity: month
+    filters: []
+    limit: 500
+- id: ortho_busy_periods_total_visits
+  name: Total Visits During Orthopedic Busy Periods
+  description: This metric measures the total number of visits during identified busy periods
+    in orthopedic care. It can be used to analyze patient flow and peak times, helping to
+    answer questions like 'What are the busiest days for orthopedic visits?' or 'How many
+    patients visit during peak hours?' Consider filtering by visit day name or peak slot status
+    for more granular insights.
+  cube_query:
+    measures:
+    - vw_rpt_ortho_busy_periods.total_visits
+    - vw_rpt_ortho_busy_periods.avg_per_day
+    - vw_rpt_ortho_busy_periods.count
+    - vw_rpt_ortho_busy_periods.pct_of_total
+    dimensions:
+    - vw_rpt_ortho_busy_periods.is_peak_slot
+    - vw_rpt_ortho_busy_periods.visit_day_name
+    timeDimensions: []
+    filters: []
+    limit: 500
+- id: ortho_conversion_metrics_vw_rpt_ortho_conversion
+  name: Orthopedic Conversion Metrics
+  description: This metric tracks various aspects of orthopedic patient conversions, including
+    admission year, days from outpatient to admission, length of stay, and total patient count.
+    Use this metric to analyze trends in orthopedic admissions, evaluate the efficiency of
+    the conversion process, and assess patient flow. Example questions include 'How many orthopedic
+    patients were admitted last year?' and 'What is the average length of stay for orthopedic
+    admissions?'
+  cube_query:
+    measures:
+    - vw_rpt_ortho_conversion.admission_year
+    - vw_rpt_ortho_conversion.opd_to_admission_days
+    - vw_rpt_ortho_conversion.los_days
+    - vw_rpt_ortho_conversion.count
+    dimensions:
+    - vw_rpt_ortho_conversion.bed_category
+    - vw_rpt_ortho_conversion.facility
+    - vw_rpt_ortho_conversion.gender
+    - vw_rpt_ortho_conversion.conversion_type
+    - vw_rpt_ortho_conversion.discharge_category
+    - vw_rpt_ortho_conversion.is_direct_admission
+    timeDimensions:
+    - dimension: vw_rpt_ortho_conversion.admission_month
+      granularity: month
+    filters: []
+    limit: 500
+- id: ortho_imaging_visit_metrics_vw_rpt_ortho_imaging
+  name: Orthopedic Imaging Visit Metrics
+  description: This metric tracks various aspects of orthopedic imaging visits, including
+    the total number of visits, turnaround times for results, and patient demographics. Use
+    this metric to analyze trends in imaging visits, assess service efficiency, and understand
+    patient characteristics. Example questions include 'How many orthopedic imaging visits
+    occurred last month?' and 'What is the average turnaround time for results by facility?'
+  cube_query:
+    measures:
+    - vw_rpt_ortho_imaging.visit_year
+    - vw_rpt_ortho_imaging.visit_dow
+    - vw_rpt_ortho_imaging.result_tat_mins
+    - vw_rpt_ortho_imaging.result_tat_days
+    - vw_rpt_ortho_imaging.count
+    dimensions:
+    - vw_rpt_ortho_imaging.age_group
+    - vw_rpt_ortho_imaging.facility
+    - vw_rpt_ortho_imaging.gender
+    - vw_rpt_ortho_imaging.has_result
+    - vw_rpt_ortho_imaging.is_new_patient
+    - vw_rpt_ortho_imaging.modality_group
+    - vw_rpt_ortho_imaging.status
+    - vw_rpt_ortho_imaging.visit_type
+    timeDimensions:
+    - dimension: vw_rpt_ortho_imaging.visit_month
+      granularity: month
+    filters: []
+    limit: 500
+- id: ortho_lab_visit_metrics_vw_rpt_ortho_lab
+  name: Orthopedic Lab Visit Metrics
+  description: This metric tracks various aspects of orthopedic lab visits, including the
+    total number of visits, results turnaround time in minutes, and visit counts. Use this
+    metric to analyze trends in lab visits over time, assess patient demographics, and evaluate
+    lab performance. Example questions include 'How many orthopedic lab visits occurred last
+    month?' or 'What is the average turnaround time for lab results by age group?'
+  cube_query:
+    measures:
+    - vw_rpt_ortho_lab.visit_year
+    - vw_rpt_ortho_lab.visit_dow
+    - vw_rpt_ortho_lab.result_tat_mins
+    - vw_rpt_ortho_lab.count
+    dimensions:
+    - vw_rpt_ortho_lab.accept_reject
+    - vw_rpt_ortho_lab.age_group
+    - vw_rpt_ortho_lab.facility
+    - vw_rpt_ortho_lab.gender
+    - vw_rpt_ortho_lab.has_result
+    - vw_rpt_ortho_lab.is_new_patient
+    - vw_rpt_ortho_lab.status
+    - vw_rpt_ortho_lab.visit_type
+    timeDimensions:
+    - dimension: vw_rpt_ortho_lab.visit_month
+      granularity: month
+    filters: []
+    limit: 500
+- id: ortho_opd_visit_metrics_vw_rpt_ortho_opd
+  name: Orthopedic Outpatient Visit Metrics
+  description: This metric tracks various aspects of orthopedic outpatient visits, including
+    the number of visits, patient demographics, and visit timing. Use this metric to analyze
+    trends in patient arrivals, age groups, and visit types. Example questions include 'How
+    many new patients visited this month?' or 'What is the average age of patients visiting
+    on weekends?'
+  cube_query:
+    measures:
+    - vw_rpt_ortho_opd.hour_of_day
+    - vw_rpt_ortho_opd.arrival_hour
+    - vw_rpt_ortho_opd.visit_year
+    - vw_rpt_ortho_opd.visit_dow
+    - vw_rpt_ortho_opd.age_at_visit
+    - vw_rpt_ortho_opd.count
+    dimensions:
+    - vw_rpt_ortho_opd.age_group
+    - vw_rpt_ortho_opd.facility
+    - vw_rpt_ortho_opd.gender
+    - vw_rpt_ortho_opd.is_new_patient
+    - vw_rpt_ortho_opd.is_walk_in
+    - vw_rpt_ortho_opd.visit_day_name
+    - vw_rpt_ortho_opd.visit_type
+    timeDimensions:
+    - dimension: vw_rpt_ortho_opd.visit_month
+      granularity: month
+    filters: []
+    limit: 500
+- id: ortho_patient_journey_metrics_vw_rpt_ortho_patient_journey
+  name: Ortho Patient Journey Metrics
+  description: This metric provides insights into the orthopedic patient journey, measuring
+    key aspects such as age at visit, length of stay, and various counts related to imaging,
+    lab orders, and procedures. Use this metric to analyze patient flow, resource utilization,
+    and treatment outcomes. Example questions include 'What is the average length of stay
+    for orthopedic patients?' and 'How many imaging procedures were performed last month?'
+  cube_query:
+    measures:
+    - vw_rpt_ortho_patient_journey.age_at_visit
+    - vw_rpt_ortho_patient_journey.los_hours
+    - vw_rpt_ortho_patient_journey.count
+    - vw_rpt_ortho_patient_journey.imaging_count
+    - vw_rpt_ortho_patient_journey.lab_order_count
+    - vw_rpt_ortho_patient_journey.pharmacy_item_count
+    - vw_rpt_ortho_patient_journey.proc_paid_count
+    - vw_rpt_ortho_patient_journey.proc_request_count
+    - vw_rpt_ortho_patient_journey.proc_unpaid_count
+    - vw_rpt_ortho_patient_journey.theatre_procedure_count
+    - vw_rpt_ortho_patient_journey.triage_event_count
+    - vw_rpt_ortho_patient_journey.uncollected_value
+    dimensions:
+    - vw_rpt_ortho_patient_journey.facility
+    - vw_rpt_ortho_patient_journey.gender
+    - vw_rpt_ortho_patient_journey.diagnostic_pathway
+    - vw_rpt_ortho_patient_journey.disposition
+    - vw_rpt_ortho_patient_journey.visit_type
+    timeDimensions:
+    - dimension: vw_rpt_ortho_patient_journey.visit_date
+      granularity: month
+    filters: []
+    limit: 500
+- id: ortho_pharmacy_order_metrics_vw_rpt_ortho_pharmacy
+  name: Orthopedic Pharmacy Order Metrics
+  description: This metric tracks various aspects of orthopedic pharmacy orders, including
+    total revenue, order counts, and turnaround times. Use it to analyze pharmacy performance,
+    patient service levels, and financial outcomes. Example questions include 'What is the
+    average turnaround time for orthopedic orders this month?' and 'How much revenue was generated
+    from orthopedic pharmacy orders last quarter?'
+  cube_query:
+    measures:
+    - vw_rpt_ortho_pharmacy.order_year
+    - vw_rpt_ortho_pharmacy.order_hour
+    - vw_rpt_ortho_pharmacy.tat_mins
+    - vw_rpt_ortho_pharmacy.revenue_kes
+    - vw_rpt_ortho_pharmacy.count
+    - vw_rpt_ortho_pharmacy.quantity
+    - vw_rpt_ortho_pharmacy.unit_price
+    dimensions:
+    - vw_rpt_ortho_pharmacy.facility
+    - vw_rpt_ortho_pharmacy.is_served
+    - vw_rpt_ortho_pharmacy.item_class
+    - vw_rpt_ortho_pharmacy.item_name
+    - vw_rpt_ortho_pharmacy.order_day_name
+    - vw_rpt_ortho_pharmacy.source_system
+    - vw_rpt_ortho_pharmacy.tat_category
+    timeDimensions:
+    - dimension: vw_rpt_ortho_pharmacy.order_month
+      granularity: month
+    filters: []
+    limit: 500
+- id: ortho_physician_dependence_metrics_vw_rpt_ortho_physician_dependence
+  name: Orthopedic Physician Dependence Metrics
+  description: This metric tracks the dependence on orthopedic physicians by measuring the
+    number of admissions, length of stay in days, and total count of patients. It can be used
+    to analyze trends in orthopedic admissions over time, assess physician performance, and
+    evaluate patient outcomes. Example questions include 'How many patients were admitted
+    under orthopedic care last month?' and 'What is the average length of stay for orthopedic
+    patients?'.
+  cube_query:
+    measures:
+    - vw_rpt_ortho_physician_dependence.admission_year
+    - vw_rpt_ortho_physician_dependence.los_days
+    - vw_rpt_ortho_physician_dependence.count
+    dimensions:
+    - vw_rpt_ortho_physician_dependence.facility
+    - vw_rpt_ortho_physician_dependence.bed_category
+    - vw_rpt_ortho_physician_dependence.gender
+    - vw_rpt_ortho_physician_dependence.pay_mode
+    - vw_rpt_ortho_physician_dependence.is_discharge_reliable
+    timeDimensions:
+    - dimension: vw_rpt_ortho_physician_dependence.admission_month
+      granularity: month
+    filters: []
+    limit: 500
+- id: ortho_tat_total_visit_time_vw_rpt_ortho_tat
+  name: Total Visit Time in Orthopedic Triage
+  description: 'This metric measures the total time spent during orthopedic visits, including
+    time from start to triage, consultation, and pharmacy. It is useful for analyzing patient
+    flow and efficiency in orthopedic departments. Example questions include: ''What is the
+    average total visit time for new patients?'' or ''How does total visit time vary by facility
+    or age group?'''
+  cube_query:
+    measures:
+    - vw_rpt_ortho_tat.start_to_triage_mins
+    - vw_rpt_ortho_tat.start_to_cons_mins
+    - vw_rpt_ortho_tat.start_to_pharm_mins
+    - vw_rpt_ortho_tat.total_visit_mins
+    - vw_rpt_ortho_tat.count
+    dimensions:
+    - vw_rpt_ortho_tat.age_group
+    - vw_rpt_ortho_tat.facility
+    - vw_rpt_ortho_tat.gender
+    - vw_rpt_ortho_tat.is_new_patient
+    - vw_rpt_ortho_tat.is_walk_in
+    - vw_rpt_ortho_tat.visit_type
+    - vw_rpt_ortho_tat.visit_day_name
+    timeDimensions:
+    - dimension: vw_rpt_ortho_tat.visit_month
+      granularity: month
+    filters: []
+    limit: 500
+- id: ortho_theatre_surgery_metrics_vw_rpt_ortho_theatre
+  name: Orthopedic Theatre Surgery Metrics
+  description: This metric provides insights into various aspects of orthopedic surgeries,
+    including the number of procedures, surgery duration, and time from request to service.
+    Use this metric to analyze trends in surgical performance, patient demographics, and operational
+    efficiency. Example questions include 'How many surgeries were performed last month?'
+    and 'What is the average surgery duration for elective procedures?'
+  cube_query:
+    measures:
+    - vw_rpt_ortho_theatre.procedure_year
+    - vw_rpt_ortho_theatre.procedure_dow
+    - vw_rpt_ortho_theatre.surgery_duration_mins
+    - vw_rpt_ortho_theatre.request_to_planned_days
+    - vw_rpt_ortho_theatre.request_to_service_mins
+    - vw_rpt_ortho_theatre.count
+    dimensions:
+    - vw_rpt_ortho_theatre.age_group
+    - vw_rpt_ortho_theatre.anaesthesia_type
+    - vw_rpt_ortho_theatre.category
+    - vw_rpt_ortho_theatre.facility
+    - vw_rpt_ortho_theatre.gender
+    - vw_rpt_ortho_theatre.is_completed
+    - vw_rpt_ortho_theatre.is_elective
+    - vw_rpt_ortho_theatre.mode_of_payment
+    - vw_rpt_ortho_theatre.outcome
+    - vw_rpt_ortho_theatre.procedure_name
+    - vw_rpt_ortho_theatre.status
+    timeDimensions:
+    - dimension: vw_rpt_ortho_theatre.procedure_month
       granularity: month
     filters: []
     limit: 500

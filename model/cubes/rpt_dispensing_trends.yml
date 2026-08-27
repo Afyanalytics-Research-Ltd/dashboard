@@ -1,0 +1,80 @@
+cubes:
+  - name: rpt_dispensing_trends
+    sql_table: "\"REPORTING\".\"RPT_DISPENSING_TRENDS\""
+    data_source: default
+
+    joins:
+      - name: canonical_keys
+        sql: "{CUBE}.\"CANONICAL_PRODUCT_ID\" = {canonical_keys}.\"CANONICAL_PRODUCT_ID\""
+        relationship: many_to_one
+
+    dimensions:
+      - name: canonical_name
+        sql: "{CUBE}.\"CANONICAL_NAME\""
+        type: string
+        primary_key: true
+
+      - name: facility
+        sql: "{CUBE}.\"FACILITY\""
+        type: string
+        primary_key: true
+
+      - name: inn_name
+        sql: "{CUBE}.\"INN_NAME\""
+        type: string
+
+      - name: therapeutic_class
+        sql: "{CUBE}.\"THERAPEUTIC_CLASS\""
+        type: string
+
+      - name: therapeutic_subclass
+        sql: "{CUBE}.\"THERAPEUTIC_SUBCLASS\""
+        type: string
+
+      - name: dispensing_month
+        sql: "{CUBE}.\"DISPENSING_MONTH\""
+        type: time
+        primary_key: true
+
+    measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T12:59:55.843188+00:00
+      - name: dispensing_year
+        sql: '{CUBE}."DISPENSING_YEAR"'
+        type: sum
+      - name: dispensing_month_num
+        sql: '{CUBE}."DISPENSING_MONTH_NUM"'
+        type: sum
+      - name: total_units_dispensed
+        sql: '{CUBE}."TOTAL_UNITS_DISPENSED"'
+        type: sum
+      - name: dispense_line_items
+        sql: '{CUBE}."DISPENSE_LINE_ITEMS"'
+        type: sum
+      - name: dispensing_events
+        sql: '{CUBE}."DISPENSING_EVENTS"'
+        type: sum
+      - name: unique_patients
+        sql: '{CUBE}."UNIQUE_PATIENTS"'
+        type: sum
+      - name: units_dispensed_at_zero_soh
+        sql: '{CUBE}."UNITS_DISPENSED_AT_ZERO_SOH"'
+        type: sum
+      - name: prev_month_units
+        sql: '{CUBE}."PREV_MONTH_UNITS"'
+        type: sum
+      - name: mom_change_pct
+        sql: '{CUBE}."MOM_CHANGE_PCT"'
+        type: avg
+      - name: count
+        type: count
+        drill_members: [dispensing_month, facility, therapeutic_class, canonical_name]
+
+      - name: total_dispensing_value
+        sql: "{CUBE}.\"TOTAL_DISPENSING_VALUE\""
+        type: sum
+        drill_members: [dispensing_month, facility, therapeutic_class, canonical_name]
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

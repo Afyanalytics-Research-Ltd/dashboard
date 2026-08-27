@@ -1,0 +1,58 @@
+{% load analyst_extras %}
+<div class="chat-msg chat-msg-{{ message.role }}" data-msg-id="{{ message.pk }}">
+  {% if message.role == "user" %}
+  <div class="chat-bubble chat-bubble-user">{{ message.content }}</div>
+  {% elif message.role == "error" %}
+  <div class="chat-bubble chat-bubble-error">
+    <i class="bi bi-exclamation-triangle-fill me-1"></i>{{ message.content }}
+  </div>
+  {% else %}
+  <div class="chat-bubble chat-bubble-assistant">
+    <div class="chat-bubble-avatar"><i class="bi bi-robot"></i></div>
+    <div class="chat-bubble-body">
+      <div class="chat-markdown">{{ message.content|render_markdown }}</div>
+
+      {% if message.artifacts.all %}
+      <div class="chat-artifacts">
+        {% for artifact in message.artifacts.all %}
+          {% if artifact.is_image %}
+          <div class="chat-artifact chat-artifact-chart">
+            <img src="{{ artifact.file.url }}" alt="{{ artifact.title }}" loading="lazy"
+                 class="chat-artifact-img" onclick="openLightbox(this.src, '{{ artifact.title|escapejs }}')">
+            <div class="chat-artifact-caption"><i class="bi bi-bar-chart-line me-1"></i>{{ artifact.title }}</div>
+          </div>
+          {% else %}
+          <a href="{% url 'warehouse:analyst_artifact_download' artifact.pk %}" class="chat-artifact chat-artifact-file">
+            <i class="bi {% if artifact.kind == 'table' %}bi-file-earmark-excel-fill{% else %}bi-file-earmark-text-fill{% endif %}"></i>
+            <div>
+              <div class="chat-artifact-title">{{ artifact.title }}</div>
+              <div class="chat-artifact-sub">{{ artifact.get_kind_display }} · click to download</div>
+            </div>
+            <i class="bi bi-download ms-auto"></i>
+          </a>
+          {% endif %}
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {% if message.tool_calls %}
+      <details class="chat-tools">
+        <summary><i class="bi bi-gear-wide-connected me-1"></i>Show work ({{ message.tool_calls|length }} step{{ message.tool_calls|length|pluralize }})</summary>
+        <div class="chat-tools-list">
+          {% for call in message.tool_calls %}
+          <div class="chat-tool-step">
+            <div class="chat-tool-step-head">
+              <i class="bi {{ call.name|tool_icon }}"></i>
+              <span>{{ call.name|tool_label }}</span>
+              {% if call.title %}<span class="text-muted">— {{ call.title }}</span>{% endif %}
+            </div>
+            {% if call.preview %}<pre class="chat-tool-preview">{{ call.preview }}</pre>{% endif %}
+          </div>
+          {% endfor %}
+        </div>
+      </details>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+</div>

@@ -1,0 +1,48 @@
+cubes:
+  - name: rpt_admission_tat_bimodal
+    sql_table: "\"REPORTING\".\"RPT_ADMISSION_TAT_BIMODAL\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: day_name
+        sql: "{CUBE}.\"DAY_NAME\""
+        type: string
+
+    measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T12:59:19.887290+00:00
+      - name: day_num
+        sql: '{CUBE}."DAY_NUM"'
+        type: sum
+      - name: total_admissions
+        sql: '{CUBE}."TOTAL_ADMISSIONS"'
+        type: sum
+        drill_members: [day_name]
+      - name: fast_track
+        sql: '{CUBE}."FAST_TRACK"'
+        type: sum
+      - name: slow_pathway
+        sql: '{CUBE}."SLOW_PATHWAY"'
+        type: sum
+      - name: fast_pct
+        sql: '{CUBE}."FAST_PCT"'
+        type: avg
+        drill_members: [day_name]
+      - name: p50_tat_min
+        sql: '{CUBE}."P50_TAT_MIN"'
+        type: sum
+        drill_members: [day_name]
+      - name: p75_tat_min
+        sql: '{CUBE}."P75_TAT_MIN"'
+        type: sum
+      - name: total_evaluations
+        sql: '{CUBE}."TOTAL_EVALUATIONS"'
+        type: sum
+      - name: count
+        type: count
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

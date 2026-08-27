@@ -1,0 +1,34 @@
+cubes:
+  - name: rpt_theatre_case_mix
+    sql_table: "\"REPORTING\".\"RPT_THEATRE_CASE_MIX\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: procedure_name
+        sql: "{CUBE}.\"PROCEDURE_NAME\""
+        type: string
+
+      - name: theatre_name
+        sql: "{CUBE}.\"THEATRE_NAME\""
+        type: string
+
+      - name: session_month
+        sql: "{CUBE}.\"SESSION_MONTH\""
+        type: time
+
+    measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:03:57.890242+00:00
+      - name: bookings
+        sql: '{CUBE}."BOOKINGS"'
+        type: sum
+        drill_members: [session_month, theatre_name, procedure_name]
+      - name: count
+        type: count
+        drill_members: [session_month, theatre_name, procedure_name]
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

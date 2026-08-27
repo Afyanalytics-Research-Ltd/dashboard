@@ -1,0 +1,30 @@
+cubes:
+  - name: rpt_theatre_emergency_tat
+    sql_table: "\"REPORTING\".\"RPT_THEATRE_EMERGENCY_TAT\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: declaration_day
+        sql: "{CUBE}.\"DECLARATION_DAY\""
+        type: string
+
+      - name: booking_ts
+        sql: "{CUBE}.\"BOOKING_TS\""
+        type: time
+
+    measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:04:02.894776+00:00
+      - name: tat_min
+        sql: '{CUBE}."TAT_MIN"'
+        type: sum
+        drill_members: [booking_ts, declaration_day]
+      - name: count
+        type: count
+        drill_members: [booking_ts, declaration_day]
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

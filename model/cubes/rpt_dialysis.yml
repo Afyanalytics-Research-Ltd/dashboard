@@ -1,0 +1,70 @@
+cubes:
+  - name: rpt_dialysis
+    sql_table: "\"REPORTING\".\"RPT_DIALYSIS\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: dialysis_ward
+        sql: "{CUBE}.\"DIALYSIS_WARD\""
+        type: string
+
+      - name: facility
+        sql: "{CUBE}.\"FACILITY\""
+        type: string
+
+      - name: session_month
+        sql: "{CUBE}.\"SESSION_MONTH\""
+        type: time
+
+    measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T12:59:40.964813+00:00
+      - name: total_sessions
+        sql: '{CUBE}."TOTAL_SESSIONS"'
+        type: sum
+        drill_members: [session_month, facility, dialysis_ward]
+      - name: distinct_patients
+        sql: '{CUBE}."DISTINCT_PATIENTS"'
+        type: sum
+        title: Distinct Dialysis Patients (count)
+        description: Count of distinct patients who had a dialysis session, by facility/month — not the number of sessions.
+      - name: avg_duration_hrs
+        sql: '{CUBE}."AVG_DURATION_HRS"'
+        type: avg
+        title: Average Dialysis Session Duration (hours)
+      - name: total_duration_min
+        sql: '{CUBE}."TOTAL_DURATION_MIN"'
+        type: sum
+      - name: total_duration_hrs
+        sql: '{CUBE}."TOTAL_DURATION_HRS"'
+        type: sum
+      - name: billed_visits
+        sql: '{CUBE}."BILLED_VISITS"'
+        type: sum
+      - name: total_dialysis_revenue
+        sql: '{CUBE}."TOTAL_DIALYSIS_REVENUE"'
+        type: sum
+        drill_members: [session_month, facility, dialysis_ward]
+      - name: insured_revenue
+        sql: '{CUBE}."INSURED_REVENUE"'
+        type: sum
+      - name: cash_revenue
+        sql: '{CUBE}."CASH_REVENUE"'
+        type: sum
+      - name: distinct_insurers
+        sql: '{CUBE}."DISTINCT_INSURERS"'
+        type: sum
+      - name: revenue_per_session
+        sql: '{CUBE}."REVENUE_PER_SESSION"'
+        type: sum
+        title: Dialysis Revenue per Session (KES)
+        description: Average dialysis revenue per session, by facility — use to compare dialysis revenue per session between facilities (e.g. TENRI vs KSH).
+        drill_members: [session_month, facility, dialysis_ward]
+      - name: count
+        type: count
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

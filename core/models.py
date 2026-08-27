@@ -1,5 +1,6 @@
 """
-Core platform models: Client, Facility, AuditLog, Notification, SystemSettings.
+Core platform models: Client, Facility, AuditLog, Notification, SystemSettings,
+Ticket, TicketComment.
 """
 
 from django.conf import settings
@@ -342,3 +343,183 @@ class SystemSettings(models.Model):
             },
         )
         return obj
+
+
+class Ticket(models.Model):
+    """A support ticket — an issue/error/complaint, a feature-improvement
+    suggestion, or a brand-new feature request — raised by any authenticated
+    user from anywhere in the platform.
+
+    Non-technical explanation:
+        A digital comment card. Whenever something's broken, could be
+        better, or is completely missing, a user drops a card in one of
+        three boxes (Issue, Suggestion, New Feature). The support team then
+        works through the cards on the Support & Ticketing page, moving
+        each one from Open through to Resolved.
+    """
+
+    TYPE_ISSUE = 'issue'
+    TYPE_SUGGESTION = 'suggestion'
+    TYPE_FEATURE = 'feature'
+    TYPE_CHOICES = [
+        (TYPE_ISSUE, 'Issue / Error / Complaint'),
+        (TYPE_SUGGESTION, 'Feature Improvement Suggestion'),
+        (TYPE_FEATURE, 'New Feature Request'),
+    ]
+    TYPE_ICONS = {
+        TYPE_ISSUE: 'bi-exclamation-octagon-fill',
+        TYPE_SUGGESTION: 'bi-lightbulb-fill',
+        TYPE_FEATURE: 'bi-stars',
+    }
+
+    STATUS_OPEN = 'open'
+    STATUS_IN_PROGRESS = 'in_progress'
+    STATUS_RESOLVED = 'resolved'
+    STATUS_CLOSED = 'closed'
+    STATUS_CHOICES = [
+        (STATUS_OPEN, 'Open'),
+        (STATUS_IN_PROGRESS, 'In Progress'),
+        (STATUS_RESOLVED, 'Resolved'),
+        (STATUS_CLOSED, 'Closed'),
+    ]
+    STATUS_COLORS = {
+        STATUS_OPEN: 'amber',
+        STATUS_IN_PROGRESS: 'blue',
+        STATUS_RESOLVED: 'teal',
+        STATUS_CLOSED: 'cool',
+    }
+
+    PRIORITY_LOW = 'low'
+    PRIORITY_MEDIUM = 'medium'
+    PRIORITY_HIGH = 'high'
+    PRIORITY_CRITICAL = 'critical'
+    PRIORITY_CHOICES = [
+        (PRIORITY_LOW, 'Low'),
+        (PRIORITY_MEDIUM, 'Medium'),
+        (PRIORITY_HIGH, 'High'),
+        (PRIORITY_CRITICAL, 'Critical'),
+    ]
+
+    ticket_type = models.CharField(max_length=20, choices=TYPE_CHOICES, db_index=True)
+    subject = models.CharField(max_length=200)
+    description = models.TextField()
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_OPEN, db_index=True)
+    priority = models.CharField(max_length=20, choices=PRIORITY_CHOICES, default=PRIORITY_MEDIUM)
+
+    page_url = models.CharField(
+        max_length=500, blank=True,
+        help_text='The page the user was on when they submitted this (auto-captured).',
+    )
+    attachment = models.ImageField(upload_to='tickets/attachments/%Y/%m/', blank=True, null=True)
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True,
+        related_name='tickets_created',
+    )
+    assigned_to = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='tickets_assigned',
+    )
+    client = models.ForeignKey(
+        Client, on_delete=models.SET_NULL, null=True, blank=True, related_name='tickets',
+    )
+    facility = models.ForeignKey(
+        Facility, on_delete=models.SET_NULL, null=True, blank=True, related_name='tickets',
+    )
+
+    resolution_notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = 'Ticket'
+        verbose_name_plural = 'Tickets'
+        indexes = [
+            models.Index(fields=['status', 'ticket_type']),
+            models.Index(fields=['created_by', 'status']),
+        ]
+
+    def __str__(self) -> str:
+        return f'[{self.get_ticket_type_display()}] {self.subject}'
+
+    @property
+    def status_color(self) -> str:
+        """Return the Afya design-token colour family for this ticket's status."""
+        return self.STATUS_COLORS.get(self.status, 'cool')
+
+    @property
+    def type_icon(self) -> str:
+        """Return the Bootstrap Icon class for this ticket's type."""
+        return self.TYPE_ICONS.get(self.ticket_type, 'bi-ticket-fill')
+
+    def set_status(self, new_status: str, *, actor=None) -> None:
+        """Transition this ticket to ``new_status`` and persist it.
+
+        Stamps ``resolved_at`` the first time a ticket reaches
+        ``STATUS_RESOLVED``, and notifies the ticket's creator of the
+        status change (skipped if the actor making the change is the
+        creator themselves, to avoid notifying someone about their own
+        action).
+
+        Non-technical explanation:
+            Moves a ticket to a new column on the support board — e.g.
+            from "Open" to "In Progress" — and, if it just moved to
+            "Resolved" for the first time, stamps the moment it was fixed
+            and lets the person who reported it know.
+
+        Args:
+            new_status: One of ``STATUS_CHOICES``.
+            actor: The user making the change (used only to decide whether
+                to notify the creator — pass ``None`` to always notify).
+        """
+        if new_status not in dict(self.STATUS_CHOICES):
+            raise ValueError(f'Unknown ticket status: {new_status!r}')
+
+        self.status = new_status
+        update_fields = ['status', 'updated_at']
+        if new_status == self.STATUS_RESOLVED and not self.resolved_at:
+            from django.utils import timezone
+            self.resolved_at = timezone.now()
+            update_fields.append('resolved_at')
+        self.save(update_fields=update_fields)
+
+        if self.created_by and (actor is None or actor.pk != self.created_by.pk):
+            Notification.send(
+                self.created_by,
+                title=f'Ticket updated: {self.subject}',
+                message=f'Your ticket is now "{self.get_status_display()}".',
+                notification_type='success' if new_status == self.STATUS_RESOLVED else 'info',
+                link='/core/support/',
+            )
+
+
+class TicketComment(models.Model):
+    """A single reply on a :class:`Ticket`'s thread.
+
+    Non-technical explanation:
+        One message in the back-and-forth conversation attached to a
+        support ticket — like a comment thread, but scoped to that one
+        issue/suggestion/feature request.
+    """
+
+    ticket = models.ForeignKey(Ticket, on_delete=models.CASCADE, related_name='comments')
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='ticket_comments',
+    )
+    body = models.TextField()
+    is_internal = models.BooleanField(
+        default=False,
+        help_text='Internal note visible to staff only, hidden from the ticket creator.',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at']
+        verbose_name = 'Ticket Comment'
+        verbose_name_plural = 'Ticket Comments'
+
+    def __str__(self) -> str:
+        author_name = self.author.username if self.author else 'unknown'
+        return f'{author_name} on #{self.ticket_id}: {self.body[:40]}'

@@ -1112,3 +1112,293 @@ class FacilityScopedAPITests(TestCase):
         self.assertEqual(resp.status_code, 200)
         schemas = {t["SCHEMA_NAME"] for t in resp.data["tables"]}
         self.assertEqual(schemas, {"KISUMU_CLEAN"})
+
+
+# ════════════════════════════════════════ SPREADSHEET ANALYST — agent internals
+# These exercise warehouse/agent/*.py directly — it has no Django or LLM
+# dependency (see its own docstrings), so these are real, unmocked tests that
+# confirm the package still works correctly after being relocated from a
+# standalone project into warehouse/agent/.
+
+class AnalystSandboxTests(TestCase):
+    """warehouse/agent/sandbox.py — AST validation + guarded execution."""
+
+    def test_blocks_import(self):
+        from warehouse.agent.sandbox import execute
+        result = execute("import os", {})
+        self.assertFalse(result.ok)
+        self.assertIn("not allowed", result.error)
+
+    def test_blocks_dunder_attribute_access(self):
+        from warehouse.agent.sandbox import execute
+        # __class__ is deliberately allow-listed (harmless, commonly needed);
+        # __subclasses__ is not — this is what should actually be rejected.
+        result = execute("int.__subclasses__()", {})
+        self.assertFalse(result.ok)
+
+    def test_allows_explicitly_allowed_dunder(self):
+        from warehouse.agent.sandbox import execute
+        result = execute("(1).__class__.__name__", {})
+        self.assertTrue(result.ok)
+
+    def test_blocks_eval_and_exec(self):
+        from warehouse.agent.sandbox import execute
+        self.assertFalse(execute("eval('1')", {}).ok)
+        self.assertFalse(execute("exec('1')", {}).ok)
+
+    def test_allows_basic_arithmetic(self):
+        from warehouse.agent.sandbox import execute
+        result = execute("2 + 2", {})
+        self.assertTrue(result.ok)
+        self.assertIn("4", result.value_repr)
+
+    def test_namespace_persists_across_calls(self):
+        from warehouse.agent.sandbox import execute
+        ns = {}
+        execute("x = 41", ns)
+        result = execute("x + 1", ns)
+        self.assertTrue(result.ok)
+        self.assertIn("42", result.value_repr)
+
+    def test_syntax_error_reported_not_raised(self):
+        from warehouse.agent.sandbox import execute
+        result = execute("def bad(:", {})
+        self.assertFalse(result.ok)
+        self.assertIn("SyntaxError", result.error)
+
+
+class AnalystWorkbookTests(TestCase):
+    """warehouse/agent/workbook.py — CSV/Excel loading and profiling."""
+
+    def _write_csv(self, name="sample.csv"):
+        import tempfile
+        from pathlib import Path
+        tmp_dir = Path(tempfile.mkdtemp())
+        path = tmp_dir / name
+        path.write_text("region,revenue\nWest,100\nEast,150\nWest,120\n", encoding="utf-8")
+        return path
+
+    def test_load_csv_workbook(self):
+        from warehouse.agent.workbook import load_workbook
+        path = self._write_csv()
+        frames, sheet_to_var = load_workbook(path)
+        self.assertEqual(len(frames), 1)
+        var = next(iter(frames))
+        self.assertEqual(list(frames[var].columns), ["region", "revenue"])
+        self.assertEqual(len(frames[var]), 3)
+
+    def test_slugify_sheet(self):
+        from warehouse.agent.workbook import slugify_sheet
+        self.assertEqual(slugify_sheet("Q1 Sales (2026)"), "q1_sales_2026")
+        self.assertEqual(slugify_sheet("2026 Data"), "s_2026_data")
+
+    def test_profile_frame(self):
+        import pandas as pd
+        from warehouse.agent.workbook import profile_frame
+        df = pd.DataFrame({"region": ["West", "East", "West"], "revenue": [100, 150, 120]})
+        profile = profile_frame("sales", "sales", df)
+        self.assertEqual(profile.n_rows, 3)
+        self.assertEqual(profile.n_cols, 2)
+        md = profile.to_markdown()
+        self.assertIn("sales", md)
+        self.assertIn("region", md)
+
+    def test_build_namespace_includes_pandas_and_sheets(self):
+        import pandas as pd
+        from warehouse.agent.workbook import build_namespace
+        frames = {"sales": pd.DataFrame({"x": [1, 2]})}
+        ns = build_namespace(frames)
+        self.assertIn("pd", ns)
+        self.assertIn("np", ns)
+        self.assertIn("plt", ns)
+        self.assertIn("sales", ns)
+        self.assertIn("df", ns)  # alias for the first/only sheet
+
+
+class AnalysisSessionTests(TestCase):
+    """warehouse/agent/session.py — end to end against a real small CSV."""
+
+    def test_open_session_and_overview(self):
+        import tempfile
+        from pathlib import Path
+        from warehouse.agent.session import AnalysisSession
+
+        tmp_dir = Path(tempfile.mkdtemp())
+        source = tmp_dir / "sales.csv"
+        source.write_text("region,revenue\nWest,100\nEast,150\n", encoding="utf-8")
+
+        session = AnalysisSession.open(source, tmp_dir / "artifacts")
+        self.assertIn("region", session.overview())
+        self.assertIn("pd", session.namespace)
+
+        path = session.new_artifact_path("my chart!", ".png")
+        self.assertTrue(str(path).endswith(".png"))
+        artifact = session.record("chart", "My Chart", path)
+        self.assertEqual(len(session.artifacts), 1)
+        self.assertEqual(artifact.to_dict()["kind"], "chart")
+
+
+# ════════════════════════════════════════ SPREADSHEET ANALYST — Django layer
+
+class AnalystModelTests(TestCase):
+
+    def setUp(self):
+        self.user = _make_user("wb_owner")
+
+    def test_create_workbook(self):
+        from warehouse.models import Workbook
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        wb = Workbook.objects.create(
+            owner=self.user,
+            file=SimpleUploadedFile("sales.csv", b"a,b\n1,2\n"),
+            original_name="sales.csv",
+        )
+        self.assertEqual(str(wb), "sales.csv")
+        self.assertIn(str(wb.id), wb.get_absolute_url())
+
+    def test_conversation_and_chatmessage(self):
+        from warehouse.models import ChatMessage, Conversation, Workbook
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        wb = Workbook.objects.create(
+            owner=self.user, file=SimpleUploadedFile("x.csv", b"a\n1\n"), original_name="x.csv",
+        )
+        conv = Conversation.objects.create(workbook=wb, owner=self.user)
+        msg = ChatMessage.objects.create(conversation=conv, role="user", content="Hello")
+        self.assertEqual(conv.messages.count(), 1)
+        self.assertEqual(str(msg), "user: Hello")
+
+
+class AnalystFormTests(TestCase):
+
+    def test_upload_form_rejects_bad_extension(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from warehouse.forms import WorkbookUploadForm
+        form = WorkbookUploadForm(files={"file": SimpleUploadedFile("virus.exe", b"x")})
+        self.assertFalse(form.is_valid())
+
+    def test_upload_form_accepts_csv(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from warehouse.forms import WorkbookUploadForm
+        form = WorkbookUploadForm(files={"file": SimpleUploadedFile("sales.csv", b"a,b\n1,2\n")})
+        self.assertTrue(form.is_valid())
+
+    def test_question_form_requires_question(self):
+        from warehouse.forms import AnalystQuestionForm
+        self.assertFalse(AnalystQuestionForm({"question": ""}).is_valid())
+        self.assertTrue(AnalystQuestionForm({"question": "What drove growth?"}).is_valid())
+
+
+class AnalystViewTests(TestCase):
+
+    def setUp(self):
+        self.user = _make_user("analyst_view_user")
+        self.other_user = _make_user("analyst_other_user")
+        self.c = Client()
+
+    def _upload_csv(self, user, filename="sales.csv"):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        self.c.force_login(user)
+        return self.c.post(reverse("warehouse:analyst_workbook_upload"), {
+            "file": SimpleUploadedFile(filename, b"region,revenue\nWest,100\nEast,150\n"),
+        })
+
+    def test_workbook_list_requires_login(self):
+        resp = self.c.get(reverse("warehouse:analyst_workbook_list"))
+        self.assertEqual(resp.status_code, 302)
+
+    def test_workbook_list_shows_only_own_workbooks(self):
+        from warehouse.models import Workbook
+        self._upload_csv(self.user)
+        self._upload_csv(self.other_user)
+        self.c.force_login(self.user)
+        resp = self.c.get(reverse("warehouse:analyst_workbook_list"))
+        self.assertEqual(Workbook.objects.filter(owner=self.user).count(), 1)
+        self.assertEqual(len(resp.context["workbooks"]), 1)
+
+    def test_upload_real_csv_creates_workbook_and_redirects_to_chat(self):
+        from warehouse.models import Conversation, Workbook
+        resp = self._upload_csv(self.user)
+        wb = Workbook.objects.get(owner=self.user)
+        self.assertEqual(wb.load_error, "")
+        self.assertIn("region", wb.overview)
+        conv = Conversation.objects.get(workbook=wb)
+        self.assertRedirects(resp, conv.get_absolute_url())
+
+    def test_upload_rejects_bad_file_type(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from warehouse.models import Workbook
+        self.c.force_login(self.user)
+        self.c.post(reverse("warehouse:analyst_workbook_upload"), {
+            "file": SimpleUploadedFile("virus.exe", b"x"),
+        })
+        self.assertFalse(Workbook.objects.filter(owner=self.user).exists())
+
+    def test_workbook_detail_ownership_enforced(self):
+        self._upload_csv(self.user)
+        from warehouse.models import Workbook
+        wb = Workbook.objects.get(owner=self.user)
+        self.c.force_login(self.other_user)
+        resp = self.c.get(reverse("warehouse:analyst_workbook_detail", args=[wb.id]))
+        self.assertEqual(resp.status_code, 404)
+
+    def test_new_conversation_creates_second_conversation(self):
+        from warehouse.models import Conversation, Workbook
+        self._upload_csv(self.user)
+        wb = Workbook.objects.get(owner=self.user)
+        self.assertEqual(Conversation.objects.filter(workbook=wb).count(), 1)
+        self.c.force_login(self.user)
+        self.c.post(reverse("warehouse:analyst_new_conversation", args=[wb.id]))
+        self.assertEqual(Conversation.objects.filter(workbook=wb).count(), 2)
+
+    @patch("warehouse.analyst_views.submit_question")
+    def test_ask_returns_rendered_message(self, mock_submit):
+        from warehouse.models import ChatMessage, Conversation, Workbook
+        self._upload_csv(self.user)
+        wb = Workbook.objects.get(owner=self.user)
+        conv = Conversation.objects.get(workbook=wb)
+
+        mock_submit.return_value = ChatMessage.objects.create(
+            conversation=conv, role="assistant", content="Revenue was **$250**.",
+        )
+        self.c.force_login(self.user)
+        resp = self.c.post(reverse("warehouse:analyst_ask", args=[conv.id]), {"question": "Total revenue?"})
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertTrue(data["ok"])
+        self.assertIn("Revenue", data["html"])
+
+    @patch("warehouse.analyst_views.submit_question")
+    def test_ask_requires_a_question(self, mock_submit):
+        self._upload_csv(self.user)
+        from warehouse.models import Conversation
+        conv = Conversation.objects.get(workbook__owner=self.user)
+        self.c.force_login(self.user)
+        resp = self.c.post(reverse("warehouse:analyst_ask", args=[conv.id]), {"question": ""})
+        self.assertEqual(resp.status_code, 400)
+        mock_submit.assert_not_called()
+
+    @patch("warehouse.analyst_views.drop_session")
+    def test_reset_kernel_drops_session(self, mock_drop):
+        self._upload_csv(self.user)
+        from warehouse.models import Conversation
+        conv = Conversation.objects.get(workbook__owner=self.user)
+        self.c.force_login(self.user)
+        resp = self.c.post(reverse("warehouse:analyst_reset_kernel", args=[conv.id]))
+        self.assertEqual(resp.status_code, 200)
+        mock_drop.assert_called_once_with(str(conv.id))
+
+    def test_artifact_download_ownership_enforced(self):
+        from warehouse.models import Artifact, Conversation
+        from django.core.files.base import ContentFile
+        self._upload_csv(self.user)
+        conv = Conversation.objects.get(workbook__owner=self.user)
+        artifact = Artifact.objects.create(conversation=conv, kind="report", title="Report")
+        artifact.file.save("report.md", ContentFile(b"# Report"), save=True)
+
+        self.c.force_login(self.other_user)
+        resp = self.c.get(reverse("warehouse:analyst_artifact_download", args=[artifact.pk]))
+        self.assertEqual(resp.status_code, 404)
+
+        self.c.force_login(self.user)
+        resp = self.c.get(reverse("warehouse:analyst_artifact_download", args=[artifact.pk]))
+        self.assertEqual(resp.status_code, 200)

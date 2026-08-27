@@ -2,7 +2,7 @@
 
 from django.urls import path
 
-from . import views
+from . import analyst_views, views
 
 app_name = "warehouse"
 
@@ -15,6 +15,18 @@ urlpatterns = [
 
     # Report missing data (AJAX or form POST)
     path("report-missing/", views.ReportMissingView.as_view(), name="report_missing"),
+
+    # Spreadsheet analyst — upload a workbook, chat with an agent about it.
+    # Registered ahead of the "<str:spreadsheet_id>/" catch-all below so
+    # "analyst/" is never swallowed by it.
+    path("analyst/", analyst_views.analyst_workbook_list, name="analyst_workbook_list"),
+    path("analyst/upload/", analyst_views.analyst_workbook_upload, name="analyst_workbook_upload"),
+    path("analyst/workbook/<uuid:pk>/", analyst_views.analyst_workbook_detail, name="analyst_workbook_detail"),
+    path("analyst/workbook/<uuid:pk>/new-conversation/", analyst_views.analyst_new_conversation, name="analyst_new_conversation"),
+    path("analyst/c/<uuid:pk>/", analyst_views.analyst_chat, name="analyst_chat"),
+    path("analyst/c/<uuid:pk>/ask/", analyst_views.analyst_ask, name="analyst_ask"),
+    path("analyst/c/<uuid:pk>/reset/", analyst_views.analyst_reset_kernel, name="analyst_reset_kernel"),
+    path("analyst/artifact/<int:pk>/", analyst_views.analyst_artifact_download, name="analyst_artifact_download"),
 
     # Spreadsheet detail
     path("<str:spreadsheet_id>/", views.SpreadsheetDetailView.as_view(), name="detail"),

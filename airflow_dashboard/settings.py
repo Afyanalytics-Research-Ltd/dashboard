@@ -113,6 +113,28 @@ CUBE_API_URL = os.getenv("CUBE_API_URL", "http://localhost:4000").strip()
 CUBE_API_TOKEN = os.getenv("CUBE_API_TOKEN", "your-cube-api-secret").strip()
 ANALYTICS_TEAM_EMAIL = os.getenv("ANALYTICS_TEAM_EMAIL", "data@afya.ai").strip()
 
+# ---------------------------------------------------------------------------
+# Spreadsheet analyst (warehouse/agent + warehouse/analyst_views.py)
+# ---------------------------------------------------------------------------
+ANALYST_MODEL = os.getenv("ANALYST_MODEL", "gpt-4.1").strip()
+ANALYST_EXEC_TIMEOUT = int(os.getenv("ANALYST_EXEC_TIMEOUT", "30"))
+ANALYST_MAX_TOOL_ROUNDS = int(os.getenv("ANALYST_MAX_TOOL_ROUNDS", "12"))
+ANALYST_SESSION_TTL = int(os.getenv("ANALYST_SESSION_TTL", "1800"))
+ANALYST_SESSION_CACHE_SIZE = int(os.getenv("ANALYST_SESSION_CACHE_SIZE", "8"))
+ANALYST_MAX_HISTORY_MESSAGES = int(os.getenv("ANALYST_MAX_HISTORY_MESSAGES", "40"))
+ANALYST_MAX_UPLOAD_BYTES = int(os.getenv("ANALYST_MAX_UPLOAD_BYTES", str(50 * 1024 * 1024)))
+
+# ---------------------------------------------------------------------------
+# Dynamic chart generation for the main analytics chatbot (agents/chart_codegen.py)
+# LLM writes matplotlib code against the already-fetched, already access-scoped
+# Cube result; the same AST-validated, timeout-guarded sandbox used by the
+# spreadsheet analyst (warehouse/agent/sandbox.py) executes it. Falls back to
+# the deterministic agents/charts.py:build_chart() on any failure.
+# ---------------------------------------------------------------------------
+CHART_CODEGEN_MODEL = os.getenv("CHART_CODEGEN_MODEL", "gpt-4o-mini").strip()
+CHART_CODEGEN_TIMEOUT = int(os.getenv("CHART_CODEGEN_TIMEOUT", "8"))
+CHART_CODEGEN_MAX_ROWS = int(os.getenv("CHART_CODEGEN_MAX_ROWS", "2000"))
+
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
@@ -127,6 +149,7 @@ TEMPLATES = [
                 'core.context_processors.notifications',
                 'core.context_processors.brand_settings',
                 'core.context_processors.module_access',
+                'core.context_processors.open_tickets',
             ],
         },
     },

@@ -19,8 +19,8 @@ from authentication.models import UserModuleGrant
 from authentication.module_access import get_module_overrides
 from authentication.roles import ROLE_CLIENT_ADMIN, ROLE_FACILITIES_ADMIN, ROLE_FACILITY_ADMIN
 
-from .mixins import BreadcrumbMixin, LoggingMixin, RoleRequiredMixin, SuperuserRequiredMixin
-from .models import AuditLog, Client, Facility, Notification, SystemSettings
+from .mixins import BreadcrumbMixin, LoggingMixin, RoleRequiredMixin, StaffRequiredMixin, SuperuserRequiredMixin
+from .models import AuditLog, Client, Facility, Notification, SystemSettings, Ticket, TicketComment
 
 User = get_user_model()
 
@@ -359,6 +359,285 @@ class MarkAllNotificationsReadView(View):
         count = Notification.objects.filter(user=request.user, is_read=False).update(is_read=True)
         messages.success(request, f'{count} notification(s) marked as read.')
         return redirect(request.META.get('HTTP_REFERER', '/analytics/'))
+
+
+# ---------------------------------------------------------------------------
+# Support & Ticketing
+# ---------------------------------------------------------------------------
+
+@method_decorator(login_required, name='dispatch')
+class TicketCreateAPIView(View):
+    """AJAX endpoint backing the three global ticket modals (Issue / Suggestion /
+    New Feature) defined in ``base.html``, plus the "New Ticket" flow on the
+    Support & Ticketing page itself. Any authenticated user may file a ticket.
+    """
+
+    def post(self, request: HttpRequest) -> JsonResponse:
+        """Create a :class:`Ticket` from AJAX form data.
+
+        Expects ``ticket_type`` (one of ``Ticket.TYPE_CHOICES``), ``subject``,
+        ``description``, and optionally ``priority``, ``page_url``, and an
+        ``attachment`` file.
+
+        Returns:
+            ``{"ok": true, "ticket": {...}}`` on success, or
+            ``{"ok": false, "error": "..."}`` with status 400 on validation
+            failure.
+        """
+        ticket_type = request.POST.get('ticket_type', '').strip()
+        subject = request.POST.get('subject', '').strip()
+        description = request.POST.get('description', '').strip()
+        priority = request.POST.get('priority', Ticket.PRIORITY_MEDIUM).strip()
+        page_url = request.POST.get('page_url', '').strip()[:500]
+
+        if ticket_type not in dict(Ticket.TYPE_CHOICES):
+            return JsonResponse({'ok': False, 'error': 'Please choose a valid ticket type.'}, status=400)
+        if not subject:
+            return JsonResponse({'ok': False, 'error': 'Subject is required.'}, status=400)
+        if not description:
+            return JsonResponse({'ok': False, 'error': 'Description is required.'}, status=400)
+        if priority not in dict(Ticket.PRIORITY_CHOICES):
+            priority = Ticket.PRIORITY_MEDIUM
+
+        profile = getattr(request.user, 'profile', None)
+        ticket = Ticket.objects.create(
+            ticket_type=ticket_type,
+            subject=subject[:200],
+            description=description,
+            priority=priority,
+            page_url=page_url,
+            attachment=request.FILES.get('attachment'),
+            created_by=request.user,
+            client=getattr(profile, 'client', None),
+            facility=getattr(profile, 'facility', None),
+        )
+
+        AuditLog.log(
+            user=request.user, action='create', resource='Ticket', resource_id=str(ticket.pk),
+            detail=f'{ticket.get_ticket_type_display()}: {ticket.subject}',
+            ip_address=request.META.get('REMOTE_ADDR'),
+        )
+
+        for staff_user in User.objects.filter(is_staff=True, is_active=True):
+            Notification.send(
+                staff_user,
+                title=f'New {ticket.get_ticket_type_display().lower()}',
+                message=f'{request.user.get_full_name() or request.user.username}: {ticket.subject}',
+                notification_type='warning' if ticket_type == Ticket.TYPE_ISSUE else 'info',
+                link='/core/support/',
+            )
+
+        return JsonResponse({
+            'ok': True,
+            'ticket': {
+                'id': ticket.pk,
+                'subject': ticket.subject,
+                'ticket_type': ticket.ticket_type,
+                'ticket_type_display': ticket.get_ticket_type_display(),
+                'status': ticket.status,
+                'status_display': ticket.get_status_display(),
+                'created_at': ticket.created_at.strftime('%d %b %Y, %H:%M'),
+            },
+        })
+
+
+@method_decorator(login_required, name='dispatch')
+class SupportView(BreadcrumbMixin, LoggingMixin, TemplateView):
+    """Support & Ticketing home page.
+
+    Every authenticated user sees "My Tickets" — everything they've
+    personally filed. Staff (``is_staff``) additionally see a Kanban board
+    of every ticket in the system, grouped by status, with drag-and-drop
+    status changes and an inline comment thread per ticket.
+
+    Non-technical explanation:
+        The help-desk page. Anyone can check on the issues/suggestions/
+        feature requests they've submitted. The support team sees
+        everyone's, laid out like a whiteboard with columns for Open, In
+        Progress, Resolved, and Closed, so they can drag a card across as
+        they work through it.
+    """
+
+    template_name = 'core/support.html'
+
+    def get_breadcrumbs(self):
+        return [
+            {'label': 'Home', 'url': '/analytics/'},
+            {'label': 'Support & Ticketing', 'url': None},
+        ]
+
+    def get_context_data(self, **kwargs) -> dict[str, Any]:
+        context = super().get_context_data(**kwargs)
+        user = self.request.user
+
+        my_tickets = list(
+            Ticket.objects.filter(created_by=user).select_related('assigned_to')
+        )
+
+        context.update({
+            'sidebar_section': 'support',
+            'page_title': 'Support & Ticketing',
+            'ticket_types': Ticket.TYPE_CHOICES,
+            'priorities': Ticket.PRIORITY_CHOICES,
+            'my_tickets': my_tickets,
+            'is_support_staff': user.is_staff,
+        })
+
+        if user.is_staff:
+            all_tickets = list(
+                Ticket.objects.select_related('created_by', 'assigned_to', 'facility')
+            )
+            board_columns = []
+            for status_key, status_label in Ticket.STATUS_CHOICES:
+                tickets_in_col = [t for t in all_tickets if t.status == status_key]
+                board_columns.append({
+                    'key': status_key,
+                    'label': status_label,
+                    'tickets': tickets_in_col,
+                    'count': len(tickets_in_col),
+                })
+            context.update({
+                'status_choices': Ticket.STATUS_CHOICES,
+                'board_columns': board_columns,
+                'open_count': sum(1 for t in all_tickets if t.status == Ticket.STATUS_OPEN),
+                'total_count': len(all_tickets),
+            })
+
+        return context
+
+
+class _TicketAccessMixin:
+    """Shared helper for the ticket detail/comment/status AJAX endpoints.
+
+    A ticket is visible to its creator and to any staff user; everyone
+    else gets a 404 (not a 403) so the existence of another user's ticket
+    isn't leaked.
+    """
+
+    def _get_visible_ticket(self, request: HttpRequest, pk: int) -> Ticket:
+        ticket = get_object_or_404(Ticket.objects.select_related('created_by', 'assigned_to'), pk=pk)
+        if not request.user.is_staff and ticket.created_by_id != request.user.pk:
+            from django.http import Http404
+            raise Http404('Ticket not found.')
+        return ticket
+
+
+@method_decorator(login_required, name='dispatch')
+class TicketDetailAPIView(_TicketAccessMixin, View):
+    """Return a ticket's full detail plus its comment thread as JSON.
+
+    Internal (staff-only) comments are omitted for non-staff viewers, even
+    though non-staff viewers can only reach their own tickets in the first
+    place — this keeps internal notes private even if a ticket is later
+    reassigned or shared.
+    """
+
+    def get(self, request: HttpRequest, pk: int) -> JsonResponse:
+        ticket = self._get_visible_ticket(request, pk)
+        comments = ticket.comments.select_related('author')
+        if not request.user.is_staff:
+            comments = comments.filter(is_internal=False)
+
+        return JsonResponse({
+            'ok': True,
+            'ticket': {
+                'id': ticket.pk,
+                'subject': ticket.subject,
+                'description': ticket.description,
+                'ticket_type': ticket.ticket_type,
+                'ticket_type_display': ticket.get_ticket_type_display(),
+                'status': ticket.status,
+                'status_display': ticket.get_status_display(),
+                'priority': ticket.priority,
+                'priority_display': ticket.get_priority_display(),
+                'page_url': ticket.page_url,
+                'attachment_url': ticket.attachment.url if ticket.attachment else '',
+                'created_by': ticket.created_by.get_full_name() or ticket.created_by.username if ticket.created_by else 'Unknown',
+                'assigned_to': (ticket.assigned_to.get_full_name() or ticket.assigned_to.username) if ticket.assigned_to else None,
+                'created_at': ticket.created_at.strftime('%d %b %Y, %H:%M'),
+                'resolution_notes': ticket.resolution_notes,
+            },
+            'comments': [
+                {
+                    'id': c.pk,
+                    'author': (c.author.get_full_name() or c.author.username) if c.author else 'Unknown',
+                    'body': c.body,
+                    'is_internal': c.is_internal,
+                    'created_at': c.created_at.strftime('%d %b %Y, %H:%M'),
+                }
+                for c in comments
+            ],
+        })
+
+
+@method_decorator(login_required, name='dispatch')
+class TicketCommentAPIView(_TicketAccessMixin, View):
+    """Add a comment to a ticket's thread. Only staff may mark a comment internal."""
+
+    def post(self, request: HttpRequest, pk: int) -> JsonResponse:
+        ticket = self._get_visible_ticket(request, pk)
+        body = request.POST.get('body', '').strip()
+        if not body:
+            return JsonResponse({'ok': False, 'error': 'Comment cannot be empty.'}, status=400)
+
+        is_internal = request.user.is_staff and request.POST.get('is_internal') == 'true'
+        comment = TicketComment.objects.create(
+            ticket=ticket, author=request.user, body=body, is_internal=is_internal,
+        )
+
+        if not is_internal and ticket.created_by_id and ticket.created_by_id != request.user.pk:
+            Notification.send(
+                ticket.created_by,
+                title=f'New reply on: {ticket.subject}',
+                message=body[:200],
+                notification_type='info',
+                link='/core/support/',
+            )
+        elif request.user.pk != getattr(ticket.created_by, 'pk', None) and ticket.assigned_to_id and ticket.assigned_to_id != request.user.pk:
+            Notification.send(
+                ticket.assigned_to,
+                title=f'New comment on: {ticket.subject}',
+                message=body[:200],
+                notification_type='info',
+                link='/core/support/',
+            )
+
+        return JsonResponse({
+            'ok': True,
+            'comment': {
+                'id': comment.pk,
+                'author': comment.author.get_full_name() or comment.author.username,
+                'body': comment.body,
+                'is_internal': comment.is_internal,
+                'created_at': comment.created_at.strftime('%d %b %Y, %H:%M'),
+            },
+        })
+
+
+@method_decorator(login_required, name='dispatch')
+class TicketStatusAPIView(StaffRequiredMixin, LoggingMixin, View):
+    """Staff-only: change a ticket's status — powers the Kanban board's
+    drag-and-drop columns and the ticket detail panel's status dropdown."""
+
+    def post(self, request: HttpRequest, pk: int) -> JsonResponse:
+        ticket = get_object_or_404(Ticket, pk=pk)
+        new_status = request.POST.get('status', '').strip()
+        if new_status not in dict(Ticket.STATUS_CHOICES):
+            return JsonResponse({'ok': False, 'error': 'Unknown status.'}, status=400)
+
+        assigned_to_id = request.POST.get('assigned_to_id', '').strip()
+        if assigned_to_id:
+            ticket.assigned_to_id = int(assigned_to_id) if assigned_to_id.isdigit() else None
+            ticket.save(update_fields=['assigned_to'])
+
+        old_status_display = ticket.get_status_display()
+        ticket.set_status(new_status, actor=request.user)
+
+        self.audit_log(
+            'update', 'Ticket', resource_id=str(ticket.pk),
+            detail=f'{old_status_display} -> {ticket.get_status_display()}',
+        )
+        return JsonResponse({'ok': True, 'status': ticket.status, 'status_display': ticket.get_status_display()})
 
 
 # ---------------------------------------------------------------------------

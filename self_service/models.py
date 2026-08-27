@@ -11,6 +11,7 @@ class ChatSession(models.Model):
         User, on_delete=models.CASCADE, related_name='chat_sessions'
     )
     session_key = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    title = models.CharField(max_length=120, blank=True)
     started_at = models.DateTimeField(auto_now_add=True)
     last_activity = models.DateTimeField(auto_now=True)
     is_active = models.BooleanField(default=True)

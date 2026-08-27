@@ -47,6 +47,25 @@ def brand_settings(request: HttpRequest) -> dict:
     }
 
 
+def open_tickets(request: HttpRequest) -> dict:
+    """
+    Expose the count of open support tickets to staff users, for the
+    sidebar's "Support & Ticketing" badge (mirrors the notification bell
+    badge). Always 0 for non-staff/anonymous users, so nobody sees a badge
+    hinting at ticket volume unless they can actually act on it.
+    """
+    if not (request.user and request.user.is_authenticated and request.user.is_staff):
+        return {'open_ticket_count': 0}
+
+    try:
+        from .models import Ticket
+        count = Ticket.objects.filter(status=Ticket.STATUS_OPEN).count()
+    except Exception:
+        count = 0
+
+    return {'open_ticket_count': count}
+
+
 def module_access(request: HttpRequest) -> dict:
     """
     Expose each module's effective access for the current user, so templates

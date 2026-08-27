@@ -10,10 +10,12 @@
   var WS_PATH = '/ws/analytics/chat/';
   var RECONNECT_DELAY_MS = 3000;
   var MAX_RECONNECTS = 5;
+  var SESSION_STORAGE_KEY = 'afyaChatSessionKey';
 
   // ---- DOM references (populated in init) ---------------------------------
   var elFab, elPanel, elCloseBtn, elMessages, elTyping;
   var elInput, elSendBtn, elStatus, elStatusDot, elBadge, elSuggestions;
+  var elHistoryBtn, elNewChatBtn, elHistoryOverlay, elHistoryCloseBtn, elHistoryList;
 
   // ---- State --------------------------------------------------------------
   var ws = null;
@@ -21,6 +23,10 @@
   var panelOpen = false;
   var unreadCount = 0;
   var connected = false;
+  var currentSessionKey = null;
+  try {
+    currentSessionKey = window.localStorage.getItem(SESSION_STORAGE_KEY) || null;
+  } catch (err) { /* localStorage unavailable (private mode, etc.) — fine, just no persistence */ }
 
   // =========================================================================
   // Bootstrap
@@ -38,6 +44,11 @@
     elStatusDot  = document.getElementById('chatbotStatusDot');
     elBadge      = document.getElementById('chatbotBadge');
     elSuggestions = document.getElementById('chatbotSuggestions');
+    elHistoryBtn      = document.getElementById('chatbotHistoryBtn');
+    elNewChatBtn      = document.getElementById('chatbotNewChatBtn');
+    elHistoryOverlay  = document.getElementById('chatbotHistoryOverlay');
+    elHistoryCloseBtn = document.getElementById('chatbotHistoryCloseBtn');
+    elHistoryList     = document.getElementById('chatbotHistoryList');
 
     // If the FAB doesn't exist the user isn't authenticated — bail out.
     if (!elFab) return;
@@ -79,9 +90,19 @@
       });
     }
 
+    if (elHistoryBtn) elHistoryBtn.addEventListener('click', openHistory);
+    if (elHistoryCloseBtn) elHistoryCloseBtn.addEventListener('click', closeHistory);
+    if (elNewChatBtn) elNewChatBtn.addEventListener('click', startNewChat);
+
     // Keyboard: close on Escape
     document.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape' && panelOpen) closePanel();
+      if (e.key === 'Escape' && panelOpen) {
+        if (elHistoryOverlay && !elHistoryOverlay.classList.contains('d-none')) {
+          closeHistory();
+        } else {
+          closePanel();
+        }
+      }
     });
 
     // Mobile: tap outside to close
@@ -132,7 +153,11 @@
 
   function wsUrl() {
     var proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    return proto + '//' + window.location.host + WS_PATH;
+    var url = proto + '//' + window.location.host + WS_PATH;
+    if (currentSessionKey) {
+      url += '?session=' + encodeURIComponent(currentSessionKey);
+    }
+    return url;
   }
 
   function connect() {
@@ -177,6 +202,16 @@
   // =========================================================================
 
   function handleServerMessage(data) {
+    if (data.type === 'session') {
+      currentSessionKey = data.session_key;
+      try { window.localStorage.setItem(SESSION_STORAGE_KEY, currentSessionKey); } catch (err) { /* ignore */ }
+      // A resumed session already has messages in the DB — pull them in.
+      // A brand-new session has nothing to load; the server's canned
+      // welcome arrives next as an ordinary 'message' event.
+      if (!data.is_new) loadSessionHistory(currentSessionKey);
+      return;
+    }
+
     if (data.type === 'typing') {
       elTyping.classList.toggle('d-none', !data.status);
       return;
@@ -213,6 +248,106 @@
     elInput.value = '';
     elInput.style.height = 'auto';
     if (elSuggestions) elSuggestions.classList.add('d-none');
+  }
+
+  // =========================================================================
+  // Conversation history — session switching, listing, resuming
+  // =========================================================================
+
+  function loadSessionHistory(sessionKey) {
+    fetch('/analytics/chat/history/?session=' + encodeURIComponent(sessionKey), { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        elMessages.innerHTML = '';
+        (data.messages || []).forEach(function (m) {
+          appendBubble(m.role, m.content);
+        });
+        if (elSuggestions) elSuggestions.classList.add('d-none');
+      })
+      .catch(function (err) { console.error('[Afya Chat] history load error:', err); });
+  }
+
+  function openHistory() {
+    if (!elHistoryOverlay) return;
+    loadSessionList();
+    elHistoryOverlay.classList.remove('d-none');
+  }
+
+  function closeHistory() {
+    if (elHistoryOverlay) elHistoryOverlay.classList.add('d-none');
+  }
+
+  function loadSessionList() {
+    if (!elHistoryList) return;
+    elHistoryList.innerHTML = '<div class="chatbot-history-empty">Loading…</div>';
+    fetch('/analytics/chat/sessions/', { credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (data) { renderSessionList(data.sessions || []); })
+      .catch(function () {
+        elHistoryList.innerHTML = '<div class="chatbot-history-empty">Could not load history.</div>';
+      });
+  }
+
+  function renderSessionList(sessions) {
+    elHistoryList.innerHTML = '';
+
+    if (!sessions.length) {
+      elHistoryList.innerHTML = '<div class="chatbot-history-empty">' +
+        '<i class="bi bi-chat-square-dots d-block mb-2" style="font-size:24px;opacity:.4;"></i>' +
+        'No past conversations yet.</div>';
+      return;
+    }
+
+    sessions.forEach(function (s) {
+      var item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'chatbot-history-item' + (s.session_key === currentSessionKey ? ' active' : '');
+      item.innerHTML =
+        '<div class="chatbot-history-item-title">' + escapeHtml(s.title) + '</div>' +
+        (s.preview ? '<div class="chatbot-history-item-preview">' + escapeHtml(s.preview) + '</div>' : '') +
+        '<div class="chatbot-history-item-time">' + formatRelativeTime(s.last_activity) +
+        ' · ' + s.message_count + ' message' + (s.message_count === 1 ? '' : 's') + '</div>';
+      item.addEventListener('click', function () { switchToSession(s.session_key); });
+      elHistoryList.appendChild(item);
+    });
+  }
+
+  function switchToSession(sessionKey) {
+    closeHistory();
+    if (sessionKey === currentSessionKey && connected) return;
+    currentSessionKey = sessionKey;
+    try { window.localStorage.setItem(SESSION_STORAGE_KEY, currentSessionKey); } catch (err) { /* ignore */ }
+    elMessages.innerHTML = '';
+    reconnect();
+  }
+
+  function startNewChat() {
+    closeHistory();
+    currentSessionKey = null;
+    try { window.localStorage.removeItem(SESSION_STORAGE_KEY); } catch (err) { /* ignore */ }
+    elMessages.innerHTML = '';
+    reconnect();
+  }
+
+  function reconnect() {
+    reconnectCount = 0;
+    if (ws) {
+      ws.onclose = null; // this is a deliberate switch, not a drop — skip auto-reconnect
+      ws.close();
+    }
+    connect();
+  }
+
+  function formatRelativeTime(iso) {
+    var d = new Date(iso);
+    var mins = Math.round((Date.now() - d.getTime()) / 60000);
+    if (mins < 1) return 'just now';
+    if (mins < 60) return mins + 'm ago';
+    var hrs = Math.round(mins / 60);
+    if (hrs < 24) return hrs + 'h ago';
+    var days = Math.round(hrs / 24);
+    if (days < 7) return days + 'd ago';
+    return d.toLocaleDateString();
   }
 
   // =========================================================================

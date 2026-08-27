@@ -1,0 +1,222 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Spreadsheet Analyst{% endblock %}
+{% block page_title %}Spreadsheet Analyst{% endblock %}
+
+{% block breadcrumbs %}
+<div class="afya-breadcrumb-bar">
+  <nav aria-label="breadcrumb">
+    <ol class="breadcrumb mb-0">
+      <li class="breadcrumb-item"><a href="{% url 'analytics:home' %}">Home</a></li>
+      <li class="breadcrumb-item"><a href="{% url 'warehouse:index' %}">Warehouse</a></li>
+      <li class="breadcrumb-item active" aria-current="page">Spreadsheet Analyst</li>
+    </ol>
+  </nav>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+  .an-hero {
+    background: linear-gradient(145deg, #001a3d 0%, #002f6c 45%, #004e9a 100%);
+    border-radius: 0 0 2.25rem 2.25rem;
+    padding: 2.5rem 2.5rem 2.25rem;
+    color: #fff;
+    margin-bottom: 1.75rem;
+    position: relative;
+    overflow: hidden;
+  }
+  .an-hero::before {
+    content: '';
+    position: absolute; inset: 0;
+    background-image: radial-gradient(circle at 88% -10%, rgba(96,198,255,.25), transparent 55%);
+    pointer-events: none;
+  }
+  .an-hero-inner { position: relative; z-index: 1; }
+
+  .an-dropzone {
+    background: rgba(255,255,255,.06);
+    border: 2px dashed rgba(255,255,255,.28);
+    border-radius: 20px;
+    padding: 2.4rem 1.5rem;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.25s ease;
+    backdrop-filter: blur(6px);
+  }
+  .an-dropzone:hover, .an-dropzone.drag-over {
+    border-color: #60c6ff;
+    background: rgba(96,198,255,.12);
+    transform: translateY(-2px);
+  }
+  .an-dropzone-icon {
+    font-size: 2.6rem;
+    background: linear-gradient(135deg, #60c6ff, #0BB99F);
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+    margin-bottom: .5rem; display: block;
+  }
+  .an-dropzone-file {
+    display: none;
+    align-items: center; justify-content: center; gap: 10px;
+    background: rgba(255,255,255,.1);
+    border-radius: 12px;
+    padding: 10px 16px;
+    margin-top: 14px;
+    font-size: 13.5px;
+  }
+  .an-dropzone-file.show { display: flex; }
+  .an-filetypes { font-size: 11.5px; color: rgba(255,255,255,.5); margin-top: 10px; }
+
+  .wb-card {
+    background: var(--afya-surface);
+    border: 1px solid var(--afya-border);
+    border-radius: 16px;
+    padding: 18px;
+    height: 100%;
+    transition: all 0.22s cubic-bezier(.2,.8,.2,1);
+    text-decoration: none;
+    color: inherit;
+    display: block;
+    animation: wb-rise .4s cubic-bezier(.2,.8,.2,1) both;
+  }
+  .wb-card:hover {
+    transform: translateY(-5px);
+    box-shadow: var(--afya-shadow-lg);
+    text-decoration: none;
+    color: inherit;
+    border-color: var(--afya-blue);
+  }
+  @keyframes wb-rise { from { opacity:0; transform: translateY(14px);} to {opacity:1; transform:translateY(0);} }
+
+  .wb-icon {
+    width: 46px; height: 46px; border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    background: linear-gradient(135deg, var(--afya-blue-light), #fff);
+    color: var(--afya-blue);
+    font-size: 20px;
+    margin-bottom: 10px;
+  }
+  .wb-icon.wb-error { background: #fef2f2; color: #b91c1c; }
+  .wb-name { font-weight: 700; font-size: 14px; margin-bottom: 3px; word-break: break-word; }
+  .wb-meta { font-size: 11.5px; color: var(--afya-muted); }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<div class="an-hero">
+  <div class="an-hero-inner">
+    <div class="d-flex align-items-center justify-content-between flex-wrap gap-4">
+      <div style="max-width:480px;">
+        <div style="font-size:.7rem;font-weight:800;letter-spacing:2px;text-transform:uppercase;color:rgba(96,198,255,.9);margin-bottom:.5rem;">
+          <i class="bi bi-robot me-1"></i>Warehouse · AI Analyst
+        </div>
+        <h1 style="font-size:clamp(1.6rem,3vw,2.3rem);font-weight:900;letter-spacing:-.03em;margin-bottom:.6rem;">
+          Upload a spreadsheet.<br>Ask it anything.
+        </h1>
+        <p style="color:rgba(255,255,255,.62);font-size:.9rem;margin-bottom:0;">
+          Drop in an Excel or CSV file and chat with an AI analyst that profiles every sheet,
+          runs real pandas code, draws charts, and writes reports — grounded in your actual data.
+        </p>
+      </div>
+
+      <form method="post" action="{% url 'warehouse:analyst_workbook_upload' %}"
+            enctype="multipart/form-data" id="uploadForm" style="min-width:320px;flex:1;max-width:420px;">
+        {% csrf_token %}
+        <div class="an-dropzone" id="anDropzone">
+          <i class="bi bi-cloud-arrow-up an-dropzone-icon"></i>
+          <div style="font-weight:700;font-size:14.5px;">Click or drag a spreadsheet here</div>
+          <div class="an-filetypes">.xlsx · .xlsm · .xls · .csv · .tsv</div>
+          {{ form.file }}
+          <div class="an-dropzone-file" id="anFilePreview">
+            <i class="bi bi-file-earmark-spreadsheet-fill" style="color:#60c6ff;"></i>
+            <span id="anFileName"></span>
+          </div>
+        </div>
+        <button type="submit" class="btn btn-hero-white w-100 mt-3" id="anUploadBtn" disabled>
+          <span class="btn-text"><i class="bi bi-magic me-1"></i>Analyse this workbook</span>
+          <span class="spinner-border spinner-border-sm d-none" role="status"></span>
+        </button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div class="px-2 px-md-0">
+  <div class="d-flex align-items-center justify-content-between mb-3">
+    <h5 class="fw-bold mb-0"><i class="bi bi-clock-history me-2 text-afya-blue"></i>Your workbooks</h5>
+    <span class="badge bg-secondary">{{ workbooks|length }} workbook{{ workbooks|length|pluralize }}</span>
+  </div>
+
+  {% if workbooks %}
+  <div class="row g-3">
+    {% for wb in workbooks %}
+    <div class="col-12 col-sm-6 col-lg-4 col-xl-3">
+      <a href="{{ wb.get_absolute_url }}" class="wb-card" style="animation-delay: {{ forloop.counter0|add:0 }}0ms;">
+        <div class="wb-icon {% if wb.load_error %}wb-error{% endif %}">
+          <i class="bi {% if wb.load_error %}bi-exclamation-triangle-fill{% else %}bi-file-earmark-spreadsheet-fill{% endif %}"></i>
+        </div>
+        <div class="wb-name">{{ wb.original_name }}</div>
+        <div class="wb-meta">
+          <i class="bi bi-calendar3 me-1"></i>{{ wb.uploaded_at|date:"d M Y, H:i" }}
+          {% if wb.load_error %}<br><span class="text-danger">Could not be read</span>{% endif %}
+        </div>
+      </a>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="card">
+    <div class="empty-state">
+      <div class="empty-state-icon"><i class="bi bi-file-earmark-spreadsheet"></i></div>
+      <div class="empty-state-title">No workbooks yet</div>
+      <div class="empty-state-desc">Upload your first spreadsheet above to start an analysis.</div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  'use strict';
+  var dropzone = document.getElementById('anDropzone');
+  var fileInput = dropzone.querySelector('input[type="file"]');
+  var preview = document.getElementById('anFilePreview');
+  var fileNameEl = document.getElementById('anFileName');
+  var uploadBtn = document.getElementById('anUploadBtn');
+  var form = document.getElementById('uploadForm');
+
+  fileInput.classList.add('d-none');
+
+  dropzone.addEventListener('click', function () { fileInput.click(); });
+  ['dragenter', 'dragover'].forEach(function (evt) {
+    dropzone.addEventListener(evt, function (e) { e.preventDefault(); dropzone.classList.add('drag-over'); });
+  });
+  ['dragleave', 'drop'].forEach(function (evt) {
+    dropzone.addEventListener(evt, function (e) { e.preventDefault(); dropzone.classList.remove('drag-over'); });
+  });
+  dropzone.addEventListener('drop', function (e) {
+    if (e.dataTransfer.files.length) {
+      fileInput.files = e.dataTransfer.files;
+      fileInput.dispatchEvent(new Event('change'));
+    }
+  });
+  fileInput.addEventListener('change', function () {
+    if (!fileInput.files.length) return;
+    fileNameEl.textContent = fileInput.files[0].name + ' (' + (fileInput.files[0].size / 1e6).toFixed(1) + ' MB)';
+    preview.classList.add('show');
+    uploadBtn.disabled = false;
+  });
+
+  form.addEventListener('submit', function () {
+    uploadBtn.disabled = true;
+    uploadBtn.querySelector('.btn-text').classList.add('d-none');
+    uploadBtn.querySelector('.spinner-border').classList.remove('d-none');
+  });
+})();
+</script>
+{% endblock %}

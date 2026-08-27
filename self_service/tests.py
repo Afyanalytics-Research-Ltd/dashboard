@@ -549,6 +549,7 @@ class ConsumerConnectTests(TransactionTestCase):
             comm = WebsocketCommunicator(app, '/ws/analytics/chat/')
             comm.scope['user'] = self.user
             await comm.connect()
+            await comm.receive_json_from()  # session
             response = await comm.receive_json_from()
             self.assertEqual(response['type'], 'message')
             self.assertEqual(response['role'], 'assistant')
@@ -563,6 +564,7 @@ class ConsumerConnectTests(TransactionTestCase):
             comm = WebsocketCommunicator(app, '/ws/analytics/chat/')
             comm.scope['user'] = self.user
             await comm.connect()
+            await comm.receive_json_from()  # session
             response = await comm.receive_json_from()
             # Role display name should appear in welcome
             self.assertIn('Facility Administrator', response['content'])
@@ -576,11 +578,127 @@ class ConsumerConnectTests(TransactionTestCase):
             comm = WebsocketCommunicator(app, '/ws/analytics/chat/')
             comm.scope['user'] = self.user
             await comm.connect()
+            await comm.receive_json_from()  # session
             await comm.receive_json_from()  # consume welcome
             await comm.disconnect()
 
         _run(_go())
         self.assertEqual(ChatSession.objects.filter(user=self.user).count(), 1)
+
+
+class ConsumerSessionResumeTests(TransactionTestCase):
+    """A returning client that supplies ?session=<key> resumes that row
+    instead of spawning a new one each time it connects."""
+
+    def setUp(self):
+        self.user = _make_user('resume_user', role=ROLE_FACILITY_ADMIN)
+        self.other_user = _make_user('resume_other_user', role=ROLE_FACILITY_ADMIN)
+
+    def _connect(self, path):
+        result = {}
+
+        async def _go():
+            app = AnalyticsChatConsumer.as_asgi()
+            comm = WebsocketCommunicator(app, path)
+            comm.scope['user'] = self.user
+            await comm.connect()
+            result['session_msg'] = await comm.receive_json_from()
+            if result['session_msg'].get('is_new'):
+                result['welcome'] = await comm.receive_json_from()
+            await comm.disconnect()
+
+        _run(_go())
+        return result
+
+    def test_new_connection_without_session_param_creates_session(self):
+        res = self._connect('/ws/analytics/chat/')
+        self.assertEqual(res['session_msg']['type'], 'session')
+        self.assertTrue(res['session_msg']['is_new'])
+        self.assertIn('welcome', res)
+        self.assertEqual(ChatSession.objects.filter(user=self.user).count(), 1)
+
+    def test_resuming_own_session_does_not_create_a_second_one(self):
+        session = ChatSession.objects.create(user=self.user)
+        res = self._connect('/ws/analytics/chat/?session=' + str(session.session_key))
+        self.assertFalse(res['session_msg']['is_new'])
+        self.assertEqual(res['session_msg']['session_key'], str(session.session_key))
+        self.assertNotIn('welcome', res)
+        self.assertEqual(ChatSession.objects.filter(user=self.user).count(), 1)
+
+    def test_session_param_owned_by_another_user_is_ignored(self):
+        foreign_session = ChatSession.objects.create(user=self.other_user)
+        res = self._connect('/ws/analytics/chat/?session=' + str(foreign_session.session_key))
+        # Must not resume someone else's session — a fresh one is created instead.
+        self.assertTrue(res['session_msg']['is_new'])
+        self.assertNotEqual(res['session_msg']['session_key'], str(foreign_session.session_key))
+        self.assertEqual(ChatSession.objects.filter(user=self.user).count(), 1)
+
+    def test_malformed_session_param_falls_back_to_new_session(self):
+        res = self._connect('/ws/analytics/chat/?session=not-a-real-uuid')
+        self.assertTrue(res['session_msg']['is_new'])
+        self.assertEqual(ChatSession.objects.filter(user=self.user).count(), 1)
+
+    def test_disconnect_does_not_deactivate_session(self):
+        self._connect('/ws/analytics/chat/')
+        session = ChatSession.objects.get(user=self.user)
+        self.assertTrue(session.is_active)
+
+
+class ConsumerSessionPersistenceTests(TransactionTestCase):
+    """Sending a message sets the session title and bumps last_activity.
+
+    These calls hit the real OpenAI API (this suite has no mock for it —
+    see ConsumerMessagingTests), so response receives use a generous
+    timeout: WebsocketCommunicator.receive_json_from() defaults to 1s,
+    which a live network round trip can easily exceed.
+    """
+
+    _REPLY_TIMEOUT = 20
+
+    def setUp(self):
+        self.user = _make_user('title_user', role=ROLE_CLIENT_ADMIN)
+
+    def test_title_is_set_from_first_user_message(self):
+        # 'help' is a recognised platform intent (routes through the fast,
+        # single-call OpenAI path) — matches the pattern the rest of this
+        # suite uses to avoid exercising the slow, network-heavy LangGraph
+        # agent path in tests (see ConsumerMessagingTests).
+        async def _go():
+            app = AnalyticsChatConsumer.as_asgi()
+            comm = WebsocketCommunicator(app, '/ws/analytics/chat/')
+            comm.scope['user'] = self.user
+            await comm.connect()
+            await comm.receive_json_from()  # session
+            await comm.receive_json_from()  # welcome
+            await comm.send_json_to({'message': 'help'})
+            await comm.receive_json_from()  # typing
+            await comm.receive_json_from(timeout=self._REPLY_TIMEOUT)  # answer
+            await comm.disconnect()
+
+        _run(_go())
+        session = ChatSession.objects.get(user=self.user)
+        self.assertEqual(session.title, 'help')
+
+    def test_title_is_not_overwritten_by_later_messages(self):
+        async def _go():
+            app = AnalyticsChatConsumer.as_asgi()
+            comm = WebsocketCommunicator(app, '/ws/analytics/chat/')
+            comm.scope['user'] = self.user
+            await comm.connect()
+            await comm.receive_json_from()
+            await comm.receive_json_from()
+            await comm.send_json_to({'message': 'help'})
+            await comm.receive_json_from()
+            await comm.receive_json_from(timeout=self._REPLY_TIMEOUT)
+            await comm.send_json_to({'message': 'give me a summary'})
+            await comm.receive_json_from()
+            await comm.receive_json_from(timeout=self._REPLY_TIMEOUT)
+            await comm.disconnect()
+
+        _run(_go())
+        session = ChatSession.objects.get(user=self.user)
+        self.assertEqual(session.title, 'help')
+        self.assertEqual(session.messages.count(), 4)
 
 
 class ConsumerMessagingTests(TransactionTestCase):
@@ -598,6 +716,7 @@ class ConsumerMessagingTests(TransactionTestCase):
             comm = WebsocketCommunicator(app, '/ws/analytics/chat/')
             comm.scope['user'] = self.user
             await comm.connect()
+            await comm.receive_json_from()  # discard session
             await comm.receive_json_from()  # discard welcome
 
             await comm.send_json_to({'message': query})
@@ -606,8 +725,9 @@ class ConsumerMessagingTests(TransactionTestCase):
             typing = await comm.receive_json_from()
             result['typing'] = typing
 
-            # Second response is the actual answer
-            answer = await comm.receive_json_from()
+            # Second response is the actual answer — this is a real OpenAI
+            # round trip, which routinely exceeds the library's 1s default.
+            answer = await comm.receive_json_from(timeout=20)
             result['answer'] = answer
 
             await comm.disconnect()
@@ -648,6 +768,7 @@ class ConsumerMessagingTests(TransactionTestCase):
             comm = WebsocketCommunicator(app, '/ws/analytics/chat/')
             comm.scope['user'] = self.user
             await comm.connect()
+            await comm.receive_json_from()  # session
             await comm.receive_json_from()  # welcome
             await comm.send_json_to({'message': '   '})
             # Consumer should silently discard blank input; no response queued
@@ -662,6 +783,7 @@ class ConsumerMessagingTests(TransactionTestCase):
             comm = WebsocketCommunicator(app, '/ws/analytics/chat/')
             comm.scope['user'] = self.user
             await comm.connect()
+            await comm.receive_json_from()  # session
             await comm.receive_json_from()  # welcome
             await comm.send_to(text_data='NOT VALID JSON')
             self.assertTrue(await comm.receive_nothing())
@@ -684,11 +806,12 @@ class ConsumerAccessDenialTests(TransactionTestCase):
             comm = WebsocketCommunicator(app, '/ws/analytics/chat/')
             comm.scope['user'] = self.user
             await comm.connect()
+            await comm.receive_json_from()  # session
             await comm.receive_json_from()  # welcome
 
             await comm.send_json_to({'message': 'show revenue breakdown'})
             await comm.receive_json_from()  # typing
-            answer = await comm.receive_json_from()
+            answer = await comm.receive_json_from(timeout=20)
             result['answer'] = answer
             await comm.disconnect()
 
@@ -704,11 +827,12 @@ class ConsumerAccessDenialTests(TransactionTestCase):
             comm = WebsocketCommunicator(app, '/ws/analytics/chat/')
             comm.scope['user'] = self.user
             await comm.connect()
+            await comm.receive_json_from()  # session
             await comm.receive_json_from()  # welcome
 
             await comm.send_json_to({'message': 'financial data please'})
             await comm.receive_json_from()  # typing
-            answer = await comm.receive_json_from()
+            answer = await comm.receive_json_from(timeout=20)
             result['answer'] = answer
             await comm.disconnect()
 
@@ -798,6 +922,100 @@ class ChatHistoryViewTests(TestCase):
         self._login()
         resp = self.client.get(self.url)
         self.assertEqual(resp['Content-Type'], 'application/json')
+
+    def test_session_param_returns_that_specific_session(self):
+        self._login()
+        older = ChatSession.objects.create(user=self.user, title='Older chat')
+        ChatMessage.objects.create(session=older, role=ChatMessage.ROLE_USER, content='Old one')
+        newer = ChatSession.objects.create(user=self.user, title='Newer chat')
+        ChatMessage.objects.create(session=newer, role=ChatMessage.ROLE_USER, content='New one')
+
+        resp = self.client.get(self.url, {'session': str(older.session_key)})
+        data = json.loads(resp.content)
+        self.assertEqual(data['session'], str(older.session_key))
+        self.assertEqual([m['content'] for m in data['messages']], ['Old one'])
+
+    def test_session_param_owned_by_another_user_returns_404(self):
+        self._login()
+        other_user = _make_user('history_other_user')
+        other_session = ChatSession.objects.create(user=other_user)
+        resp = self.client.get(self.url, {'session': str(other_session.session_key)})
+        self.assertEqual(resp.status_code, 404)
+
+    def test_malformed_session_param_returns_404(self):
+        self._login()
+        resp = self.client.get(self.url, {'session': 'not-a-uuid'})
+        self.assertEqual(resp.status_code, 404)
+
+    def test_session_param_response_includes_title(self):
+        self._login()
+        session = ChatSession.objects.create(user=self.user, title='My conversation')
+        resp = self.client.get(self.url, {'session': str(session.session_key)})
+        data = json.loads(resp.content)
+        self.assertEqual(data['title'], 'My conversation')
+
+
+class ChatSessionListViewTests(TestCase):
+    """GET /analytics/chat/sessions/ lists the caller's own conversations."""
+
+    def setUp(self):
+        self.user = _make_user('list_user')
+        self.url = reverse('self_service:sessions')
+
+    def _login(self):
+        self.client.force_login(self.user)
+
+    def test_redirects_unauthenticated(self):
+        resp = self.client.get(self.url)
+        self.assertIn(resp.status_code, [302, 403])
+
+    def test_returns_empty_list_when_no_sessions(self):
+        self._login()
+        resp = self.client.get(self.url)
+        self.assertEqual(resp.status_code, 200)
+        data = json.loads(resp.content)
+        self.assertEqual(data['sessions'], [])
+
+    def test_excludes_other_users_sessions(self):
+        self._login()
+        other_user = _make_user('list_other_user')
+        ChatSession.objects.create(user=other_user, title='Not mine')
+        resp = self.client.get(self.url)
+        data = json.loads(resp.content)
+        self.assertEqual(data['sessions'], [])
+
+    def test_orders_by_most_recently_active_first(self):
+        self._login()
+        first = ChatSession.objects.create(user=self.user, title='First')
+        second = ChatSession.objects.create(user=self.user, title='Second')
+        # Touch `first` so it becomes the most recently active.
+        first.save(update_fields=['last_activity'])
+
+        resp = self.client.get(self.url)
+        data = json.loads(resp.content)
+        keys = [s['session_key'] for s in data['sessions']]
+        self.assertEqual(keys, [str(first.session_key), str(second.session_key)])
+
+    def test_includes_title_preview_and_message_count(self):
+        self._login()
+        session = ChatSession.objects.create(user=self.user, title='Patient counts')
+        ChatMessage.objects.create(session=session, role=ChatMessage.ROLE_USER, content='How many patients?')
+        ChatMessage.objects.create(session=session, role=ChatMessage.ROLE_ASSISTANT, content='You have 42 patients.')
+
+        resp = self.client.get(self.url)
+        data = json.loads(resp.content)
+        self.assertEqual(len(data['sessions']), 1)
+        entry = data['sessions'][0]
+        self.assertEqual(entry['title'], 'Patient counts')
+        self.assertEqual(entry['preview'], 'You have 42 patients.')
+        self.assertEqual(entry['message_count'], 2)
+
+    def test_blank_title_defaults_to_new_conversation(self):
+        self._login()
+        ChatSession.objects.create(user=self.user)
+        resp = self.client.get(self.url)
+        data = json.loads(resp.content)
+        self.assertEqual(data['sessions'][0]['title'], 'New conversation')
 
 
 class AccessContextViewTests(TestCase):

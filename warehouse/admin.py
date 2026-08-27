@@ -3,7 +3,14 @@
 from django.contrib import admin
 from django.utils.html import format_html
 
-from .models import SnowflakeQueryLog, TrackedSpreadsheet
+from .models import (
+    Artifact,
+    ChatMessage,
+    Conversation,
+    SnowflakeQueryLog,
+    TrackedSpreadsheet,
+    Workbook,
+)
 
 
 @admin.register(TrackedSpreadsheet)
@@ -100,3 +107,38 @@ class SnowflakeQueryLogAdmin(admin.ModelAdmin):
     def query_preview(self, obj: SnowflakeQueryLog) -> str:
         q = obj.query.strip().replace("\n", " ")
         return q[:80] + "…" if len(q) > 80 else q
+
+
+# ──────────────────────────────────────────── spreadsheet analyst
+
+class ChatMessageInline(admin.TabularInline):
+    model = ChatMessage
+    extra = 0
+    readonly_fields = ("role", "content", "tool_calls", "created_at")
+    can_delete = False
+
+
+@admin.register(Workbook)
+class WorkbookAdmin(admin.ModelAdmin):
+    list_display = ("original_name", "owner", "uploaded_at", "has_loaded")
+    list_filter = ("uploaded_at",)
+    search_fields = ("original_name",)
+    readonly_fields = ("overview", "load_error", "uploaded_at")
+
+    @admin.display(boolean=True, description="loaded")
+    def has_loaded(self, obj: Workbook) -> bool:
+        return not obj.load_error
+
+
+@admin.register(Conversation)
+class ConversationAdmin(admin.ModelAdmin):
+    list_display = ("__str__", "workbook", "owner", "updated_at")
+    list_filter = ("updated_at",)
+    inlines = [ChatMessageInline]
+    readonly_fields = ("transcript", "created_at", "updated_at")
+
+
+@admin.register(Artifact)
+class ArtifactAdmin(admin.ModelAdmin):
+    list_display = ("title", "kind", "conversation", "created_at")
+    list_filter = ("kind", "created_at")

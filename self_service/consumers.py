@@ -30,6 +30,7 @@ import json
 import logging
 import os
 import uuid
+from urllib.parse import parse_qs
 
 from openai import AsyncOpenAI
 from channels.db import database_sync_to_async
@@ -78,25 +79,39 @@ class AnalyticsChatConsumer(AsyncWebsocketConsumer):
         self.pending_chart_thread_id = None
         self.last_metric_thread_id = None
 
+        requested_key = self._requested_session_key()
         self.access_context = await database_sync_to_async(self._load_access_context)()
-        self.session_obj = await database_sync_to_async(self._create_session)()
+        self.session_obj, is_new = await database_sync_to_async(self._get_or_create_session)(requested_key)
 
         await self.accept()
         logger.info(
-            'Chat WS connected: user=%s role=%s',
+            'Chat WS connected: user=%s role=%s session=%s new=%s',
             user.username,
             self.access_context['role'],
+            self.session_obj.session_key,
+            is_new,
         )
-        await self._send_welcome()
+        await self._send({
+            'type': 'session',
+            'session_key': str(self.session_obj.session_key),
+            'is_new': is_new,
+        })
+        # A resumed session already has its history — the client re-fetches
+        # and renders it, and a repeated canned welcome would just be noise.
+        if is_new:
+            await self._send_welcome()
 
     async def disconnect(self, close_code):
-        if self.session_obj:
-            await database_sync_to_async(self._close_session)()
         logger.info(
             'Chat WS disconnected: user=%s code=%s',
             getattr(self, 'user', '?'),
             close_code,
         )
+
+    def _requested_session_key(self):
+        query_string = self.scope.get('query_string', b'').decode('utf-8', 'ignore')
+        values = parse_qs(query_string).get('session')
+        return values[0].strip() if values and values[0].strip() else None
 
     async def receive(self, text_data=None, bytes_data=None):
         if not text_data:
@@ -446,16 +461,22 @@ scoped to this user's access. Use it as the factual basis for your answer — ci
         from .security import get_user_access_context
         return get_user_access_context(self.user)
 
-    def _create_session(self):
-        from .models import ChatSession
-        return ChatSession.objects.create(user=self.user)
+    def _get_or_create_session(self, session_key):
+        """Resume the caller's own session by key, else start a fresh one."""
+        from django.core.exceptions import ValidationError
 
-    def _close_session(self):
-        self.session_obj.is_active = False
-        self.session_obj.save(update_fields=['is_active', 'last_activity'])
+        from .models import ChatSession
+
+        if session_key:
+            try:
+                return ChatSession.objects.get(session_key=session_key, user=self.user), False
+            except (ChatSession.DoesNotExist, ValueError, TypeError, ValidationError):
+                pass
+        return ChatSession.objects.create(user=self.user), True
 
     def _save_messages(self, user_text, response):
         from .models import ChatMessage
+
         ChatMessage.objects.bulk_create([
             ChatMessage(
                 session=self.session_obj,
@@ -466,9 +487,20 @@ scoped to this user's access. Use it as the factual basis for your answer — ci
                 session=self.session_obj,
                 role=ChatMessage.ROLE_ASSISTANT,
                 content=response['content'],
-                query_intent=response.get('intent', ''),
+                # `.get(k, default)` only falls back when the key is
+                # missing — the agent path can return {'intent': None}
+                # explicitly, which would otherwise hit query_intent's
+                # NOT NULL constraint.
+                query_intent=response.get('intent') or '',
             ),
         ])
+
+        update_fields = ['last_activity']
+        if not self.session_obj.title:
+            title = user_text.strip()
+            self.session_obj.title = title[:117] + '…' if len(title) > 117 else title
+            update_fields.append('title')
+        self.session_obj.save(update_fields=update_fields)
 
     # ------------------------------------------------------------------
     # WebSocket helpers

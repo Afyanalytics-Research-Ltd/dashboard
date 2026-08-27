@@ -1,0 +1,45 @@
+cubes:
+  - name: rpt_admission_tat
+    sql_table: "\"REPORTING\".\"RPT_ADMISSION_TAT\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: tat_month
+        sql: "{CUBE}.\"TAT_MONTH\""
+        type: time
+
+    measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T12:59:14.163746+00:00
+      - name: total_admissions
+        sql: '{CUBE}."TOTAL_ADMISSIONS"'
+        type: sum
+        drill_members: [tat_month]
+      - name: fast_track
+        sql: '{CUBE}."FAST_TRACK"'
+        type: sum
+      - name: fast_pct
+        sql: '{CUBE}."FAST_PCT"'
+        type: avg
+        format: percent
+        title: Fast-Tracked Admissions (%)
+        drill_members: [tat_month]
+      - name: p50_tat_min
+        sql: '{CUBE}."P50_TAT_MIN"'
+        type: sum
+        title: Median Admission TAT (minutes)
+        description: Median (P50) admission turnaround time in MINUTES, per month — not a currency value. Use for "median/average admission TAT" questions.
+        drill_members: [tat_month]
+      - name: p75_tat_min
+        sql: '{CUBE}."P75_TAT_MIN"'
+        type: sum
+        title: P75 Admission TAT (minutes)
+        description: 75th percentile admission turnaround time in MINUTES, per month — not a currency value.
+      - name: count
+        type: count
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

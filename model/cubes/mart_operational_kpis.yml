@@ -1,0 +1,169 @@
+cubes:
+  - name: mart_operational_kpis
+    sql_table: "\"REPORTING\".\"MART_OPERATIONAL_KPIS\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: cons_rbi_label
+        sql: "{CUBE}.\"CONS_RBI_LABEL\""
+        type: string
+
+      - name: imaging_rbi_label
+        sql: "{CUBE}.\"IMAGING_RBI_LABEL\""
+        type: string
+
+      - name: lab_rbi_label
+        sql: "{CUBE}.\"LAB_RBI_LABEL\""
+        type: string
+
+      - name: pharm_rbi_label
+        sql: "{CUBE}.\"PHARM_RBI_LABEL\""
+        type: string
+
+      - name: period_date
+        sql: "{CUBE}.\"PERIOD_DATE\""
+        type: time
+
+    measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T12:58:59.670008+00:00
+      - name: opd_visits
+        sql: '{CUBE}."OPD_VISITS"'
+        type: sum
+        drill_members: [period_date, cons_rbi_label, imaging_rbi_label, lab_rbi_label, pharm_rbi_label]
+      - name: triage_n
+        sql: '{CUBE}."TRIAGE_N"'
+        type: sum
+      - name: triage_coverage_pct
+        sql: '{CUBE}."TRIAGE_COVERAGE_PCT"'
+        type: avg
+      - name: triage_p50_mins
+        sql: '{CUBE}."TRIAGE_P50_MINS"'
+        type: sum
+      - name: cons_n
+        sql: '{CUBE}."CONS_N"'
+        type: sum
+      - name: cons_coverage_pct
+        sql: '{CUBE}."CONS_COVERAGE_PCT"'
+        type: avg
+      - name: cons_p50_mins
+        sql: '{CUBE}."CONS_P50_MINS"'
+        type: sum
+      - name: cons_14d_avg
+        sql: '{CUBE}."CONS_14D_AVG"'
+        type: sum
+      - name: cons_rbi
+        sql: '{CUBE}."CONS_RBI"'
+        type: sum
+      - name: pharm_tat_denominator
+        sql: '{CUBE}."PHARM_TAT_DENOMINATOR"'
+        type: sum
+      - name: pharm_tat_n
+        sql: '{CUBE}."PHARM_TAT_N"'
+        type: sum
+      - name: pharm_tat_coverage_pct
+        sql: '{CUBE}."PHARM_TAT_COVERAGE_PCT"'
+        type: avg
+      - name: pharm_tat_p50_mins
+        sql: '{CUBE}."PHARM_TAT_P50_MINS"'
+        type: sum
+      - name: pharm_14d_avg
+        sql: '{CUBE}."PHARM_14D_AVG"'
+        type: sum
+      - name: pharm_rbi
+        sql: '{CUBE}."PHARM_RBI"'
+        type: sum
+      - name: cycle_n
+        sql: '{CUBE}."CYCLE_N"'
+        type: sum
+      - name: cycle_coverage_pct
+        sql: '{CUBE}."CYCLE_COVERAGE_PCT"'
+        type: avg
+      - name: cycle_p50_mins
+        sql: '{CUBE}."CYCLE_P50_MINS"'
+        type: sum
+      - name: lab_denominator
+        sql: '{CUBE}."LAB_DENOMINATOR"'
+        type: sum
+      - name: lab_n
+        sql: '{CUBE}."LAB_N"'
+        type: sum
+      - name: lab_coverage_pct
+        sql: '{CUBE}."LAB_COVERAGE_PCT"'
+        type: avg
+        drill_members: [period_date, cons_rbi_label, imaging_rbi_label, lab_rbi_label, pharm_rbi_label]
+      - name: lab_p50_mins
+        sql: '{CUBE}."LAB_P50_MINS"'
+        type: sum
+      - name: lab_14d_avg
+        sql: '{CUBE}."LAB_14D_AVG"'
+        type: sum
+      - name: lab_rbi
+        sql: '{CUBE}."LAB_RBI"'
+        type: sum
+      - name: imaging_denominator
+        sql: '{CUBE}."IMAGING_DENOMINATOR"'
+        type: sum
+      - name: imaging_n
+        sql: '{CUBE}."IMAGING_N"'
+        type: sum
+      - name: imaging_coverage_pct
+        sql: '{CUBE}."IMAGING_COVERAGE_PCT"'
+        type: avg
+      - name: imaging_p50_mins
+        sql: '{CUBE}."IMAGING_P50_MINS"'
+        type: sum
+      - name: imaging_14d_avg
+        sql: '{CUBE}."IMAGING_14D_AVG"'
+        type: sum
+      - name: imaging_rbi
+        sql: '{CUBE}."IMAGING_RBI"'
+        type: sum
+      - name: theatre_requests
+        sql: '{CUBE}."THEATRE_REQUESTS"'
+        type: sum
+      - name: theatre_completed
+        sql: '{CUBE}."THEATRE_COMPLETED"'
+        type: sum
+      - name: theatre_completion_pct
+        sql: '{CUBE}."THEATRE_COMPLETION_PCT"'
+        type: avg
+      - name: theatre_sched_p50_days
+        sql: '{CUBE}."THEATRE_SCHED_P50_DAYS"'
+        type: sum
+      - name: pharmacy_orders
+        sql: '{CUBE}."PHARMACY_ORDERS"'
+        type: sum
+      - name: pharmacy_served
+        sql: '{CUBE}."PHARMACY_SERVED"'
+        type: sum
+      - name: pharmacy_fulfilment_pct
+        sql: '{CUBE}."PHARMACY_FULFILMENT_PCT"'
+        type: avg
+      - name: pharm_disp_n
+        sql: '{CUBE}."PHARM_DISP_N"'
+        type: sum
+      - name: pharm_disp_coverage_pct
+        sql: '{CUBE}."PHARM_DISP_COVERAGE_PCT"'
+        type: avg
+      - name: pharm_dispensing_p50_mins
+        sql: '{CUBE}."PHARM_DISPENSING_P50_MINS"'
+        type: sum
+      - name: opd_conversion_denom
+        sql: '{CUBE}."OPD_CONVERSION_DENOM"'
+        type: sum
+      - name: opd_converted
+        sql: '{CUBE}."OPD_CONVERTED"'
+        type: sum
+      - name: conversion_rate_pct
+        sql: '{CUBE}."CONVERSION_RATE_PCT"'
+        type: avg
+        drill_members: [period_date, cons_rbi_label, imaging_rbi_label, lab_rbi_label, pharm_rbi_label]
+      - name: count
+        type: count
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

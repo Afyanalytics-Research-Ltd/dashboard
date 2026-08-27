@@ -1,0 +1,44 @@
+cubes:
+  - name: rpt_ortho_busy_periods
+    sql_table: "\"REPORTING\".\"RPT_ORTHO_BUSY_PERIODS\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: is_peak_slot
+        sql: "{CUBE}.\"IS_PEAK_SLOT\""
+        type: boolean
+
+      - name: visit_day_name
+        sql: "{CUBE}.\"VISIT_DAY_NAME\""
+        type: string
+
+    measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:01:49.642939+00:00
+      - name: visit_dow
+        sql: '{CUBE}."VISIT_DOW"'
+        type: sum
+      - name: hour_of_day
+        sql: '{CUBE}."HOUR_OF_DAY"'
+        type: sum
+      - name: total_visits
+        sql: '{CUBE}."TOTAL_VISITS"'
+        type: sum
+        drill_members: [visit_day_name, is_peak_slot]
+      - name: avg_per_day
+        sql: '{CUBE}."AVG_PER_DAY"'
+        type: avg
+      - name: count
+        type: count
+        drill_members: [visit_day_name, is_peak_slot]
+
+      - name: pct_of_total
+        sql: "{CUBE}.\"PCT_OF_TOTAL\""
+        type: sum
+        drill_members: [visit_day_name, is_peak_slot]
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

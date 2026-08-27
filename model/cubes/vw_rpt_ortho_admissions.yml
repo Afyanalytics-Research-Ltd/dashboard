@@ -1,0 +1,144 @@
+cubes:
+  - name: vw_rpt_ortho_admissions
+    sql_table: "\"REPORTING\".\"VW_RPT_ORTHO_ADMISSIONS\""
+    data_source: default
+
+    joins:
+      - name: vw_rpt_ortho_patient_journey
+        sql: "{CUBE}.\"VISIT_ID\" = {vw_rpt_ortho_patient_journey}.\"VISIT_ID\""
+        relationship: many_to_one
+
+      # Self-referencing prior-visit chain: PRIOR_OPD_VISIT_ID points back to the
+      # OPD visit (vw_rpt_ortho_opd.VISIT_ID) that preceded this admission.
+      - name: vw_rpt_ortho_opd
+        sql: "{CUBE}.\"PRIOR_OPD_VISIT_ID\" = {vw_rpt_ortho_opd}.\"VISIT_ID\""
+        relationship: many_to_one
+
+    dimensions:
+      - name: admission_day_name
+        sql: "{CUBE}.\"ADMISSION_DAY_NAME\""
+        type: string
+
+      - name: bed_category
+        sql: "{CUBE}.\"BED_CATEGORY\""
+        type: string
+
+      - name: bed_no
+        sql: "{CUBE}.\"BED_NO\""
+        type: string
+
+      - name: composite_patient_id
+        sql: "{CUBE}.\"COMPOSITE_PATIENT_ID\""
+        type: string
+
+      - name: discharge_category
+        sql: "{CUBE}.\"DISCHARGE_CATEGORY\""
+        type: string
+
+      - name: facility
+        sql: "{CUBE}.\"FACILITY\""
+        type: string
+
+      - name: gender
+        sql: "{CUBE}.\"GENDER\""
+        type: string
+
+      - name: has_prior_opd_90d
+        sql: "{CUBE}.\"HAS_PRIOR_OPD_90D\""
+        type: boolean
+
+      - name: is_discharge_reliable
+        sql: "{CUBE}.\"IS_DISCHARGE_RELIABLE\""
+        type: boolean
+
+      - name: is_los_plausible
+        sql: "{CUBE}.\"IS_LOS_PLAUSIBLE\""
+        type: boolean
+
+      - name: is_refunded
+        sql: "{CUBE}.\"IS_REFUNDED\""
+        type: boolean
+
+      - name: is_waived
+        sql: "{CUBE}.\"IS_WAIVED\""
+        type: boolean
+
+      - name: link_confidence
+        sql: "{CUBE}.\"LINK_CONFIDENCE\""
+        type: string
+
+      - name: patient_id
+        sql: "{CUBE}.\"PATIENT_ID\""
+        type: string
+
+      - name: pay_mode
+        sql: "{CUBE}.\"PAY_MODE\""
+        type: string
+
+      - name: prior_opd_visit_id
+        sql: "{CUBE}.\"PRIOR_OPD_VISIT_ID\""
+        type: string
+
+      - name: source_system
+        sql: "{CUBE}.\"SOURCE_SYSTEM\""
+        type: string
+
+      - name: visit_id
+        sql: "{CUBE}.\"VISIT_ID\""
+        type: string
+        primary_key: true
+
+      - name: ward
+        sql: "{CUBE}.\"WARD\""
+        type: string
+
+      - name: admission_date
+        sql: "{CUBE}.\"ADMISSION_DATE\""
+        type: time
+
+      - name: admission_month
+        sql: "{CUBE}.\"ADMISSION_MONTH\""
+        type: time
+
+      - name: admission_week
+        sql: "{CUBE}.\"ADMISSION_WEEK\""
+        type: time
+
+      - name: discharge_date
+        sql: "{CUBE}.\"DISCHARGE_DATE\""
+        type: time
+
+      - name: discharge_ts
+        sql: "{CUBE}.\"DISCHARGE_TS\""
+        type: time
+
+      - name: prior_opd_date
+        sql: "{CUBE}.\"PRIOR_OPD_DATE\""
+        type: time
+
+    measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:04:34.729686+00:00
+      - name: admission_year
+        sql: '{CUBE}."ADMISSION_YEAR"'
+        type: sum
+      - name: admission_dow
+        sql: '{CUBE}."ADMISSION_DOW"'
+        type: sum
+      - name: los_days
+        sql: '{CUBE}."LOS_DAYS"'
+        type: sum
+        drill_members: [admission_date, facility, ward, discharge_category, visit_id]
+      - name: opd_to_admission_days
+        sql: '{CUBE}."OPD_TO_ADMISSION_DAYS"'
+        type: sum
+      - name: discharge_hour
+        sql: '{CUBE}."DISCHARGE_HOUR"'
+        type: sum
+      - name: count
+        type: count
+        drill_members: [admission_date, facility, ward, bed_category, visit_id]
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

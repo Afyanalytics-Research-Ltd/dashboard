@@ -1,0 +1,54 @@
+cubes:
+  - name: dim_doctor_note_terms
+    sql_table: "\"REPORTING\".\"DIM_DOCTOR_NOTE_TERMS\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: canonical_term
+        sql: "{CUBE}.\"CANONICAL_TERM\""
+        type: string
+
+      - name: clinical_syndrome
+        sql: "{CUBE}.\"CLINICAL_SYNDROME\""
+        type: string
+
+      - name: disease_burden_group
+        sql: "{CUBE}.\"DISEASE_BURDEN_GROUP\""
+        type: string
+
+      - name: raw_term
+        sql: "{CUBE}.\"RAW_TERM\""
+        type: string
+
+      - name: status
+        sql: "{CUBE}.\"STATUS\""
+        type: string
+
+    measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T12:58:03.948605+00:00
+      - name: is_chronic
+        sql: '{CUBE}."IS_CHRONIC"'
+        type: sum
+        drill_members: [canonical_term, clinical_syndrome, disease_burden_group]
+      - name: is_pregnant
+        sql: '{CUBE}."IS_PREGNANT"'
+        type: sum
+      - name: is_followup
+        sql: '{CUBE}."IS_FOLLOWUP"'
+        type: sum
+      - name: is_negated
+        sql: '{CUBE}."IS_NEGATED"'
+        type: sum
+      - name: is_noise
+        sql: '{CUBE}."IS_NOISE"'
+        type: sum
+      - name: count
+        type: count
+        drill_members: [canonical_term, clinical_syndrome, disease_burden_group, status]
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

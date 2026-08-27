@@ -1,0 +1,35 @@
+cubes:
+  - name: rpt_cd12_monthly_rate
+    sql_table: "\"REPORTING\".\"RPT_CD12_MONTHLY_RATE\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: critical_month
+        sql: "{CUBE}.\"CRITICAL_MONTH\""
+        type: time
+
+    measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T12:59:35.691647+00:00
+      - name: total_critical
+        sql: '{CUBE}."TOTAL_CRITICAL"'
+        type: sum
+        drill_members: [critical_month]
+      - name: admitted
+        sql: '{CUBE}."ADMITTED"'
+        type: sum
+      - name: not_admitted
+        sql: '{CUBE}."NOT_ADMITTED"'
+        type: sum
+      - name: non_admission_rate_pct
+        sql: '{CUBE}."NON_ADMISSION_RATE_PCT"'
+        type: avg
+        drill_members: [critical_month]
+      - name: count
+        type: count
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

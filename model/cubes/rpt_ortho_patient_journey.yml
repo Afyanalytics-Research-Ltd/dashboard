@@ -1,0 +1,191 @@
+cubes:
+  - name: rpt_ortho_patient_journey
+    sql_table: "\"REPORTING\".\"RPT_ORTHO_PATIENT_JOURNEY\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: composite_patient_id
+        sql: "{CUBE}.\"COMPOSITE_PATIENT_ID\""
+        type: string
+
+      - name: diagnostic_pathway
+        sql: "{CUBE}.\"DIAGNOSTIC_PATHWAY\""
+        type: string
+
+      - name: disposition
+        sql: "{CUBE}.\"DISPOSITION\""
+        type: string
+
+      - name: facility
+        sql: "{CUBE}.\"FACILITY\""
+        type: string
+
+      - name: gender
+        sql: "{CUBE}.\"GENDER\""
+        type: string
+
+      - name: had_admission
+        sql: "{CUBE}.\"HAD_ADMISSION\""
+        type: boolean
+
+      - name: had_clinical_notes
+        sql: "{CUBE}.\"HAD_CLINICAL_NOTES\""
+        type: boolean
+
+      - name: had_imaging
+        sql: "{CUBE}.\"HAD_IMAGING\""
+        type: boolean
+
+      - name: had_lab_order
+        sql: "{CUBE}.\"HAD_LAB_ORDER\""
+        type: boolean
+
+      - name: had_pharmacy
+        sql: "{CUBE}.\"HAD_PHARMACY\""
+        type: boolean
+
+      - name: had_proc_request
+        sql: "{CUBE}.\"HAD_PROC_REQUEST\""
+        type: boolean
+
+      - name: had_service_charge
+        sql: "{CUBE}.\"HAD_SERVICE_CHARGE\""
+        type: boolean
+
+      - name: had_theatre
+        sql: "{CUBE}.\"HAD_THEATRE\""
+        type: boolean
+
+      - name: had_triage
+        sql: "{CUBE}.\"HAD_TRIAGE\""
+        type: boolean
+
+      - name: is_discharge_reliable
+        sql: "{CUBE}.\"IS_DISCHARGE_RELIABLE\""
+        type: boolean
+
+      - name: patient_id
+        sql: "{CUBE}.\"PATIENT_ID\""
+        type: string
+
+      - name: source_system
+        sql: "{CUBE}.\"SOURCE_SYSTEM\""
+        type: string
+
+      - name: visit_id
+        sql: "{CUBE}.\"VISIT_ID\""
+        type: string
+        primary_key: true
+
+      - name: visit_type
+        sql: "{CUBE}.\"VISIT_TYPE\""
+        type: string
+
+      - name: ward_type
+        sql: "{CUBE}.\"WARD_TYPE\""
+        type: string
+
+      - name: admission_date
+        sql: "{CUBE}.\"ADMISSION_DATE\""
+        type: time
+
+      - name: arrival_ts
+        sql: "{CUBE}.\"ARRIVAL_TS\""
+        type: time
+
+      - name: cons_ts
+        sql: "{CUBE}.\"CONS_TS\""
+        type: time
+
+      - name: discharge_date
+        sql: "{CUBE}.\"DISCHARGE_DATE\""
+        type: time
+
+      - name: lab_ts
+        sql: "{CUBE}.\"LAB_TS\""
+        type: time
+
+      - name: last_active
+        sql: "{CUBE}.\"LAST_ACTIVE\""
+        type: time
+
+      - name: pharm_ts
+        sql: "{CUBE}.\"PHARM_TS\""
+        type: time
+
+      - name: rad_ts
+        sql: "{CUBE}.\"RAD_TS\""
+        type: time
+
+      - name: theatre_oper_date
+        sql: "{CUBE}.\"THEATRE_OPER_DATE\""
+        type: time
+
+      - name: theatre_request_date
+        sql: "{CUBE}.\"THEATRE_REQUEST_DATE\""
+        type: time
+
+      - name: triage_ts
+        sql: "{CUBE}.\"TRIAGE_TS\""
+        type: time
+
+      - name: visit_date
+        sql: "{CUBE}.\"VISIT_DATE\""
+        type: time
+
+    measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:02:28.694949+00:00
+      - name: age
+        sql: '{CUBE}."AGE"'
+        type: sum
+      - name: los_hours
+        sql: '{CUBE}."LOS_HOURS"'
+        type: sum
+        drill_members: [visit_date, facility, visit_type, ward_type, visit_id]
+      - name: count
+        type: count
+        drill_members: [visit_date, facility, visit_type, ward_type, visit_id]
+
+      - name: imaging_count
+        sql: "{CUBE}.\"IMAGING_COUNT\""
+        type: sum
+
+      - name: lab_order_count
+        sql: "{CUBE}.\"LAB_ORDER_COUNT\""
+        type: sum
+
+      - name: pharmacy_item_count
+        sql: "{CUBE}.\"PHARMACY_ITEM_COUNT\""
+        type: sum
+
+      - name: proc_paid_count
+        sql: "{CUBE}.\"PROC_PAID_COUNT\""
+        type: sum
+
+      - name: proc_request_count
+        sql: "{CUBE}.\"PROC_REQUEST_COUNT\""
+        type: sum
+
+      - name: proc_unpaid_count
+        sql: "{CUBE}.\"PROC_UNPAID_COUNT\""
+        type: sum
+
+      - name: theatre_procedure_count
+        sql: "{CUBE}.\"THEATRE_PROCEDURE_COUNT\""
+        type: sum
+
+      - name: triage_event_count
+        sql: "{CUBE}.\"TRIAGE_EVENT_COUNT\""
+        type: sum
+
+      - name: uncollected_value
+        sql: "{CUBE}.\"UNCOLLECTED_VALUE\""
+        type: sum
+        drill_members: [visit_date, facility, visit_type, ward_type, visit_id]
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

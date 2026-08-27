@@ -1,0 +1,64 @@
+cubes:
+  - name: rpt_procurement_spend
+    sql_table: "\"REPORTING\".\"RPT_PROCUREMENT_SPEND\""
+    data_source: default
+
+    joins:
+      - name: canonical_keys
+        sql: "{CUBE}.\"CANONICAL_PRODUCT_ID\" = {canonical_keys}.\"CANONICAL_PRODUCT_ID\""
+        relationship: many_to_one
+
+    dimensions:
+      - name: canonical_name
+        sql: "{CUBE}.\"CANONICAL_NAME\""
+        type: string
+        primary_key: true
+
+      - name: doc_type
+        sql: "{CUBE}.\"DOC_TYPE\""
+        type: string
+        primary_key: true
+
+      - name: facility
+        sql: "{CUBE}.\"FACILITY\""
+        type: string
+        primary_key: true
+
+      - name: product_category
+        sql: "{CUBE}.\"PRODUCT_CATEGORY\""
+        type: string
+
+      - name: therapeutic_class
+        sql: "{CUBE}.\"THERAPEUTIC_CLASS\""
+        type: string
+
+      - name: doc_month
+        sql: "{CUBE}.\"DOC_MONTH\""
+        type: time
+        primary_key: true
+
+    measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:03:23.420881+00:00
+      - name: documents
+        sql: '{CUBE}."DOCUMENTS"'
+        type: sum
+      - name: lines
+        sql: '{CUBE}."LINES"'
+        type: sum
+      - name: count
+        type: count
+        drill_members: [doc_month, facility, therapeutic_class, doc_type]
+
+      - name: total_quantity
+        sql: "{CUBE}.\"TOTAL_QUANTITY\""
+        type: sum
+
+      - name: total_value
+        sql: "{CUBE}.\"TOTAL_VALUE\""
+        type: sum
+        drill_members: [doc_month, facility, therapeutic_class]
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

@@ -985,17 +985,29 @@
       </div>
     </div>
 
-    {% if request.user.is_superuser %}
+    {% if request.user.is_superuser or request.user.is_staff %}
     <div class="dl-hero-actions">
+      {% if request.user.is_superuser %}
       <a href="{% url 'analytics:dashboard_create' %}" class="btn-hero-white">
         <i class="bi bi-plus-lg"></i> Add Dashboard
       </a>
+      <a href="{% url 'analytics:reporting_query_list' %}" class="btn-hero-ghost">
+        <i class="bi bi-diagram-3"></i> Reporting Queries
+      </a>
+      {% endif %}
+      {% if request.user.is_staff %}
+      <a href="{% url 'analytics:redash_dashboard_create' %}" class="btn-hero-ghost">
+        <i class="bi bi-easel"></i> Create Redash Dashboard
+      </a>
+      {% endif %}
+      {% if request.user.is_superuser %}
       <form method="post" action="{% url 'analytics:dashboard_sync' %}">
         {% csrf_token %}
         <button type="submit" class="btn-hero-ghost">
           <i class="bi bi-arrow-clockwise"></i> Sync
         </button>
       </form>
+      {% endif %}
     </div>
     {% endif %}
   </div>
@@ -1089,7 +1101,7 @@
               <i class="bi bi-pencil-square"></i>
             </a>
             {% endif %}
-            {% if 'localhost' in db.streamlit_url or '127.0.0.1' in db.streamlit_url %}
+            {% if db.redash_query_id and db.redash_visualization_id or db.redash_dashboard_url or 'localhost' in db.streamlit_url or '127.0.0.1' in db.streamlit_url %}
                 <a href="{% url 'analytics:dashboard_view' db.slug %}"
                   class="dl-btn-open"
                   data-launch-name="{{ db.name }}"

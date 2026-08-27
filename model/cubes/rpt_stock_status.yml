@@ -1,0 +1,69 @@
+cubes:
+  - name: rpt_stock_status
+    sql_table: "\"REPORTING\".\"RPT_STOCK_STATUS\""
+    data_source: default
+
+    joins:
+      - name: canonical_product_taxonomy
+        sql: "{CUBE}.\"FACILITY\" = {canonical_product_taxonomy}.\"FACILITY\" AND {CUBE}.\"PRODUCT_ID\" = {canonical_product_taxonomy}.\"PRODUCT_ID\""
+        relationship: many_to_one
+
+    dimensions:
+      - name: canonical_name
+        sql: "{CUBE}.\"CANONICAL_NAME\""
+        type: string
+
+      - name: facility
+        sql: "{CUBE}.\"FACILITY\""
+        type: string
+        primary_key: true
+
+      - name: inn_name
+        sql: "{CUBE}.\"INN_NAME\""
+        type: string
+
+      - name: product_category
+        sql: "{CUBE}.\"PRODUCT_CATEGORY\""
+        type: string
+
+      - name: product_name
+        sql: "{CUBE}.\"PRODUCT_NAME\""
+        type: string
+        primary_key: true
+
+      - name: stock_status
+        sql: "{CUBE}.\"STOCK_STATUS\""
+        type: string
+
+      - name: therapeutic_class
+        sql: "{CUBE}.\"THERAPEUTIC_CLASS\""
+        type: string
+
+      - name: therapeutic_subclass
+        sql: "{CUBE}.\"THERAPEUTIC_SUBCLASS\""
+        type: string
+
+      - name: last_dispensed_at
+        sql: "{CUBE}.\"LAST_DISPENSED_AT\""
+        type: time
+
+    measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:03:42.998514+00:00
+      - name: current_soh_raw
+        sql: '{CUBE}."CURRENT_SOH_RAW"'
+        type: sum
+      - name: current_soh
+        sql: '{CUBE}."CURRENT_SOH"'
+        type: sum
+        drill_members: [facility, therapeutic_class, product_name]
+      - name: days_since_last_dispense
+        sql: '{CUBE}."DAYS_SINCE_LAST_DISPENSE"'
+        type: sum
+      - name: count
+        type: count
+        drill_members: [last_dispensed_at, facility, therapeutic_class, product_name]
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

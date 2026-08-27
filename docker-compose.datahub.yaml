@@ -1,0 +1,156 @@
+# DataHub (LinkedIn/Acryl metadata platform).
+# Reuses the existing `kafka` broker from docker-compose.kafka.yaml instead of
+# running a dedicated one - bring that file up first (or combine with -f):
+#   docker compose -f docker-compose.kafka.yaml -f docker-compose.datahub.yaml up -d
+# Uses GMS's built-in internal schema registry (no separate Confluent
+# schema-registry container needed).
+# This is a heavy stack (MySQL + Elasticsearch + GMS + frontend) - bring the
+# setup jobs up first, wait for them to exit 0, then start gms/frontend.
+services:
+  datahub-mysql:
+    restart: always
+    image: mysql:8.0
+    container_name: datahub-mysql
+    environment:
+      MYSQL_DATABASE: ${DATAHUB_DB_NAME}
+      MYSQL_USER: ${DATAHUB_DB_USER}
+      MYSQL_PASSWORD: ${DATAHUB_DB_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${DATAHUB_DB_PASSWORD}
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_bin --default-authentication-plugin=mysql_native_password
+    volumes:
+      - datahub-mysql-data:/var/lib/mysql
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DATAHUB_DB_PASSWORD}"]
+      interval: 10s
+      retries: 10
+      start_period: 10s
+    networks:
+      - dashboard-net
+
+  datahub-elasticsearch:
+    restart: always
+    image: elasticsearch:7.17.9
+    container_name: datahub-elasticsearch
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms256m -Xmx512m"
+    volumes:
+      - datahub-elasticsearch-data:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      retries: 10
+      start_period: 20s
+    networks:
+      - dashboard-net
+
+  datahub-mysql-setup:
+    image: acryldata/datahub-mysql-setup:latest
+    container_name: datahub-mysql-setup
+    environment:
+      MYSQL_HOST: datahub-mysql
+      MYSQL_PORT: "3306"
+      MYSQL_USERNAME: ${DATAHUB_DB_USER}
+      MYSQL_PASSWORD: ${DATAHUB_DB_PASSWORD}
+      DATAHUB_DB_NAME: ${DATAHUB_DB_NAME}
+    depends_on:
+      datahub-mysql:
+        condition: service_healthy
+    networks:
+      - dashboard-net
+
+  datahub-elasticsearch-setup:
+    image: acryldata/datahub-elasticsearch-setup:latest
+    container_name: datahub-elasticsearch-setup
+    environment:
+      ELASTICSEARCH_HOST: datahub-elasticsearch
+      ELASTICSEARCH_PORT: "9200"
+      ELASTICSEARCH_USE_SSL: "false"
+    depends_on:
+      datahub-elasticsearch:
+        condition: service_healthy
+    networks:
+      - dashboard-net
+
+  # NOTE: no datahub-kafka-setup job here - acryldata/datahub-kafka-setup:latest
+  # hasn't been updated since 2021, only knows the deprecated --zookeeper syntax,
+  # and is incompatible with our zookeeper-less KRaft broker. Instead, the
+  # `kafka` service (docker-compose.kafka.yaml) has auto.create.topics.enable
+  # on, so GMS creates the topics it needs on first use.
+
+  datahub-gms:
+    restart: always
+    image: acryldata/datahub-gms:latest
+    container_name: datahub-gms
+    ports:
+      - "8083:8080"
+    environment:
+      DATASET_ENABLE_SCSI: "false"
+      EBEAN_DATASOURCE_USERNAME: ${DATAHUB_DB_USER}
+      EBEAN_DATASOURCE_PASSWORD: ${DATAHUB_DB_PASSWORD}
+      EBEAN_DATASOURCE_HOST: datahub-mysql:3306
+      EBEAN_DATASOURCE_URL: jdbc:mysql://datahub-mysql:3306/${DATAHUB_DB_NAME}?verifyServerCertificate=false&useSSL=true&useUnicode=yes&characterEncoding=UTF-8
+      EBEAN_DATASOURCE_DRIVER: com.mysql.jdbc.Driver
+      KAFKA_BOOTSTRAP_SERVER: kafka:19092
+      KAFKA_SCHEMAREGISTRY_URL: http://datahub-gms:8080/schema-registry/api/
+      ELASTICSEARCH_HOST: datahub-elasticsearch
+      ELASTICSEARCH_PORT: "9200"
+      GRAPH_SERVICE_IMPL: elasticsearch
+      # start.sh unconditionally dockerize-waits on NEO4J_HOST even when
+      # GRAPH_SERVICE_IMPL=elasticsearch (Neo4j isn't actually queried in that
+      # mode) - point it at something already up so the startup gate passes.
+      NEO4J_HOST: http://datahub-elasticsearch:9200
+      ENTITY_SERVICE_ENABLE_RETENTION: "true"
+      MAE_CONSUMER_ENABLED: "true"
+      MCE_CONSUMER_ENABLED: "true"
+      PE_CONSUMER_ENABLED: "true"
+      UI_INGESTION_ENABLED: "true"
+      JAVA_OPTS: "-Xms512m -Xmx1g"
+    depends_on:
+      datahub-mysql:
+        condition: service_healthy
+      datahub-elasticsearch:
+        condition: service_healthy
+    networks:
+      - dashboard-net
+
+  datahub-frontend-react:
+    restart: always
+    image: acryldata/datahub-frontend-react:latest
+    container_name: datahub-frontend
+    ports:
+      - "9002:9002"
+    environment:
+      DATAHUB_GMS_HOST: datahub-gms
+      DATAHUB_GMS_PORT: "8080"
+      DATAHUB_SECRET: ${DATAHUB_FRONTEND_SECRET}
+      DATAHUB_PLAY_MEM_BUFFER_SIZE: "10MB"
+      DATAHUB_APP_VERSION: "1.0"
+      # Must extend the image's default JAVA_OPTS, not replace it - it bakes in
+      # -Dhttp.port=9002, -Djava.security.auth.login.config=.../jaas.conf, and
+      # -Dpidfile.path=..., all of which silently vanish if this is overridden
+      # with just a heap-size string.
+      JAVA_OPTS: >-
+        -Xms256m -Xmx512m
+        -Dhttp.port=9002
+        -Dconfig.file=datahub-frontend/conf/application.conf
+        -Djava.security.auth.login.config=datahub-frontend/conf/jaas.conf
+        -Dlogback.configurationFile=datahub-frontend/conf/logback.xml
+        -Dpidfile.path=/datahub-frontend/play.pid
+    depends_on:
+      - datahub-gms
+    networks:
+      - dashboard-net
+
+volumes:
+  datahub-mysql-data:
+  datahub-elasticsearch-data:
+
+networks:
+  dashboard-net:
+    name: dashboard-net

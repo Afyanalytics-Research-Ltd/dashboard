@@ -1,0 +1,40 @@
+services:
+  dbt:
+    image: ghcr.io/dbt-labs/dbt-snowflake:1.8.latest
+    container_name: dbt-core
+    env_file: .env
+    environment:
+      DBT_PROFILES_DIR: /usr/app/dbt
+    working_dir: /usr/app/dbt
+    volumes:
+      - ./dbt:/usr/app/dbt
+    entrypoint: ["dbt"]
+    command: ["--version"]
+    networks:
+      - dashboard-net
+
+  # dbt's built-in docs site (lineage graph + column/model docs). Not a
+  # daemon by nature - `dbt docs generate` needs a real dbt_project.yml and
+  # models to introspect, which don't exist yet (only profiles.yml does), so
+  # this is left without `restart: always` to avoid crash-looping until you
+  # have a project. Once you do: docker compose -f docker-compose.dbt.yaml up -d dbt-ui
+  dbt-ui:
+    image: ghcr.io/dbt-labs/dbt-snowflake:1.8.latest
+    container_name: dbt-ui
+    env_file: .env
+    environment:
+      DBT_PROFILES_DIR: /usr/app/dbt
+    working_dir: /usr/app/dbt
+    volumes:
+      - ./dbt:/usr/app/dbt
+    ports:
+      - "8085:8080"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - dbt docs generate && dbt docs serve --host 0.0.0.0 --port 8080 --no-browser
+    networks:
+      - dashboard-net
+
+networks:
+  dashboard-net:
+    name: dashboard-net

@@ -1,0 +1,311 @@
+/* ==========================================================================
+   TICKETING SYSTEM — Feedback FAB, speed-dial, and the 3 ticket modals.
+   Stacked above the chatbot FAB (bottom-right) so both remain reachable.
+   ========================================================================== */
+
+.ticket-fab-wrap {
+  position: fixed;
+  bottom: 96px;
+  right: 28px;
+  z-index: 1040;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.ticket-fab {
+  position: relative;
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  color: #fff;
+  background: linear-gradient(135deg, var(--afya-amber) 0%, var(--afya-orange) 100%);
+  box-shadow: 0 4px 16px rgba(217, 119, 6, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.25s ease;
+  animation: ticket-fab-pulse 3.2s ease-in-out infinite;
+}
+
+.ticket-fab:hover,
+.ticket-fab:focus-visible {
+  transform: scale(1.1);
+  box-shadow: 0 6px 20px rgba(217, 119, 6, 0.6);
+  animation-play-state: paused;
+}
+
+.ticket-fab.dial-open {
+  transform: rotate(135deg) scale(1.05);
+  animation-play-state: paused;
+}
+
+@keyframes ticket-fab-pulse {
+  0%, 100% { box-shadow: 0 4px 16px rgba(217, 119, 6, 0.45), 0 0 0 0 rgba(217, 119, 6, 0.35); }
+  50%      { box-shadow: 0 4px 16px rgba(217, 119, 6, 0.45), 0 0 0 10px rgba(217, 119, 6, 0); }
+}
+
+/* Speed-dial options */
+.ticket-dial {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.ticket-dial-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  opacity: 0;
+  transform: translateY(10px) scale(0.9);
+  pointer-events: none;
+  transition: opacity 0.22s ease, transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.ticket-fab-wrap.dial-open .ticket-dial-item {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: all;
+}
+
+.ticket-fab-wrap.dial-open .ticket-dial-item:nth-child(1) { transition-delay: 0.06s; }
+.ticket-fab-wrap.dial-open .ticket-dial-item:nth-child(2) { transition-delay: 0.03s; }
+.ticket-fab-wrap.dial-open .ticket-dial-item:nth-child(3) { transition-delay: 0s; }
+
+.ticket-dial-label {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #fff;
+  background: var(--afya-cool-blue-dark, #002244);
+  padding: 5px 12px;
+  border-radius: 999px;
+  white-space: nowrap;
+  box-shadow: var(--afya-shadow-sm);
+}
+
+.ticket-dial-icon {
+  width: 42px;
+  height: 42px;
+  min-width: 42px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 17px;
+  box-shadow: var(--afya-shadow);
+  transition: transform 0.2s ease;
+}
+
+.ticket-dial-item:hover .ticket-dial-icon { transform: scale(1.12) rotate(-4deg); }
+
+.ticket-dial-icon.tt-issue      { background: linear-gradient(135deg, #ef4444, #f87171); }
+.ticket-dial-icon.tt-suggestion { background: linear-gradient(135deg, var(--afya-teal), #34d399); }
+.ticket-dial-icon.tt-feature    { background: linear-gradient(135deg, var(--afya-blue), #60c6ff); }
+
+/* ---- Modal identity per ticket type ---- */
+.ticket-modal .modal-content {
+  border: none;
+  border-radius: 18px;
+  overflow: hidden;
+  box-shadow: var(--afya-shadow-lg);
+}
+
+.ticket-modal .modal-header {
+  border: none;
+  padding: 1.4rem 1.6rem 1.2rem;
+  color: #fff;
+  position: relative;
+  overflow: hidden;
+}
+
+.ticket-modal .modal-header::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(circle at 85% -10%, rgba(255,255,255,.22), transparent 55%);
+  pointer-events: none;
+}
+
+.ticket-modal.tm-issue .modal-header      { background: linear-gradient(135deg, #b91c1c, #ef4444); }
+.ticket-modal.tm-suggestion .modal-header { background: linear-gradient(135deg, #047857, var(--afya-teal)); }
+.ticket-modal.tm-feature .modal-header    { background: linear-gradient(135deg, var(--afya-cool-blue), var(--afya-blue)); }
+
+.ticket-modal .modal-title {
+  font-weight: 800;
+  font-size: 1.2rem;
+  display: flex;
+  align-items: center;
+  gap: .55rem;
+}
+
+.ticket-modal .modal-title-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  background: rgba(255,255,255,.18);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+}
+
+.ticket-modal .modal-subtitle {
+  font-size: 12.5px;
+  color: rgba(255,255,255,.8);
+  margin-top: 2px;
+}
+
+.ticket-modal .btn-close { filter: invert(1); opacity: .85; }
+.ticket-modal .modal-body { padding: 1.5rem 1.6rem; }
+.ticket-modal .modal-footer { border-top: 1px solid var(--afya-border); padding: 1rem 1.6rem; }
+
+/* Priority chips (Issue modal only) */
+.priority-chips { display: flex; gap: 8px; flex-wrap: wrap; }
+.priority-chip {
+  flex: 1;
+  min-width: 80px;
+  text-align: center;
+  padding: 8px 6px;
+  border-radius: 10px;
+  border: 1.5px solid var(--afya-border);
+  background: var(--afya-surface);
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+  color: var(--afya-muted);
+  transition: all 0.18s ease;
+  user-select: none;
+}
+.priority-chip:hover { border-color: var(--afya-blue); transform: translateY(-1px); }
+.priority-chip.active[data-priority="low"]      { background: #f1f5f9; border-color: #94a3b8; color: #475569; }
+.priority-chip.active[data-priority="medium"]   { background: var(--afya-blue-light); border-color: var(--afya-blue); color: var(--afya-blue); }
+.priority-chip.active[data-priority="high"]     { background: #fff7ed; border-color: var(--afya-orange); color: #c2660a; }
+.priority-chip.active[data-priority="critical"] { background: #fef2f2; border-color: #ef4444; color: #b91c1c; }
+
+/* Character counter */
+.char-counter { font-size: 11px; color: var(--afya-muted); text-align: right; margin-top: 4px; }
+.char-counter.near-limit { color: var(--afya-orange); font-weight: 700; }
+
+/* File attach dropzone (Issue modal) */
+.ticket-dropzone {
+  border: 1.5px dashed var(--afya-border);
+  border-radius: 12px;
+  padding: 14px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  color: var(--afya-muted);
+  font-size: 12.5px;
+}
+.ticket-dropzone:hover, .ticket-dropzone.drag-over {
+  border-color: var(--afya-blue);
+  background: var(--afya-blue-light);
+  color: var(--afya-blue);
+}
+.ticket-dropzone-preview {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--afya-text);
+  margin-top: 8px;
+  background: var(--afya-bg);
+  border-radius: 8px;
+  padding: 6px 10px;
+}
+.ticket-dropzone-preview.show { display: flex; }
+.ticket-dropzone-preview img { width: 32px; height: 32px; object-fit: cover; border-radius: 6px; }
+
+/* Submit button spinner state */
+.ticket-submit-btn { min-width: 140px; }
+
+/* ---- Confetti burst (success flourish) ---- */
+.ticket-confetti-piece {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  pointer-events: none;
+  z-index: 2000;
+  opacity: 1;
+  will-change: transform, opacity;
+}
+
+/* ---- Support & Ticketing page ---- */
+.support-hero {
+  background: linear-gradient(145deg, #001a3d 0%, #002f6c 45%, #004e9a 100%);
+  border-radius: 0 0 2.25rem 2.25rem;
+  padding: 2.25rem 2.5rem;
+  color: #fff;
+  margin-bottom: 1.75rem;
+}
+.support-stat {
+  background: rgba(255,255,255,.08);
+  border: 1px solid rgba(255,255,255,.12);
+  border-radius: 14px;
+  padding: 12px 18px;
+  backdrop-filter: blur(10px);
+}
+.support-stat-num { font-size: 1.6rem; font-weight: 800; }
+.support-stat-label { font-size: 11.5px; color: rgba(255,255,255,.65); text-transform: uppercase; letter-spacing: .6px; }
+
+.ticket-card {
+  background: var(--afya-surface);
+  border: 1px solid var(--afya-border);
+  border-radius: 14px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border-left: 4px solid var(--afya-border);
+}
+.ticket-card:hover { box-shadow: var(--afya-shadow); transform: translateY(-2px); }
+.ticket-card.tc-amber { border-left-color: var(--afya-amber); }
+.ticket-card.tc-blue  { border-left-color: var(--afya-blue); }
+.ticket-card.tc-teal  { border-left-color: var(--afya-teal); }
+.ticket-card.tc-cool  { border-left-color: var(--afya-cool-blue); }
+.ticket-card.dragging { opacity: 0.4; }
+
+.ticket-card-subject { font-weight: 700; font-size: 13.5px; color: var(--afya-text); margin-bottom: 4px; }
+.ticket-card-meta { font-size: 11px; color: var(--afya-muted); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+.board-col {
+  background: var(--afya-bg);
+  border-radius: 16px;
+  padding: 12px;
+  min-height: 200px;
+  transition: background 0.2s ease;
+}
+.board-col.drag-over { background: var(--afya-blue-light); }
+.board-col-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 6px 12px;
+  font-weight: 800;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: .4px;
+  color: var(--afya-muted);
+}
+
+.badge-priority-low      { background: #f1f5f9; color: #475569; }
+.badge-priority-medium   { background: var(--afya-blue-light); color: var(--afya-blue); }
+.badge-priority-high     { background: #fff7ed; color: #c2660a; }
+.badge-priority-critical { background: #fef2f2; color: #b91c1c; }
+
+@media (max-width: 900px) {
+  .ticket-fab-wrap { bottom: 88px; right: 20px; }
+}

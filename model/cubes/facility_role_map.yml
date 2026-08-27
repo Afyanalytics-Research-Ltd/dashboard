@@ -1,0 +1,24 @@
+cubes:
+  - name: facility_role_map
+    sql_table: "\"REPORTING\".\"FACILITY_ROLE_MAP\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: facility_code
+        sql: "{CUBE}.\"FACILITY_CODE\""
+        type: string
+
+      - name: role_name
+        sql: "{CUBE}.\"ROLE_NAME\""
+        type: string
+
+    measures:
+      - name: count
+        type: count
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

@@ -1,0 +1,41 @@
+cubes:
+  - name: rpt_lab_monthly
+    sql_table: "\"REPORTING\".\"RPT_LAB_MONTHLY\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: lab_month
+        sql: "{CUBE}.\"LAB_MONTH\""
+        type: time
+
+    measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:00:36.454403+00:00
+      - name: distinct_visits
+        sql: '{CUBE}."DISTINCT_VISITS"'
+        type: sum
+      - name: total_components
+        sql: '{CUBE}."TOTAL_COMPONENTS"'
+        type: sum
+        title: Total Lab Components Processed (count)
+        drill_members: [lab_month]
+      - name: abnormal_pct
+        sql: '{CUBE}."ABNORMAL_PCT"'
+        type: avg
+        format: percent
+        title: Abnormal Lab Result Rate (%)
+        description: Percentage of lab result components flagged abnormal, by month — use for "abnormal lab rate" questions.
+        drill_members: [lab_month]
+      - name: count
+        type: count
+        drill_members: [lab_month]
+
+      - name: abnormal_count
+        sql: "{CUBE}.\"ABNORMAL_COUNT\""
+        type: sum
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

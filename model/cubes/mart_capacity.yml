@@ -1,0 +1,82 @@
+cubes:
+  - name: mart_capacity
+    sql_table: "\"REPORTING\".\"MART_CAPACITY\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: day_name
+        sql: "{CUBE}.\"DAY_NAME\""
+        type: string
+
+      - name: period_date
+        sql: "{CUBE}.\"PERIOD_DATE\""
+        type: time
+
+    measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T12:58:54.924655+00:00
+      - name: day_of_week
+        sql: '{CUBE}."DAY_OF_WEEK"'
+        type: sum
+      - name: total_census
+        sql: '{CUBE}."TOTAL_CENSUS"'
+        type: sum
+        drill_members: [period_date, day_name]
+      - name: ortho_census
+        sql: '{CUBE}."ORTHO_CENSUS"'
+        type: sum
+      - name: surgical_census
+        sql: '{CUBE}."SURGICAL_CENSUS"'
+        type: sum
+      - name: medical_census
+        sql: '{CUBE}."MEDICAL_CENSUS"'
+        type: sum
+      - name: obsgyn_census
+        sql: '{CUBE}."OBSGYN_CENSUS"'
+        type: sum
+      - name: maternity_census
+        sql: '{CUBE}."MATERNITY_CENSUS"'
+        type: sum
+      - name: census_14d_avg
+        sql: '{CUBE}."CENSUS_14D_AVG"'
+        type: sum
+      - name: ortho_14d_avg
+        sql: '{CUBE}."ORTHO_14D_AVG"'
+        type: sum
+      - name: theatre_cases
+        sql: '{CUBE}."THEATRE_CASES"'
+        type: sum
+        drill_members: [period_date, day_name]
+      - name: theatre_14d_avg
+        sql: '{CUBE}."THEATRE_14D_AVG"'
+        type: sum
+      - name: lab_orders
+        sql: '{CUBE}."LAB_ORDERS"'
+        type: sum
+      - name: lab_14d_avg
+        sql: '{CUBE}."LAB_14D_AVG"'
+        type: sum
+      - name: opd_v2_visits
+        sql: '{CUBE}."OPD_V2_VISITS"'
+        type: sum
+      - name: opd_14d_avg
+        sql: '{CUBE}."OPD_14D_AVG"'
+        type: sum
+      - name: opd_no_consult_proxy
+        sql: '{CUBE}."OPD_NO_CONSULT_PROXY"'
+        type: sum
+      - name: opd_no_consult_pct
+        sql: '{CUBE}."OPD_NO_CONSULT_PCT"'
+        type: avg
+        drill_members: [period_date, day_name]
+      - name: v1_census_excluded
+        sql: '{CUBE}."V1_CENSUS_EXCLUDED"'
+        type: sum
+      - name: count
+        type: count
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

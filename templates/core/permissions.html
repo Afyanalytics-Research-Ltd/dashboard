@@ -1,0 +1,250 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Permissions{% endblock %}
+{% block page_title %}Permissions{% endblock %}
+
+{% block breadcrumbs %}
+<div class="afya-breadcrumb-bar">
+  <nav aria-label="breadcrumb">
+    <ol class="breadcrumb mb-0">
+      <li class="breadcrumb-item"><a href="{% url 'analytics:home' %}">Home</a></li>
+      <li class="breadcrumb-item active" aria-current="page">Permissions</li>
+    </ol>
+  </nav>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+  .perm-user-row { border-bottom: 1px solid var(--afya-border); }
+  .perm-user-row:last-child { border-bottom: none; }
+  .perm-user-header {
+    padding: 14px 20px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .perm-user-header:hover { background: var(--afya-bg); }
+  .perm-user-name { font-weight: 700; color: var(--afya-text); }
+  .perm-user-meta { font-size: 12px; color: var(--afya-muted); }
+  .perm-user-body {
+    display: none;
+    padding: 4px 20px 18px 20px;
+    background: var(--afya-bg);
+  }
+  .perm-user-body.open { display: block; }
+
+  .perm-module-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+  .perm-module-card {
+    background: #fff;
+    border: 1px solid var(--afya-border);
+    border-radius: 8px;
+    padding: 10px 12px;
+  }
+  .perm-module-title { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+  .perm-module-btns .btn { font-size: 11px; padding: 3px 8px; }
+  .perm-module-btns .btn.active-state { pointer-events: none; }
+
+  .perm-dashboard-list { max-height: 220px; overflow-y: auto; background: #fff; border: 1px solid var(--afya-border); border-radius: 8px; padding: 8px 12px; }
+  .perm-dashboard-item { display: flex; align-items: center; justify-content: space-between; padding: 4px 0; font-size: 13px; }
+
+  .perm-badge-default { background:#f1f5f9; color:var(--afya-muted); }
+  .perm-badge-granted { background:var(--afya-teal-light); color:var(--afya-teal); }
+  .perm-badge-revoked { background:#fde2e1; color:#c0392b; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<div class="page-header">
+  <h1><i class="bi bi-shield-lock me-2 text-afya-blue"></i>Permissions</h1>
+  <p class="lead">
+    Control what each person under your scope can see — module access and
+    individual dashboard visibility. Anything not explicitly set here falls
+    back to the user's role default.
+  </p>
+</div>
+
+<div class="card">
+  <div class="card-header d-flex align-items-center justify-content-between">
+    <span><i class="bi bi-people me-2"></i>Users you manage</span>
+    <span class="badge bg-secondary">{{ managed_users|length }} user{{ managed_users|length|pluralize }}</span>
+  </div>
+
+  {% if managed_users_data %}
+  <div id="permUsersContainer">
+    {% for entry in managed_users_data %}
+    {% with u=entry.user %}
+    <div class="perm-user-row" data-user-id="{{ u.pk }}">
+      <div class="perm-user-header" onclick="togglePermUser({{ u.pk }})">
+        <div>
+          <div class="perm-user-name">
+            {{ u.profile.display_name|default:u.username }}
+            <span class="badge rounded-pill ms-2" style="background:var(--afya-blue-light);color:var(--afya-blue);font-size:10px;">
+              {{ u.profile.get_role_display }}
+            </span>
+          </div>
+          <div class="perm-user-meta">
+            {{ u.email|default:"no email" }}
+            {% if u.profile.facility %} &middot; {{ u.profile.facility.name }}{% endif %}
+          </div>
+        </div>
+        <i class="bi bi-chevron-down" id="permChevron{{ u.pk }}"></i>
+      </div>
+
+      <div class="perm-user-body" id="permBody{{ u.pk }}">
+        <div class="perm-module-grid">
+          {% for key, label in module_choices %}
+          <div class="perm-module-card" data-user-id="{{ u.pk }}" data-module-key="{{ key }}">
+            <div class="perm-module-title">{{ label }}</div>
+            <div class="perm-module-btns btn-group" role="group">
+              <button type="button" class="btn btn-outline-secondary"
+                      data-state="default"
+                      onclick="setModule({{ u.pk }}, '{{ key }}', null, this)">Default</button>
+              <button type="button" class="btn btn-outline-success"
+                      data-state="granted"
+                      onclick="setModule({{ u.pk }}, '{{ key }}', true, this)">Grant</button>
+              <button type="button" class="btn btn-outline-danger"
+                      data-state="revoked"
+                      onclick="setModule({{ u.pk }}, '{{ key }}', false, this)">Revoke</button>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+
+        {% if entry.dashboards %}
+        <div class="perm-dashboard-title mb-1" style="font-size:13px;font-weight:600;">
+          <i class="bi bi-grid me-1"></i>Dashboard visibility
+        </div>
+        <div class="perm-dashboard-list">
+          {% for dinfo in entry.dashboards %}
+          <div class="perm-dashboard-item">
+            <span>{{ dinfo.dashboard.name }}</span>
+            <div class="form-check form-switch mb-0">
+              <input class="form-check-input" type="checkbox"
+                     id="dash{{ u.pk }}_{{ dinfo.dashboard.pk }}"
+                     onchange="toggleDashboard({{ u.pk }}, {{ dinfo.dashboard.pk }}, this)"
+                     {% if dinfo.visible %}checked{% endif %}>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <div class="text-muted" style="font-size:12px;">No dashboards in scope.</div>
+        {% endif %}
+      </div>
+    </div>
+    {% endwith %}
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <div class="empty-state-icon"><i class="bi bi-people"></i></div>
+    <div class="empty-state-title">No users to manage</div>
+    <div class="empty-state-desc">No other users are linked to your facility/client yet.</div>
+  </div>
+  {% endif %}
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  const OVERRIDES = {{ overrides_by_user_json|safe }};
+
+  function togglePermUser(userId) {
+    const body = document.getElementById('permBody' + userId);
+    const chevron = document.getElementById('permChevron' + userId);
+    const open = body.classList.toggle('open');
+    chevron.className = open ? 'bi bi-chevron-up' : 'bi bi-chevron-down';
+  }
+
+  function refreshModuleButtons(userId, moduleKey) {
+    const overrides = OVERRIDES[userId] || {};
+    const card = document.querySelector('.perm-module-card[data-user-id="' + userId + '"][data-module-key="' + moduleKey + '"]');
+    if (!card) return;
+    const state = !(moduleKey in overrides) ? 'default' : (overrides[moduleKey] ? 'granted' : 'revoked');
+    card.querySelectorAll('.perm-module-btns .btn').forEach(function (btn) {
+      btn.classList.remove('active-state', 'btn-secondary', 'btn-success', 'btn-danger');
+      const isActive = btn.dataset.state === state;
+      if (isActive) {
+        btn.classList.add('active-state');
+        if (state === 'default') btn.classList.add('btn-secondary');
+        if (state === 'granted') btn.classList.add('btn-success');
+        if (state === 'revoked') btn.classList.add('btn-danger');
+      }
+    });
+  }
+
+  function setModule(userId, moduleKey, isGranted, btn) {
+    const body = new FormData();
+    body.append('csrfmiddlewaretoken', '{{ csrf_token }}');
+    body.append('user_id', userId);
+    body.append('module_key', moduleKey);
+
+    let action, promise;
+    if (isGranted === null) {
+      body.append('action', 'clear_module');
+    } else {
+      body.append('action', 'set_module');
+      body.append('is_granted', isGranted ? 'true' : 'false');
+    }
+
+    fetch("{% url 'core:permissions' %}", { method: 'POST', body: body, credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data.ok) {
+          AfyaToast.show(data.error || 'Could not update permission.', 'danger');
+          return;
+        }
+        OVERRIDES[userId] = OVERRIDES[userId] || {};
+        if (data.cleared) {
+          delete OVERRIDES[userId][moduleKey];
+        } else {
+          OVERRIDES[userId][moduleKey] = data.is_granted;
+        }
+        refreshModuleButtons(userId, moduleKey);
+        AfyaToast.show('Updated.', 'success');
+      })
+      .catch(function () { AfyaToast.show('Network error. Please try again.', 'danger'); });
+  }
+
+  function toggleDashboard(userId, dashboardId, checkbox) {
+    const body = new FormData();
+    body.append('csrfmiddlewaretoken', '{{ csrf_token }}');
+    body.append('action', 'toggle_dashboard');
+    body.append('user_id', userId);
+    body.append('dashboard_id', dashboardId);
+    body.append('hidden', checkbox.checked ? 'false' : 'true');
+
+    fetch("{% url 'core:permissions' %}", { method: 'POST', body: body, credentials: 'same-origin' })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data.ok) {
+          checkbox.checked = !checkbox.checked;
+          AfyaToast.show(data.error || 'Could not update visibility.', 'danger');
+          return;
+        }
+        AfyaToast.show('Updated.', 'success');
+      })
+      .catch(function () {
+        checkbox.checked = !checkbox.checked;
+        AfyaToast.show('Network error. Please try again.', 'danger');
+      });
+  }
+
+  // Initialize all module button states on load
+  document.querySelectorAll('.perm-module-card').forEach(function (card) {
+    refreshModuleButtons(card.dataset.userId, card.dataset.moduleKey);
+  });
+</script>
+{% endblock %}

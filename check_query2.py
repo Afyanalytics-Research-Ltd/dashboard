@@ -5,6 +5,7 @@ django.setup()
 import requests
 from django.conf import settings
 
+
 session = requests.Session()
 session.headers.update({"Authorization": "Key " + settings.REDASH_ADMIN_API_KEY})
 base = settings.REDASH_BASE_URL

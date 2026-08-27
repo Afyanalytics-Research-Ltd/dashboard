@@ -32,7 +32,7 @@ services:
     volumes:
       - letsencrypt:/etc/letsencrypt
       - web-static:/static/
-    command: certonly --non-interactive --agree-tos --nginx -m "lutherlunyamwi@gmail.com" -d "datahub.afya.ai"
+    command: certonly --non-interactive --agree-tos --nginx -m "lutherlunyamwi@gmail.com" -d "datahub.afyaanalytics.com"
     networks:
       - dashboard-net
 

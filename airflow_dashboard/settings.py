@@ -470,6 +470,17 @@ SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SECURE = not DEBUG
 
 # ---------------------------------------------------------------------------
+# Reverse proxy trust (nginx terminates TLS; Django itself is only ever
+# reached over plain HTTP inside the docker network — see
+# nginx/sites-enabled/django_project, which sets X-Forwarded-Proto on
+# every proxied location). Without this, request.is_secure() is always
+# False behind the proxy, which breaks secure-cookie logic above and any
+# https:// URL Django generates for itself (e.g. redirects).
+# ---------------------------------------------------------------------------
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+USE_X_FORWARDED_HOST = True
+
+# ---------------------------------------------------------------------------
 # Django Channels — Self-Service Analytics WebSocket
 # ---------------------------------------------------------------------------
 

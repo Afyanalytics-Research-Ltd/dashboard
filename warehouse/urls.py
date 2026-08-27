@@ -21,8 +21,10 @@ urlpatterns = [
     # "analyst/" is never swallowed by it.
     path("analyst/", analyst_views.analyst_workbook_list, name="analyst_workbook_list"),
     path("analyst/upload/", analyst_views.analyst_workbook_upload, name="analyst_workbook_upload"),
+    path("analyst/link-sheet/", analyst_views.analyst_link_google_sheet, name="analyst_link_google_sheet"),
     path("analyst/workbook/<uuid:pk>/", analyst_views.analyst_workbook_detail, name="analyst_workbook_detail"),
     path("analyst/workbook/<uuid:pk>/new-conversation/", analyst_views.analyst_new_conversation, name="analyst_new_conversation"),
+    path("analyst/workbook/<uuid:pk>/refresh-sheet/", analyst_views.analyst_refresh_google_sheet, name="analyst_refresh_google_sheet"),
     path("analyst/c/<uuid:pk>/", analyst_views.analyst_chat, name="analyst_chat"),
     path("analyst/c/<uuid:pk>/ask/", analyst_views.analyst_ask, name="analyst_ask"),
     path("analyst/c/<uuid:pk>/reset/", analyst_views.analyst_reset_kernel, name="analyst_reset_kernel"),

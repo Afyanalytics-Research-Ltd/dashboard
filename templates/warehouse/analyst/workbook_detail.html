@@ -38,16 +38,36 @@
 <div class="page-header">
   <div class="d-flex align-items-center justify-content-between flex-wrap gap-3">
     <div>
-      <h1><i class="bi bi-file-earmark-spreadsheet-fill me-2 text-afya-blue"></i>{{ workbook.original_name }}</h1>
-      <p class="lead">Uploaded {{ workbook.uploaded_at|date:"d M Y, H:i" }}</p>
+      <h1>
+        <i class="bi {% if workbook.source_type == 'google_sheet' %}bi-google{% else %}bi-file-earmark-spreadsheet-fill{% endif %} me-2 text-afya-blue"></i>
+        {{ workbook.original_name }}
+      </h1>
+      <p class="lead">
+        {% if workbook.source_type == 'google_sheet' %}
+          Linked from Google Sheets · last synced {{ workbook.uploaded_at|date:"d M Y, H:i" }}
+        {% else %}
+          Uploaded {{ workbook.uploaded_at|date:"d M Y, H:i" }}
+        {% endif %}
+      </p>
     </div>
-    <form method="post" action="{% url 'warehouse:analyst_new_conversation' workbook.id %}">
-      {% csrf_token %}
-      <button type="submit" class="btn btn-afya-primary" id="startConversationBtn">
-        <span class="btn-text"><i class="bi bi-chat-dots-fill me-1"></i>Start a new conversation</span>
-        <span class="spinner-border spinner-border-sm d-none" role="status"></span>
-      </button>
-    </form>
+    <div class="d-flex gap-2">
+      {% if workbook.source_type == 'google_sheet' %}
+      <form method="post" action="{% url 'warehouse:analyst_refresh_google_sheet' workbook.id %}">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-outline-secondary" id="refreshSheetBtn" title="Re-fetch the latest data from Google Sheets">
+          <span class="btn-text"><i class="bi bi-arrow-clockwise me-1"></i>Refresh from Sheets</span>
+          <span class="spinner-border spinner-border-sm d-none" role="status"></span>
+        </button>
+      </form>
+      {% endif %}
+      <form method="post" action="{% url 'warehouse:analyst_new_conversation' workbook.id %}">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-afya-primary" id="startConversationBtn">
+          <span class="btn-text"><i class="bi bi-chat-dots-fill me-1"></i>Start a new conversation</span>
+          <span class="spinner-border spinner-border-sm d-none" role="status"></span>
+        </button>
+      </form>
+    </div>
   </div>
 </div>
 
@@ -99,5 +119,14 @@ document.getElementById('startConversationBtn').closest('form').addEventListener
   btn.querySelector('.btn-text').classList.add('d-none');
   btn.querySelector('.spinner-border').classList.remove('d-none');
 });
+
+var refreshBtn = document.getElementById('refreshSheetBtn');
+if (refreshBtn) {
+  refreshBtn.closest('form').addEventListener('submit', function () {
+    refreshBtn.disabled = true;
+    refreshBtn.querySelector('.btn-text').classList.add('d-none');
+    refreshBtn.querySelector('.spinner-border').classList.remove('d-none');
+  });
+}
 </script>
 {% endblock %}

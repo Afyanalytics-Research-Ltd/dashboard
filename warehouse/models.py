@@ -105,6 +105,13 @@ def workbook_upload_path(instance: 'Workbook', filename: str) -> str:
 class Workbook(models.Model):
     """An uploaded spreadsheet queued for analysis."""
 
+    SOURCE_UPLOAD = 'upload'
+    SOURCE_GOOGLE_SHEET = 'google_sheet'
+    SOURCE_CHOICES = [
+        (SOURCE_UPLOAD, 'Uploaded file'),
+        (SOURCE_GOOGLE_SHEET, 'Linked Google Sheet'),
+    ]
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -120,6 +127,14 @@ class Workbook(models.Model):
     #: Cached profile so the upload page can show the schema without reloading.
     overview = models.TextField(blank=True)
     load_error = models.TextField(blank=True)
+
+    #: Where `file`'s bytes came from. For SOURCE_GOOGLE_SHEET, `file` is a
+    #: point-in-time .xlsx snapshot fetched via the Sheets API (the analyst
+    #: pipeline — profiling, sandboxed pandas — reads it exactly like an
+    #: uploaded file); google_sheet_id/_url are kept so it can be refreshed.
+    source_type = models.CharField(max_length=16, choices=SOURCE_CHOICES, default=SOURCE_UPLOAD)
+    google_sheet_id = models.CharField(max_length=128, blank=True)
+    google_sheet_url = models.URLField(max_length=512, blank=True)
 
     class Meta:
         ordering = ['-uploaded_at']

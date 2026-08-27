@@ -68,6 +68,53 @@
   .an-dropzone-file.show { display: flex; }
   .an-filetypes { font-size: 11.5px; color: rgba(255,255,255,.5); margin-top: 10px; }
 
+  .an-source-tabs {
+    display: flex;
+    gap: 6px;
+    background: rgba(255,255,255,.08);
+    border-radius: 12px;
+    padding: 4px;
+    margin-bottom: 12px;
+  }
+  .an-source-tab {
+    flex: 1;
+    border: none;
+    background: none;
+    color: rgba(255,255,255,.65);
+    font-size: 12.5px;
+    font-weight: 700;
+    padding: 8px 10px;
+    border-radius: 9px;
+    cursor: pointer;
+    transition: background .18s ease, color .18s ease;
+  }
+  .an-source-tab.active { background: rgba(255,255,255,.14); color: #fff; }
+  .an-source-tab:hover:not(.active) { color: #fff; }
+
+  .an-sheet-pane input[type="text"] {
+    background: rgba(255,255,255,.08);
+    border: 1px solid rgba(255,255,255,.25);
+    border-radius: 12px;
+    color: #fff;
+    padding: 12px 14px;
+    font-size: 13px;
+    width: 100%;
+  }
+  .an-sheet-pane input[type="text"]::placeholder { color: rgba(255,255,255,.45); }
+  .an-sheet-pane input[type="text"]:focus {
+    outline: none;
+    border-color: #60c6ff;
+    background: rgba(255,255,255,.12);
+  }
+  .an-sheet-hint { font-size: 11.5px; color: rgba(255,255,255,.5); margin-top: 10px; }
+
+  .wb-source-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 10px; font-weight: 700; letter-spacing: .3px;
+    color: #0f9d58; background: rgba(15,157,88,.1);
+    border-radius: 8px; padding: 2px 7px; margin-top: 4px;
+  }
+
   .wb-card {
     background: var(--afya-surface);
     border: 1px solid var(--afya-border);
@@ -121,24 +168,49 @@
         </p>
       </div>
 
-      <form method="post" action="{% url 'warehouse:analyst_workbook_upload' %}"
-            enctype="multipart/form-data" id="uploadForm" style="min-width:320px;flex:1;max-width:420px;">
-        {% csrf_token %}
-        <div class="an-dropzone" id="anDropzone">
-          <i class="bi bi-cloud-arrow-up an-dropzone-icon"></i>
-          <div style="font-weight:700;font-size:14.5px;">Click or drag a spreadsheet here</div>
-          <div class="an-filetypes">.xlsx · .xlsm · .xls · .csv · .tsv</div>
-          {{ form.file }}
-          <div class="an-dropzone-file" id="anFilePreview">
-            <i class="bi bi-file-earmark-spreadsheet-fill" style="color:#60c6ff;"></i>
-            <span id="anFileName"></span>
-          </div>
+      <div style="min-width:320px;flex:1;max-width:420px;">
+        <div class="an-source-tabs">
+          <button type="button" class="an-source-tab active" id="anTabUpload">
+            <i class="bi bi-cloud-arrow-up me-1"></i>Upload a file
+          </button>
+          <button type="button" class="an-source-tab" id="anTabSheet">
+            <i class="bi bi-google me-1"></i>Link a Google Sheet
+          </button>
         </div>
-        <button type="submit" class="btn btn-hero-white w-100 mt-3" id="anUploadBtn" disabled>
-          <span class="btn-text"><i class="bi bi-magic me-1"></i>Analyse this workbook</span>
-          <span class="spinner-border spinner-border-sm d-none" role="status"></span>
-        </button>
-      </form>
+
+        <form method="post" action="{% url 'warehouse:analyst_workbook_upload' %}"
+              enctype="multipart/form-data" id="uploadForm">
+          {% csrf_token %}
+          <div class="an-dropzone" id="anDropzone">
+            <i class="bi bi-cloud-arrow-up an-dropzone-icon"></i>
+            <div style="font-weight:700;font-size:14.5px;">Click or drag a spreadsheet here</div>
+            <div class="an-filetypes">.xlsx · .xlsm · .xls · .csv · .tsv</div>
+            {{ form.file }}
+            <div class="an-dropzone-file" id="anFilePreview">
+              <i class="bi bi-file-earmark-spreadsheet-fill" style="color:#60c6ff;"></i>
+              <span id="anFileName"></span>
+            </div>
+          </div>
+          <button type="submit" class="btn btn-hero-white w-100 mt-3" id="anUploadBtn" disabled>
+            <span class="btn-text"><i class="bi bi-magic me-1"></i>Analyse this workbook</span>
+            <span class="spinner-border spinner-border-sm d-none" role="status"></span>
+          </button>
+        </form>
+
+        <form method="post" action="{% url 'warehouse:analyst_link_google_sheet' %}"
+              id="sheetForm" class="an-sheet-pane d-none">
+          {% csrf_token %}
+          {{ sheet_form.id_or_url }}
+          <div class="an-sheet-hint">
+            <i class="bi bi-info-circle me-1"></i>Share the sheet with this app's service account first
+            (Editor or Viewer access) — ask an admin for its e-mail if you're not sure.
+          </div>
+          <button type="submit" class="btn btn-hero-white w-100 mt-3" id="anSheetBtn">
+            <span class="btn-text"><i class="bi bi-magic me-1"></i>Analyse this sheet</span>
+            <span class="spinner-border spinner-border-sm d-none" role="status"></span>
+          </button>
+        </form>
+      </div>
     </div>
   </div>
 </div>
@@ -155,13 +227,16 @@
     <div class="col-12 col-sm-6 col-lg-4 col-xl-3">
       <a href="{{ wb.get_absolute_url }}" class="wb-card" style="animation-delay: {{ forloop.counter0|add:0 }}0ms;">
         <div class="wb-icon {% if wb.load_error %}wb-error{% endif %}">
-          <i class="bi {% if wb.load_error %}bi-exclamation-triangle-fill{% else %}bi-file-earmark-spreadsheet-fill{% endif %}"></i>
+          <i class="bi {% if wb.load_error %}bi-exclamation-triangle-fill{% elif wb.source_type == 'google_sheet' %}bi-google{% else %}bi-file-earmark-spreadsheet-fill{% endif %}"></i>
         </div>
         <div class="wb-name">{{ wb.original_name }}</div>
         <div class="wb-meta">
           <i class="bi bi-calendar3 me-1"></i>{{ wb.uploaded_at|date:"d M Y, H:i" }}
           {% if wb.load_error %}<br><span class="text-danger">Could not be read</span>{% endif %}
         </div>
+        {% if wb.source_type == 'google_sheet' %}
+        <div class="wb-source-badge"><i class="bi bi-link-45deg"></i>Linked sheet</div>
+        {% endif %}
       </a>
     </div>
     {% endfor %}
@@ -216,6 +291,31 @@
     uploadBtn.disabled = true;
     uploadBtn.querySelector('.btn-text').classList.add('d-none');
     uploadBtn.querySelector('.spinner-border').classList.remove('d-none');
+  });
+
+  // ---- Upload / Link-a-Google-Sheet tab toggle ----------------------------
+  var tabUpload = document.getElementById('anTabUpload');
+  var tabSheet = document.getElementById('anTabSheet');
+  var sheetForm = document.getElementById('sheetForm');
+  var sheetBtn = document.getElementById('anSheetBtn');
+
+  tabUpload.addEventListener('click', function () {
+    tabUpload.classList.add('active');
+    tabSheet.classList.remove('active');
+    form.classList.remove('d-none');
+    sheetForm.classList.add('d-none');
+  });
+  tabSheet.addEventListener('click', function () {
+    tabSheet.classList.add('active');
+    tabUpload.classList.remove('active');
+    sheetForm.classList.remove('d-none');
+    form.classList.add('d-none');
+  });
+
+  sheetForm.addEventListener('submit', function () {
+    sheetBtn.disabled = true;
+    sheetBtn.querySelector('.btn-text').classList.add('d-none');
+    sheetBtn.querySelector('.spinner-border').classList.remove('d-none');
   });
 })();
 </script>

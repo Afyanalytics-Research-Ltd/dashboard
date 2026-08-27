@@ -1402,3 +1402,241 @@ class AnalystViewTests(TestCase):
         self.c.force_login(self.user)
         resp = self.c.get(reverse("warehouse:analyst_artifact_download", args=[artifact.pk]))
         self.assertEqual(resp.status_code, 200)
+
+
+# =============================================================================
+# GOOGLE SHEETS LINKING (warehouse/services/google_sheets_import.py)
+# =============================================================================
+
+class GoogleSheetsImportServiceTests(TestCase):
+    """extract_spreadsheet_id() and fetch_google_sheet_as_xlsx() — no real
+    Google API calls, get_service() is mocked."""
+
+    def test_extract_spreadsheet_id_from_full_url(self):
+        from warehouse.services.google_sheets_import import extract_spreadsheet_id
+        url = "https://docs.google.com/spreadsheets/d/1AbC-XyZ_123/edit#gid=0"
+        self.assertEqual(extract_spreadsheet_id(url), "1AbC-XyZ_123")
+
+    def test_extract_spreadsheet_id_passthrough_raw_id(self):
+        from warehouse.services.google_sheets_import import extract_spreadsheet_id
+        self.assertEqual(extract_spreadsheet_id("1AbC-XyZ_123"), "1AbC-XyZ_123")
+
+    def test_extract_spreadsheet_id_blank_input(self):
+        from warehouse.services.google_sheets_import import extract_spreadsheet_id
+        self.assertEqual(extract_spreadsheet_id(""), "")
+        self.assertEqual(extract_spreadsheet_id(None), "")
+
+    def _mock_service(self, sheets_meta, values_by_tab):
+        service = MagicMock()
+        service.get_spreadsheet.return_value = {
+            "properties": {"title": "My Sheet"},
+            "sheets": [{"properties": {"title": t}} for t in sheets_meta],
+        }
+        service.read_values.side_effect = lambda sid, tab: values_by_tab.get(tab, [])
+        return service
+
+    def test_fetch_builds_valid_xlsx_from_single_tab(self):
+        from warehouse.services.google_sheets_import import fetch_google_sheet_as_xlsx
+        service = self._mock_service(
+            ["Sheet1"],
+            {"Sheet1": [["region", "revenue"], ["West", "100"], ["East", "150"]]},
+        )
+        with patch("warehouse.services.google_sheets_import.get_service", return_value=service):
+            xlsx_bytes, title = fetch_google_sheet_as_xlsx("abc123")
+
+        self.assertEqual(title, "My Sheet")
+        import io
+        df = pd.read_excel(io.BytesIO(xlsx_bytes), sheet_name="Sheet1")
+        self.assertEqual(list(df.columns), ["region", "revenue"])
+        self.assertEqual(len(df), 2)
+
+    def test_fetch_handles_multiple_tabs(self):
+        from warehouse.services.google_sheets_import import fetch_google_sheet_as_xlsx
+        service = self._mock_service(
+            ["Sales", "Costs"],
+            {
+                "Sales": [["region", "revenue"], ["West", "100"]],
+                "Costs": [["region", "cost"], ["West", "40"]],
+            },
+        )
+        with patch("warehouse.services.google_sheets_import.get_service", return_value=service):
+            xlsx_bytes, _ = fetch_google_sheet_as_xlsx("abc123")
+
+        import io
+        book = pd.ExcelFile(io.BytesIO(xlsx_bytes))
+        self.assertEqual(set(book.sheet_names), {"Sales", "Costs"})
+
+    def test_fetch_pads_short_rows_to_header_width(self):
+        from warehouse.services.google_sheets_import import fetch_google_sheet_as_xlsx
+        # Sheets omits trailing empty cells -- second row is short.
+        service = self._mock_service(
+            ["Sheet1"],
+            {"Sheet1": [["a", "b", "c"], ["1", "2", "3"], ["4"]]},
+        )
+        with patch("warehouse.services.google_sheets_import.get_service", return_value=service):
+            xlsx_bytes, _ = fetch_google_sheet_as_xlsx("abc123")
+
+        import io
+        df = pd.read_excel(io.BytesIO(xlsx_bytes), sheet_name="Sheet1")
+        self.assertEqual(len(df), 2)
+        self.assertEqual(df.shape[1], 3)
+
+    def test_fetch_skips_empty_tabs_but_succeeds_if_others_have_data(self):
+        from warehouse.services.google_sheets_import import fetch_google_sheet_as_xlsx
+        service = self._mock_service(
+            ["Empty", "Sheet1"],
+            {"Sheet1": [["a"], ["1"]]},
+        )
+        with patch("warehouse.services.google_sheets_import.get_service", return_value=service):
+            xlsx_bytes, _ = fetch_google_sheet_as_xlsx("abc123")
+
+        import io
+        book = pd.ExcelFile(io.BytesIO(xlsx_bytes))
+        self.assertEqual(book.sheet_names, ["Sheet1"])
+
+    def test_fetch_raises_when_all_tabs_empty(self):
+        from warehouse.services.google_sheets_import import (
+            GoogleSheetImportError, fetch_google_sheet_as_xlsx,
+        )
+        service = self._mock_service(["Sheet1"], {"Sheet1": []})
+        with patch("warehouse.services.google_sheets_import.get_service", return_value=service):
+            with self.assertRaises(GoogleSheetImportError):
+                fetch_google_sheet_as_xlsx("abc123")
+
+    def test_fetch_raises_when_no_tabs(self):
+        from warehouse.services.google_sheets_import import (
+            GoogleSheetImportError, fetch_google_sheet_as_xlsx,
+        )
+        service = self._mock_service([], {})
+        with patch("warehouse.services.google_sheets_import.get_service", return_value=service):
+            with self.assertRaises(GoogleSheetImportError):
+                fetch_google_sheet_as_xlsx("abc123")
+
+    def test_fetch_raises_on_service_error(self):
+        from warehouse.sheet_service import SheetsServiceError
+        from warehouse.services.google_sheets_import import (
+            GoogleSheetImportError, fetch_google_sheet_as_xlsx,
+        )
+        service = MagicMock()
+        service.get_spreadsheet.side_effect = SheetsServiceError("not shared with service account")
+        with patch("warehouse.services.google_sheets_import.get_service", return_value=service):
+            with self.assertRaises(GoogleSheetImportError):
+                fetch_google_sheet_as_xlsx("abc123")
+
+
+class GoogleSheetLinkFormTests(TestCase):
+
+    def test_accepts_raw_id(self):
+        from warehouse.forms import GoogleSheetLinkForm
+        form = GoogleSheetLinkForm({"id_or_url": "1AbC-XyZ_123"})
+        self.assertTrue(form.is_valid())
+        self.assertEqual(form.cleaned_data["id_or_url"], "1AbC-XyZ_123")
+
+    def test_extracts_id_from_full_url(self):
+        from warehouse.forms import GoogleSheetLinkForm
+        form = GoogleSheetLinkForm({
+            "id_or_url": "https://docs.google.com/spreadsheets/d/1AbC-XyZ_123/edit#gid=0"
+        })
+        self.assertTrue(form.is_valid())
+        self.assertEqual(form.cleaned_data["id_or_url"], "1AbC-XyZ_123")
+
+    def test_rejects_empty_input(self):
+        from warehouse.forms import GoogleSheetLinkForm
+        form = GoogleSheetLinkForm({"id_or_url": ""})
+        self.assertFalse(form.is_valid())
+
+
+class AnalystGoogleSheetViewTests(TestCase):
+    """analyst_link_google_sheet / analyst_refresh_google_sheet — the Google
+    API call itself is mocked (fetch_google_sheet_as_xlsx), everything
+    downstream (Workbook creation, profiling, chat) runs for real."""
+
+    def setUp(self):
+        self.user = _make_user("sheet_view_user")
+        self.other_user = _make_user("sheet_other_user")
+        self.c = Client()
+
+    def _fake_xlsx(self, columns=("region", "revenue"), rows=(("West", 100), ("East", 150))):
+        import io
+        buf = io.BytesIO()
+        pd.DataFrame(list(rows), columns=list(columns)).to_excel(buf, index=False, sheet_name="Sheet1")
+        return buf.getvalue(), "My Linked Sheet"
+
+    def test_link_sheet_requires_login(self):
+        resp = self.c.post(reverse("warehouse:analyst_link_google_sheet"), {"id_or_url": "abc123"})
+        self.assertEqual(resp.status_code, 302)
+
+    @patch("warehouse.analyst_views.fetch_google_sheet_as_xlsx")
+    def test_link_sheet_creates_workbook_and_redirects_to_chat(self, mock_fetch):
+        from warehouse.models import Conversation, Workbook
+        mock_fetch.return_value = self._fake_xlsx()
+        self.c.force_login(self.user)
+        resp = self.c.post(reverse("warehouse:analyst_link_google_sheet"), {
+            "id_or_url": "https://docs.google.com/spreadsheets/d/1AbC-XyZ_123/edit",
+        })
+
+        wb = Workbook.objects.get(owner=self.user)
+        self.assertEqual(wb.source_type, Workbook.SOURCE_GOOGLE_SHEET)
+        self.assertEqual(wb.google_sheet_id, "1AbC-XyZ_123")
+        self.assertEqual(wb.load_error, "")
+        self.assertIn("region", wb.overview)
+        conv = Conversation.objects.get(workbook=wb)
+        self.assertRedirects(resp, conv.get_absolute_url())
+        mock_fetch.assert_called_once_with("1AbC-XyZ_123")
+
+    @patch("warehouse.analyst_views.fetch_google_sheet_as_xlsx")
+    def test_link_sheet_shows_error_on_import_failure(self, mock_fetch):
+        from warehouse.models import Workbook
+        from warehouse.services.google_sheets_import import GoogleSheetImportError
+        mock_fetch.side_effect = GoogleSheetImportError("not shared with the service account")
+        self.c.force_login(self.user)
+        resp = self.c.post(reverse("warehouse:analyst_link_google_sheet"), {"id_or_url": "abc123"})
+
+        self.assertRedirects(resp, reverse("warehouse:analyst_workbook_list"))
+        self.assertFalse(Workbook.objects.filter(owner=self.user).exists())
+
+    def test_link_sheet_rejects_invalid_form(self):
+        from warehouse.models import Workbook
+        self.c.force_login(self.user)
+        self.c.post(reverse("warehouse:analyst_link_google_sheet"), {"id_or_url": ""})
+        self.assertFalse(Workbook.objects.filter(owner=self.user).exists())
+
+    @patch("warehouse.analyst_views.fetch_google_sheet_as_xlsx")
+    def test_refresh_requires_ownership(self, mock_fetch):
+        from warehouse.models import Workbook
+        mock_fetch.return_value = self._fake_xlsx()
+        self.c.force_login(self.user)
+        self.c.post(reverse("warehouse:analyst_link_google_sheet"), {"id_or_url": "abc123"})
+        wb = Workbook.objects.get(owner=self.user)
+
+        self.c.force_login(self.other_user)
+        resp = self.c.post(reverse("warehouse:analyst_refresh_google_sheet", args=[wb.id]))
+        self.assertEqual(resp.status_code, 404)
+
+    def test_refresh_404_for_non_sheet_workbook(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from warehouse.models import Workbook
+        self.c.force_login(self.user)
+        self.c.post(reverse("warehouse:analyst_workbook_upload"), {
+            "file": SimpleUploadedFile("sales.csv", b"a,b\n1,2\n"),
+        })
+        wb = Workbook.objects.get(owner=self.user)
+        resp = self.c.post(reverse("warehouse:analyst_refresh_google_sheet", args=[wb.id]))
+        self.assertEqual(resp.status_code, 404)
+
+    @patch("warehouse.analyst_views.fetch_google_sheet_as_xlsx")
+    def test_refresh_updates_file_and_reprofiles(self, mock_fetch):
+        from warehouse.models import Workbook
+        mock_fetch.return_value = self._fake_xlsx(columns=("a", "b"), rows=(("x", 1),))
+        self.c.force_login(self.user)
+        self.c.post(reverse("warehouse:analyst_link_google_sheet"), {"id_or_url": "abc123"})
+        wb = Workbook.objects.get(owner=self.user)
+        old_overview = wb.overview
+        self.assertIn("region", old_overview)
+
+        mock_fetch.return_value = self._fake_xlsx(columns=("totally", "different"), rows=(("y", 2),))
+        resp = self.c.post(reverse("warehouse:analyst_refresh_google_sheet", args=[wb.id]))
+        wb.refresh_from_db()
+        self.assertRedirects(resp, wb.get_absolute_url())
+        self.assertIn("totally", wb.overview)
+        self.assertNotIn("region", wb.overview)

@@ -120,9 +120,9 @@ class ChatMessageInline(admin.TabularInline):
 
 @admin.register(Workbook)
 class WorkbookAdmin(admin.ModelAdmin):
-    list_display = ("original_name", "owner", "uploaded_at", "has_loaded")
-    list_filter = ("uploaded_at",)
-    search_fields = ("original_name",)
+    list_display = ("original_name", "owner", "source_type", "uploaded_at", "has_loaded")
+    list_filter = ("uploaded_at", "source_type")
+    search_fields = ("original_name", "google_sheet_id")
     readonly_fields = ("overview", "load_error", "uploaded_at")
 
     @admin.display(boolean=True, description="loaded")

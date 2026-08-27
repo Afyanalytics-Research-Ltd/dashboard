@@ -21,9 +21,10 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.template.loader import render_to_string
 from django.views.decorators.http import require_GET, require_POST
 
-from .forms import AnalystQuestionForm, WorkbookUploadForm
+from .forms import AnalystQuestionForm, GoogleSheetLinkForm, WorkbookUploadForm
 from .models import Artifact, ChatMessage, Conversation, Workbook
 from .services.analyst import drop_session, profile_workbook, submit_question
+from .services.google_sheets_import import GoogleSheetImportError, fetch_google_sheet_as_xlsx
 
 
 def _owned(model, request: HttpRequest, **kwargs):
@@ -41,11 +42,17 @@ def _owned(model, request: HttpRequest, **kwargs):
 @login_required
 def analyst_workbook_list(request: HttpRequest) -> HttpResponse:
     form = WorkbookUploadForm()
+    sheet_form = GoogleSheetLinkForm()
     workbooks = Workbook.objects.filter(owner=request.user)
     return render(
         request,
         "warehouse/analyst/workbook_list.html",
-        {"form": form, "workbooks": workbooks, "sidebar_section": "warehouse"},
+        {
+            "form": form,
+            "sheet_form": sheet_form,
+            "workbooks": workbooks,
+            "sidebar_section": "warehouse",
+        },
     )
 
 
@@ -70,6 +77,74 @@ def analyst_workbook_upload(request: HttpRequest) -> HttpResponse:
 
     conversation = Conversation.objects.create(workbook=workbook, owner=request.user)
     return redirect(conversation.get_absolute_url())
+
+
+@login_required
+@require_POST
+def analyst_link_google_sheet(request: HttpRequest) -> HttpResponse:
+    """Link a Google Sheet in place of an upload — fetched once via the
+    Sheets API and saved as a real .xlsx, so everything downstream
+    (profiling, chat, sandboxed pandas) runs through the exact same path
+    as an uploaded file."""
+    from django.core.files.base import ContentFile
+
+    form = GoogleSheetLinkForm(request.POST)
+    if not form.is_valid():
+        for error in form.errors.get("id_or_url", []):
+            django_messages.error(request, error)
+        return redirect("warehouse:analyst_workbook_list")
+
+    spreadsheet_id = form.cleaned_data["id_or_url"]
+    try:
+        xlsx_bytes, title = fetch_google_sheet_as_xlsx(spreadsheet_id)
+    except GoogleSheetImportError as exc:
+        django_messages.error(request, str(exc))
+        return redirect("warehouse:analyst_workbook_list")
+
+    workbook = Workbook(
+        owner=request.user,
+        original_name=f"{title}.xlsx",
+        source_type=Workbook.SOURCE_GOOGLE_SHEET,
+        google_sheet_id=spreadsheet_id,
+        google_sheet_url=f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}",
+    )
+    workbook.file.save(f"{title}.xlsx", ContentFile(xlsx_bytes), save=False)
+    workbook.save()
+
+    profile_workbook(workbook)
+    if workbook.load_error:
+        django_messages.error(request, f"Could not read that spreadsheet. {workbook.load_error}")
+        return redirect("warehouse:analyst_workbook_list")
+
+    conversation = Conversation.objects.create(workbook=workbook, owner=request.user)
+    return redirect(conversation.get_absolute_url())
+
+
+@login_required
+@require_POST
+def analyst_refresh_google_sheet(request: HttpRequest, pk) -> HttpResponse:
+    """Re-fetch a linked Google Sheet's current data and re-profile it."""
+    from django.core.files.base import ContentFile
+
+    workbook = _owned(Workbook, request, pk=pk)
+    if workbook.source_type != Workbook.SOURCE_GOOGLE_SHEET or not workbook.google_sheet_id:
+        raise Http404
+
+    try:
+        xlsx_bytes, title = fetch_google_sheet_as_xlsx(workbook.google_sheet_id)
+    except GoogleSheetImportError as exc:
+        django_messages.error(request, str(exc))
+        return redirect(workbook.get_absolute_url())
+
+    workbook.file.delete(save=False)
+    workbook.file.save(f"{title}.xlsx", ContentFile(xlsx_bytes), save=False)
+    workbook.save()
+    profile_workbook(workbook)
+    if workbook.load_error:
+        django_messages.error(request, f"Could not read that spreadsheet. {workbook.load_error}")
+    else:
+        django_messages.success(request, "Refreshed from Google Sheets.")
+    return redirect(workbook.get_absolute_url())
 
 
 @login_required

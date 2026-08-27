@@ -527,6 +527,29 @@ class WorkbookUploadForm(forms.ModelForm):
         return upload
 
 
+class GoogleSheetLinkForm(forms.Form):
+    """Link an existing Google Sheet instead of uploading a file. The sheet
+    must be shared with this app's service account (see
+    warehouse/services/google_sheets_import.py)."""
+
+    id_or_url = forms.CharField(
+        label="Google Sheet URL or ID",
+        widget=forms.TextInput(attrs={
+            **_ctrl("font-monospace"),
+            "placeholder": "https://docs.google.com/spreadsheets/d/… or just the ID",
+        }),
+        error_messages={"required": "Please paste a Google Sheets URL or ID."},
+    )
+
+    def clean_id_or_url(self) -> str:
+        from .services.google_sheets_import import extract_spreadsheet_id
+
+        spreadsheet_id = extract_spreadsheet_id(self.cleaned_data["id_or_url"])
+        if not spreadsheet_id:
+            raise forms.ValidationError("That doesn't look like a valid Google Sheets URL or ID.")
+        return spreadsheet_id
+
+
 class AnalystQuestionForm(forms.Form):
     question = forms.CharField(
         widget=forms.Textarea(

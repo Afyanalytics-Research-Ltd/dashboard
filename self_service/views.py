@@ -2,6 +2,7 @@ import json
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import ValidationError
+from django.core.files.storage import default_storage
 from django.db.models import Count
 from django.http import JsonResponse
 from django.views import View
@@ -34,11 +35,14 @@ class ChatHistoryView(LoginRequiredMixin, View):
 
         messages = list(
             session.messages
-            .values('role', 'content', 'query_intent', 'created_at')
+            .values('role', 'content', 'query_intent', 'chart_image', 'chart_caption', 'created_at')
             .order_by('created_at')[:50]
         )
         for msg in messages:
             msg['created_at'] = msg['created_at'].isoformat()
+            chart_image = msg.pop('chart_image', '')
+            msg['chart_url'] = default_storage.url(chart_image) if chart_image else None
+            msg['chart_caption'] = msg.get('chart_caption') or ''
 
         return JsonResponse({
             'messages': messages,

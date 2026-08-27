@@ -59,16 +59,16 @@
 
 /* --------------------------------------------------------------------------
    Slide-in Panel
-   ≤ 25% screen width (capped at 420 px, min 320 px)
+   Half the screen width, so a chart or a wide table has real room to
+   breathe (min 420px so it never gets cramped on a narrower desktop).
    -------------------------------------------------------------------------- */
 .chatbot-panel {
   position: fixed;
   top: 0;
   right: 0;
   bottom: 0;
-  width: 25%;
-  min-width: 320px;
-  max-width: 420px;
+  width: 50%;
+  min-width: 420px;
   background: #fff;
   border-left: 1px solid var(--afya-border);
   box-shadow: -6px 0 32px rgba(0, 0, 0, 0.12);
@@ -339,6 +339,74 @@
 .chat-bubble.assistant li { margin-bottom: 3px; }
 
 /* --------------------------------------------------------------------------
+   Answer / Chart tabs — every metric answer that produced a chart shows
+   both in one bubble instead of two stacked ones.
+   -------------------------------------------------------------------------- */
+.chat-bubble.chat-bubble-tabbed {
+  max-width: 94%;
+  padding: 0;
+  overflow: hidden;
+}
+
+.chat-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--afya-border);
+  background: #f8f9fb;
+}
+
+.chat-tab {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--afya-muted);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.chat-tab:hover:not(.active) {
+  color: var(--afya-text);
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.chat-tab.active {
+  color: var(--afya-blue);
+  border-bottom-color: var(--afya-blue);
+}
+
+.chat-tab-panel {
+  display: none;
+  padding: 10px 13px;
+}
+
+.chat-tab-panel.active {
+  display: block;
+}
+
+.chat-tab-panel-chart {
+  text-align: center;
+  padding: 12px;
+  max-height: 420px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.chat-tab-panel-chart::-webkit-scrollbar { width: 4px; }
+.chat-tab-panel-chart::-webkit-scrollbar-track { background: transparent; }
+.chat-tab-panel-chart::-webkit-scrollbar-thumb { background: var(--afya-border); border-radius: 2px; }
+
+.chat-tab-panel-chart .chat-chart-expand {
+  display: inline-flex;
+}
+
+/* --------------------------------------------------------------------------
    Typing Indicator
    -------------------------------------------------------------------------- */
 .chatbot-typing {
@@ -451,6 +519,88 @@
 .chatbot-send-btn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+/* --------------------------------------------------------------------------
+   Chart images — clickable to view full size
+   -------------------------------------------------------------------------- */
+.chat-chart {
+  padding: 8px;
+}
+
+.chat-chart img {
+  cursor: zoom-in;
+  transition: opacity 0.15s ease;
+}
+
+.chat-chart img:hover {
+  opacity: 0.88;
+}
+
+.chat-chart-expand {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--afya-blue);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.chat-chart-expand:hover {
+  text-decoration: underline;
+}
+
+/* --------------------------------------------------------------------------
+   Chart Lightbox — full-size view
+   -------------------------------------------------------------------------- */
+.chatbot-lightbox {
+  position: fixed;
+  inset: 0;
+  background: rgba(3, 10, 20, 0.88);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  padding: 40px;
+  backdrop-filter: blur(4px);
+}
+
+.chatbot-lightbox.show {
+  display: flex;
+}
+
+.chatbot-lightbox img {
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 10px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  cursor: default;
+}
+
+.chatbot-lightbox-close {
+  position: absolute;
+  top: 24px;
+  right: 28px;
+  color: #fff;
+  font-size: 26px;
+  cursor: pointer;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s ease;
+}
+
+.chatbot-lightbox-close:hover {
+  background: rgba(255, 255, 255, 0.22);
 }
 
 /* --------------------------------------------------------------------------

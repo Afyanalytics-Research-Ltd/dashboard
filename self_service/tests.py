@@ -701,6 +701,210 @@ class ConsumerSessionPersistenceTests(TransactionTestCase):
         self.assertEqual(session.messages.count(), 4)
 
 
+class SaveMessagesChartPersistenceTests(TestCase):
+    """_save_messages() writes a chart's PNG bytes to storage and links
+    them to the assistant's ChatMessage row — charts used to be ephemeral
+    (regenerated per request, never saved); this is what makes them
+    survive a session reload / history replay."""
+
+    def setUp(self):
+        self.user = _make_user('chart_persist_user')
+        self.session = ChatSession.objects.create(user=self.user)
+        # Bypass __init__ (which expects a Channels scope) — these are
+        # plain sync helpers that only touch self.user/self.session_obj.
+        self.consumer = AnalyticsChatConsumer.__new__(AnalyticsChatConsumer)
+        self.consumer.user = self.user
+        self.consumer.session_obj = self.session
+
+    def _fake_png_base64(self):
+        import base64
+        # Minimal valid PNG signature + IHDR-ish bytes is unnecessary here —
+        # _save_messages just writes whatever bytes it's given; content
+        # correctness of the PNG itself is chart_codegen's job, tested
+        # separately in agents/tests_charts.py.
+        return base64.b64encode(b'fake-png-bytes').decode('ascii')
+
+    def test_chart_image_written_to_storage_and_linked(self):
+        response = {
+            'content': 'Here is the breakdown.',
+            'intent': 'metric_query',
+            'chart': {
+                'image_base64': self._fake_png_base64(),
+                'mime': 'image/png',
+                'caption': 'Admissions by Sex',
+            },
+        }
+        self.consumer._save_messages('how many admissions', response)
+
+        assistant_msg = ChatMessage.objects.get(session=self.session, role=ChatMessage.ROLE_ASSISTANT)
+        self.assertTrue(assistant_msg.chart_image)
+        self.assertEqual(assistant_msg.chart_caption, 'Admissions by Sex')
+        with assistant_msg.chart_image.open('rb') as f:
+            self.assertEqual(f.read(), b'fake-png-bytes')
+
+    def test_no_chart_leaves_fields_blank(self):
+        response = {'content': 'General help text.', 'intent': 'help'}
+        self.consumer._save_messages('help', response)
+
+        assistant_msg = ChatMessage.objects.get(session=self.session, role=ChatMessage.ROLE_ASSISTANT)
+        self.assertFalse(assistant_msg.chart_image)
+        self.assertEqual(assistant_msg.chart_caption, '')
+
+    def test_both_user_and_assistant_rows_created(self):
+        response = {'content': 'Answer text.', 'intent': 'metric_query'}
+        self.consumer._save_messages('a question', response)
+        self.assertEqual(self.session.messages.count(), 2)
+
+    def tearDown(self):
+        for msg in ChatMessage.objects.filter(session=self.session):
+            if msg.chart_image:
+                msg.chart_image.delete(save=False)
+
+
+class RunAgentAlwaysChartsTests(TestCase):
+    """_run_agent() attempts a chart for every metric answer now — no more
+    gating on the user's wording ("show me a chart") or a size-based
+    offer. Mocks the graph + get_chart_for_thread so this is a fast,
+    deterministic test of the wiring, not a live LLM call."""
+
+    def setUp(self):
+        self.user = _make_user('always_chart_user', role=ROLE_CLIENT_ADMIN)
+        self.session = ChatSession.objects.create(user=self.user)
+        self.consumer = AnalyticsChatConsumer.__new__(AnalyticsChatConsumer)
+        self.consumer.user = self.user
+        self.consumer.session_obj = self.session
+
+    def _fake_graph_output(self):
+        return {
+            'formatted_result': {
+                'summary': 'There are 42 admissions.',
+                'thread_id': 'fake-thread-id',
+                'metric_id': 'admissions_count',
+                'data': [{'x': 1}],
+            }
+        }
+
+    def test_chart_attempted_even_without_chart_wording_in_query(self):
+        fake_chart = {'image_base64': 'Zm9v', 'mime': 'image/png', 'caption': 'Admissions'}
+        with patch('agents.graph.graph') as mock_graph, \
+             patch('agents.facility.resolve_facility_from_user', return_value=None), \
+             patch('agents.charts.get_chart_for_thread', return_value=(fake_chart, None)) as mock_chart:
+            mock_graph.invoke.return_value = self._fake_graph_output()
+            # Deliberately no "chart"/"graph"/"visualize" wording at all.
+            result = self.consumer._run_agent('how many admissions do we have')
+
+        mock_chart.assert_called_once()
+        self.assertEqual(mock_chart.call_args.kwargs.get('question'), 'how many admissions do we have')
+        self.assertEqual(result['chart'], fake_chart)
+
+    def test_no_chart_offer_text_appended_to_content(self):
+        with patch('agents.graph.graph') as mock_graph, \
+             patch('agents.facility.resolve_facility_from_user', return_value=None), \
+             patch('agents.charts.get_chart_for_thread', return_value=(None, 'not chartable')):
+            mock_graph.invoke.return_value = self._fake_graph_output()
+            result = self.consumer._run_agent('how many admissions do we have')
+
+        self.assertEqual(result['content'], 'There are 42 admissions.')
+        self.assertNotIn('would you like', result['content'].lower())
+        self.assertNotIn('chart_offer', result)
+        self.assertIsNone(result['chart'])
+
+
+class RunAgentThreadContinuityTests(TestCase):
+    """_run_agent() must reuse ChatSession.thread_id across turns — that's
+    the entire mechanism agents/state.py relies on for a follow-up
+    question ("now break that down by month") to see the previous turn's
+    conversation at all. A fresh thread_id per call (the previous bug)
+    meant every question was classified in total isolation."""
+
+    def setUp(self):
+        self.user = _make_user('continuity_user', role=ROLE_CLIENT_ADMIN)
+        self.session = ChatSession.objects.create(user=self.user)
+        self.consumer = AnalyticsChatConsumer.__new__(AnalyticsChatConsumer)
+        self.consumer.user = self.user
+        self.consumer.session_obj = self.session
+
+    def _fake_graph_output(self, thread_id):
+        return {
+            'formatted_result': {
+                'summary': 'answer',
+                'thread_id': thread_id,
+                'metric_id': 'some_metric',
+                'data': [],
+            }
+        }
+
+    def test_thread_id_is_persisted_to_the_session_on_first_call(self):
+        self.assertEqual(self.session.thread_id, '')
+        with patch('agents.graph.graph') as mock_graph, \
+             patch('agents.facility.resolve_facility_from_user', return_value=None), \
+             patch('agents.charts.get_chart_for_thread', return_value=(None, None)):
+            mock_graph.invoke.side_effect = lambda state, config: self._fake_graph_output(
+                config['configurable']['thread_id']
+            )
+            self.consumer._run_agent('first question')
+
+        self.session.refresh_from_db()
+        self.assertTrue(self.session.thread_id)
+
+    def test_same_thread_id_reused_across_two_calls(self):
+        seen_thread_ids = []
+        with patch('agents.graph.graph') as mock_graph, \
+             patch('agents.facility.resolve_facility_from_user', return_value=None), \
+             patch('agents.charts.get_chart_for_thread', return_value=(None, None)):
+            def _invoke(state, config):
+                seen_thread_ids.append(config['configurable']['thread_id'])
+                return self._fake_graph_output(config['configurable']['thread_id'])
+            mock_graph.invoke.side_effect = _invoke
+
+            self.consumer._run_agent('first question')
+            self.consumer._run_agent('a follow-up question')
+
+        self.assertEqual(len(seen_thread_ids), 2)
+        self.assertEqual(seen_thread_ids[0], seen_thread_ids[1])
+
+    def test_messages_key_omitted_so_graph_state_can_accumulate(self):
+        """initial_state must NOT include 'messages' or 'last_matched_metric'
+        — LangGraph merges by key, so including them would reset the
+        checkpointed history instead of letting it accumulate (see
+        agents/state.py's _append_and_trim reducer)."""
+        captured_state = {}
+        with patch('agents.graph.graph') as mock_graph, \
+             patch('agents.facility.resolve_facility_from_user', return_value=None), \
+             patch('agents.charts.get_chart_for_thread', return_value=(None, None)):
+            def _invoke(state, config):
+                captured_state.update(state)
+                return self._fake_graph_output(config['configurable']['thread_id'])
+            mock_graph.invoke.side_effect = _invoke
+
+            self.consumer._run_agent('a question')
+
+        self.assertNotIn('messages', captured_state)
+        self.assertNotIn('last_matched_metric', captured_state)
+        self.assertEqual(captured_state['question'], 'a question')
+
+    def test_different_sessions_get_independent_thread_ids(self):
+        other_session = ChatSession.objects.create(user=self.user)
+        other_consumer = AnalyticsChatConsumer.__new__(AnalyticsChatConsumer)
+        other_consumer.user = self.user
+        other_consumer.session_obj = other_session
+
+        with patch('agents.graph.graph') as mock_graph, \
+             patch('agents.facility.resolve_facility_from_user', return_value=None), \
+             patch('agents.charts.get_chart_for_thread', return_value=(None, None)):
+            mock_graph.invoke.side_effect = lambda state, config: self._fake_graph_output(
+                config['configurable']['thread_id']
+            )
+            self.consumer._run_agent('question in session A')
+            other_consumer._run_agent('question in session B')
+
+        self.session.refresh_from_db()
+        other_session.refresh_from_db()
+        self.assertTrue(self.session.thread_id)
+        self.assertTrue(other_session.thread_id)
+        self.assertNotEqual(self.session.thread_id, other_session.thread_id)
+
+
 class ConsumerMessagingTests(TransactionTestCase):
     """Messages sent over WebSocket produce typed responses."""
 

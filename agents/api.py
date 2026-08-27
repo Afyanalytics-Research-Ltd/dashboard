@@ -316,13 +316,18 @@ def whatsapp_webhook(request):
     # what you just told me". Using the broad check here would silently
     # re-render whatever the last full pipeline run happened to compute,
     # which may be stale or unrelated to the new question.
+    is_pure_chart_request_msg = bool(chat_state.thread_id and is_pure_chart_request(text_body))
     wants_chart = (
         (chat_state.chart_offer_pending and is_affirmative_reply(text_body))
-        or (chat_state.thread_id and is_pure_chart_request(text_body))
+        or is_pure_chart_request_msg
     )
 
     if wants_chart and chat_state.thread_id:
-        chart, error = get_chart_for_thread(chat_state.thread_id)
+        # A bare "yes" carries no styling intent; a pure chart request
+        # ("send me a pie chart") does — forward its wording so the
+        # dynamic chart builder can honour it.
+        chart_question = text_body if is_pure_chart_request_msg else ''
+        chart, error = get_chart_for_thread(chat_state.thread_id, question=chart_question)
         chat_state.chart_offer_pending = False
         chat_state.save(update_fields=["chart_offer_pending", "updated_at"])
 
@@ -362,7 +367,7 @@ def whatsapp_webhook(request):
     # ("can I get a chart for patient admissions?") — that shouldn't need a
     # follow-up "yes" round-trip; render and send it right away.
     if wants_visualization(text_body):
-        chart, chart_error = get_chart_for_thread(result_thread_id)
+        chart, chart_error = get_chart_for_thread(result_thread_id, question=text_body)
         if not chart and chart_error:
             summary += f"\n\n{chart_error}"
     elif formatted.get("chart_offer"):
@@ -461,7 +466,8 @@ def visualize(request):
     never asked to see.
 
     Request body:
-        {"thread_id": "<uuid from a prior /api/query/ or chat response>"}
+        {"thread_id": "<uuid from a prior /api/query/ or chat response>",
+         "question": "<optional — e.g. 'as a pie chart' to steer chart type>"}
 
     Response 200:
         {"status": "ok", "chart": {"image_base64": "...", "mime": "image/png", "caption": "..."}}
@@ -476,8 +482,9 @@ def visualize(request):
     thread_id = (body.get("thread_id") or "").strip()
     if not thread_id:
         return JsonResponse({"error": "'thread_id' is required."}, status=400)
+    question = (body.get("question") or "").strip()
 
-    chart, error = get_chart_for_thread(thread_id)
+    chart, error = get_chart_for_thread(thread_id, question=question)
     if error:
         status = 404 if error == "Thread not found." else 422
         return JsonResponse({"error": error}, status=status)

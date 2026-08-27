@@ -247,13 +247,29 @@ def build_chart(
     }
 
 
-def get_chart_for_thread(thread_id: str) -> tuple[dict | None, str | None]:
+def get_chart_for_thread(thread_id: str, question: str = "") -> tuple[dict | None, str | None]:
     """
     Look up a previous query's result by thread_id and render a chart.
 
     Works for both the REST flow (/api/query/ then /api/visualize/) and the
     chat flow (agent graph invocation then a "yes" follow-up), since both
     invoke the same graph/checkpointer keyed by thread_id.
+
+    `question` is the user's own wording, when available (e.g. "show me a
+    pie chart of X") — passed through to the LLM-driven dynamic chart
+    builder so it can honour a specific style/type request. Leave blank
+    for a bare "yes" follow-up; the dynamic builder still picks a sensible
+    chart type from the data's shape alone.
+
+    Chart selection, in order:
+      1. Dynamic — an LLM writes matplotlib code for this exact question
+         and data shape, executed in the same sandbox the spreadsheet
+         analyst uses. Tried first; any failure here is silent (logged,
+         not raised) and falls through to step 2.
+      2. Deterministic — the fixed bar/line heuristic in build_chart().
+         Always available, never fails on a chartable result, and is the
+         only path when OPENAI_API_KEY isn't configured or the dynamic
+         attempt didn't produce a usable figure.
 
     Returns (chart, error) — exactly one is non-None.
     """
@@ -273,12 +289,37 @@ def get_chart_for_thread(thread_id: str) -> tuple[dict | None, str | None]:
     # so this is a no-op until derived metrics land; wired through now so
     # that feature doesn't also need a charts.py change later.
     derived = snapshot.values.get("derived_metric") or {}
-    chart = build_chart(
-        raw_result,
-        metric_name=metric.get("name", ""),
-        computed_measure=derived.get("computed_field_name"),
-        computed_label=derived.get("name"),
-    )
+    metric_name = metric.get("name", "")
+    computed_measure = derived.get("computed_field_name")
+    computed_label = derived.get("name")
+
+    chart = None
+    try:
+        from .chart_codegen import render_dynamic_chart
+
+        chart = render_dynamic_chart(
+            raw_result,
+            question=question,
+            metric_name=metric_name,
+            computed_measure=computed_measure,
+            computed_label=computed_label,
+        )
+    except Exception:
+        # render_dynamic_chart already catches everything internally and
+        # returns None on failure — this is an extra guard at the call
+        # boundary itself, so even an import-time or signature mistake
+        # can never take the deterministic fallback down with it.
+        logger.exception("get_chart_for_thread: dynamic chart path raised unexpectedly")
+        chart = None
+
+    if not chart:
+        chart = build_chart(
+            raw_result,
+            metric_name=metric_name,
+            computed_measure=computed_measure,
+            computed_label=computed_label,
+        )
+
     if not chart:
         return None, (
             "This result isn't a good fit for a chart (try asking a follow-up "

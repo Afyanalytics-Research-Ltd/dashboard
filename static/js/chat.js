@@ -16,6 +16,7 @@
   var elFab, elPanel, elCloseBtn, elMessages, elTyping;
   var elInput, elSendBtn, elStatus, elStatusDot, elBadge, elSuggestions;
   var elHistoryBtn, elNewChatBtn, elHistoryOverlay, elHistoryCloseBtn, elHistoryList;
+  var elLightbox;
 
   // ---- State --------------------------------------------------------------
   var ws = null;
@@ -49,6 +50,7 @@
     elHistoryOverlay  = document.getElementById('chatbotHistoryOverlay');
     elHistoryCloseBtn = document.getElementById('chatbotHistoryCloseBtn');
     elHistoryList     = document.getElementById('chatbotHistoryList');
+    elLightbox        = document.getElementById('chatbotLightbox');
 
     // If the FAB doesn't exist the user isn't authenticated — bail out.
     if (!elFab) return;
@@ -94,14 +96,23 @@
     if (elHistoryCloseBtn) elHistoryCloseBtn.addEventListener('click', closeHistory);
     if (elNewChatBtn) elNewChatBtn.addEventListener('click', startNewChat);
 
-    // Keyboard: close on Escape
-    document.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape' && panelOpen) {
-        if (elHistoryOverlay && !elHistoryOverlay.classList.contains('d-none')) {
-          closeHistory();
-        } else {
-          closePanel();
+    if (elLightbox) {
+      elLightbox.addEventListener('click', function (e) {
+        if (e.target === elLightbox || e.target.closest('.chatbot-lightbox-close')) {
+          closeLightbox();
         }
+      });
+    }
+
+    // Keyboard: close on Escape — lightbox first, then history, then panel.
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== 'Escape') return;
+      if (elLightbox && elLightbox.classList.contains('show')) {
+        closeLightbox();
+      } else if (panelOpen && elHistoryOverlay && !elHistoryOverlay.classList.contains('d-none')) {
+        closeHistory();
+      } else if (panelOpen) {
+        closePanel();
       }
     });
 
@@ -220,9 +231,11 @@
     elTyping.classList.add('d-none');
 
     if (data.type === 'message') {
-      appendBubble(data.role || 'assistant', data.content || '');
       if (data.chart && data.chart.image_base64) {
-        appendChartImage(data.chart);
+        var src = 'data:' + (data.chart.mime || 'image/png') + ';base64,' + data.chart.image_base64;
+        appendAnswerWithChart(data.role || 'assistant', data.content || '', src, data.chart.caption);
+      } else {
+        appendBubble(data.role || 'assistant', data.content || '');
       }
       if (!panelOpen) bumpUnread();
     }
@@ -260,7 +273,11 @@
       .then(function (data) {
         elMessages.innerHTML = '';
         (data.messages || []).forEach(function (m) {
-          appendBubble(m.role, m.content);
+          if (m.chart_url) {
+            appendAnswerWithChart(m.role, m.content, m.chart_url, m.chart_caption);
+          } else {
+            appendBubble(m.role, m.content);
+          }
         });
         if (elSuggestions) elSuggestions.classList.add('d-none');
       })
@@ -362,18 +379,69 @@
     scrollToBottom();
   }
 
-  function appendChartImage(chart) {
+  function appendAnswerWithChart(role, content, chartSrc, chartCaption) {
+    var caption = chartCaption || 'Chart';
+
     var wrap = document.createElement('div');
-    wrap.className = 'chat-bubble assistant chat-chart';
+    wrap.className = 'chat-bubble ' + role + ' chat-bubble-tabbed';
+
+    var tabs = document.createElement('div');
+    tabs.className = 'chat-tabs';
+    tabs.innerHTML =
+      '<button type="button" class="chat-tab active" data-tab="answer"><i class="bi bi-chat-left-text"></i> Answer</button>' +
+      '<button type="button" class="chat-tab" data-tab="chart"><i class="bi bi-bar-chart-line"></i> Chart</button>';
+    tabs.addEventListener('click', function (e) {
+      var btn = e.target.closest('.chat-tab');
+      if (!btn) return;
+      var target = btn.dataset.tab;
+      tabs.querySelectorAll('.chat-tab').forEach(function (t) { t.classList.toggle('active', t === btn); });
+      wrap.querySelectorAll('.chat-tab-panel').forEach(function (p) {
+        p.classList.toggle('active', p.classList.contains('chat-tab-panel-' + target));
+      });
+    });
+    wrap.appendChild(tabs);
+
+    var answerPanel = document.createElement('div');
+    answerPanel.className = 'chat-tab-panel chat-tab-panel-answer active';
+    answerPanel.innerHTML = renderMarkdown(content);
+    wrap.appendChild(answerPanel);
+
+    var chartPanel = document.createElement('div');
+    chartPanel.className = 'chat-tab-panel chat-tab-panel-chart';
+
     var img = document.createElement('img');
-    img.src = 'data:' + (chart.mime || 'image/png') + ';base64,' + chart.image_base64;
-    img.alt = chart.caption || 'Chart';
+    img.src = chartSrc;
+    img.alt = caption;
     img.style.maxWidth = '100%';
     img.style.borderRadius = '8px';
     img.style.display = 'block';
-    wrap.appendChild(img);
+    img.style.margin = '0 auto';
+    img.title = 'Click to view full size';
+    img.addEventListener('click', function () { openLightbox(chartSrc, caption); });
+    chartPanel.appendChild(img);
+
+    var expandBtn = document.createElement('button');
+    expandBtn.type = 'button';
+    expandBtn.className = 'chat-chart-expand';
+    expandBtn.innerHTML = '<i class="bi bi-arrows-fullscreen"></i> View full size';
+    expandBtn.addEventListener('click', function () { openLightbox(chartSrc, caption); });
+    chartPanel.appendChild(expandBtn);
+
+    wrap.appendChild(chartPanel);
     elMessages.appendChild(wrap);
     scrollToBottom();
+  }
+
+  function openLightbox(src, caption) {
+    if (!elLightbox) return;
+    var img = elLightbox.querySelector('img');
+    img.src = src;
+    img.alt = caption || 'Chart';
+    elLightbox.classList.add('show');
+  }
+
+  function closeLightbox() {
+    if (elLightbox) elLightbox.classList.remove('show');
   }
 
   function appendSystemNote(text) {

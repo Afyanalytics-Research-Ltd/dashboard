@@ -26,6 +26,7 @@ import re
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+import streamlit.components.v1 as components
 
 from sph.clinicals.opd_ipd_module.ui_template import (
     PRIMARY, SUCCESS, DANGER, WARNING, NEUTRAL,
@@ -575,6 +576,7 @@ def render_s3(
     df_status_seg: pd.DataFrame, df_visit_number: pd.DataFrame,
     df_visit_number_by_segment: pd.DataFrame = None,
     df_patient_signals: pd.DataFrame = None,
+    df_patient_signals_core: pd.DataFrame = None,
 ) -> None:
     section_header("2 — Where the Problem Concentrates")
 
@@ -672,65 +674,243 @@ def render_s3(
         r, g, b = (int(h[i:i + 2], 16) for i in (0, 2, 4))
         return f"rgba({r},{g},{b},{alpha})"
 
-    _RED_FILL, _RED_STROKE = "#FCEBEB", "#E24B4A"
-    _AMBER_FILL, _AMBER_STROKE = "#FAEEDA", "#EF9F27"
-    _GREEN_FILL, _GREEN_STROKE = "#EAF3DE", "#639922"
-    _NEUTRAL_FILL, _NEUTRAL_STROKE = _C_NEUTRAL2, _C_NEUTRAL
+    # Same solid status colors used everywhere else in this tab (retention
+    # trend line, LOS-vs-target thresholds) — nodes get the solid hex,
+    # links get the same hex at reduced opacity, so nothing introduces a
+    # new palette just for this one chart.
+    _RED_STROKE, _AMBER_STROKE, _GREEN_STROKE = "#E24B4A", "#EF9F27", "#639922"
+    _NEUTRAL_STROKE = _C_NEUTRAL
 
-    _TIER3_ORDER = ["No continuity", "Care delivered, outcome unclear", "Pathway found", "No return visit"]
+    # "Pathway found" ordered first (top) rather than sandwiched between the
+    # two dominant categories — it's the smallest flow, and it was getting
+    # visually crushed against "Care delivered"/"No continuity" before.
+    _TIER3_ORDER = ["Pathway found", "Care delivered, outcome unclear", "No continuity", "No return visit"]
     _OUTCOME_TO_TIER3 = {
         "Unresolved": "No continuity",
         "Possible completed episode": "Care delivered, outcome unclear",
         "Probable pathway transfer": "Pathway found",
         "Probable true LTFU": "No return visit",
     }
-    _TIER3_FILL = {"No continuity": _RED_FILL, "Care delivered, outcome unclear": _AMBER_FILL,
-                   "Pathway found": _GREEN_FILL, "No return visit": _RED_FILL}
     _TIER3_STROKE = {"No continuity": _RED_STROKE, "Care delivered, outcome unclear": _AMBER_STROKE,
                       "Pathway found": _GREEN_STROKE, "No return visit": _RED_STROKE}
+    # tier2 → tier3 link opacity — "Pathway found" stays highest since it's
+    # the thinnest, most actionable flow and needs to read clearly against
+    # the two much bigger ones, but all three are now visible/legible
+    # rather than washed out.
+    _TIER3_LINK_ALPHA = {"No continuity": 0.55, "Care delivered, outcome unclear": 0.55,
+                          "Pathway found": 0.7, "No return visit": 0.55}
 
-    if _safe(df_outcomes):
-        df_outcomes["TIER3"] = df_outcomes["OUTCOME"].map(_OUTCOME_TO_TIER3)
-        total = len(df_outcomes)
-        is_v1 = df_outcomes["VISIT_NUMBER_AT_LTFU"] == "1"
+    # Uses the dedicated core-segment query — same population-defining CTE
+    # chain (segmentation, 365-day window, 300-day pregnancy-episode cap,
+    # LTFU classification) as get_fr_status_overall's "2.8K of 5.8K
+    # classifiable" KPI, so this reconciles against that KPI exactly, unlike
+    # filtering the wider-taxonomy df_patient_signals by segment name after
+    # the fact (which skips the pregnancy cap and used a finer segment split).
+    df_outcomes_core = None
+    if _safe(df_patient_signals_core):
+        df_outcomes_core = df_patient_signals_core.copy()
+        df_outcomes_core["OUTCOME"] = df_outcomes_core.apply(_classify_outcome, axis=1)
+
+    if df_outcomes_core is not None and not df_outcomes_core.empty:
+        df_outcomes_core["TIER3"] = df_outcomes_core["OUTCOME"].map(_OUTCOME_TO_TIER3)
+        total = len(df_outcomes_core)
+        is_v1 = df_outcomes_core["VISIT_NUMBER_AT_LTFU"] == "1"
         n_v1, n_v2 = int(is_v1.sum()), int((~is_v1).sum())
 
-        node_labels = [
-            f"All LTFU<br>{total:,} episodes",
-            f"Visit 1 loss<br>{n_v1:,} ({n_v1 / total * 100:.0f}%)" if total else "Visit 1 loss",
-            f"Visit 2+ loss<br>{n_v2:,} ({n_v2 / total * 100:.0f}%)" if total else "Visit 2+ loss",
-        ] + _TIER3_ORDER
-        node_fill = [_NEUTRAL_FILL, _NEUTRAL_FILL, _NEUTRAL_FILL] + [_TIER3_FILL[t] for t in _TIER3_ORDER]
-        node_stroke = [_NEUTRAL_STROKE, _NEUTRAL_STROKE, _NEUTRAL_STROKE] + [_TIER3_STROKE[t] for t in _TIER3_ORDER]
-
-        link_source, link_target, link_value, link_color = [0, 0], [1, 2], [n_v1, n_v2], \
-            [_hex_to_rgba(_NEUTRAL_STROKE, 0.35)] * 2
-        for tier2_idx, mask in ((1, is_v1), (2, ~is_v1)):
-            for j, tier3 in enumerate(_TIER3_ORDER):
-                v = int((mask & (df_outcomes["TIER3"] == tier3)).sum())
-                link_source.append(tier2_idx)
-                link_target.append(3 + j)
-                link_value.append(v)
-                link_color.append(_hex_to_rgba(_TIER3_STROKE[tier3], 0.4))
+        # "Pathway found" branches into a 4th column showing which segment
+        # those patients' next visit actually landed in, from the same
+        # NEXT_VISIT_ELSEWHERE_SEGMENT signal that classified them into this
+        # bucket in the first place — shown as flows inside the chart itself,
+        # not a separate legend below it.
+        pathway_rows = df_outcomes_core[df_outcomes_core["TIER3"] == "Pathway found"]
+        dest_counts = (
+            pathway_rows["NEXT_VISIT_ELSEWHERE_SEGMENT"].value_counts().sort_values(ascending=False)
+            if not pathway_rows.empty and "NEXT_VISIT_ELSEWHERE_SEGMENT" in pathway_rows.columns
+            else pd.Series(dtype=int)
+        )
+        dest_items = [(_short(d), int(v)) for d, v in dest_counts.items()]
+        tier3_counts = {t: int((df_outcomes_core["TIER3"] == t).sum()) for t in _TIER3_ORDER}
 
         chart_card(
             "LTFU pathway: when care ended, and what happened next",
-            "Of everyone lost to follow-up — when they were lost, and whether that loss was explained",
+            "Of everyone lost to follow-up in the 6 segments where a visit cycle — and therefore retention "
+            "— is established (same scope as the KPI strip above) — when they were lost, whether that loss "
+            "was explained, and for the \"Pathway found\" group, which segment their care actually "
+            "continued in.",
         )
-        fig_sankey = go.Figure(go.Sankey(
-            arrangement="snap",
-            node=dict(
-                label=node_labels, pad=18, thickness=16,
-                color=node_fill, line=dict(color=node_stroke, width=1),
-                hovertemplate="%{label}<extra></extra>",
-            ),
-            link=dict(
-                source=link_source, target=link_target, value=link_value, color=link_color,
-                hovertemplate="%{value} patients<extra></extra>",
-            ),
-        ))
-        fig_sankey.update_layout(**{**_LAYOUT, "height": 420, "font": dict(size=11)})
-        st.plotly_chart(fig_sankey, use_container_width=True, config=PC_CFG)
+
+        # Hand-built SVG instead of Plotly's go.Sankey — Plotly's Sankey layout
+        # engine has no reliable way to pin a node's position; both
+        # arrangement="fixed" (forces a slot too small for the actual value)
+        # and "snap" (treats x/y as mere hints, then overrides them with its
+        # own crossing-minimization heuristic) produced broken/orphaned nodes
+        # for the small "Pathway found" branch. This renders with one
+        # consistent px-per-patient scale across every column, so the
+        # destination nodes are geometrically guaranteed to align with
+        # "Pathway found"'s own node — no heuristics to fight.
+        W, H = 1300, 460
+        ML, MT, MB = 8, 22, 22
+        # Confirmed the pipeline was applying the value correctly — 130 was
+        # simply too wide and ate the gap to the next column entirely. This
+        # is a clearly-thicker-but-still-legible middle ground. Every column
+        # gap widened (not just 0→1) so the amber/red/green flow curves
+        # between Visit1/2+ → outcome and outcome → destination all get
+        # enough horizontal room to actually read as curves, the same fix
+        # already applied to the grey All LTFU → Visit1/2+ flow.
+        node_w, node_w_wide, gap, gap3 = 20, 50, 7, 14
+        col_x = {0: ML, 1: 440, 2: 900, 3: 1180}
+
+        # Reserve gap budget up front so stacked bars + gaps never exceed the
+        # usable height — previously the gaps were added ON TOP of bars that
+        # already summed to the full height (since n_v1+n_v2=total and the
+        # 4 tier3 buckets also sum to total), overflowing past the bottom
+        # edge by (num_gaps * gap) pixels. Using one worst-case-gap-budget
+        # scale for every layer keeps the same px-per-patient everywhere
+        # (needed for the destination column to align with "Pathway found"),
+        # just very slightly short of the full height instead of over it.
+        _max_gaps = max(1, len(_TIER3_ORDER) - 1)
+        usable_h = H - MT - MB - _max_gaps * gap
+        px = usable_h / total if total else 0
+
+        def _stack(items, start_y=MT, g=gap, min_h=0):
+            y, out = start_y, {}
+            for key, val in items:
+                h = max(val * px, min_h)
+                out[key] = (y, y + h)
+                y += h + g
+            return out
+
+        node0_y = (MT, MT + total * px)
+        layer1 = _stack([("v1", n_v1), ("v2", n_v2)])
+        layer2_items = [(t, tier3_counts[t]) for t in _TIER3_ORDER if tier3_counts[t] > 0]
+        layer2 = _stack(layer2_items)
+        pf_y0 = layer2.get("Pathway found", (MT, MT))[0]
+        # min_h=6 plus a wider gap3 (14px) so destination labels never
+        # collide even when a segment's own count is tiny relative to the
+        # others — readability matters more than exact proportional bar
+        # height for a 3-item breakdown this small.
+        layer3 = _stack(dest_items, start_y=pf_y0, g=gap3, min_h=6) if dest_items else {}
+
+        # Native SVG <title> tooltips are slow/inconsistent inside a
+        # components.html iframe — a JS-driven tooltip that follows the
+        # cursor (same feel as the Plotly charts elsewhere on this tab) is
+        # the reliable option, so every hoverable shape carries its tooltip
+        # text in a data-tip attribute instead, read by the script appended
+        # to the end of this SVG's HTML.
+        def _path(x0, y0a, y0b, x1, y1a, y1b, fill, tip):
+            cx = (x0 + x1) / 2
+            return (f'<path class="sk-hover" data-tip="{tip}" d="M{x0},{y0a} C{cx},{y0a} {cx},{y1a} {x1},{y1a} '
+                    f'L{x1},{y1b} C{cx},{y1b} {cx},{y0b} {x0},{y0b} Z" fill="{fill}" stroke="none" />')
+
+        def _rect_label(x, y0, y1, color, label, value, pct, align_right=False, width=node_w):
+            ty = (y0 + y1) / 2
+            anchor = "end" if align_right else "start"
+            lx = x - 10 if align_right else x + width + 10
+            tip = f"{label}: {value:,} ({pct:.0f}%)"
+            return (
+                f'<rect class="sk-hover" data-tip="{tip}" x="{x}" y="{y0:.1f}" width="{width}" '
+                f'height="{max(y1 - y0, 1):.1f}" fill="{color}" rx="2" />'
+                f'<text x="{lx}" y="{ty:.1f}" font-size="11.5" font-weight="600" fill="{TEXT_PRI}" '
+                f'font-family="Inter, -apple-system, Segoe UI, sans-serif" text-anchor="{anchor}" '
+                f'dominant-baseline="middle">{label}</text>'
+            )
+
+        svg_parts = []
+        # Links: All LTFU -> Visit1/2+
+        out_cursor = {"all": node0_y[0]}
+        _v_label = {"v1": "Visit 1 loss", "v2": "Visit 2+ loss"}
+        for key, val, y in (("v1", n_v1, layer1["v1"]), ("v2", n_v2, layer1["v2"])):
+            h = val * px
+            y0a, y0b = out_cursor["all"], out_cursor["all"] + h
+            out_cursor["all"] += h
+            tip = f"All LTFU → {_v_label[key]}: {val:,} ({val / total * 100 if total else 0:.0f}%)"
+            svg_parts.append(_path(ML + node_w_wide, y0a, y0b, col_x[1], y[0], y[1],
+                                    _hex_to_rgba(_NEUTRAL_STROKE, 0.5), tip))
+        # Links: Visit1/2+ -> tier3
+        out_cursor = {"v1": layer1["v1"][0], "v2": layer1["v2"][0]}
+        in_cursor = {t: layer2[t][0] for t in layer2}
+        for t, tot in layer2_items:
+            for seg_key, mask in (("v1", is_v1), ("v2", ~is_v1)):
+                v = int((mask & (df_outcomes_core["TIER3"] == t)).sum())
+                if v <= 0:
+                    continue
+                h = v * px
+                y0a, y0b = out_cursor[seg_key], out_cursor[seg_key] + h
+                y1a, y1b = in_cursor[t], in_cursor[t] + h
+                out_cursor[seg_key] += h
+                in_cursor[t] += h
+                tip = f"{_v_label[seg_key]} → {t}: {v:,}"
+                svg_parts.append(_path(col_x[1] + node_w_wide, y0a, y0b, col_x[2], y1a, y1b,
+                                        _hex_to_rgba(_TIER3_STROKE[t], _TIER3_LINK_ALPHA[t]), tip))
+        # Links: Pathway found -> destinations
+        if "Pathway found" in layer2 and dest_items:
+            y_cursor = layer2["Pathway found"][0]
+            for label, val in dest_items:
+                h = val * px
+                y0a, y0b = y_cursor, y_cursor + h
+                y1a, y1b = layer3[label]
+                y_cursor += h
+                tip = f"Pathway found → {label}: {val:,}"
+                svg_parts.append(_path(col_x[2] + node_w, y0a, y0b, col_x[3], y1a, y1b,
+                                        _hex_to_rgba(_GREEN_STROKE, 0.7), tip))
+
+        # Nodes (drawn after links so they sit on top)
+        svg_parts.append(_rect_label(ML, node0_y[0], node0_y[1], _NEUTRAL_STROKE, "All LTFU", total, 100.0,
+                                      width=node_w_wide))
+        svg_parts.append(_rect_label(col_x[1], layer1["v1"][0], layer1["v1"][1], _NEUTRAL_STROKE,
+                                      "Visit 1 loss", n_v1, n_v1 / total * 100 if total else 0,
+                                      width=node_w_wide))
+        svg_parts.append(_rect_label(col_x[1], layer1["v2"][0], layer1["v2"][1], _NEUTRAL_STROKE,
+                                      "Visit 2+ loss", n_v2, n_v2 / total * 100 if total else 0,
+                                      width=node_w_wide))
+        for t, tot in layer2_items:
+            svg_parts.append(_rect_label(col_x[2], layer2[t][0], layer2[t][1], _TIER3_STROKE[t],
+                                          t, tot, tot / total * 100 if total else 0))
+        for label, val in dest_items:
+            y0, y1 = layer3[label]
+            svg_parts.append(_rect_label(col_x[3], y0, y1, _GREEN_STROKE, label, val,
+                                          val / sum(v for _, v in dest_items) * 100, align_right=False))
+
+        # width AND height both set to 100% of a fixed-height wrapper div,
+        # with preserveAspectRatio="none" stretching the viewBox to fill
+        # that box exactly — "xMidYMid meet" (uniform scaling) leaves blank
+        # letterbox margins whenever the container's actual aspect ratio
+        # doesn't match the viewBox's, which is what was eating the right
+        # side of the chart. Every element here is a rect/bezier path
+        # defined in viewBox units, not an icon or circle, so a non-uniform
+        # x/y stretch doesn't visibly distort anything that matters.
+        # components.html renders in its own isolated iframe document, which
+        # doesn't inherit the Google Fonts <link> injected into the main
+        # page's <head> — text elements were silently falling back to the
+        # browser's default sans-serif instead of Inter. Importing the font
+        # directly inside this iframe's own HTML fixes that.
+        svg = (
+            f'<link rel="preconnect" href="https://fonts.googleapis.com">'
+            f'<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700'
+            f'&display=swap" rel="stylesheet">'
+            f'<div style="width:100%;height:{H}px;position:relative">'
+            f'<svg width="100%" height="100%" viewBox="0 0 {W} {H}" preserveAspectRatio="none" '
+            f'xmlns="http://www.w3.org/2000/svg" style="font-family:Inter,sans-serif;background:{SURFACE_1}">'
+            f'{"".join(svg_parts)}</svg>'
+            f'<div id="sk-tip" style="position:fixed;display:none;pointer-events:none;z-index:9999;'
+            f'background:{TEXT_PRI};color:#FFFFFF;font-family:Inter,sans-serif;font-size:12px;'
+            f'padding:6px 10px;border-radius:6px;white-space:nowrap"></div>'
+            f'</div>'
+            f'<script>'
+            f'(function(){{'
+            f'var tip=document.getElementById("sk-tip");'
+            f'document.querySelectorAll(".sk-hover").forEach(function(el){{'
+            f'el.style.cursor="pointer";'
+            f'el.addEventListener("mousemove",function(e){{'
+            f'tip.textContent=el.getAttribute("data-tip");'
+            f'tip.style.left=(e.clientX+12)+"px";tip.style.top=(e.clientY+12)+"px";'
+            f'tip.style.display="block";}});'
+            f'el.addEventListener("mouseleave",function(){{tip.style.display="none";}});'
+            f'}});'
+            f'}})();'
+            f'</script>'
+        )
+        components.html(svg, height=H + 20, scrolling=False)
         chart_card_close()
 
     # ── First-visit loss requiring review — patient-level download only ─────
@@ -829,10 +1009,19 @@ def render_s3(
     sig_spine_struct = _v1_signals("Spine-structural")
     sig_spine_cons = _v1_signals("Spine-conservative")
 
+    # Scoped to the same 6 core segments as the KPI strip's "2.8K of 5.8K
+    # classifiable" LTFU total (via df_patient_signals_core), not the wider
+    # ~18-segment df_patient_signals used for the per-segment breakdowns
+    # above. Mixing those two populations previously produced a hospital-wide
+    # "visit-1 losses" figure LARGER than the KPI strip's entire LTFU total
+    # across all visit numbers — an internal contradiction, not just an
+    # unlikely-looking number.
     n_no_trace_all = None
-    if _safe(df_outcomes):
-        v1_all = df_outcomes[df_outcomes["VISIT_NUMBER_AT_LTFU"] == "1"]
-        n_no_trace_all = int((v1_all["HAS_LATER_VISIT_ELSEWHERE"] == 0).sum())
+    if _safe(df_patient_signals_core):
+        v1_all = df_patient_signals_core[df_patient_signals_core["VISIT_NUMBER_AT_LTFU"] == "1"]
+        n_no_trace_all = int(
+            ((v1_all["HAS_LATER_VISIT_ELSEWHERE"] == 0) & (v1_all["HAD_SCHEDULED_FOLLOWUP"] == 0)).sum()
+        )
 
     high_conc = [
         (n, v) for n, v in
@@ -1774,7 +1963,8 @@ def render_synthesis(df_outreach: pd.DataFrame, df_outcome: pd.DataFrame,
                       df_clinician: pd.DataFrame, df_status_overall: pd.DataFrame = None,
                       df_visit_number: pd.DataFrame = None, df_gs: pd.DataFrame = None,
                       df_visit_number_by_segment: pd.DataFrame = None,
-                      df_patient_signals: pd.DataFrame = None) -> None:
+                      df_patient_signals: pd.DataFrame = None,
+                      df_patient_signals_core: pd.DataFrame = None) -> None:
     n_outreach = len(df_outreach) if _safe(df_outreach) else 0
 
     hip_pct, hip_never, hip_total = None, None, None
@@ -1884,10 +2074,17 @@ def render_synthesis(df_outreach: pd.DataFrame, df_outcome: pd.DataFrame,
         ]
         return float(row.iloc[0]["PCT_WITHIN_SEGMENT"]) if not row.empty else None
 
+    # Scoped to the same 6 core segments as the KPI strip's LTFU total, via
+    # df_patient_signals_core — mixing in the wider ~18-segment
+    # df_patient_signals here previously produced a "visit-1 losses" figure
+    # bigger than the entire hospital's total LTFU count across every
+    # visit number, an internal contradiction against the KPI strip.
     n_no_trace_all = None
-    if _safe(df_patient_signals):
-        v1_all = df_patient_signals[df_patient_signals["VISIT_NUMBER_AT_LTFU"] == "1"]
-        n_no_trace_all = int((v1_all["HAS_LATER_VISIT_ELSEWHERE"] == 0).sum())
+    if _safe(df_patient_signals_core):
+        v1_all = df_patient_signals_core[df_patient_signals_core["VISIT_NUMBER_AT_LTFU"] == "1"]
+        n_no_trace_all = int(
+            ((v1_all["HAS_LATER_VISIT_ELSEWHERE"] == 0) & (v1_all["HAD_SCHEDULED_FOLLOWUP"] == 0)).sum()
+        )
 
     high_conc = [
         (n, v) for n, v in
@@ -1955,6 +2152,7 @@ def render_tab() -> None:
         df_visit_number = FRQ.get_fr_ltfu_by_visit_number()
         df_visit_number_by_segment = FRQ.get_fr_ltfu_by_segment_and_visit_number()
         df_patient_signals = FRQ.get_fr_ltfu_patient_level_signals()
+        df_patient_signals_core = FRQ.get_fr_ltfu_pathway_signals_core_segments()
         df_pathway = FRQ.get_fr_ltfu_last_pathway()
         df_ltfu_share = FRQ.get_fr_ltfu_share_by_segment_age_gender()
         df_scheduled_age = FRQ.get_fr_scheduled_returns_by_age()
@@ -1970,7 +2168,8 @@ def render_tab() -> None:
     render_tab_header()
     render_kpis(df_status_overall, df_visit_number)
     render_s1(df_trend)
-    render_s3(df_status_by_segment, df_visit_number, df_visit_number_by_segment, df_patient_signals)
+    render_s3(df_status_by_segment, df_visit_number, df_visit_number_by_segment, df_patient_signals,
+              df_patient_signals_core)
     render_s2(df_ltfu_share, df_pathway)
     render_s4(df_condition)
     render_s5(df_outreach, df_lost_v1, df_condition)
@@ -1981,5 +2180,5 @@ def render_tab() -> None:
     render_s8(df_clinician)
     render_synthesis(
         df_outreach, df_outcome, df_clinician, df_status_overall, df_visit_number, df_gs,
-        df_visit_number_by_segment, df_patient_signals,
+        df_visit_number_by_segment, df_patient_signals, df_patient_signals_core,
     )

@@ -1580,6 +1580,213 @@ def get_fr_ltfu_patient_level_signals() -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
+# A8c — patient-level LTFU pathway signals, restricted to the 6 core
+# segments (same population as get_fr_status_overall's "2.8K of 5.8K
+# classifiable" KPI). get_fr_ltfu_patient_level_signals() above uses a much
+# wider ~18-segment taxonomy AND never applies the 300-day pregnancy-episode
+# cap that get_fr_status_overall does for ANC/High-Risk Pregnancy, so
+# filtering its output by segment name afterward still won't reconcile to
+# the KPI strip. This function reuses get_fr_status_overall's exact
+# population-defining CTE chain (segmentation, 365-day window, pregnancy
+# cap, LTFU classification) verbatim, then joins the same investigative
+# signals (procedure/medication/investigation/imaging/scheduled follow-up/
+# next-visit-elsewhere) used in get_fr_ltfu_patient_level_signals on top of
+# that identical population — so this is the version that actually matches.
+# ---------------------------------------------------------------------------
+
+@st.cache_data(ttl=3600)
+def get_fr_ltfu_pathway_signals_core_segments() -> pd.DataFrame:
+    """Same population as get_fr_status_overall's LTFU count (6 core
+    segments, 365-day active window, 300-day pregnancy-episode cap).
+    Columns: SEGMENT, PATIENT_ID, LAST_VISIT_DATE, DAYS_SINCE_LAST_VISIT,
+    VISIT_NUMBER_AT_LTFU, HAD_SCHEDULED_FOLLOWUP, HAD_PROCEDURE,
+    HAD_MEDICATION, HAD_INVESTIGATION, HAD_IMAGING,
+    HAS_LATER_VISIT_ELSEWHERE, NEXT_VISIT_ELSEWHERE_DATE,
+    NEXT_VISIT_ELSEWHERE_SEGMENT."""
+    sql = """
+    WITH raw_diag AS (
+        SELECT
+            visit_id, patient_id, diagnosis_created_at AS visit_date, source_system,
+            TRIM(bg.value::STRING) AS split_burden,
+            LOWER(COALESCE(diagnosis_name_expanded, '') || ' ' || COALESCE(icd10_names, '')) AS clean_dx_text
+        FROM HOSPITALS.STAGING.STG_SPH_DIAGNOSIS_ENRICHED,
+        LATERAL FLATTEN(input => SPLIT(burden_group, '|')) bg
+    ),
+    segmented AS (
+        SELECT DISTINCT
+            visit_id, patient_id, visit_date, source_system,
+            CASE
+                WHEN clean_dx_text LIKE '%hernia%' THEN 'EXCLUDE: General Surgery'
+                WHEN (clean_dx_text LIKE '%fibroid%' OR clean_dx_text LIKE '%myoma%' OR clean_dx_text LIKE '%leiomyoma%')
+                     AND (clean_dx_text LIKE '%post %' OR clean_dx_text LIKE '%revision%')
+                    THEN 'EXCLUDE: Fibroids-surgical'
+                WHEN clean_dx_text LIKE '%fibroid%' OR clean_dx_text LIKE '%myoma%' OR clean_dx_text LIKE '%leiomyoma%'
+                    THEN 'Fibroids-conservative'
+                WHEN clean_dx_text LIKE '%spine%' OR clean_dx_text LIKE '%sciatica%' THEN
+                    CASE
+                        WHEN clean_dx_text LIKE '%fracture%' OR clean_dx_text LIKE '%dislocat%' OR clean_dx_text LIKE '%stenosis%'
+                             OR clean_dx_text LIKE '%herniat%' OR clean_dx_text LIKE '%compression%' OR clean_dx_text LIKE '%tumour%'
+                            THEN 'Spine-structural'
+                        ELSE 'Spine-conservative'
+                    END
+                WHEN clean_dx_text LIKE '%fracture%' OR clean_dx_text LIKE '%osteoarthritis%' THEN 'Core Orthopedics: General'
+                WHEN clean_dx_text LIKE '%pre-eclamp%' OR clean_dx_text LIKE '%preeclamp%' OR clean_dx_text LIKE '%eclamp%'
+                     OR clean_dx_text LIKE '%hyperem%' OR clean_dx_text LIKE '%pprom%'
+                    THEN 'High-Risk Pregnancy'
+                WHEN clean_dx_text LIKE '%pregnan%' OR clean_dx_text LIKE '%anc%' OR clean_dx_text LIKE '%antenatal%'
+                     OR clean_dx_text LIKE '%gravid%' OR split_burden = 'General: Obstetric'
+                    THEN 'ANC / Routine Pregnancy'
+                ELSE 'Other'
+            END AS segment
+        FROM raw_diag
+    ),
+    all_patient_visits AS (
+        SELECT DISTINCT patient_id, visit_date FROM segmented
+    ),
+    classifiable_all_time AS (
+        SELECT * FROM segmented
+        WHERE segment NOT IN ('EXCLUDE: General Surgery', 'EXCLUDE: Fibroids-surgical', 'Other')
+    ),
+    dataset_max_date AS (SELECT MAX(visit_date) AS max_date FROM classifiable_all_time),
+    window_bounds AS (
+        SELECT DATEADD('day', -365, max_date) AS window_start, max_date AS window_end
+        FROM dataset_max_date
+    ),
+    patients_active_in_window AS (
+        SELECT DISTINCT ca.patient_id, ca.segment
+        FROM classifiable_all_time ca CROSS JOIN window_bounds wb
+        WHERE ca.visit_date BETWEEN wb.window_start AND wb.window_end
+    ),
+    relevant_visits AS (
+        SELECT ca.visit_id, ca.patient_id, ca.segment, ca.visit_date, ca.source_system
+        FROM classifiable_all_time ca
+        JOIN patients_active_in_window paiw
+            ON paiw.patient_id = ca.patient_id AND paiw.segment = ca.segment
+    ),
+    pregnancy_capped AS (
+        SELECT
+            rv.*,
+            MIN(rv.visit_date) OVER (PARTITION BY rv.patient_id, rv.segment) AS first_preg_visit
+        FROM relevant_visits rv
+        WHERE rv.segment IN ('ANC / Routine Pregnancy', 'High-Risk Pregnancy')
+    ),
+    pregnancy_within_window AS (
+        SELECT visit_id, patient_id, visit_date, source_system, segment
+        FROM pregnancy_capped
+        WHERE DATEDIFF('day', first_preg_visit, visit_date) <= 300
+    ),
+    non_pregnancy AS (
+        SELECT visit_id, patient_id, visit_date, source_system, segment
+        FROM relevant_visits
+        WHERE segment NOT IN ('ANC / Routine Pregnancy', 'High-Risk Pregnancy')
+    ),
+    final_visits AS (
+        SELECT * FROM non_pregnancy
+        UNION ALL
+        SELECT * FROM pregnancy_within_window
+    ),
+    visit_sequence AS (
+        SELECT *, ROW_NUMBER() OVER (PARTITION BY patient_id, segment ORDER BY visit_date) AS visit_number
+        FROM final_visits
+    ),
+    patient_segment_last_visit AS (
+        SELECT patient_id, segment, MAX(visit_date) AS last_visit_date
+        FROM final_visits
+        GROUP BY patient_id, segment
+    ),
+    ltfu_patients AS (
+        SELECT psl.patient_id, psl.segment, psl.last_visit_date
+        FROM patient_segment_last_visit psl CROSS JOIN dataset_max_date dmd
+        WHERE DATEDIFF('day', psl.last_visit_date, dmd.max_date) > 180
+    ),
+    ltfu_final_visit AS (
+        SELECT
+            lp.patient_id, lp.segment, lp.last_visit_date,
+            vs.visit_id, vs.source_system, vs.visit_number
+        FROM ltfu_patients lp
+        JOIN visit_sequence vs
+            ON vs.patient_id = lp.patient_id AND vs.segment = lp.segment AND vs.visit_date = lp.last_visit_date
+        QUALIFY ROW_NUMBER() OVER (PARTITION BY lp.patient_id, lp.segment ORDER BY vs.visit_id) = 1
+    ),
+    had_procedure AS (SELECT DISTINCT visit_id, source_system FROM HOSPITALS.STAGING.STG_PROCEDURES),
+    had_medication AS (SELECT DISTINCT visit_id, source_system FROM HOSPITALS.STAGING.stg_pharmacy_orders),
+    had_investigation AS (SELECT DISTINCT visit_id, source_system FROM HOSPITALS.STAGING.STG_SPH_INVESTIGATIONS),
+    had_imaging AS (SELECT DISTINCT visit_id, source_system FROM HOSPITALS.STAGING.STG_IMAGING_ORDERS),
+    oie_flat AS (
+        SELECT o."id" AS oie_id, o."ref" AS soi_id, o."item" AS sale_item_id,
+            f.VALUE:"name"::STRING AS field_name, v.VALUE::STRING AS field_value
+        FROM HOSPITALS.ORTHOPEDIC_CLEAN."ORDERITEMENTRIES" o,
+        LATERAL FLATTEN(INPUT => TRY_PARSE_JSON(o."fields"), OUTER => TRUE) f,
+        LATERAL FLATTEN(INPUT => f.VALUE:"value", OUTER => TRUE) v
+        WHERE f.VALUE:"name"::STRING IS NOT NULL
+    ),
+    doctor_pivot AS (
+        SELECT oie.soi_id,
+            MAX(CASE WHEN oie.field_name = 'Schedule Follow Up' THEN TRY_TO_TIMESTAMP(oie.field_value) END) AS scheduled_follow_up_date
+        FROM oie_flat oie
+        JOIN HOSPITALS.ORTHOPEDIC_CLEAN."SALEITEMS" si ON si."id" = oie.sale_item_id
+        WHERE si."category" = 'Doctor'
+        GROUP BY oie.soi_id
+    ),
+    orders_flat AS (
+        SELECT oo.id AS order_id, f.VALUE::STRING AS item_id
+        FROM HOSPITALS.ORTHOPEDIC_CLEAN."ORTHO_ORDERS" oo,
+        LATERAL FLATTEN(INPUT => TRY_PARSE_JSON(oo.items)) f
+        QUALIFY ROW_NUMBER() OVER (PARTITION BY f.VALUE::STRING ORDER BY oo.registered_at DESC) = 1
+    ),
+    scheduled_signal_raw AS (
+        SELECT v.patient_id AS clean_patient_id, MAX(dp.scheduled_follow_up_date) AS scheduled_follow_up_date
+        FROM doctor_pivot dp
+        JOIN orders_flat of_ ON of_.item_id = dp.soi_id
+        JOIN HOSPITALS.STAGING.STG_VISITS v ON v.visit_id = of_.order_id
+        WHERE dp.scheduled_follow_up_date IS NOT NULL
+        GROUP BY v.patient_id
+    ),
+    later_visit_elsewhere AS (
+        SELECT
+            lfv.patient_id, lfv.segment,
+            MIN(apv.visit_date) AS next_visit_date
+        FROM ltfu_final_visit lfv
+        JOIN all_patient_visits apv
+            ON apv.patient_id = lfv.patient_id AND apv.visit_date > lfv.last_visit_date
+        GROUP BY lfv.patient_id, lfv.segment
+    ),
+    later_visit_segment AS (
+        SELECT lve.patient_id, lve.segment, MIN(s.segment) AS next_visit_segment
+        FROM later_visit_elsewhere lve
+        JOIN segmented s ON s.patient_id = lve.patient_id AND s.visit_date = lve.next_visit_date
+        GROUP BY lve.patient_id, lve.segment
+    )
+    SELECT
+        lfv.segment                                                                  AS SEGMENT,
+        lfv.patient_id                                                               AS PATIENT_ID,
+        lfv.last_visit_date                                                          AS LAST_VISIT_DATE,
+        DATEDIFF('day', lfv.last_visit_date, dmd.max_date)                           AS DAYS_SINCE_LAST_VISIT,
+        CASE WHEN lfv.visit_number >= 7 THEN '7+' ELSE lfv.visit_number::STRING END  AS VISIT_NUMBER_AT_LTFU,
+        ssr.scheduled_follow_up_date                                                AS SCHEDULED_FOLLOWUP_DATE,
+        CASE WHEN ssr.clean_patient_id IS NOT NULL THEN 1 ELSE 0 END                 AS HAD_SCHEDULED_FOLLOWUP,
+        CASE WHEN hp.visit_id IS NOT NULL THEN 1 ELSE 0 END                          AS HAD_PROCEDURE,
+        CASE WHEN hm.visit_id IS NOT NULL THEN 1 ELSE 0 END                          AS HAD_MEDICATION,
+        CASE WHEN hi.visit_id IS NOT NULL THEN 1 ELSE 0 END                          AS HAD_INVESTIGATION,
+        CASE WHEN himg.visit_id IS NOT NULL THEN 1 ELSE 0 END                        AS HAD_IMAGING,
+        CASE WHEN lve.patient_id IS NOT NULL THEN 1 ELSE 0 END                       AS HAS_LATER_VISIT_ELSEWHERE,
+        lve.next_visit_date                                                         AS NEXT_VISIT_ELSEWHERE_DATE,
+        lvs.next_visit_segment                                                      AS NEXT_VISIT_ELSEWHERE_SEGMENT
+    FROM ltfu_final_visit lfv
+    CROSS JOIN dataset_max_date dmd
+    LEFT JOIN had_procedure hp ON hp.visit_id = lfv.visit_id AND hp.source_system = lfv.source_system
+    LEFT JOIN had_medication hm ON hm.visit_id = lfv.visit_id AND hm.source_system = lfv.source_system
+    LEFT JOIN had_investigation hi ON hi.visit_id = lfv.visit_id AND hi.source_system = lfv.source_system
+    LEFT JOIN had_imaging himg ON himg.visit_id = lfv.visit_id AND himg.source_system = lfv.source_system
+    LEFT JOIN scheduled_signal_raw ssr ON ssr.clean_patient_id = lfv.patient_id
+    LEFT JOIN later_visit_elsewhere lve ON lve.patient_id = lfv.patient_id AND lve.segment = lfv.segment
+    LEFT JOIN later_visit_segment lvs ON lvs.patient_id = lfv.patient_id AND lvs.segment = lfv.segment
+    ORDER BY lfv.segment, lfv.last_visit_date DESC
+    """
+    return _run(sql)
+
+
+# ---------------------------------------------------------------------------
 # A9 — LTFU condition breakdown (Ortho General + both Spine sub-segments)
 # ---------------------------------------------------------------------------
 

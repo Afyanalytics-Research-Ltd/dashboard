@@ -25,7 +25,7 @@ warnings.filterwarnings("ignore")
 
 from facility_utilization.m1_ward_forecast import get_forecast
 from facility_utilization.forecasting.adapter import build_contract as _build_forecast_contract
-from notifier import send_digest, get_recipients, write_current_notices
+from facility_utilization.notifier import send_digest, get_recipients, write_current_notices
 from facility_utilization.queries import (
     q_overview_gap, q_overview_alerts,
     q_leakage_gap, q_leakage_submission_rate, q_leakage_ksh_dispatch_trend,

@@ -8,8 +8,14 @@
 
   // ---- Configuration ------------------------------------------------------
   var WS_PATH = '/ws/analytics/chat/';
-  var RECONNECT_DELAY_MS = 3000;
-  var MAX_RECONNECTS = 5;
+  // Exponential backoff with jitter (base/max/jitter factor per standard
+  // WebSocket reconnection guidance) — avoids every open tab hammering the
+  // server at the same instant after e.g. a dev-server restart, while
+  // still reconnecting quickly on the first attempt or two.
+  var RECONNECT_BASE_MS = 1000;
+  var RECONNECT_MAX_MS = 10000;
+  var RECONNECT_JITTER = 0.5;
+  var MAX_RECONNECTS = 10;
   var SESSION_STORAGE_KEY = 'afyaChatSessionKey';
 
   // ---- DOM references (populated in init) ---------------------------------
@@ -160,7 +166,22 @@
 
   // =========================================================================
   // WebSocket lifecycle
+  //
+  // Single-flight, generation-tagged: every connect() bumps `connGen` and
+  // captures it in each handler's closure. A handler that fires after its
+  // generation has been superseded (a stale/orphaned socket from a race —
+  // e.g. a pending reconnect timer firing right as something else also
+  // calls connect()) is a no-op instead of mutating shared state like
+  // currentSessionKey out of order. Without this, two live sockets could
+  // each resolve their own 'session' message and stomp on each other —
+  // the actual cause of "hot reload sometimes starts a new conversation"
+  // and "switching back to a conversation shows no history": whichever
+  // socket's message landed last won, regardless of which one the user
+  // actually meant to be using.
   // =========================================================================
+
+  var connGen = 0;
+  var pendingReconnectTimer = null;
 
   function wsUrl() {
     var proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -172,20 +193,33 @@
   }
 
   function connect() {
+    if (pendingReconnectTimer) {
+      clearTimeout(pendingReconnectTimer);
+      pendingReconnectTimer = null;
+    }
     if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) {
       return;
     }
+    // A previous socket that's merely closING (not yet closed) is about to
+    // fire its own onclose — neutralise its handlers first so that doesn't
+    // schedule a second, redundant reconnect once this new one is live.
+    if (ws) {
+      ws.onopen = ws.onmessage = ws.onerror = ws.onclose = null;
+    }
 
+    var myGen = ++connGen;
     setStatus(false);
     ws = new WebSocket(wsUrl());
 
     ws.onopen = function () {
+      if (myGen !== connGen) return; // superseded by a newer connect() — ignore
       reconnectCount = 0;
       setStatus(true);
       if (elSuggestions) elSuggestions.classList.remove('d-none');
     };
 
     ws.onmessage = function (event) {
+      if (myGen !== connGen) return;
       try {
         handleServerMessage(JSON.parse(event.data));
       } catch (err) {
@@ -198,12 +232,15 @@
     };
 
     ws.onclose = function () {
+      if (myGen !== connGen) return;
       setStatus(false);
       if (elSuggestions) elSuggestions.classList.add('d-none');
 
       if (panelOpen && reconnectCount < MAX_RECONNECTS) {
+        var delay = Math.min(RECONNECT_BASE_MS * Math.pow(2, reconnectCount), RECONNECT_MAX_MS);
+        delay *= (1 - RECONNECT_JITTER) + Math.random() * RECONNECT_JITTER;
         reconnectCount++;
-        setTimeout(connect, RECONNECT_DELAY_MS);
+        pendingReconnectTimer = setTimeout(connect, delay);
       }
     };
   }
@@ -347,10 +384,19 @@
   }
 
   function reconnect() {
+    // A deliberate switch (new chat / different conversation), not a
+    // dropped connection — bump the generation and sever the old socket's
+    // handlers up front so nothing it does afterward (including its own
+    // close event) can race with the fresh connect() below.
     reconnectCount = 0;
+    if (pendingReconnectTimer) {
+      clearTimeout(pendingReconnectTimer);
+      pendingReconnectTimer = null;
+    }
     if (ws) {
-      ws.onclose = null; // this is a deliberate switch, not a drop — skip auto-reconnect
+      ws.onopen = ws.onmessage = ws.onerror = ws.onclose = null;
       ws.close();
+      ws = null; // let connect()'s "already open" guard see nothing here
     }
     connect();
   }
@@ -409,23 +455,35 @@
     var chartPanel = document.createElement('div');
     chartPanel.className = 'chat-tab-panel chat-tab-panel-chart';
 
+    var frame = document.createElement('div');
+    frame.className = 'chat-chart-frame';
+
     var img = document.createElement('img');
     img.src = chartSrc;
     img.alt = caption;
-    img.style.maxWidth = '100%';
-    img.style.borderRadius = '8px';
-    img.style.display = 'block';
-    img.style.margin = '0 auto';
     img.title = 'Click to view full size';
     img.addEventListener('click', function () { openLightbox(chartSrc, caption); });
-    chartPanel.appendChild(img);
+    frame.appendChild(img);
 
     var expandBtn = document.createElement('button');
     expandBtn.type = 'button';
-    expandBtn.className = 'chat-chart-expand';
-    expandBtn.innerHTML = '<i class="bi bi-arrows-fullscreen"></i> View full size';
-    expandBtn.addEventListener('click', function () { openLightbox(chartSrc, caption); });
-    chartPanel.appendChild(expandBtn);
+    expandBtn.className = 'chat-chart-frame-expand';
+    expandBtn.title = 'View full size';
+    expandBtn.setAttribute('aria-label', 'View full size');
+    expandBtn.innerHTML = '<i class="bi bi-arrows-fullscreen"></i>';
+    expandBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      openLightbox(chartSrc, caption);
+    });
+    frame.appendChild(expandBtn);
+    chartPanel.appendChild(frame);
+
+    if (chartCaption) {
+      var captionEl = document.createElement('div');
+      captionEl.className = 'chat-chart-caption';
+      captionEl.textContent = caption;
+      chartPanel.appendChild(captionEl);
+    }
 
     wrap.appendChild(chartPanel);
     elMessages.appendChild(wrap);

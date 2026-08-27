@@ -451,7 +451,19 @@ scoped to this user's access. Use it as the factual basis for your answer — ci
         return get_user_access_context(self.user)
 
     def _get_or_create_session(self, session_key):
-        """Resume the caller's own session by key, else start a fresh one."""
+        """Resume the caller's own session by key, else start a fresh one.
+
+        A requested key that doesn't exist yet is REUSED (not discarded in
+        favour of a fresh random one) when creating the fallback row. The
+        key only ever originates from a session this server already handed
+        back to the client, so a miss here almost always means a genuine
+        two-connections-racing-on-the-same-key situation (e.g. a stale
+        reconnect timer firing right as the page opens a fresh socket) —
+        reusing it lets ChatSession.session_key's unique constraint do the
+        real work via get_or_create()'s native IntegrityError-and-retry,
+        instead of each racing connection minting its own orphaned session
+        that the client then has to silently reconcile after the fact.
+        """
         from django.core.exceptions import ValidationError
 
         from .models import ChatSession
@@ -461,6 +473,17 @@ scoped to this user's access. Use it as the factual basis for your answer — ci
                 return ChatSession.objects.get(session_key=session_key, user=self.user), False
             except (ChatSession.DoesNotExist, ValueError, TypeError, ValidationError):
                 pass
+            try:
+                session, created = ChatSession.objects.get_or_create(
+                    session_key=session_key, defaults={'user': self.user},
+                )
+            except (ValueError, ValidationError):
+                session = None
+            if session is not None and session.user_id == self.user.id:
+                return session, created
+            # Malformed key, or (extremely unlikely — opaque UUIDs) it
+            # collided with another user's session: fall through to a
+            # normal fresh session rather than ever resuming someone else's.
         return ChatSession.objects.create(user=self.user), True
 
     def _save_messages(self, user_text, response):

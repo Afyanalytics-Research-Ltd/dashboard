@@ -1494,6 +1494,56 @@ class GoogleSheetsImportServiceTests(TestCase):
         book = pd.ExcelFile(io.BytesIO(xlsx_bytes))
         self.assertEqual(book.sheet_names, ["Sheet1"])
 
+    def test_fetch_deduplicates_colliding_sanitized_tab_names(self):
+        from warehouse.services.google_sheets_import import fetch_google_sheet_as_xlsx
+        # "Sales/Q1" and "Sales?Q1" both sanitize to "Sales_Q1" -- without
+        # dedup, the second to_excel() call silently clobbers the first.
+        service = self._mock_service(
+            ["Sales/Q1", "Sales?Q1"],
+            {
+                "Sales/Q1": [["x"], ["1"]],
+                "Sales?Q1": [["y"], ["2"]],
+            },
+        )
+        with patch("warehouse.services.google_sheets_import.get_service", return_value=service):
+            xlsx_bytes, _ = fetch_google_sheet_as_xlsx("abc123")
+
+        import io
+        book = pd.ExcelFile(io.BytesIO(xlsx_bytes))
+        self.assertEqual(len(book.sheet_names), 2)
+        self.assertEqual(len(set(book.sheet_names)), 2)
+        # Both tabs' actual data must have survived -- not just distinct names.
+        first = pd.read_excel(book, sheet_name=book.sheet_names[0])
+        second = pd.read_excel(book, sheet_name=book.sheet_names[1])
+        all_columns = set(first.columns) | set(second.columns)
+        self.assertEqual(all_columns, {"x", "y"})
+
+    def test_fetch_sanitizes_invalid_excel_characters_in_tab_name(self):
+        from warehouse.services.google_sheets_import import fetch_google_sheet_as_xlsx
+        service = self._mock_service(
+            ["Report [Q1]: Final?"],
+            {"Report [Q1]: Final?": [["a"], ["1"]]},
+        )
+        with patch("warehouse.services.google_sheets_import.get_service", return_value=service):
+            xlsx_bytes, _ = fetch_google_sheet_as_xlsx("abc123")
+
+        import io
+        book = pd.ExcelFile(io.BytesIO(xlsx_bytes))
+        self.assertEqual(len(book.sheet_names), 1)
+        for bad_char in "[]/*?:":
+            self.assertNotIn(bad_char, book.sheet_names[0])
+
+    def test_fetch_truncates_tab_name_over_31_chars(self):
+        from warehouse.services.google_sheets_import import fetch_google_sheet_as_xlsx
+        long_name = "A" * 50
+        service = self._mock_service([long_name], {long_name: [["a"], ["1"]]})
+        with patch("warehouse.services.google_sheets_import.get_service", return_value=service):
+            xlsx_bytes, _ = fetch_google_sheet_as_xlsx("abc123")
+
+        import io
+        book = pd.ExcelFile(io.BytesIO(xlsx_bytes))
+        self.assertLessEqual(len(book.sheet_names[0]), 31)
+
     def test_fetch_raises_when_all_tabs_empty(self):
         from warehouse.services.google_sheets_import import (
             GoogleSheetImportError, fetch_google_sheet_as_xlsx,
@@ -1627,7 +1677,7 @@ class AnalystGoogleSheetViewTests(TestCase):
     @patch("warehouse.analyst_views.fetch_google_sheet_as_xlsx")
     def test_refresh_updates_file_and_reprofiles(self, mock_fetch):
         from warehouse.models import Workbook
-        mock_fetch.return_value = self._fake_xlsx(columns=("a", "b"), rows=(("x", 1),))
+        mock_fetch.return_value = self._fake_xlsx()  # default columns: region, revenue
         self.c.force_login(self.user)
         self.c.post(reverse("warehouse:analyst_link_google_sheet"), {"id_or_url": "abc123"})
         wb = Workbook.objects.get(owner=self.user)
@@ -1640,3 +1690,78 @@ class AnalystGoogleSheetViewTests(TestCase):
         self.assertRedirects(resp, wb.get_absolute_url())
         self.assertIn("totally", wb.overview)
         self.assertNotIn("region", wb.overview)
+
+    @patch("warehouse.analyst_views.fetch_google_sheet_as_xlsx")
+    def test_refresh_does_not_leave_an_orphaned_duplicate_file(self, mock_fetch):
+        # Same spreadsheet title each time -> same generated filename in the
+        # same workbook directory, so the interesting question isn't "did
+        # the path change" (it legitimately doesn't) but "is there still
+        # only one file on disk, holding the NEW content, with nothing
+        # stale left behind."
+        import os
+        from warehouse.models import Workbook
+        mock_fetch.return_value = self._fake_xlsx()
+        self.c.force_login(self.user)
+        self.c.post(reverse("warehouse:analyst_link_google_sheet"), {"id_or_url": "abc123"})
+        wb = Workbook.objects.get(owner=self.user)
+        workbook_dir = os.path.dirname(wb.file.path)
+        self.assertTrue(os.path.exists(wb.file.path))
+
+        mock_fetch.return_value = self._fake_xlsx(columns=("c", "d"), rows=(("z", 3),))
+        self.c.post(reverse("warehouse:analyst_refresh_google_sheet", args=[wb.id]))
+        wb.refresh_from_db()
+
+        self.assertTrue(os.path.exists(wb.file.path))
+        self.assertEqual(
+            os.listdir(workbook_dir), [os.path.basename(wb.file.path)],
+            "refresh must not leave a stale file alongside the current one",
+        )
+        with open(wb.file.path, "rb") as fh:
+            content = fh.read()
+        import io
+        df = pd.read_excel(io.BytesIO(content), sheet_name="Sheet1")
+        self.assertIn("c", df.columns)
+        self.assertNotIn("region", df.columns)
+
+    @patch("warehouse.analyst_views.fetch_google_sheet_as_xlsx")
+    def test_refresh_failure_leaves_existing_workbook_untouched(self, mock_fetch):
+        from warehouse.models import Workbook
+        from warehouse.services.google_sheets_import import GoogleSheetImportError
+        mock_fetch.return_value = self._fake_xlsx()
+        self.c.force_login(self.user)
+        self.c.post(reverse("warehouse:analyst_link_google_sheet"), {"id_or_url": "abc123"})
+        wb = Workbook.objects.get(owner=self.user)
+        old_overview = wb.overview
+        old_path = wb.file.path
+
+        mock_fetch.side_effect = GoogleSheetImportError("sheet was unshared")
+        resp = self.c.post(reverse("warehouse:analyst_refresh_google_sheet", args=[wb.id]))
+        wb.refresh_from_db()
+
+        self.assertRedirects(resp, wb.get_absolute_url())
+        self.assertEqual(wb.overview, old_overview)
+        self.assertEqual(wb.file.path, old_path)
+        import os
+        self.assertTrue(os.path.exists(old_path), "original file must survive a failed refresh")
+
+    @patch("warehouse.analyst_views.fetch_google_sheet_as_xlsx")
+    def test_refresh_does_not_create_a_second_workbook(self, mock_fetch):
+        from warehouse.models import Workbook
+        mock_fetch.return_value = self._fake_xlsx()
+        self.c.force_login(self.user)
+        self.c.post(reverse("warehouse:analyst_link_google_sheet"), {"id_or_url": "abc123"})
+        wb = Workbook.objects.get(owner=self.user)
+
+        self.c.post(reverse("warehouse:analyst_refresh_google_sheet", args=[wb.id]))
+        self.assertEqual(Workbook.objects.filter(owner=self.user).count(), 1)
+
+    @patch("warehouse.analyst_views.fetch_google_sheet_as_xlsx")
+    def test_link_sheet_stores_google_sheet_url(self, mock_fetch):
+        from warehouse.models import Workbook
+        mock_fetch.return_value = self._fake_xlsx()
+        self.c.force_login(self.user)
+        self.c.post(reverse("warehouse:analyst_link_google_sheet"), {
+            "id_or_url": "https://docs.google.com/spreadsheets/d/1AbC-XyZ_123/edit",
+        })
+        wb = Workbook.objects.get(owner=self.user)
+        self.assertEqual(wb.google_sheet_url, "https://docs.google.com/spreadsheets/d/1AbC-XyZ_123")

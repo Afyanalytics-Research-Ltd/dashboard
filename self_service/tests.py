@@ -617,6 +617,38 @@ class ConsumerSessionResumeTests(TransactionTestCase):
         self.assertIn('welcome', res)
         self.assertEqual(ChatSession.objects.filter(user=self.user).count(), 1)
 
+    def test_two_connections_racing_on_the_same_not_yet_created_key_share_one_session(self):
+        """Reproduces the "hot reload sometimes starts a new conversation"
+        bug: a stale reconnect timer firing at the same moment as a fresh
+        connect() both requesting a session_key that doesn't exist in the
+        DB yet (e.g. the client already has a key from localStorage, but
+        this is the very first connection of the process to actually
+        create it). Both must land on the SAME ChatSession — the client
+        picked the key, so the server should never silently mint a second,
+        different one for either side of the race."""
+        import uuid as uuid_module
+
+        shared_key = str(uuid_module.uuid4())
+
+        async def _go():
+            app = AnalyticsChatConsumer.as_asgi()
+            comm_a = WebsocketCommunicator(app, f'/ws/analytics/chat/?session={shared_key}')
+            comm_a.scope['user'] = self.user
+            comm_b = WebsocketCommunicator(app, f'/ws/analytics/chat/?session={shared_key}')
+            comm_b.scope['user'] = self.user
+
+            await asyncio.gather(comm_a.connect(), comm_b.connect())
+            msg_a = await comm_a.receive_json_from()
+            msg_b = await comm_b.receive_json_from()
+            await comm_a.disconnect()
+            await comm_b.disconnect()
+            return msg_a, msg_b
+
+        msg_a, msg_b = _run(_go())
+        self.assertEqual(msg_a['session_key'], shared_key)
+        self.assertEqual(msg_b['session_key'], shared_key)
+        self.assertEqual(ChatSession.objects.filter(user=self.user).count(), 1)
+
     def test_resuming_own_session_does_not_create_a_second_one(self):
         session = ChatSession.objects.create(user=self.user)
         res = self._connect('/ws/analytics/chat/?session=' + str(session.session_key))

@@ -60,30 +60,47 @@ def fetch_google_sheet_as_xlsx(spreadsheet_id: str) -> tuple[bytes, str]:
     if not tabs:
         raise GoogleSheetImportError("That spreadsheet has no tabs.")
 
-    buf = io.BytesIO()
-    wrote_any = False
-    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
-        for tab_title in tabs:
-            try:
-                values = service.read_values(spreadsheet_id, tab_title)
-            except SheetsServiceError as exc:
-                raise GoogleSheetImportError(f"Could not read tab '{tab_title}': {exc}") from exc
-            if not values:
-                continue
+    # Fetch and shape every tab BEFORE opening the writer — openpyxl raises
+    # its own (confusing) IndexError trying to save a workbook with zero
+    # sheets, so "is there anything to write at all" must be decided first,
+    # not discovered after the fact while the writer is already open.
+    sheets: list[tuple[str, pd.DataFrame]] = []
+    seen_names: dict[str, int] = {}
+    for tab_title in tabs:
+        try:
+            values = service.read_values(spreadsheet_id, tab_title)
+        except SheetsServiceError as exc:
+            raise GoogleSheetImportError(f"Could not read tab '{tab_title}': {exc}") from exc
+        if not values:
+            continue
 
-            header, *rows = values
-            width = len(header)
-            # Sheets omits trailing empty cells per row — pad so every row
-            # aligns with the header before handing off to pandas.
-            padded_rows = [row + [""] * (width - len(row)) for row in rows]
-            df = pd.DataFrame(padded_rows, columns=header)
+        header, *rows = values
+        width = len(header)
+        # Sheets omits trailing empty cells per row — pad so every row
+        # aligns with the header before handing off to pandas.
+        padded_rows = [row + [""] * (width - len(row)) for row in rows]
+        df = pd.DataFrame(padded_rows, columns=header)
 
-            safe_name = re.sub(r"[\\\[\]/*?:]", "_", tab_title)[:31] or "Sheet1"
-            df.to_excel(writer, sheet_name=safe_name, index=False)
-            wrote_any = True
+        safe_name = re.sub(r"[\\\[\]/*?:]", "_", tab_title)[:31] or "Sheet1"
+        # Two distinct tab names can sanitize/truncate to the same Excel
+        # name (e.g. "Sales/Q1" and "Sales?Q1" both -> "Sales_Q1"). Without
+        # deduping, pandas' ExcelWriter doesn't error on the second
+        # to_excel() with a repeated sheet_name -- it silently clobbers the
+        # first tab's data instead, so this isn't optional polish.
+        count = seen_names.get(safe_name, 0)
+        seen_names[safe_name] = count + 1
+        if count:
+            suffix = f"_{count + 1}"
+            safe_name = safe_name[: 31 - len(suffix)] + suffix
+        sheets.append((safe_name, df))
 
-    if not wrote_any:
+    if not sheets:
         raise GoogleSheetImportError("Every tab in that spreadsheet is empty.")
+
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        for safe_name, df in sheets:
+            df.to_excel(writer, sheet_name=safe_name, index=False)
 
     buf.seek(0)
     return buf.read(), title

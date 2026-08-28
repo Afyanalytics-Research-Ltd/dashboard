@@ -3892,6 +3892,12 @@ elif page == "Capacity & Operations":
             section_header("S1 — Bed Occupancy by Ward")
             if len(_cur_rows):
                 _s1_df = _cur_rows.sort_values("BOR_PCT", ascending=True)
+                # BOR_PCT can come back as object dtype (e.g. Decimal values
+                # from Snowflake's NUMBER type) - comparisons/formatting below
+                # tolerate that, but pandas' nlargest() requires a real
+                # numeric dtype regardless of the actual values, so coerce
+                # once here for every use of this column in the section.
+                _s1_df["BOR_PCT"] = pd.to_numeric(_s1_df["BOR_PCT"], errors="coerce")
                 _s1_colors = [
                     COLORS["danger"] if v > 85
                     else COLORS["warning"] if v > 70

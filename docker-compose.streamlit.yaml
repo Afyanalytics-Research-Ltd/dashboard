@@ -29,6 +29,14 @@ services:
       - --server.headless=true
       - --server.enableCORS=false
       - --server.enableXsrfProtection=false
+      # Without this, Streamlit assumes it's mounted at "/" and requests its
+      # own JS/CSS bundle from bare /static/... - which nginx instead routes
+      # to Django's static files (location /static/ { alias /www/static/ })
+      # since the request never carries the /streamlitdashboard prefix, so
+      # every asset 404s and the dashboard renders blank. This tells
+      # Streamlit to prefix its own asset/websocket URLs with
+      # /streamlitdashboard/... to match the nginx location block.
+      - --server.baseUrlPath=streamlitdashboard
     networks:
       - dashboard-net
 

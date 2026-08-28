@@ -10,6 +10,10 @@ x-redash-common:
     REDASH_DATABASE_URL: postgresql://${REDASH_DB_USER}:${REDASH_DB_PASSWORD}@redash-postgres/${REDASH_DB_NAME}
     REDASH_COOKIE_SECRET: ${REDASH_COOKIE_SECRET}
     REDASH_SECRET_KEY: ${REDASH_SECRET_KEY}
+    # Tells Redash it's mounted under /redash/ so its own generated
+    # links/asset paths match the nginx location block instead of assuming
+    # root - see nginx/sites-enabled/django_project's /redash/ block.
+    REDASH_ROOT_URL_PATH_PREFIX: /redash
   depends_on:
     &redash-common-depends-on
     redash-postgres:

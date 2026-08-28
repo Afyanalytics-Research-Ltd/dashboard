@@ -140,10 +140,18 @@ server {
     # backend and any analyst-facing query UI). Upgrade headers included
     # since Cube can optionally be run with its WebSocket transport; a
     # harmless no-op if that's not enabled.
+    # UNLIKE the other subpath services below, self-hosted Cube has no env
+    # var to make it aware of a mount prefix - it always expects requests
+    # at its own root (e.g. /cubejs-api/v1/load, not /cube/cubejs-api/v1/
+    # load). So this strips the /cube/ prefix before proxying instead of
+    # passing the path through unchanged (confirmed live: without the
+    # rewrite, Cube's own Express router 404s on every request since
+    # /cube/... never matches any of its routes).
     # -------------------------------------------------------------------
     location /cube/ {
         resolver 127.0.0.11 valid=30s;
         set $cube_upstream http://cube:4000;
+        rewrite ^/cube/(.*)$ /$1 break;
         proxy_pass $cube_upstream;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;

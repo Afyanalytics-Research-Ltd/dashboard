@@ -1,5 +1,5 @@
 # Notice Type: Doctor Workload / Staffing
-**keywords:** doctor, doctors, burnout, staffing, concentration, workload, ogutu, eawando, lowino, clinician, staff
+**keywords:** doctor, doctors, burnout, staffing, concentration, workload, ogutu, eawando, lowino, clinician, staff, physician, physicians, overworked, patient load, medical officer, clinical staff, patients seen, who is seeing, doctor capacity, how busy, staff load
 **last_updated:** 2026-06-08
 **decay_days:** 30
 **Covers:** Rule 25 (individual burnout), Rule 26 (concentration risk)
@@ -9,27 +9,23 @@
 ---
 
 ## Why This Matters
-A doctor seeing significantly more patients than their baseline over sustained periods is both a burnout signal and a continuity-of-care risk. When `makinyi` stopped Dec 2025, their 172 visits/month load redistributed silently — `lowino` hit 66% above baseline, `eawando` hit 57% above baseline within weeks. No notice fired. Concentration risk (one doctor handling 33%+ of all evaluations) means a single departure or absence creates immediate capacity failure.
+
+A doctor seeing significantly more patients than their personal baseline over sustained periods is both a burnout signal and a continuity-of-care risk. Past staffing departures at KSH demonstrated that workload redistribution can occur silently — elevated loads sustained for two or more consecutive months — with no automated detection until discovered through investigation. This motivated both the individual burnout rule and the concentration risk rule.
+
+Concentration risk (one doctor handling a large share of all evaluations) means a single departure or absence creates immediate capacity failure across multiple wards simultaneously.
+
+Current workloads, personal baselines, and concentration shares are in the snapshot — do not use named individuals or specific volumes from this file as current state.
 
 ---
 
-## Baselines (KSH, all-time clean accounts)
+## Workload Tiers (interpretive framework — current values from snapshot)
 
-| Doctor | Avg monthly visits | Active months | Notes |
-|--------|--------------------|---------------|-------|
-| eawando | 557 | 23 | **33% of all visits** — extreme single-point dependency |
-| lowino | 392 | 17 | Started Jan 2025; rapid ramp-up post-makinyi |
-| jogutu | 259 | 21 | Consistent Tier 1 |
-| makinyi | 172 | 17 | **Stopped Dec 2025** — last visit Dec 15 2025 |
-| NODEDE | 67 | 21 | Consistent Tier 2 |
-| souma | 42 | 21 | Tier 2 |
-| danyango | 40 | 23 | Consistent Tier 2 |
-| DACHIENG | 35 | 14 | Thinned out Dec 2025 |
+KSH evaluation activity is distributed across doctors who fall into two interpretive tiers based on typical monthly volume. The snapshot provides current volumes and personal baselines per doctor.
 
-**Tier 1 (>150/mo):** eawando, lowino, jogutu, makinyi — carried ~85% of all evaluation activity before makinyi departure.
+- **High-volume clinicians (Tier 1):** doctors whose monthly evaluation volume consistently exceeds 150 visits. These carry the majority of facility evaluation load. A departure or sustained absence in this tier creates an immediate redistribution gap.
+- **Supporting clinicians (Tier 2):** doctors whose typical monthly volume is below 150 visits. These are the primary redistribution recipients — they have spare capacity relative to their personal baseline and are the first candidates for redirected load. Clinical scope must be confirmed before any redirection.
 
-**CONCENTRATION RISK:** The notice fires for whoever leads the CURRENT month — this may vary. Historically eawando averages 33% of all visits and is the chronic bottleneck, but any doctor can lead a given month (especially partial months near the data cutoff).
-**REDISTRIBUTION TARGETS (doctors with available capacity):** jogutu (259/mo baseline), NODEDE (67/mo), souma (42/mo), danyango (40/mo). These doctors RECEIVE redistributed load. If the notice names jogutu as the top doctor in a month, verify whether it is a partial-month artifact before acting — jogutu's baseline is only 259/mo and they are typically a redistribution recipient, not the concentration risk.
+The notice fires for whoever leads the current month — this may vary. If the flagged doctor's personal baseline is well below the concentration threshold, verify that the data month is complete before acting.
 
 ---
 
@@ -51,27 +47,6 @@ A doctor seeing significantly more patients than their baseline over sustained p
 
 ---
 
-## Key Findings (Inv 24)
-
-**The makinyi cascade (already happened — undetected):**
-- makinyi stopped Dec 2025 (~172 visits/month absorbed by remaining team)
-- lowino: peaked at **652/month Feb 2026** vs 392 baseline — **66% above baseline**
-- eawando: peaked at **873/month Mar 2026** vs 557 baseline — **57% above baseline**
-- Both doctors sustained elevated load for 2+ consecutive months — exactly the pattern the notice rule catches
-- Neither doctor had any automated alert — this was discovered only through investigation
-
-**Current concentration risk:**
-- eawando alone: 33% of all KSH evaluation visits, consistently
-- Top 3 doctors (eawando, lowino, jogutu): carry **64% of all visits**
-- eawando unavailability = immediate 33% outpatient capacity loss with zero warning
-- eawando already operating at burnout-risk level (873/month in Mar 2026)
-
-**DACHIENG departure signal:**
-- Also thinned out Dec 2025 simultaneously with makinyi — suggests a staffing event in Dec 2025
-- Combined effect: two doctors reduced activity in the same month
-
----
-
 ## Recommended Actions
 
 > **Important:** KSH has no formal designation or specialty data in the system. All redistribution recommendations are based on volume capacity only. For any cross-doctor reassignment, the clinical lead must confirm that the receiving doctor's clinical scope covers the case type before redirecting.
@@ -80,24 +55,24 @@ A doctor seeing significantly more patients than their baseline over sustained p
 
 **If individual burnout WATCH fires (doctor >150% of their baseline for 2 months):**
 - Name the doctor and their current load vs personal baseline in the notice
-- **Step 1 — Check who has headroom:** Compare current month volume against baselines. jogutu (259/mo baseline) is typically the most underloaded Tier 1 doctor and the first redistribution target. NODEDE (67/mo), souma (42/mo), and danyango (40/mo) are Tier 2 with spare capacity.
-- **Step 2 — Redistribute first:** Propose redirecting 20–30 visits/month from the overloaded doctor to jogutu or available Tier 2 doctors. Clinical lead confirms case-type compatibility before actioning.
+- **Step 1 — Check who has headroom:** From the snapshot, identify clinicians currently operating below their personal baseline. Supporting (Tier 2) clinicians with spare capacity are the first redistribution targets. Clinical lead confirms case-type compatibility before actioning.
+- **Step 2 — Redistribute first:** Propose redirecting 20–30 visits/month from the overloaded doctor to those with available headroom.
 - **Step 3 — Monitor:** If load drops back within baseline in the next month, redistribution was sufficient. No hiring needed.
 - Look at the 3-month trend — is load still rising or plateauing?
 
 **If individual burnout CRITICAL fires (>200% baseline):**
 - Escalate to clinical director — this is a patient safety and retention risk
-- **Step 1 — Redistribute immediately:** Identify the highest-volume overloaded doctor. Redirect non-urgent evaluations to the two most available Tier 2 doctors (check current month volumes). Redistribution is the first action, not hiring.
-- **Step 2 — Check if a departure triggered the cascade:** If another doctor stopped recently (as with makinyi Dec 2025), the gap is structural, not a temporary spike. In that case, after redistribution is actioned, assess whether the team can sustain current load long-term.
+- **Step 1 — Redistribute immediately:** Identify the highest-volume overloaded doctor. Redirect non-urgent evaluations to the clinicians with the most available headroom relative to their personal baseline. Redistribution is the first action, not hiring.
+- **Step 2 — Check if a departure triggered the cascade:** If another doctor reduced activity recently, the gap may be structural rather than a temporary spike. After redistribution is actioned, assess whether the remaining team can sustain current load long-term.
 - **Step 3 — Consider a locum only if:** Redistribution has been actioned for 2+ months AND the overloaded doctor is still above 150% of baseline. A locum or new hire fills a confirmed structural gap, not a redistribution problem.
 
 **If concentration risk WATCH fires (top doctor >40% of visits):**
-- First: check if this is a partial-month artifact (data cutoff mid-month). If the flagged doctor's baseline is well below 40%, treat as data noise and monitor next full month.
-- If genuine: **Step 1 — Redistribute 3–5 visits/week** from the overloaded doctor to available Tier 2 doctors (NODEDE, souma, danyango) or jogutu if they have headroom. Clinical lead confirms clinical scope first.
+- First: check if this is a partial-month artifact (data cutoff mid-month). If the flagged doctor's personal baseline is well below 40% of total facility volume, treat as data noise and monitor next full month.
+- If genuine: **Step 1 — Redistribute 3–5 visits/week** from the overloaded doctor to clinicians currently below their personal baseline. Clinical lead confirms clinical scope first.
 - **Step 2 — Monitor concentration share** the following month. Target: reduce top-doctor share below 35%.
 - New hire only after redistribution has been actioned and proven insufficient over 2 months.
 
 **If concentration risk CRITICAL fires (top doctor >50% of visits):**
 - Emergency staffing review with clinical director
-- Immediate redistribution across all available Tier 2 doctors for non-urgent cases
+- Immediate redistribution across all available supporting clinicians for non-urgent cases
 - Cross-cover with a locum for non-urgent evaluations while redistribution is assessed — not as a replacement for redistribution

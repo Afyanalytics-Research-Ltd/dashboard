@@ -275,5 +275,7 @@ ml_platform/evidently/
 ml_platform/retrain.lock
 ml_platform/retrain_status.json
 
+# AI chat layer — generated runtime files, never commit
+**/chat/metrics_snapshot.json
 .cubestore/
 config/airflow.cfg

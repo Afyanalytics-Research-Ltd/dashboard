@@ -1,0 +1,949 @@
+{
+  "version": "1.0",
+  "last_updated": "2026-07-01",
+  "total_entries": 26,
+  "alerting_enabled_count": 24,
+  "note": "25 registry entries. 24 have alerting enabled. 1 descriptive entry (lab_abnormal_rate) has alerting disabled — no facility-approved clinical standard exists for this threshold. Rule 28 thresholds are data-derived approximations only.",
+  "schema_note": "table field references alias in schema_catalog.json. table_filter keys must match column names in that table. Rec templates use {value}, {watch}, {critical}, {ward}, {avg}, {pct_of_avg} as placeholders populated at runtime by prompt_builder.py.",
+  "fetch_strategies": ["standard", "theatre_grouped", "ward_traffic_grouped", "patient_request_pct", "doctor_concentration_grouped", "doctor_per_person", "dialysis_idle"],
+  "compute_strategies": ["standard", "theatre", "doctor_per_person", "dialysis_idle"],
+  "metrics": [
+
+    {
+      "metric_id": "theatre_completion_rate",
+      "domain": "theatre",
+      "label": "Theatre Completion Rate",
+      "table": "theatre_utilization",
+      "column": "completion_rate_pct",
+      "table_filter": {
+        "facility": "KISUMU_CLEAN"
+      },
+      "grain": "monthly",
+      "unit": "pct",
+      "keywords": ["theatre", "completion", "operating theatre", "surgical", "OR", "theatre rate", "theatre sessions", "surgery", "surgeries", "procedure", "procedures", "operations", "how many surgeries", "how many operations", "completed sessions"],
+      "fetch_strategy": "theatre_grouped",
+      "compute_strategy": "theatre",
+      "history_months": 12,
+      "data_start": null,
+      "gate_denominator_column": null,
+      "alerting": {
+        "enabled": true,
+        "watch": 85,
+        "critical": 75,
+        "direction": "below",
+        "method": "trailing_3mo_avg",
+        "watch_consecutive": 1,
+        "critical_consecutive": 1,
+        "min_gate": null,
+        "requires_data_months": 4,
+        "rule": 3
+      },
+      "rec_template": {
+        "watch": "Theatre completion at {value}% (3-month average) — below the 85% WATCH threshold. Review session cancellation log for the past 3 months. Confirm scheduling capacity against available slots. Flag to operations lead.",
+        "critical": "Theatre completion at {value}% (3-month average) — CRITICAL below 75%. Each unused session = fixed cost without revenue recovery. Immediate review of cancellation causes and elective backlog required. Escalate to operations lead."
+      }
+    },
+
+    {
+      "metric_id": "ward_traffic_medical_female",
+      "domain": "ward_traffic",
+      "label": "Ward Traffic — Medical Female",
+      "table": "bed_occupancy",
+      "column": "total_admissions",
+      "table_filter": {
+        "facility": "KISUMU_CLEAN",
+        "ward_category": "Medical — Female"
+      },
+      "grain": "monthly",
+      "unit": "count",
+      "keywords": ["ward traffic", "admissions", "medical female", "female ward", "female admissions"],
+      "fetch_strategy": "ward_traffic_grouped",
+      "compute_strategy": "standard",
+      "history_months": 12,
+      "data_start": null,
+      "gate_denominator_column": null,
+      "alerting": {
+        "enabled": true,
+        "watch": 40,
+        "critical": 45,
+        "direction": "above",
+        "method": "monthly_value",
+        "watch_consecutive": 2,
+        "critical_consecutive": 2,
+        "min_gate": null,
+        "requires_data_months": 2,
+        "rule": 10
+      },
+      "rec_template": {
+        "watch": "Medical Female ward at {value} admissions — above 40/month for 2 consecutive months. Review bed allocation and discharge throughput for this ward. Flag to ward manager.",
+        "critical": "Medical Female ward at {value} admissions — CRITICAL above 45/month. Bed pressure at this level risks delayed discharges and compressed LOS. Escalate to ward manager and operations lead."
+      }
+    },
+
+    {
+      "metric_id": "ward_traffic_paediatric",
+      "domain": "ward_traffic",
+      "label": "Ward Traffic — Paediatric",
+      "table": "bed_occupancy",
+      "column": "total_admissions",
+      "table_filter": {
+        "facility": "KISUMU_CLEAN",
+        "ward_category": "Paediatric"
+      },
+      "grain": "monthly",
+      "unit": "count",
+      "keywords": ["ward traffic", "admissions", "paediatric", "pediatric", "paeds", "children ward"],
+      "fetch_strategy": "ward_traffic_grouped",
+      "compute_strategy": "standard",
+      "history_months": 12,
+      "data_start": null,
+      "gate_denominator_column": null,
+      "alerting": {
+        "enabled": true,
+        "watch": 32,
+        "critical": 37,
+        "direction": "above",
+        "method": "monthly_value",
+        "watch_consecutive": 2,
+        "critical_consecutive": 2,
+        "min_gate": null,
+        "requires_data_months": 2,
+        "rule": 11
+      },
+      "rec_template": {
+        "watch": "Paediatric ward at {value} admissions — above 32/month for 2 consecutive months. Review bed allocation and nurse ratios for this ward. Flag to ward manager.",
+        "critical": "Paediatric ward at {value} admissions — CRITICAL above 37/month. Escalate to ward manager and operations lead."
+      }
+    },
+
+    {
+      "metric_id": "ward_traffic_medical_male",
+      "domain": "ward_traffic",
+      "label": "Ward Traffic — Medical Male",
+      "table": "bed_occupancy",
+      "column": "total_admissions",
+      "table_filter": {
+        "facility": "KISUMU_CLEAN",
+        "ward_category": "Medical — Male"
+      },
+      "grain": "monthly",
+      "unit": "count",
+      "keywords": ["ward traffic", "admissions", "medical male", "male ward", "general male"],
+      "fetch_strategy": "ward_traffic_grouped",
+      "compute_strategy": "standard",
+      "history_months": 12,
+      "data_start": null,
+      "gate_denominator_column": null,
+      "alerting": {
+        "enabled": true,
+        "watch": 25,
+        "critical": null,
+        "direction": "above",
+        "method": "monthly_value",
+        "watch_consecutive": 2,
+        "critical_consecutive": null,
+        "min_gate": null,
+        "requires_data_months": 2,
+        "rule": 12
+      },
+      "rec_template": {
+        "watch": "Medical Male ward at {value} admissions — above 25/month for 2 consecutive months. Review bed allocation and discharge throughput. Flag to ward manager.",
+        "critical": null
+      }
+    },
+
+    {
+      "metric_id": "ward_traffic_maternity",
+      "domain": "ward_traffic",
+      "label": "Ward Traffic — Maternity",
+      "table": "bed_occupancy",
+      "column": "total_admissions",
+      "table_filter": {
+        "facility": "KISUMU_CLEAN",
+        "ward_category": "Maternity"
+      },
+      "grain": "monthly",
+      "unit": "count",
+      "keywords": ["ward traffic", "admissions", "maternity", "maternity ward", "obstetric"],
+      "fetch_strategy": "ward_traffic_grouped",
+      "compute_strategy": "standard",
+      "history_months": 12,
+      "data_start": null,
+      "gate_denominator_column": null,
+      "alerting": {
+        "enabled": true,
+        "watch": 20,
+        "critical": 25,
+        "direction": "above",
+        "method": "monthly_value",
+        "watch_consecutive": 2,
+        "critical_consecutive": 2,
+        "min_gate": null,
+        "requires_data_months": 2,
+        "rule": 13
+      },
+      "rec_template": {
+        "watch": "Maternity ward at {value} admissions — above 20/month for 2 consecutive months. Review bed capacity and discharge throughput. Flag to ward manager.",
+        "critical": "Maternity ward at {value} admissions — CRITICAL above 25/month. Escalate to ward manager and operations lead."
+      }
+    },
+
+    {
+      "metric_id": "ward_traffic_private",
+      "domain": "ward_traffic",
+      "label": "Ward Traffic — Private/Amenity",
+      "table": "bed_occupancy",
+      "column": "total_admissions",
+      "table_filter": {
+        "facility": "KISUMU_CLEAN",
+        "ward_category": "Private / Amenity"
+      },
+      "grain": "monthly",
+      "unit": "count",
+      "keywords": ["ward traffic", "admissions", "private ward", "amenity", "private admissions"],
+      "fetch_strategy": "ward_traffic_grouped",
+      "compute_strategy": "standard",
+      "history_months": 12,
+      "data_start": null,
+      "gate_denominator_column": null,
+      "alerting": {
+        "enabled": true,
+        "watch": 18,
+        "critical": 22,
+        "direction": "above",
+        "method": "monthly_value",
+        "watch_consecutive": 2,
+        "critical_consecutive": 2,
+        "min_gate": null,
+        "requires_data_months": 2,
+        "rule": 14
+      },
+      "rec_template": {
+        "watch": "Private/Amenity ward at {value} admissions — above 18/month for 2 consecutive months. Review bed allocation. Flag to ward manager.",
+        "critical": "Private/Amenity ward at {value} admissions — CRITICAL above 22/month. Escalate to ward manager and operations lead."
+      }
+    },
+
+    {
+      "metric_id": "ward_los_medical_male",
+      "domain": "ward_los",
+      "label": "Ward LOS — Medical Male",
+      "table": "ward_los",
+      "column": "median_los_days",
+      "table_filter": {
+        "facility": "KISUMU_CLEAN",
+        "ward_category": "Medical — Male"
+      },
+      "grain": "monthly",
+      "unit": "days",
+      "keywords": ["LOS", "length of stay", "stay duration", "medical male", "male ward", "days"],
+      "fetch_strategy": "standard",
+      "compute_strategy": "standard",
+      "history_months": 12,
+      "data_start": null,
+      "gate_denominator_column": null,
+      "alerting": {
+        "enabled": true,
+        "watch": 5.0,
+        "critical": 7.0,
+        "direction": "above",
+        "method": "monthly_value",
+        "watch_consecutive": 2,
+        "critical_consecutive": 2,
+        "min_gate": null,
+        "requires_data_months": 2,
+        "rule": 15
+      },
+      "rec_template": {
+        "watch": "Medical Male ward median LOS at {value} days — above 5.0 days for 2 consecutive months. Extended LOS typically reflects delayed discharge decisions, not clinical necessity. Review discharge planning process. Flag to clinical team and ward manager.",
+        "critical": "Medical Male ward median LOS at {value} days — CRITICAL above 7.0 days. Beds tied up with long stays compress capacity for new admissions. Escalate to clinical lead."
+      }
+    },
+
+    {
+      "metric_id": "ward_los_medical_female",
+      "domain": "ward_los",
+      "label": "Ward LOS — Medical Female",
+      "table": "ward_los",
+      "column": "median_los_days",
+      "table_filter": {
+        "facility": "KISUMU_CLEAN",
+        "ward_category": "Medical — Female"
+      },
+      "grain": "monthly",
+      "unit": "days",
+      "keywords": ["LOS", "length of stay", "stay duration", "medical female", "female ward", "days"],
+      "fetch_strategy": "standard",
+      "compute_strategy": "standard",
+      "history_months": 12,
+      "data_start": null,
+      "gate_denominator_column": null,
+      "alerting": {
+        "enabled": true,
+        "watch": 5.0,
+        "critical": 7.0,
+        "direction": "above",
+        "method": "monthly_value",
+        "watch_consecutive": 2,
+        "critical_consecutive": 2,
+        "min_gate": null,
+        "requires_data_months": 2,
+        "rule": 16
+      },
+      "rec_template": {
+        "watch": "Medical Female ward median LOS at {value} days — above 5.0 days for 2 consecutive months. Review discharge planning process. Flag to clinical team and ward manager.",
+        "critical": "Medical Female ward median LOS at {value} days — CRITICAL above 7.0 days. Escalate to clinical lead."
+      }
+    },
+
+    {
+      "metric_id": "ward_los_private",
+      "domain": "ward_los",
+      "label": "Ward LOS — Private/Amenity",
+      "table": "ward_los",
+      "column": "median_los_days",
+      "table_filter": {
+        "facility": "KISUMU_CLEAN",
+        "ward_category": "Private / Amenity"
+      },
+      "grain": "monthly",
+      "unit": "days",
+      "keywords": ["LOS", "length of stay", "stay duration", "private ward", "amenity", "days"],
+      "fetch_strategy": "standard",
+      "compute_strategy": "standard",
+      "history_months": 12,
+      "data_start": null,
+      "gate_denominator_column": null,
+      "alerting": {
+        "enabled": true,
+        "watch": 5.5,
+        "critical": 8.0,
+        "direction": "above",
+        "method": "monthly_value",
+        "watch_consecutive": 2,
+        "critical_consecutive": 2,
+        "min_gate": null,
+        "requires_data_months": 2,
+        "rule": 17
+      },
+      "rec_template": {
+        "watch": "Private/Amenity ward median LOS at {value} days — above 5.5 days for 2 consecutive months. Review discharge planning process. Flag to clinical team and ward manager.",
+        "critical": "Private/Amenity ward median LOS at {value} days — CRITICAL above 8.0 days. Escalate to clinical lead."
+      }
+    },
+
+    {
+      "metric_id": "ward_los_maternity",
+      "domain": "ward_los",
+      "label": "Ward LOS — Maternity",
+      "table": "ward_los",
+      "column": "median_los_days",
+      "table_filter": {
+        "facility": "KISUMU_CLEAN",
+        "ward_category": "Maternity"
+      },
+      "grain": "monthly",
+      "unit": "days",
+      "keywords": ["LOS", "length of stay", "stay duration", "maternity", "obstetric", "days"],
+      "fetch_strategy": "standard",
+      "compute_strategy": "standard",
+      "history_months": 12,
+      "data_start": null,
+      "gate_denominator_column": null,
+      "alerting": {
+        "enabled": true,
+        "watch": 4.0,
+        "critical": 6.0,
+        "direction": "above",
+        "method": "monthly_value",
+        "watch_consecutive": 2,
+        "critical_consecutive": 2,
+        "min_gate": null,
+        "requires_data_months": 2,
+        "rule": 18
+      },
+      "rec_template": {
+        "watch": "Maternity ward median LOS at {value} days — above 4.0 days for 2 consecutive months. Review discharge planning process. Flag to clinical team and ward manager.",
+        "critical": "Maternity ward median LOS at {value} days — CRITICAL above 6.0 days. Escalate to clinical lead."
+      }
+    },
+
+    {
+      "metric_id": "ward_los_paediatric",
+      "domain": "ward_los",
+      "label": "Ward LOS — Paediatric",
+      "table": "ward_los",
+      "column": "median_los_days",
+      "table_filter": {
+        "facility": "KISUMU_CLEAN",
+        "ward_category": "Paediatric"
+      },
+      "grain": "monthly",
+      "unit": "days",
+      "keywords": ["LOS", "length of stay", "stay duration", "paediatric", "pediatric", "paeds", "days"],
+      "fetch_strategy": "standard",
+      "compute_strategy": "standard",
+      "history_months": 12,
+      "data_start": null,
+      "gate_denominator_column": null,
+      "alerting": {
+        "enabled": true,
+        "watch": 3.5,
+        "critical": 5.0,
+        "direction": "above",
+        "method": "monthly_value",
+        "watch_consecutive": 2,
+        "critical_consecutive": 2,
+        "min_gate": null,
+        "requires_data_months": 2,
+        "rule": 19
+      },
+      "rec_template": {
+        "watch": "Paediatric ward median LOS at {value} days — above 3.5 days for 2 consecutive months. Review discharge planning process. Flag to clinical team and ward manager.",
+        "critical": "Paediatric ward median LOS at {value} days — CRITICAL above 5.0 days. Escalate to clinical lead."
+      }
+    },
+
+    {
+      "metric_id": "patient_request_maternity",
+      "domain": "patient_request",
+      "label": "Patient Request Discharge Rate — Maternity",
+      "table": "readmissions",
+      "column": "patient_request_pct",
+      "table_filter": {
+        "facility": "KISUMU_CLEAN",
+        "ward_category": "Maternity",
+        "discharge_type": "patient_request"
+      },
+      "grain": "monthly",
+      "unit": "pct",
+      "keywords": ["patient request", "self-discharge", "discharge against advice", "AOR", "maternity", "left against advice"],
+      "fetch_strategy": "patient_request_pct",
+      "compute_strategy": "standard",
+      "history_months": 12,
+      "data_start": null,
+      "gate_denominator_column": null,
+      "alerting": {
+        "enabled": true,
+        "watch": 82,
+        "critical": null,
+        "direction": "above",
+        "method": "monthly_value",
+        "watch_consecutive": 2,
+        "critical_consecutive": null,
+        "min_gate": 10,
+        "requires_data_months": 2,
+        "rule": 20
+      },
+      "rec_template": {
+        "watch": "Maternity ward Patient Request discharge rate at {value}% — above 82% for 2 consecutive months. Patient Request discharges readmit ~50% within 30 days. Review clinical communication and discharge planning for this ward. Flag to clinical lead.",
+        "critical": null
+      }
+    },
+
+    {
+      "metric_id": "patient_request_medical_female",
+      "domain": "patient_request",
+      "label": "Patient Request Discharge Rate — Medical Female",
+      "table": "readmissions",
+      "column": "patient_request_pct",
+      "table_filter": {
+        "facility": "KISUMU_CLEAN",
+        "ward_category": "Medical — Female",
+        "discharge_type": "patient_request"
+      },
+      "grain": "monthly",
+      "unit": "pct",
+      "keywords": ["patient request", "self-discharge", "discharge against advice", "AOR", "medical female", "female ward"],
+      "fetch_strategy": "patient_request_pct",
+      "compute_strategy": "standard",
+      "history_months": 12,
+      "data_start": null,
+      "gate_denominator_column": null,
+      "alerting": {
+        "enabled": true,
+        "watch": 68,
+        "critical": 78,
+        "direction": "above",
+        "method": "monthly_value",
+        "watch_consecutive": 2,
+        "critical_consecutive": 2,
+        "min_gate": 10,
+        "requires_data_months": 2,
+        "rule": 21
+      },
+      "rec_template": {
+        "watch": "Medical Female ward Patient Request discharge rate at {value}% — above 68% for 2 consecutive months. Review clinical communication and discharge planning. Flag to clinical lead.",
+        "critical": "Medical Female ward Patient Request discharge rate at {value}% — CRITICAL above 78%. Sustained self-discharge at this rate is a leading indicator of readmission pressure. Escalate to clinical lead."
+      }
+    },
+
+    {
+      "metric_id": "patient_request_paediatric",
+      "domain": "patient_request",
+      "label": "Patient Request Discharge Rate — Paediatric",
+      "table": "readmissions",
+      "column": "patient_request_pct",
+      "table_filter": {
+        "facility": "KISUMU_CLEAN",
+        "ward_category": "Paediatric",
+        "discharge_type": "patient_request"
+      },
+      "grain": "monthly",
+      "unit": "pct",
+      "keywords": ["patient request", "self-discharge", "discharge against advice", "AOR", "paediatric", "pediatric", "paeds"],
+      "fetch_strategy": "patient_request_pct",
+      "compute_strategy": "standard",
+      "history_months": 12,
+      "data_start": null,
+      "gate_denominator_column": null,
+      "alerting": {
+        "enabled": true,
+        "watch": 68,
+        "critical": 78,
+        "direction": "above",
+        "method": "monthly_value",
+        "watch_consecutive": 2,
+        "critical_consecutive": 2,
+        "min_gate": 10,
+        "requires_data_months": 2,
+        "rule": 22
+      },
+      "rec_template": {
+        "watch": "Paediatric ward Patient Request discharge rate at {value}% — above 68% for 2 consecutive months. Review clinical communication and discharge planning. Flag to clinical lead.",
+        "critical": "Paediatric ward Patient Request discharge rate at {value}% — CRITICAL above 78%. Escalate to clinical lead."
+      }
+    },
+
+    {
+      "metric_id": "patient_request_private",
+      "domain": "patient_request",
+      "label": "Patient Request Discharge Rate — Private/Amenity",
+      "table": "readmissions",
+      "column": "patient_request_pct",
+      "table_filter": {
+        "facility": "KISUMU_CLEAN",
+        "ward_category": "Private / Amenity",
+        "discharge_type": "patient_request"
+      },
+      "grain": "monthly",
+      "unit": "pct",
+      "keywords": ["patient request", "self-discharge", "discharge against advice", "AOR", "private ward", "amenity"],
+      "fetch_strategy": "patient_request_pct",
+      "compute_strategy": "standard",
+      "history_months": 12,
+      "data_start": null,
+      "gate_denominator_column": null,
+      "alerting": {
+        "enabled": true,
+        "watch": 75,
+        "critical": null,
+        "direction": "above",
+        "method": "monthly_value",
+        "watch_consecutive": 2,
+        "critical_consecutive": null,
+        "min_gate": 10,
+        "requires_data_months": 2,
+        "rule": 23
+      },
+      "rec_template": {
+        "watch": "Private/Amenity ward Patient Request discharge rate at {value}% — above 75% for 2 consecutive months. Review clinical communication and discharge planning. Flag to clinical lead.",
+        "critical": null
+      }
+    },
+
+    {
+      "metric_id": "patient_request_medical_male",
+      "domain": "patient_request",
+      "label": "Patient Request Discharge Rate — Medical Male",
+      "table": "readmissions",
+      "column": "patient_request_pct",
+      "table_filter": {
+        "facility": "KISUMU_CLEAN",
+        "ward_category": "Medical — Male",
+        "discharge_type": "patient_request"
+      },
+      "grain": "monthly",
+      "unit": "pct",
+      "keywords": ["patient request", "self-discharge", "discharge against advice", "AOR", "medical male", "male ward"],
+      "fetch_strategy": "patient_request_pct",
+      "compute_strategy": "standard",
+      "history_months": 12,
+      "data_start": null,
+      "gate_denominator_column": null,
+      "alerting": {
+        "enabled": true,
+        "watch": 62,
+        "critical": 72,
+        "direction": "above",
+        "method": "monthly_value",
+        "watch_consecutive": 2,
+        "critical_consecutive": 2,
+        "min_gate": 10,
+        "requires_data_months": 2,
+        "rule": 24
+      },
+      "rec_template": {
+        "watch": "Medical Male ward Patient Request discharge rate at {value}% — above 62% for 2 consecutive months. Review clinical communication and discharge planning. Flag to clinical lead.",
+        "critical": "Medical Male ward Patient Request discharge rate at {value}% — CRITICAL above 72%. Escalate to clinical lead."
+      }
+    },
+
+    {
+      "metric_id": "doctor_concentration",
+      "domain": "doctor_workload",
+      "label": "Doctor Concentration Risk",
+      "table": "doctor_performance",
+      "column": "concentration_pct",
+      "table_filter": null,
+      "grain": "monthly",
+      "unit": "pct",
+      "keywords": ["doctor concentration", "physician concentration", "doctor share", "doctor visits", "top doctor", "concentration risk"],
+      "fetch_strategy": "doctor_concentration_grouped",
+      "compute_strategy": "standard",
+      "history_months": 12,
+      "data_start": null,
+      "gate_denominator_column": null,
+      "alerting": {
+        "enabled": true,
+        "watch": 40,
+        "critical": 50,
+        "direction": "above",
+        "method": "monthly_value",
+        "watch_consecutive": 1,
+        "critical_consecutive": 1,
+        "min_gate": null,
+        "requires_data_months": 1,
+        "rule": 25,
+        "note": "No consecutive requirement — single month above threshold is immediate risk signal"
+      },
+      "rec_template": {
+        "watch": "Top doctor handling {value}% of all evaluation visits this month — above the 40% WATCH threshold. Absence of this doctor would significantly disrupt patient intake. Review backup coverage arrangements. Flag to operations lead.",
+        "critical": "Doctor concentration at {value}% — CRITICAL above 50%. Single departure or absence at this level would severely disrupt patient flow. Escalate to operations lead immediately."
+      }
+    },
+
+    {
+      "metric_id": "doctor_burnout_relative",
+      "domain": "doctor_workload",
+      "label": "Doctor Burnout Signal (Relative)",
+      "table": "doctor_performance",
+      "column": "evaluations",
+      "table_filter": null,
+      "grain": "monthly",
+      "unit": "pct_of_personal_avg",
+      "keywords": ["doctor burnout", "physician burnout", "doctor overload", "evaluation visits", "doctor workload", "overworked"],
+      "fetch_strategy": "doctor_per_person",
+      "compute_strategy": "doctor_per_person",
+      "history_months": 24,
+      "history_prompt_months": 6,
+      "data_start": null,
+      "gate_denominator_column": null,
+      "alerting": {
+        "enabled": true,
+        "watch": 150,
+        "critical": null,
+        "direction": "above",
+        "method": "pct_of_personal_3mo_avg",
+        "watch_consecutive": 2,
+        "critical_consecutive": null,
+        "min_gate": null,
+        "requires_data_months": 4,
+        "rule": 26,
+        "note": "Threshold is percentage of personal rolling average — 150 means 150% of own 3-month average"
+      },
+      "rec_template": {
+        "watch": "Doctor evaluation visits running at {value}% of their personal 3-month average — above 150% for 2 consecutive months. Sustained overload at this level is a burnout signal. Review caseload patterns. Flag to operations lead.",
+        "critical": null
+      }
+    },
+
+    {
+      "metric_id": "doctor_workload_absolute",
+      "domain": "doctor_workload",
+      "label": "Doctor Workload (Absolute — P90)",
+      "table": "doctor_performance",
+      "column": "evaluations",
+      "table_filter": null,
+      "grain": "monthly",
+      "unit": "count",
+      "keywords": ["doctor workload", "physician workload", "evaluation visits", "visit volume", "monthly visits"],
+      "fetch_strategy": "doctor_per_person",
+      "compute_strategy": "doctor_per_person",
+      "history_months": 24,
+      "history_prompt_months": 6,
+      "data_start": null,
+      "gate_denominator_column": null,
+      "alerting": {
+        "enabled": true,
+        "watch": null,
+        "critical": null,
+        "direction": "above",
+        "method": "monthly_value",
+        "watch_consecutive": 2,
+        "critical_consecutive": null,
+        "min_gate": null,
+        "requires_data_months": 2,
+        "rule": 33,
+        "per_doctor_thresholds": {
+          "eawando": {"watch_p90": 795, "p75": 734, "median": 630},
+          "lowino":  {"watch_p90": 595, "p75": 481, "median": 404},
+          "jogutu":  {"watch_p90": 378, "p75": 343, "median": 245}
+        },
+        "note": "Threshold is per-doctor P90. Read per_doctor_thresholds — do not use generic watch/critical fields for this metric. makinyi excluded (departed Dec 2025)."
+      },
+      "rec_template": {
+        "watch": "Doctor evaluation visits above personal P90 threshold for 2 consecutive months. Sustained above P90 is unsustainable over time. Review caseload distribution. Flag to operations lead.",
+        "critical": null
+      }
+    },
+
+    {
+      "metric_id": "lab_visit_volume",
+      "domain": "lab",
+      "label": "Lab Visit Volume",
+      "table": "lab_monthly",
+      "column": "distinct_visits",
+      "table_filter": null,
+      "grain": "monthly",
+      "unit": "count",
+      "keywords": ["lab", "laboratory", "lab visits", "lab volume", "diagnostic visits", "lab activity", "bloodwork", "blood test", "blood work", "specimens", "test volume", "tests ordered", "pathology", "lab count", "how many tests"],
+      "fetch_strategy": "standard",
+      "compute_strategy": "standard",
+      "history_months": 12,
+      "data_start": "2025-07-01",
+      "gate_denominator_column": null,
+      "alerting": {
+        "enabled": true,
+        "watch": 430,
+        "critical": 350,
+        "direction": "below",
+        "method": "monthly_value",
+        "watch_consecutive": 2,
+        "critical_consecutive": 1,
+        "min_gate": null,
+        "requires_data_months": 2,
+        "rule": 27,
+        "note": "WATCH requires 2 consecutive months. CRITICAL fires on single month — severe enough for immediate action."
+      },
+      "rec_template": {
+        "watch": "Lab visit volume at {value} distinct visits — below 430/month for 2 consecutive months. Reduced lab activity may indicate changes in ordering patterns or disruption upstream. Review with lab lead.",
+        "critical": "Lab visit volume at {value} — CRITICAL below 350/month. This is a severe operational shortfall. Review with lab lead and operations immediately."
+      }
+    },
+
+    {
+      "metric_id": "lab_abnormal_rate",
+      "domain": "lab",
+      "label": "Lab Abnormal Rate",
+      "table": "lab_monthly",
+      "column": "abnormal_pct",
+      "table_filter": null,
+      "grain": "monthly",
+      "unit": "pct",
+      "keywords": ["lab abnormal", "abnormal results", "lab flags", "flagged results", "abnormal rate"],
+      "fetch_strategy": "standard",
+      "compute_strategy": "standard",
+      "history_months": 12,
+      "data_start": "2025-07-01",
+      "gate_denominator_column": null,
+      "alerting": {
+        "enabled": false,
+        "watch": 9,
+        "critical": 11,
+        "direction": "above",
+        "method": "monthly_value",
+        "watch_consecutive": 2,
+        "critical_consecutive": null,
+        "min_gate": null,
+        "requires_data_months": 2,
+        "rule": 28,
+        "disabled_reason": "No facility-approved clinical standard exists for this threshold. Values of 9% WATCH and 11% CRITICAL are data-derived approximations only. Do not enable alerting until a clinical benchmark is validated with the facility."
+      },
+      "rec_template": {
+        "watch": null,
+        "critical": null
+      }
+    },
+
+    {
+      "metric_id": "dialysis_idle",
+      "domain": "dialysis",
+      "label": "Dialysis Sessions Idle",
+      "history_prompt_months": 6,
+      "table": "dialysis_ops",
+      "column": "sessions_billed",
+      "table_filter": null,
+      "grain": "monthly",
+      "unit": "months_elapsed",
+      "keywords": ["dialysis", "dialysis idle", "dialysis sessions", "renal dialysis", "dialysis equipment"],
+      "fetch_strategy": "dialysis_idle",
+      "compute_strategy": "dialysis_idle",
+      "history_months": 24,
+      "data_start": null,
+      "gate_denominator_column": null,
+      "alerting": {
+        "enabled": true,
+        "watch": 6,
+        "critical": null,
+        "direction": "above",
+        "method": "months_since_last_session",
+        "watch_consecutive": null,
+        "critical_consecutive": null,
+        "min_gate": null,
+        "requires_data_months": 1,
+        "rule": 4,
+        "note": "Metric is months elapsed since last non-zero sessions_billed month. WATCH fires when gap >= 6 months."
+      },
+      "rec_template": {
+        "watch": "No dialysis sessions recorded for {value} months. Equipment is idle. CD12 data shows critical creatinine patients are presenting but not receiving dialysis. Review the referral pathway from outpatient to dialysis with clinical lead.",
+        "critical": null
+      }
+    },
+
+    {
+      "metric_id": "cd12_non_admission_rate",
+      "domain": "dialysis",
+      "label": "CD12 — Critical Creatinine Non-Admission Rate",
+      "table": "cd12_monthly_rate",
+      "column": "non_admission_rate_pct",
+      "table_filter": null,
+      "grain": "monthly",
+      "unit": "pct",
+      "keywords": ["CD12", "creatinine", "critical creatinine", "renal non-admission", "kidney", "creatinine non-admission", "AKI"],
+      "fetch_strategy": "standard",
+      "compute_strategy": "standard",
+      "history_months": 12,
+      "data_start": "2025-07-01",
+      "gate_denominator_column": "total_critical",
+      "alerting": {
+        "enabled": true,
+        "watch": 50,
+        "critical": 65,
+        "direction": "above",
+        "method": "monthly_value",
+        "watch_consecutive": 1,
+        "critical_consecutive": 1,
+        "min_gate": 8,
+        "requires_data_months": 1,
+        "rule": 34,
+        "staleness_guard_months": 3,
+        "data_start": "2025-07-01",
+        "note": "min_gate = 8 critical creatinine events per month. Staleness guard: skips if latest qualifying month is > 3 months before today."
+      },
+      "rec_template": {
+        "watch": "CD12: {value}% of critical creatinine patients were not admitted this month — above the 50% WATCH threshold. Critical renal patients leaving without admission may be missing dialysis referral. Review with clinical lead.",
+        "critical": "CD12: {value}% critical creatinine non-admission — CRITICAL above 65%. More than 2 in 3 acute kidney injury patients leaving without admission. Immediate clinical review required."
+      }
+    },
+
+    {
+      "metric_id": "ct_imaging_volume",
+      "domain": "imaging_ct",
+      "label": "CT Imaging Session Volume",
+      "table": "imaging_ops",
+      "column": "sessions",
+      "table_filter": {
+        "facility": "KISUMU_CLEAN",
+        "modality": "CT / Angio"
+      },
+      "grain": "monthly",
+      "unit": "sessions",
+      "keywords": ["CT", "CT scan", "imaging", "CT imaging", "CT sessions", "computed tomography", "radiology"],
+      "fetch_strategy": "standard",
+      "compute_strategy": "standard",
+      "history_months": 12,
+      "data_start": null,
+      "gate_denominator_column": null,
+      "alerting": {
+        "enabled": true,
+        "watch": 80,
+        "critical": 65,
+        "direction": "below",
+        "method": "relative_to_3mo_avg",
+        "watch_consecutive": 1,
+        "critical_consecutive": 1,
+        "min_gate": null,
+        "requires_data_months": 4,
+        "rule": 35,
+        "note": "Thresholds are percentages of 3-month rolling average, not absolute session counts. 80 means <80% of avg = WATCH. Rolling avg = mean of 3 months immediately before latest complete month."
+      },
+      "rec_template": {
+        "watch": "CT sessions at {value} this month — {pct_of_avg}% of the 3-month average ({avg} sessions). Below the 80% WATCH threshold. Review imaging booking volumes and referral patterns. Flag to imaging lead.",
+        "critical": "CT sessions at {value} — CRITICAL at {pct_of_avg}% of 3-month average ({avg} sessions). Sessions significantly below baseline. Escalate to imaging lead and operations."
+      }
+    },
+
+    {
+      "metric_id": "admission_tat",
+      "domain": "admission_tat",
+      "label": "Admission TAT — Fast-Track Rate",
+      "table": "admission_tat",
+      "column": "fast_pct",
+      "table_filter": null,
+      "grain": "monthly",
+      "unit": "pct",
+      "keywords": ["TAT", "turnaround time", "admission TAT", "fast track", "fast-track", "admission wait", "admission time", "admission speed"],
+      "fetch_strategy": "standard",
+      "compute_strategy": "standard",
+      "history_months": 12,
+      "data_start": null,
+      "gate_denominator_column": null,
+      "alerting": {
+        "enabled": true,
+        "watch": 45,
+        "critical": 35,
+        "direction": "below",
+        "method": "monthly_value",
+        "watch_consecutive": 2,
+        "critical_consecutive": 1,
+        "min_gate": null,
+        "requires_data_months": 2,
+        "rule": 30,
+        "baseline_pct": 53.2,
+        "note": "Fast-track = admission completed within 60 minutes of evaluation. WATCH requires 2 consecutive months. CRITICAL fires on single month. Baseline: 53.2% (Oct 2024–Apr 2026). Sunday worst at 32.4%."
+      },
+      "rec_template": {
+        "watch": "Admission fast-track rate at {value}% — below 45% for 2 consecutive months. More than half of admissions are taking over 60 minutes. Review evaluation-to-ward handoff process. Flag to operations lead.",
+        "critical": "Admission fast-track rate at {value}% — CRITICAL below 35%. The majority of patients waiting over 60 minutes for admission. Immediate review of the admission process required. Escalate to operations lead."
+      }
+    },
+
+    {
+      "metric_id": "bed_occupancy_rate",
+      "domain": "ward",
+      "label": "Bed Occupancy Rate",
+      "table": "bed_occupancy",
+      "column": null,
+      "table_filter": {
+        "facility": "KISUMU_CLEAN"
+      },
+      "grain": "monthly",
+      "unit": "pct",
+      "keywords": ["bed occupancy", "occupancy rate", "BOR", "ward occupancy", "beds occupied", "how full", "bed utilization", "occupancy", "beds full", "capacity utilization"],
+      "fetch_strategy": "bed_occupancy_rate",
+      "compute_strategy": "standard",
+      "history_months": 12,
+      "data_start": null,
+      "gate_denominator_column": null,
+      "alerting": {
+        "enabled": true,
+        "watch": 85,
+        "critical": 95,
+        "direction": "above",
+        "method": "trailing_3mo_avg",
+        "watch_consecutive": 2,
+        "critical_consecutive": 1,
+        "min_gate": null,
+        "requires_data_months": 3,
+        "rule": 31,
+        "note": "BOR = total_bed_days / (32 beds × days_in_month). Hardcoded 32 beds (Inv 54). High BOR signals capacity pressure. WATCH at 85% for 2 consecutive months; CRITICAL at 95% single month."
+      },
+      "rec_template": {
+        "watch": "Bed occupancy at {value}% (3-month average) — above the 85% WATCH threshold for 2 consecutive months. Ward capacity is under sustained pressure. Review admissions flow and discharge planning. Flag to operations lead.",
+        "critical": "Bed occupancy at {value}% (3-month average) — CRITICAL above 95%. Hospital is at or near full capacity. Immediate review of admissions, discharge bottlenecks, and overflow options required. Escalate to operations lead."
+      }
+    }
+
+  ]
+}

@@ -1,5 +1,5 @@
 # Causal Intelligence — Cross-Domain Findings (KSH)
-**Keywords:** causal, cross-domain, all investigations, investigation findings, full story, go deeper, complete picture, all findings, summary of investigations, what were all the findings, all causal findings, overview, ruled out, disproved, hypothesis, tested hypotheses, what was disproved, what was ruled out, private female anomaly, general maternity dama, future investigations, what has been tested, areas investigated, cross domain findings
+**keywords:** causal, cross-domain, all investigations, investigation findings, full story, go deeper, complete picture, all findings, summary of investigations, what were all the findings, all causal findings, overview, ruled out, disproved, hypothesis, tested hypotheses, what was disproved, what was ruled out, private female anomaly, general maternity dama, future investigations, what has been tested, areas investigated, cross domain findings
 **Facility:** KSH only
 **Last updated:** 2026-06-09 (Phase 14 — CD1–CD12 complete + supplemental investigations)
 
@@ -33,16 +33,14 @@ Physician presence during peak (distinct active doctors per ward):
 - Private Male: 9 off-peak → **0 peak**
 - Private Maternity: 9 off-peak → **0 peak**
 
-Doctor concentration shift toward General Female during peak:
-- E.Awando: 32.4% of admissions to General Female off-peak → 37.5% during peak (+5.1 pp)
-- J.Ogutu: 34.2% → 43.5% during peak (+9.3 pp)
+Doctors active during peak shift disproportionately toward General Female — the ward absorbing the highest admission volume in that window.
 
 **What this means:**
 During Monday 14–18, fewer physicians are covering more patients. Those available are drawn toward the ward with highest admission volume. Private wards receive zero physician evaluations and zero new admissions during this window — not because patients are absent but because physician availability has collapsed to a small pool concentrated elsewhere in the facility.
 
 ---
 
-## CONFIRMED FINDING 2 — E.Awando: Concentration Risk Across All Wards (CD6)
+## CONFIRMED FINDING 2 — Single-Clinician Concentration Risk Across All Wards (CD6)
 
 **The chain:**
 E.Awando evaluates 34–46% of admissions in every ward at KSH. This concentration is not ward-specific — it spans the entire facility. When this capacity is unavailable, every ward is simultaneously affected, not just one.
@@ -60,11 +58,11 @@ E.Awando's share of admissions per ward:
 
 J.Ogutu is second across most wards at 14–17%. The top two doctors together account for 48–60% of admissions in every ward.
 
-**Historical evidence — M.Akinyi departure (last active December 2025, left January 2026):**
-M.Akinyi contributed 10–12% of admissions across General Female, General Male, General Maternity, and Private Male. Her last active month was December 2025 (109 evaluations confirmed). From January 2026 onward she recorded zero evaluations — confirmed from EVALUATION_VISITS data. This load redistributed onto the remaining doctors — E.Awando's evaluation volume increased by approximately 57%. The concentration that exists today is measurably higher than it was before January 2026, and it occurred without a structural redistribution plan.
+**Historical evidence — M.Akinyi departure:**
+M.Akinyi contributed 10–12% of admissions across General Female, General Male, General Maternity, and Private Male before departing. Her load redistributed silently onto the remaining doctors — E.Awando absorbed the majority of it — with no structural redistribution plan in place. This is the clearest documented example at KSH of how a contributing evaluator's departure concentrates load further onto already high-volume clinicians.
 
 **Note — Private Female is E.Awando-dependent, not M.Akinyi-linked (confirmed 2026-06-09):**
-M.Akinyi covered Private Female only in July and August 2025 (3 total admissions), then stopped entirely. She had zero involvement in Private Female from September 2025 onward — four months before the December 2025 collapse. From September 2025, E.Awando is the sole consistent physician for Private Female. December 2025 (1 admission, 0.6% occupancy) = E.Awando had minimal Private Female activity that month. January 2026 recovery (13 admissions) = five distinct doctors active simultaneously. Private Female performance tracks E.Awando's presence, not any departure event.
+M.Akinyi covered Private Female only briefly in 2025 (3 total admissions), then stopped entirely — months before any Private Female anomaly. From September 2025, E.Awando is the sole consistent physician for Private Female. When E.Awando's activity in Private Female is low, the ward records near-zero admissions; when multiple doctors are simultaneously active, admissions recover. Private Female performance tracks E.Awando's presence, not any departure event.
 
 **What this means:**
 Any period of unavailability for E.Awando creates simultaneous evaluation gaps across all seven wards. Private wards are most exposed — Private Female has only 5 distinct evaluating doctors in total, Private Male has 7, compared to General Female's 10. The M.Akinyi departure demonstrates that when a contributing evaluator leaves, load concentrates further onto the remaining high-volume doctors without a redistribution plan.
@@ -74,7 +72,7 @@ Any period of unavailability for E.Awando creates simultaneous evaluation gaps a
 ## CONFIRMED FINDING 3 — Renal Care Pathway Gap (CD12) ⚠️ PATIENT SAFETY
 
 **The finding:**
-134 distinct critical Creatinine visit_ids (CL/CH flags in EVENTS_RAW) since 2024-01-01, representing 126 unique patients (8 patients had 2+ critical events). 41% of critical Creatinine visits result in no inpatient admission. DAMA rate for those admitted (57%) equals the facility baseline of 56.82% (CD7) — not elevated. KSH's dialysis programme has been idle since May 2025.
+134 distinct critical Creatinine visit_ids (CL/CH flags in EVENTS_RAW) since 2024-01-01, representing 126 unique patients (8 patients had 2+ critical events). 41% of critical Creatinine visits result in no inpatient admission. DAMA rate for those admitted (57%) equals the facility baseline of 56.82% (CD7) — not elevated. KSH's dialysis programme recorded zero sessions from May 2025 through the investigation period end.
 
 **What the data shows:**
 
@@ -99,7 +97,7 @@ DAMA rate (57%) = facility baseline (56.82%, CD7). Critical renal patients do no
 Dialysis programme — full history from rpt_dialysis (KISUMU_CLEAN):
 - March 2025: 2 sessions · 2 patients · avg 3.5h · KES 52,200
 - April 2025: 1 session · 1 patient · avg 2.0h · KES 119,100
-- **May 2025 onward: zero sessions — programme idle for 13+ months**
+- **May 2025 onward through investigation window: zero sessions**
 
 Return visit tracking — all 126 critical creatinine patients (EVALUATION_VISITS.PATIENT join):
 

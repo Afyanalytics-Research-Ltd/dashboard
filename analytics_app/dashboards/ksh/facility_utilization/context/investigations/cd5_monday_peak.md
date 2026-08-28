@@ -6,48 +6,28 @@
 
 ---
 
-## Confirmed Finding — Monday 14:00–18:00 Drives Physician Concentration in General Female
+## Finding
 
-Monday 14:00–18:00 is KSH's peak evaluation window. During this window, physician availability across the facility drops from 12 distinct active doctors to 3–4. Those 3–4 doctors concentrate disproportionately in General Female — the ward absorbing the highest admission volume during peak.
-
----
-
-## Admission Distribution Shift (Monday 14–18 vs all other times)
-
-| Ward | Off-peak | Peak | Change |
-|------|---------|------|--------|
-| General Female | 31.0% | **39.8%** | +8.8 pp |
-| Pediatric General | 23.1% | 18.6% | −4.5 pp |
-| Private Male | 6.2% | 3.5% | −2.7 pp |
-| Private Female | 5.7% | 4.4% | −1.3 pp |
+Monday 14:00–18:00 is KSH's peak evaluation window. Investigation CD5 found that during this window, physician availability contracts sharply — leaving only a small subset of clinicians actively evaluating patients. Those remaining concentrate disproportionately in General Female, the ward with the highest admission demand during the peak. Other wards, particularly private wards, receive markedly reduced physician coverage during this window.
 
 ---
 
-## Physician Presence During Peak (distinct active doctors per ward)
+## Evidence
 
-| Ward | Off-peak | Peak |
-|------|---------|------|
-| General Female | 12 | **4** |
-| General Male | 12 | **4** |
-| General Maternity | 12 | **3** |
-| Pediatric General | 12 | **3** |
-| Private Female | 11 | **0** |
-| Private Male | 9 | **0** |
-| Private Maternity | 9 | **0** |
+Investigation CD5 demonstrated a consistent admission distribution shift during the Monday afternoon peak compared to all other times: General Female's share of admissions increases substantially while several other wards decline. Physician availability contracts across the facility during this window, and the remaining active clinicians are drawn toward the highest-demand ward. During the investigation period, private wards received little or no physician evaluation activity during the Monday afternoon peak — not because patients were absent, but because available physicians were concentrated elsewhere in the facility.
 
-Private wards receive zero physician evaluations and zero new admissions during Monday 14–18 — not because patients are absent but because physician availability has collapsed to a small pool concentrated in General Female.
+The highest-volume physicians become increasingly concentrated in General Female during the Monday afternoon peak. Current physician counts and ward volumes are in the snapshot — not in this file.
 
 ---
 
-## Doctor Concentration Shift Toward General Female During Peak
+## Operational Implication
 
-| Doctor | Off-peak share → General Female | Peak share | Change |
-|--------|--------------------------------|-----------|--------|
-| E.Awando | 32.4% | 37.5% | +5.1 pp |
-| J.Ogutu | 34.2% | 43.5% | +9.3 pp |
+This is a structural coverage gap during the facility's peak demand period. When physician availability contracts and concentrates in one ward, low-volume wards — especially private wards with fewer physicians in their overall pool — face an effective coverage gap. This pattern recurs predictably every Monday afternoon and should be considered when interpreting any Monday-afternoon-related operational signal.
 
 ---
 
-## What This Means
+## Scope
 
-During Monday 14–18, fewer physicians cover more patients. Those available are drawn toward the ward with the highest admission volume. Private wards receive zero physician evaluations during this window. This is a structural coverage gap during the facility's peak hour.
+- Applies to Monday 14:00–18:00 only. Monday morning slots have different dynamics (admission TAT bottleneck — see peak_hours.md).
+- Does not explain insurance routing patterns — insured patients routing to general wards is a structural characteristic confirmed unrelated to peak hour (CD10).
+- Current physician counts and ward volumes come from the snapshot, not this file.

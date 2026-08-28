@@ -1,5 +1,5 @@
 # Renal Patient Pathway — KSH (CD12)
-**keywords:** renal, creatinine, critical creatinine, renal patient, never admitted, not admitted, renal pathway, critical kidney, renal outcome, nephrology, critical renal, patient outcomes, never returned, renal patients ksh, what happens renal, creatinine not admitted, kidney patient, kidney outcome, dialysis idle, renal care gap, critical lab admitted, renal follow up, renal escalation, admitted creatinine, 41 percent, 28 percent, dialysis programme
+**keywords:** renal, creatinine, critical creatinine, renal patient, never admitted, not admitted, renal pathway, critical kidney, renal outcome, nephrology, critical renal, patient outcomes, never returned, renal patients ksh, what happens renal, creatinine not admitted, kidney patient, kidney outcome, dialysis idle, renal care gap, critical lab admitted, renal follow up, renal escalation, admitted creatinine, 41 percent, dialysis programme
 **Facility:** KSH only
 **Last updated:** 2026-06-10 (monthly monitoring live)
 **Covers:** Rule CD12 — patient safety finding + live monthly monitor
@@ -12,12 +12,7 @@
 
 **41% of critical Creatinine visits result in no inpatient admission.**
 
-Of those never admitted at index:
-- 60% returned to KSH
-- 24% of returning never-admitted patients were admitted on return (delayed escalation)
-- 19 patients (28% of not-admitted cohort) never returned — destination unknown
-
-**28% of initially-admitted critical creatinine patients also never returned** — 16 patients with no subsequent encounter recorded.
+Of those not admitted at index: the majority returned to KSH, and a meaningful subset of those returning were admitted on return — delayed escalation after the index visit. A significant minority never returned to KSH — destination unknown. See Return Visit Tracking table below for the full breakdown.
 
 ---
 
@@ -51,12 +46,9 @@ Referral patients wait an average of 18 days before transfer — the longest LOS
 
 ---
 
-## Dialysis Programme
+## Dialysis Access
 
-No critical renal patient at KSH accessed dialysis. The programme has been idle since May 2025 (13+ months):
-- March 2025: 2 sessions · 2 patients · KES 52,200
-- April 2025: 1 session · 1 patient · KES 119,100
-- May 2025 onward: **zero sessions**
+Current dialysis programme status and the referral routing gap are documented in `dialysis_idle.md`. For the patient pathway: the clinical question is whether critical creatinine patients are being systematically referred into the programme. Investigation CD12 found the referral rate was critically low.
 
 ---
 
@@ -79,25 +71,8 @@ This finding must be escalated to clinical/medical leadership. The gap is in the
 
 ---
 
-## Live Monthly Monitoring (from 2026-06-10)
+## Live Monthly Monitoring
 
-Monthly non-admission rate is now tracked live on the **Lab & Diagnostics** page ("Critical Creatinine — Admission Outcome" section). Data available from Jul 2025 when the CL/CH critical flag format was introduced in the lab system.
+Monthly non-admission rate is tracked live in the snapshot (`cd12_non_admission_rate`). Current value always comes from the snapshot — do not cite historical figures from this file as current.
 
-**Technical note on flag format:** Critical creatinine is flagged in EVENTS_RAW as HTML-encoded strings — `L<span style="color:red">(CL)</span>` (critically low) and `H<span style="color:red">(CH)</span>` (critically high). Plain `H`/`L` = general abnormal only, not critical.
-
-**Monthly data (Jul 2025–Feb 2026):**
-
-| Month | Total Critical | Not Admitted | Rate |
-|-------|---------------|--------------|------|
-| Jul 2025 | 13 | 7 | 53.8% |
-| Aug 2025 | 28 | 10 | 35.7% |
-| Sep 2025 | 17 | 9 | 52.9% |
-| Oct 2025 | 16 | 3 | 18.8% |
-| Nov 2025 | 25 | 11 | 44.0% |
-| Dec 2025 | 14 | 8 | 57.1% |
-| Jan 2026 | 20 | 7 | 35.0% |
-| Feb 2026 | 4 | 1 | 25.0% |
-
-Monthly volumes are small (4–28/month). One patient = up to 25% rate swing. Use 3-month weighted average for trend assessment, not single-month figures.
-
-**Email notifier:** A "Clinical Safety Monitor" section is sent with each Executive Digest showing the trailing 3-month non-admission rate + latest month count. No WATCH/ALERT badge — routes directly to Clinical/Medical Lead for review.
+Monthly volumes are small — a single patient can shift the monthly rate by a large margin. Use the 3-month weighted average for trend assessment, not single-month figures.

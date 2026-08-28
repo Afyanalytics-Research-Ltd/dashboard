@@ -6,46 +6,36 @@
 
 ---
 
-## CD8 — Ward Occupancy: 1–14% Across All Wards
+## CD8 — Occupancy is Demand-Limited, Not Capacity-Limited
 
-All wards run between 1% and 14% bed occupancy. No ward is capacity-constrained.
+No ward is capacity-constrained. Bed availability is not the bottleneck — demand is.
 
-- Bed counts: from INPATIENT_BEDS × INPATIENT_WARD
-- LOS data: from stg_inpatient_admissions
-- `admission_cost` is a flat per-admission ward fee — not daily_rate × LOS
-
-**Occupancy is a demand problem, not a capacity problem. Beds are not the bottleneck.**
+- Bed counts sourced from INPATIENT_BEDS × INPATIENT_WARD
+- LOS data from stg_inpatient_admissions
+- `admission_cost` in stg_inpatient_admissions is a flat per-admission ward fee — not daily_rate × LOS. Revenue efficiency calculations against daily bed capacity are not valid from this column.
 
 ---
 
-## CD9 — Private Ward Revenue Potential
+## CD9 — Private Wards Have the Highest Revenue Potential Per Occupied Bed
 
-Private ward RevPAB (KES 2,438/bed-day) is 1.34× General ward RevPAB (KES 1,824/bed-day).
-
-Private occupancy sits at 1–6% — the same structural under-use as general wards but with higher per-unit revenue. Any marginal increase in private ward utilisation produces disproportionate revenue gain relative to general ward growth.
+Private wards generate more revenue per occupied bed-day than general wards. Private occupancy is structurally low — the same demand problem as general wards, but with higher per-unit revenue. Any marginal increase in private ward utilisation produces disproportionate revenue gain relative to equivalent general ward growth.
 
 **Private wards hold the highest unrealised revenue-per-bed potential in the facility.**
 
 ---
 
-## CD10 — Payment Mode Routing: 85.5% of Insured Admissions Go to General Wards
+## CD10 — Insured Patient Routing is Structural, Not Peak-Driven
 
-| Payment type | General ward share | Private ward share |
-|---|---|---|
-| Insured | 85.5% | 14.5% |
+The majority of insured admissions go to general wards. Investigation CD10 directly tested whether this routing is caused by the Monday peak physician concentration finding (CD5) — specifically, whether insured patients are pushed toward General Female because that is where doctors concentrate during peak.
 
-**Direct test of CD5 link (insured patients routed to General Female because doctors concentrate there during peak):**
+**The test disproved the link.** A three-way test (insured × peak vs off-peak × ward) showed that routing is identical during the Monday 14–18 peak and off-peak hours. Peak does not change where insured patients go. Routing follows insurance coverage tier, not physician availability.
 
-Three-way test (insured × peak vs off-peak × ward): routing pattern is **identical** during Monday 14–18 peak and off-peak hours. Peak does not change where insured patients go.
-
-**Routing is structural, not peak-driven.** The CD5 physician-routing link (insured patients follow doctors to General Female during peak) was directly tested and disproved. The routing follows insurance coverage tier, not physician availability.
+When interpreting insured patient distribution across wards, do not attribute it to peak-hour physician concentration. It is a structural characteristic of the payment system.
 
 ---
 
-## CD11 — Demand vs Conversion: 5–7% Stable Admission Rate
+## CD11 — Low Occupancy is a Demand Problem, Not a Conversion Problem
 
-Of all outpatient evaluations, 5–7% result in an inpatient admission — stable across all measured months. No trend toward improvement or deterioration.
+The outpatient-to-inpatient conversion rate is low and stable — it has not been trending toward improvement or deterioration. The bottleneck is upstream demand (evaluation volume reaching the facility), not downstream conversion (whether evaluated patients get admitted).
 
-- The bottleneck is upstream demand (evaluation volume), not downstream conversion (whether evaluated patients get admitted).
-- Low occupancy is a demand problem, not a conversion problem.
-- Increasing the admission rate from 6% to 7% would add ~100 admissions/year — meaningful but not structural.
+Increasing the conversion rate marginally would produce a small, non-structural occupancy improvement. The lever for occupancy growth is demand generation, not admission decision-making.

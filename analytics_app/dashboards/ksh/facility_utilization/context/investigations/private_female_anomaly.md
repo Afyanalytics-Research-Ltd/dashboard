@@ -6,29 +6,22 @@
 
 ---
 
-## Three Anomalous Metrics — Private Female Compared to All Wards
+## Unresolved Anomaly Pattern
 
-Private Female is the only ward that is simultaneously an outlier on admission wait time, length of stay, AND physician availability — despite having the lowest clinical acuity of all wards.
-
-| Metric | Private Female | Next highest ward |
-|--------|---------------|-------------------|
-| Admission TAT (median) | **158 min** | Private Male: ~90 min |
-| Median LOS | **3.6 days** | General Maternity: ~3.1d |
-| Clinical acuity | **Zero critical lab patients** | All other wards have some |
-| Distinct evaluating doctors | **5** | Private Male: 7 · General Female: 10 |
+Investigation CD4 and CD6 found that Private Female was simultaneously an outlier on admission wait time, length of stay, and physician pool depth — despite having the lowest clinical acuity of all wards during the investigation period. Three anomalies converging in the same ward with no confirmed causal chain.
 
 ---
 
 ## What Each Anomaly Means
 
-**Longest wait, lowest acuity:** Patients in Private Female wait longer to be admitted than any other ward — but they have the least severe presentations of any ward. The usual explanation (complex cases take longer to process) does not apply here.
+**High wait time, low acuity:** Private Female patients waited longer for admission than patients in other wards during the investigation period — despite presenting with the least severe clinical profiles. The usual explanation (complex cases take longer to process) does not apply here.
 
-**Longest stay, lowest acuity:** Private Female patients stay longer than any other ward despite being the healthiest on admission. This pattern did not yield a confirmed causal explanation in the investigation.
+**Extended stay, low acuity:** Private Female patients stayed longer than patients in other wards despite relatively mild presentations on admission. This pattern did not yield a confirmed causal explanation.
 
-**Fewest evaluating doctors:** Only 5 distinct doctors have evaluated Private Female patients in the investigation period. Private Male has 7, General Female has 10. The ward is more dependent on a single physician's availability than any other ward.
+**Thin physician pool:** Private Female had markedly fewer distinct evaluating doctors than general wards in the investigation period — making the ward more sensitive to individual clinician availability than other wards. A single physician's absence has a larger proportional effect here than elsewhere.
 
 ---
 
 ## Status
 
-The Private Female anomaly is an **unresolved pattern** — three outlier metrics converge in the same ward, but no single confirmed causal chain was established. It warrants operational review.
+The Private Female anomaly is an **unresolved pattern** — three outlier metrics converged in the same ward during the investigation period, but no single confirmed causal chain was established. The ward warrants operational review. Current admission TAT, LOS, and physician coverage come from the snapshot.

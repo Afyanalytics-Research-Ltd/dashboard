@@ -1,3 +1,5 @@
+name: dashboard-mlflow
+
 services:
   mlflow-db:
     restart: always
@@ -41,8 +43,12 @@ services:
       - dashboard-net
 
 volumes:
+  # Pinned to their current literal names - see the note in
+  # docker-compose.redash.yaml's volumes: section for why.
   mlflow-pg-data:
+    name: dashboard_mlflow-pg-data
   mlflow-artifacts:
+    name: dashboard_mlflow-artifacts
 
 networks:
   dashboard-net:

@@ -33,10 +33,15 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-from dashboard.theme import (
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from facility_operations.dashboard.theme import (
     apply_theme, render_sidebar, page_header, COLORS, cl,
 )
-from dashboard.queries import (
+from facility_operations.dashboard.queries import (
     q_dropoff_kpis, q_dropoff_sankey_v2,
     q_dropoff_monthly_trend, q_dropoff_service_line,
     q_dropoff_volume_corr,

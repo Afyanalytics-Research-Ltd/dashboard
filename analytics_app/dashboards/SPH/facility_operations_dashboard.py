@@ -11,7 +11,8 @@ import threading
 _here = os.path.dirname(os.path.abspath(__file__))
 _root = _here if os.path.exists(os.path.join(_here, 'dashboard')) else os.path.dirname(_here)
 sys.path.insert(0, _root)
-
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+print(sys.path)
 import streamlit as st
 import pandas as pd
 
@@ -22,11 +23,11 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-from dashboard.theme import (
-    apply_theme, render_sidebar, COLORS, STATUS_BG, STATUS_BORDER, STATUS_LABEL, STATUS_EMOJI,
+from facility_operations.dashboard.theme import (
+    apply_theme, render_sidebar, nav_url, COLORS, STATUS_BG, STATUS_BORDER, STATUS_LABEL, STATUS_EMOJI,
     notice_card, section_header, page_header, info_card,
 )
-from dashboard.queries import (
+from facility_operations.dashboard.queries import (
     q_waiting_rbi_summary, q_dropoff_kpis, q_dropoff_stage_responsibility,
     q_leakage_summary, q_leakage_by_procedure,
     q_cc_pipeline, q_cc_freshness, q_cc_pharm_dispensing, q_cc_pharm_fulfillment,
@@ -35,7 +36,7 @@ from dashboard.queries import (
     q_diag_demand_monthly, q_conv_v2_monthly,
     preload_all,
 )
-from dashboard.notifier import write_current_notices
+from facility_operations.dashboard.notifier import write_current_notices
 
 apply_theme()
 
@@ -1023,25 +1024,27 @@ _alert_domains = [
         "title": "Patient Waiting",    "icon": "fa-solid fa-hourglass-half",
         "status": _waiting_status,     "urgency": _waiting_urgency,
         "story": _waiting_story,       "metrics": _waiting_metrics,
-        "href": "/waiting",            "href_label": "Patient Waiting",
+        # No dedicated "waiting" page exists — Patient Flow (opd) is where
+        # waiting-time/bottleneck analysis actually lives (see pages/1_opd.py).
+        "href": nav_url("opd"),        "href_label": "Patient Waiting",
     },
     {
         "title": "Patient Drop-off",   "icon": "fa-solid fa-route",
         "status": _dropoff_status,     "urgency": _dropoff_urgency,
         "story": _dropoff_story,       "metrics": _dropoff_metrics,
-        "href": "/dropoff",            "href_label": "Patient Drop-off",
+        "href": nav_url("dropoff"),    "href_label": "Patient Drop-off",
     },
     {
         "title": "Revenue Leakage",    "icon": "fa-solid fa-file-invoice-dollar",
         "status": _leakage_status,     "urgency": _leakage_urgency,
         "story": _leakage_story,       "metrics": _leakage_metrics,
-        "href": "/leakage",            "href_label": "Revenue Leakage",
+        "href": nav_url("leakage"),    "href_label": "Revenue Leakage",
     },
     {
         "title": "Diagnostics",        "icon": "fa-solid fa-vials",
         "status": _diag_status,        "urgency": _diag_urgency,
         "story": _diag_story,          "metrics": _diag_findings,
-        "href": "/diagnostics",        "href_label": "Diagnostics",
+        "href": nav_url("diagnostics"), "href_label": "Diagnostics",
     },
 ]
 
@@ -1116,7 +1119,7 @@ with p1:
             _lab_svc_val if _lab_svc_val is not None else _lab_comp_pct,
             _lab_svc_lbl,
             _lab_svc_narr,
-            "/diagnostics", "Diagnostics",
+            nav_url("diagnostics"), "Diagnostics",
             unit="min" if _lab_svc_val is not None else "%",
         ),
         unsafe_allow_html=True,
@@ -1127,7 +1130,7 @@ with p2:
             "Imaging", "fa-solid fa-x-ray",
             _img_p50, "Order → radiology arrival · 28-day avg",
             _tat_narrative("Imaging", _img_p50),
-            "/diagnostics", "Diagnostics",
+            nav_url("diagnostics"), "Diagnostics",
         ),
         unsafe_allow_html=True,
     )
@@ -1140,7 +1143,7 @@ with p3:
             "Pharmacy", "fa-solid fa-pills",
             _pharm_p50, "Dispensing interval · V2",
             _pharm_narrative,
-            "/pharmacy", "Pharmacy",
+            nav_url("pharmacy"), "Pharmacy",
         ),
         unsafe_allow_html=True,
     )
@@ -1150,7 +1153,7 @@ with p4:
             "Theatre", "fa-solid fa-scalpel", 91.2,
             "Illustrative utilisation · May 2023 · V1",
             "Hypothetical only · 167.8 recorded hours / 184 assumed hours",
-            "/theatre", "Theatre",
+            nav_url("admissions"), "Theatre",
             unit="%",
         ),
         unsafe_allow_html=True,
@@ -1171,7 +1174,7 @@ with o1:
             _lab_per100_cur,
             f"Orders per 100 OPD visits · {_lab_per100_lbl}",
             _lab_per100_trend or "Insufficient history",
-            "/diagnostics", "Diagnostics",
+            nav_url("diagnostics"), "Diagnostics",
         ),
         unsafe_allow_html=True,
     )
@@ -1182,7 +1185,7 @@ with o2:
             _img_per100_cur,
             f"Orders per 100 OPD visits · {_img_per100_lbl}",
             _img_per100_trend or "Insufficient history",
-            "/diagnostics", "Diagnostics",
+            nav_url("diagnostics"), "Diagnostics",
         ),
         unsafe_allow_html=True,
     )
@@ -1193,7 +1196,7 @@ with o3:
             _conv_rate_cur,
             f"Conversion rate · {_conv_rate_lbl}",
             _conv_rate_trend or "Insufficient history",
-            "/admissions", "Admissions",
+            nav_url("admissions"), "Admissions",
             decimals=2,
         ),
         unsafe_allow_html=True,

@@ -1,6 +1,12 @@
 # Requires docker-compose.yaml's postgres and redis services to be reachable
-# on the shared dashboard-net network (bring them up first, or combine with:
-#   docker compose -f docker-compose.yaml -f docker-compose.streamlit.yaml up -d
+# on the shared dashboard-net network (bring them up first). Combining with
+# `-f docker-compose.yaml -f docker-compose.streamlit.yaml up -d` still works
+# too, but is no longer required just for reachability - dashboard-net is a
+# fixed, literally-named network every stack in this repo joins regardless
+# of which compose project started it, so `streamlit:8501` resolves fine
+# whether this file is brought up standalone or combined.
+name: dashboard-streamlit
+
 services:
   streamlit:
     restart: always

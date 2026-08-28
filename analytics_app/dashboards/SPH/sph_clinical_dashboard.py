@@ -24,7 +24,7 @@ import os
 import base64
 from urllib.parse import quote
 
-# Parent of sph/ must be on the path for sph.clinicals.opd_ipd_module.* to resolve
+# Parent of sph/ must be on the path for clinicals.opd_ipd_module.* to resolve
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # Also insert sph/ itself so intra-module imports work
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -32,9 +32,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import streamlit as st
 import pandas as pd
 
-import sph.clinicals.opd_ipd_module.queries as Q
-import sph.clinicals.opd_ipd_module.views   as V
-from sph.clinicals.opd_ipd_module.ui_template import (
+import clinicals.opd_ipd_module.queries as Q
+import clinicals.opd_ipd_module.views   as V
+from clinicals.opd_ipd_module.ui_template import (
     inject_css,
     page_header,
     section_header,
@@ -115,6 +115,23 @@ _qsub = st.query_params.get("sub")
 if _qsub and _qsub in _DISEASE_BURDEN_SUBTABS and _qsub != st.session_state["disease_burden_sub_tab"]:
     st.session_state["disease_burden_sub_tab"] = _qsub
 
+# dynamic_file_loader.py (the actual running Streamlit entrypoint) only
+# knows which file to exec via ?dashboard=<name> — it's not a real page,
+# just a query param. A tab link built as bare "?tab=..." REPLACES the
+# whole query string on click, silently dropping dashboard= along with
+# it, so the next load has no dashboard to resolve and shows "No
+# dashboard selected". Every internal link must go through this helper
+# so dashboard= always survives navigation.
+_DASHBOARD_ID = st.query_params.get("dashboard", "sph_clinical_dashboard")
+
+
+def _tab_url(tab_label: str, sub: str | None = None) -> str:
+    url = f"?dashboard={quote(_DASHBOARD_ID)}&tab={quote(tab_label)}"
+    if sub:
+        url += f"&sub={quote(sub)}"
+    return url
+
+
 with st.sidebar:
     # Logo — main sidebar header, replaces the old brand block entirely
     _logo_path = os.path.join(
@@ -168,7 +185,7 @@ with st.sidebar:
             weight = "600" if is_active else "500"
             icon_bg = "rgba(255,255,255,0.22)" if is_active else tile["bg"]
             icon_fg = "#FFFFFF" if is_active else tile["fg"]
-            href = f"?tab={quote(label)}"
+            href = _tab_url(label)
             groups_html += (
                 f'<a href="{href}" target="_self" style="text-decoration:none;display:flex;'
                 f'align-items:center;gap:10px;padding:7px 8px;border-radius:10px;'
@@ -189,7 +206,7 @@ with st.sidebar:
         st.cache_data.clear()
         st.rerun()
 
-    import sph.clinicals.email_digest as EmailDigest
+    import clinicals.email_digest as EmailDigest
     EmailDigest.render_sidebar_control()
 
 
@@ -210,12 +227,12 @@ if active == "Overview":
     # live Snowflake connection is available; fall back to the spec's
     # confirmed figures (below) when a query returns empty (e.g. no
     # credentials in this environment) so the page still renders correctly.
-    import sph.clinicals.case_mix_module.cm_queries as CMQ
-    import sph.clinicals.flow_retention_module.fr_queries as FRQ
-    import sph.clinicals.clinical_activity_module.ca_queries as CAQ
-    import sph.clinicals.disease_burden_module.orthopedics.orth_queries as ORQ
-    import sph.clinicals.disease_burden_module.maternal.mat_queries as MAQ
-    from sph.clinicals.case_mix_module.cm_views import _seasonal_trend_forecast
+    import clinicals.case_mix_module.cm_queries as CMQ
+    import clinicals.flow_retention_module.fr_queries as FRQ
+    import clinicals.clinical_activity_module.ca_queries as CAQ
+    import clinicals.disease_burden_module.orthopedics.orth_queries as ORQ
+    import clinicals.disease_burden_module.maternal.mat_queries as MAQ
+    from clinicals.case_mix_module.cm_views import _seasonal_trend_forecast
 
     def _safe(fn, *a):
         try:
@@ -1070,7 +1087,7 @@ elif active == "Clinical activity":
             unsafe_allow_html=True,
         )
 
-    import sph.clinicals.clinical_activity_module.ca_views as CAV
+    import clinicals.clinical_activity_module.ca_views as CAV
     CAV.render_clinical_activity_tab()
 
 
@@ -1083,7 +1100,7 @@ elif active == "Case mix":
         subtitle="Caseload composition, trends, and emerging shifts",
     )
 
-    import sph.clinicals.case_mix_module.cm_views as CMV
+    import clinicals.case_mix_module.cm_views as CMV
     CMV.render_tab()
 
 
@@ -1091,7 +1108,7 @@ elif active == "Case mix":
 # FLOW AND RETENTION TAB  (continuity of care, scheduled follow-up, LTFU)
 # ─────────────────────────────────────────────────────────────────────────────
 elif active == "Flow and retention":
-    import sph.clinicals.flow_retention_module.fr_views as FRV
+    import clinicals.flow_retention_module.fr_views as FRV
     FRV.render_tab()
 
 
@@ -1099,7 +1116,7 @@ elif active == "Flow and retention":
 # DATA QUALITY TAB
 # ─────────────────────────────────────────────────────────────────────────────
 elif active == "Data quality":
-    import sph.clinicals.data_quality_module.dq_views as DQV
+    import clinicals.data_quality_module.dq_views as DQV
     DQV.render_tab()
 
 
@@ -1114,7 +1131,7 @@ elif active == "Disease burden":
             color  = PRIMARY if is_active else "#8A93A6"
             border = f"2px solid {PRIMARY}" if is_active else "2px solid transparent"
             weight = "600" if is_active else "500"
-            href = f"?tab={quote(active)}&sub={quote(t)}"
+            href = _tab_url(active, sub=t)
             items += (
                 f'<a href="{href}" target="_self" style="text-decoration:none;font-size:14px;'
                 f'font-weight:{weight};padding:8px 14px;color:{color};border-bottom:{border};'
@@ -1136,7 +1153,7 @@ elif active == "Disease burden":
         )
         _render_subtab_bar(sub)
 
-        import sph.clinicals.disease_burden_module.orthopedics.orth_views as ORV
+        import clinicals.disease_burden_module.orthopedics.orth_views as ORV
         ORV.render_tab()
     elif sub == "Maternal health":
         page_header(
@@ -1145,7 +1162,7 @@ elif active == "Disease burden":
         )
         _render_subtab_bar(sub)
 
-        import sph.clinicals.disease_burden_module.maternal.mat_views as MAV
+        import clinicals.disease_burden_module.maternal.mat_views as MAV
         MAV.render_tab()
     else:
         page_header(sub, subtitle="This sub-tab is not yet built.")

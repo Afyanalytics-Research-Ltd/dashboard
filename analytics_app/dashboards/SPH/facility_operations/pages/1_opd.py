@@ -22,11 +22,21 @@ import plotly.graph_objects as go
 
 st.set_page_config(page_title="Patient Flow · SPH Ortho", layout="wide", initial_sidebar_state="expanded")
 
-from dashboard.theme import (
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from facility_operations.dashboard.theme import (
     apply_theme, render_sidebar, kpi_card, section_header, info_card,
     page_header, COLORS, cl, _add_rolling_mean,
 )
-from dashboard.queries import (
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from facility_operations.dashboard.queries import (
     q_opd_summary, q_opd_monthly, q_opd_hour, q_opd_dow_v2,
     q_peak_stage_tat,
     q_waiting_rbi_summary, q_waiting_dept_tat,

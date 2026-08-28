@@ -1,3 +1,13 @@
+# Explicit project name pins this to the SAME name Compose already derived
+# by default from the directory ("dashboard") - existing containers/volumes
+# are unaffected. Every other docker-compose.*.yaml file in this repo now
+# pins its OWN distinct name for the same reason `docker compose -f
+# docker-compose.streamlit.yaml up` (etc.) used to warn about "orphan
+# containers" for web/nginx/redash/cube/etc: with no name set, every file in
+# this directory defaulted to this SAME project, so any `up` run against a
+# single file saw every other file's containers as orphans of itself.
+name: dashboard
+
 services:
   web:
     restart: always

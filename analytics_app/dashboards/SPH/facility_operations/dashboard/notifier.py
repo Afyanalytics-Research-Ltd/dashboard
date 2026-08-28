@@ -1,7 +1,12 @@
 """
 Executive digest email via smtplib (Gmail SMTP).
 Usage:
-    from dashboard.notifier import send_digest
+    import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from facility_operations.dashboard.notifier import send_digest
     ok, msg = send_digest("SPH", notices, stats)
 
 Django migration: replace the smtplib block (_smtp_send function) with:

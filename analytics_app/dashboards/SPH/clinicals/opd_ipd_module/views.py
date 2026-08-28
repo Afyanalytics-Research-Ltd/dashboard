@@ -30,8 +30,12 @@ Section map (matches the dashboard entry point)
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+import os
+import sys
 
-from sph.clinicals.opd_ipd_module.ui_template import (
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from clinicals.opd_ipd_module.ui_template import (
     # Tokens
     PRIMARY, SUCCESS, DANGER, WARNING, NEUTRAL, SECONDARY,
     ACCENT_INFO, ACCENT_POSITIVE, ACCENT_CRITICAL, ACCENT_MONITOR, ACCENT_NEUTRAL,

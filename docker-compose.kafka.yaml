@@ -1,3 +1,5 @@
+name: dashboard-kafka
+
 services:
   kafka:
     restart: always

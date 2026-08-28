@@ -1,0 +1,42 @@
+# n8n (workflow automation), reverse-proxied at /n8n/ - see the nginx
+# location block in nginx/sites-enabled/django_project. Not published to the
+# host: n8n can execute arbitrary HTTP requests/credentials, so like `web`
+# it's reachable only over the shared dashboard-net network, through nginx.
+name: dashboard-n8n
+
+services:
+  n8n:
+    restart: always
+    image: docker.n8n.io/n8nio/n8n:latest
+    container_name: n8n-container
+    expose:
+      - "5678"
+    environment:
+      N8N_HOST: datahub.afyaanalytics.com
+      N8N_PORT: "5678"
+      N8N_PROTOCOL: https
+      # Base path so n8n's own routes/static assets resolve under the nginx
+      # subpath instead of assuming it's mounted at "/".
+      N8N_PATH: /n8n/
+      WEBHOOK_URL: https://datahub.afyaanalytics.com/n8n/
+      N8N_EDITOR_BASE_URL: https://datahub.afyaanalytics.com/n8n/
+      # Trust nginx's X-Forwarded-* headers one hop in, so n8n knows the
+      # original request was HTTPS (affects cookie `secure` flag, etc.).
+      N8N_PROXY_HOPS: "1"
+      GENERIC_TIMEZONE: Africa/Nairobi
+      TZ: Africa/Nairobi
+      # Encrypts credentials n8n stores at rest - must stay the SAME value
+      # for the life of this deployment (rotating it makes every previously
+      # saved credential unreadable). Set in .env, never hardcode it here.
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+    volumes:
+      - n8n-data:/home/node/.n8n
+    networks:
+      - dashboard-net
+
+volumes:
+  n8n-data:
+
+networks:
+  dashboard-net:
+    name: dashboard-net

@@ -60,12 +60,12 @@ def build_overview_snapshot() -> dict:
     Kept intentionally to headline numbers only — an email digest is a
     KPI summary, not a re-rendering of the page's interactive charts.
     """
-    import sph.clinicals.case_mix_module.cm_queries as CMQ
-    import sph.clinicals.flow_retention_module.fr_queries as FRQ
-    import sph.clinicals.clinical_activity_module.ca_queries as CAQ
-    import sph.clinicals.disease_burden_module.maternal.mat_queries as MAQ
-    import sph.clinicals.opd_ipd_module.queries as Q
-    import sph.clinicals.data_quality_module.dq_views as DQV
+    import clinicals.case_mix_module.cm_queries as CMQ
+    import clinicals.flow_retention_module.fr_queries as FRQ
+    import clinicals.clinical_activity_module.ca_queries as CAQ
+    import clinicals.disease_burden_module.maternal.mat_queries as MAQ
+    import clinicals.opd_ipd_module.queries as Q
+    import clinicals.data_quality_module.dq_views as DQV
 
     df_cm_kpis  = _safe(CMQ.get_cm_headline_kpis)
     df_opd_kpis = _safe(Q.get_headline_kpis)

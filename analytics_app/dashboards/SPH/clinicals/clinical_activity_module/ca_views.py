@@ -24,9 +24,14 @@ import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
 
-import sph.clinicals.clinical_activity_module.ca_queries as CAQ
 
-from sph.clinicals.opd_ipd_module.ui_template import (
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import clinicals.clinical_activity_module.ca_queries as CAQ
+
+from clinicals.opd_ipd_module.ui_template import (
     CA_BLUE, CA_GREEN, CA_RED, CA_AMBER, CA_MUTED, CA_PINK,
     CHART_LAYOUT, AXIS_STYLE, PC_CFG, TEXT_HINT, TEXT_MUTED, BORDER,
     section_header, insight_bar, chart_card, chart_card_close, kpi_row,
@@ -186,9 +191,13 @@ def _render_s1_monthly_trend(monthly: pd.DataFrame, spike_df: pd.DataFrame) -> N
             )
             fig = go.Figure()
             for w in wards:
-                sub = by_ward[by_ward["WARD"] == w].set_index("SPIKE_MONTH").reindex(month_order, fill_value=0)
+                sub = (
+                    by_ward[by_ward["WARD"] == w]
+                    .set_index("SPIKE_MONTH")["READMISSION_COUNT"]
+                    .reindex(month_order, fill_value=0)
+                )
                 fig.add_trace(go.Bar(
-                    x=month_order, y=sub["READMISSION_COUNT"], name=w.title(),
+                    x=month_order, y=sub, name=w.title(),
                     marker=dict(color=ward_colors[w], cornerradius=3),
                 ))
             fig.update_layout(

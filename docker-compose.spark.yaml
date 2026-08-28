@@ -1,3 +1,5 @@
+name: dashboard-spark
+
 services:
   spark-master:
     image: apache/spark:3.5.8

@@ -20,11 +20,17 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-from dashboard.theme import (
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from facility_operations.dashboard.theme import (
     apply_theme, render_sidebar, COLORS, cl,
     kpi_card, section_header, page_header,
 )
-from dashboard.queries import (
+
+from facility_operations.dashboard.queries import (
     q_physician_kpis, q_physician_workload, q_physician_efficiency,
     q_physician_rank_trend, q_physician_continuity,
 )

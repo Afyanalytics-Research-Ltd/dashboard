@@ -14,13 +14,23 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from sph.clinicals.opd_ipd_module.ui_template import (
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from clinicals.opd_ipd_module.ui_template import (
     PRIMARY, SUCCESS, DANGER, WARNING, NEUTRAL, SECONDARY,
     SURFACE_1, BORDER, TEXT_PRI, TEXT_SEC, TEXT_MUT,
     CHART_LAYOUT, AXIS_X, AXIS_Y, PC_CFG,
     fmt_num, fmt_pct, priority_cards, kpi_row,
 )
-from sph.clinicals.disease_burden_module.orthopedics.orth_views import (
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from clinicals.disease_burden_module.orthopedics.orth_views import (
     section_header, chart_card, chart_card_close, insight_bar, data_caveat,
     _safe, _empty,
 )
@@ -835,7 +845,7 @@ def get_overview_tiles(df_anc: pd.DataFrame, df_quality_a: pd.DataFrame, df_qual
 # ── Tab entry point ──────────────────────────────────────────────────────────
 
 def render_tab() -> None:
-    import sph.clinicals.disease_burden_module.maternal.mat_queries as MAQ
+    import clinicals.disease_burden_module.maternal.mat_queries as MAQ
 
     with st.spinner("Loading data…"):
         df_kpis = MAQ.get_mat_headline_kpis()

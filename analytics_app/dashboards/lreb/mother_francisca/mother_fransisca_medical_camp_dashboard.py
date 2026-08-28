@@ -3,8 +3,18 @@ import streamlit as st
 st.set_page_config(page_title="Mother Francisca Medical Camp Dashboard", layout="wide")
 
 import plotly.graph_objects as go
-from dashboard.theme import apply_theme, render_sidebar, section_header, kpi_card, cl, COLORS
-from dashboard.queries import get_encounters, get_demographics, get_diagnoses, get_referrals, get_age_diagnosis
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from facility_operations.dashboard.theme import apply_theme, render_sidebar, section_header, kpi_card, cl, COLORS
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from facility_operations.dashboard.queries import get_encounters, get_demographics, get_diagnoses, get_referrals, get_age_diagnosis
 
 apply_theme()
 render_sidebar(active="overview")

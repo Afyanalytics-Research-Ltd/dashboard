@@ -1,3 +1,5 @@
+name: dashboard-dbt
+
 services:
   dbt:
     image: ghcr.io/dbt-labs/dbt-snowflake:1.8.latest

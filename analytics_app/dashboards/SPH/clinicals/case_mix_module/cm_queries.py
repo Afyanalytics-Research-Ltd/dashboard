@@ -15,8 +15,12 @@ Rules enforced here:
 
 import pandas as pd
 import streamlit as st
+import os
+import sys
 
-from sph.clinicals.opd_ipd_module.queries import _run
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from clinicals.opd_ipd_module.queries import _run
 
 # ---------------------------------------------------------------------------
 # Shared segment classifier CTE

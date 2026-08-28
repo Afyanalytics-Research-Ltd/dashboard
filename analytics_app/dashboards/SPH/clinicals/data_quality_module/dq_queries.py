@@ -21,7 +21,12 @@ Five dimensions, one query each:
 
 import pandas as pd
 
-from sph.clinicals.opd_ipd_module.queries import _run as _run_raw
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from clinicals.opd_ipd_module.queries import _run as _run_raw
 
 
 def _run(sql: str) -> pd.DataFrame:

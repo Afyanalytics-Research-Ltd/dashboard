@@ -4,8 +4,18 @@ st.set_page_config(page_title="Camp Response · MF", layout="wide")
 
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from dashboard.theme import apply_theme, render_sidebar, section_header, cl, COLORS
-from dashboard.queries import get_encounters, get_referrals, get_condition_profile
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from facility_operations.dashboard.theme import apply_theme, render_sidebar, section_header, cl, COLORS
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from facility_operations.dashboard.queries import get_encounters, get_referrals, get_condition_profile
 
 apply_theme()
 render_sidebar(active="response")

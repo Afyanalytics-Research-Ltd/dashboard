@@ -15,7 +15,12 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from sph.clinicals.opd_ipd_module.ui_template import (
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from clinicals.opd_ipd_module.ui_template import (
     PRIMARY, SUCCESS, DANGER, WARNING, NEUTRAL,
     SURFACE_1, BORDER, TEXT_PRI, TEXT_SEC, TEXT_MUT,
     CHART_LAYOUT, AXIS_X, AXIS_Y, PC_CFG,
@@ -907,7 +912,7 @@ def get_overview_tiles(df_spine: pd.DataFrame, df_vte: pd.DataFrame,
 # ── Tab entry point ───────────────────────────────────────────────────────────
 
 def render_tab() -> None:
-    import sph.clinicals.disease_burden_module.orthopedics.orth_queries as ORQ
+    import clinicals.disease_burden_module.orthopedics.orth_queries as ORQ
 
     with st.spinner("Loading data…"):
         df_kpis          = ORQ.get_orth_headline_kpis()

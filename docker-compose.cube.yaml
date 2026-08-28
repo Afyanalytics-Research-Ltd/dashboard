@@ -1,3 +1,5 @@
+name: dashboard-cube
+
 services:
   cube:
     restart: always

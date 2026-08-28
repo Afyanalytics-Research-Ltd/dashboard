@@ -24,8 +24,14 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-from dashboard.theme import apply_theme, render_sidebar, page_header, COLORS, cl
-from dashboard.queries import q_capacity_snapshot, q_capacity_trend
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from facility_operations.dashboard.theme import apply_theme, render_sidebar, page_header, COLORS, cl
+
+from facility_operations.dashboard.queries import q_capacity_snapshot, q_capacity_trend
 
 apply_theme()
 render_sidebar("capacity")

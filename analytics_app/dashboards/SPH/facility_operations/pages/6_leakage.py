@@ -23,11 +23,17 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-from dashboard.theme import (
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from facility_operations.dashboard.theme import (
     apply_theme, render_sidebar, kpi_card, section_header, info_card,
     page_header, insight_panel, COLORS, cl,
 )
-from dashboard.queries import (
+
+from facility_operations.dashboard.queries import (
     q_leakage_summary, q_leakage_by_procedure, q_leakage_prev_month,
 )
 

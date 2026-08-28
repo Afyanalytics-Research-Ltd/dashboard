@@ -2,8 +2,18 @@ import streamlit as st
 
 st.set_page_config(page_title="Priorities · MF", layout="wide")
 
-from dashboard.theme import apply_theme, render_sidebar, section_header, cl, COLORS
-from dashboard.queries import get_encounters, get_condition_profile, get_diagnoses, get_vitals_signals
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from facility_operations.dashboard.theme import apply_theme, render_sidebar, section_header, cl, COLORS
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from facility_operations.dashboard.queries import get_encounters, get_condition_profile, get_diagnoses, get_vitals_signals
 
 apply_theme()
 render_sidebar(active="priorities")

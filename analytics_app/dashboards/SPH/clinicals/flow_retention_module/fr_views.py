@@ -27,8 +27,12 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 import streamlit.components.v1 as components
+import os
+import sys
 
-from sph.clinicals.opd_ipd_module.ui_template import (
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from clinicals.opd_ipd_module.ui_template import (
     PRIMARY, SUCCESS, DANGER, WARNING, NEUTRAL,
     SURFACE_1, BORDER, TEXT_PRI, TEXT_SEC, TEXT_MUT,
     CHART_LAYOUT, AXIS_X, AXIS_Y, PC_CFG,
@@ -2143,7 +2147,7 @@ def render_synthesis(df_outreach: pd.DataFrame, df_outcome: pd.DataFrame,
 # ── Tab entry point ───────────────────────────────────────────────────────────
 
 def render_tab() -> None:
-    import sph.clinicals.flow_retention_module.fr_queries as FRQ
+    import clinicals.flow_retention_module.fr_queries as FRQ
 
     with st.spinner("Loading data…"):
         df_status_overall = FRQ.get_fr_status_overall()

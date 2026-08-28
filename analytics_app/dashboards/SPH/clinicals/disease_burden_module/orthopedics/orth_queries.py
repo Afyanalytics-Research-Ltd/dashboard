@@ -16,7 +16,12 @@ Rules enforced here:
 import pandas as pd
 import streamlit as st
 
-from sph.clinicals.opd_ipd_module.queries import _run
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from clinicals.opd_ipd_module.queries import _run
 
 
 # ---------------------------------------------------------------------------
@@ -463,7 +468,7 @@ def get_orth_headline_kpis() -> pd.DataFrame:
     # split, which get_orth_spine_casetype_by_year() covers separately) —
     # reuse the Case Mix module's existing, validated computation of this
     # exact metric rather than duplicating it here.
-    import sph.clinicals.case_mix_module.cm_queries as CMQ
+    import clinicals.case_mix_module.cm_queries as CMQ
     df_case_mix = CMQ.get_cm_headline_kpis()
 
     df_followup = get_orth_followup_continuity()

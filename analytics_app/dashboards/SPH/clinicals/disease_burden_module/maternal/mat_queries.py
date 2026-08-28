@@ -15,7 +15,12 @@ Rules enforced here:
 import pandas as pd
 import streamlit as st
 
-from sph.clinicals.opd_ipd_module.queries import _run
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from clinicals.opd_ipd_module.queries import _run
 
 
 # ---------------------------------------------------------------------------

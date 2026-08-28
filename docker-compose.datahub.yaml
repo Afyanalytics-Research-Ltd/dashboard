@@ -1,11 +1,15 @@
 # DataHub (LinkedIn/Acryl metadata platform).
 # Reuses the existing `kafka` broker from docker-compose.kafka.yaml instead of
-# running a dedicated one - bring that file up first (or combine with -f):
-#   docker compose -f docker-compose.kafka.yaml -f docker-compose.datahub.yaml up -d
+# running a dedicated one - bring that file up first, any way (standalone is
+# fine now that it has its own project name; `kafka:19092` still resolves
+# here over the shared dashboard-net network regardless of which compose
+# project started it).
 # Uses GMS's built-in internal schema registry (no separate Confluent
 # schema-registry container needed).
 # This is a heavy stack (MySQL + Elasticsearch + GMS + frontend) - bring the
 # setup jobs up first, wait for them to exit 0, then start gms/frontend.
+name: dashboard-datahub
+
 services:
   datahub-mysql:
     restart: always
@@ -148,8 +152,12 @@ services:
       - dashboard-net
 
 volumes:
+  # Pinned to their current literal names - see the note in
+  # docker-compose.redash.yaml's volumes: section for why.
   datahub-mysql-data:
+    name: dashboard_datahub-mysql-data
   datahub-elasticsearch-data:
+    name: dashboard_datahub-elasticsearch-data
 
 networks:
   dashboard-net:

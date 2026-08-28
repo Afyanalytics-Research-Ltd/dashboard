@@ -28,11 +28,17 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-from dashboard.theme import (
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from facility_operations.dashboard.theme import (
     apply_theme, render_sidebar, kpi_card, section_header, info_card,
     page_header, COLORS, cl,
 )
-from dashboard.queries import (
+
+from facility_operations.dashboard.queries import (
     q_theatre_summary, q_theatre_monthly, q_theatre_elective,
     q_theatre_access_kpis, q_theatre_overdue, q_theatre_access_distribution,
     q_theatre_v1_procedure_hours, q_theatre_v2_procedure_wait,

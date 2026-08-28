@@ -21,7 +21,7 @@ from pathlib import Path
 sys.path.insert(
     0,
     os.path.join(
-        os.path.dirname(os.path.abspath('__file__')),
+        os.path.dirname(os.path.abspath(__file__)),
         "analytics_app",
         "dashboards",
         "xanalife",

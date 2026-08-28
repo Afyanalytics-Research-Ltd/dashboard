@@ -1,3 +1,5 @@
+name: dashboard-redash
+
 x-redash-common:
   &redash-common
   image: redash/redash:10.1.0.b50633
@@ -62,7 +64,13 @@ services:
     restart: always
 
 volumes:
+  # Pinned to its current literal name so the data this stack already has
+  # keeps resolving correctly now that this file has its own project name
+  # (Compose derives unnamed volumes as "<project>_<key>" - letting this
+  # float would silently start a fresh, empty volume instead of finding
+  # the existing dashboard_redash-pg-data on next `up`).
   redash-pg-data:
+    name: dashboard_redash-pg-data
 
 networks:
   dashboard-net:

@@ -24,8 +24,12 @@ import decimal
 
 import pandas as pd
 import streamlit as st
+import os
+import sys
 
-from sph.clinicals.opd_ipd_module.queries import _run as _run_raw
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from clinicals.opd_ipd_module.queries import _run as _run_raw
 
 _CURRENT_SYSTEM_FILTER = "source_system = 'EMR_V2'"
 _ARTIFACT_DATE = "2025-09-01"

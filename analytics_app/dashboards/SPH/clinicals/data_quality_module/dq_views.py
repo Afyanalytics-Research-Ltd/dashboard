@@ -10,8 +10,13 @@ toddler-age-group ANC visits, gender/age_group completeness).
 
 import streamlit as st
 
-import sph.clinicals.data_quality_module.dq_queries as DQ
-from sph.clinicals.opd_ipd_module.ui_template import (
+import clinicals.data_quality_module.dq_queries as DQ
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from clinicals.opd_ipd_module.ui_template import (
     PRIMARY, SUCCESS, DANGER, WARNING, NEUTRAL,
     SURFACE_1, BORDER, TEXT_PRI, TEXT_SEC, TEXT_MUT,
     page_header, section_header, kpi_row, priority_cards,

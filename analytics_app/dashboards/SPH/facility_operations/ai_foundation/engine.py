@@ -50,7 +50,12 @@ def _hours_since(d: date) -> float:
 
 def populate_metric_state(defn: MetricDefinition, get_connection=None) -> MetricState:
     if get_connection is None:
-        from dashboard.db import get_connection as _gc
+        import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from facility_operations.dashboard.db import get_connection as _gc
         get_connection = _gc
 
     try:
@@ -243,7 +248,12 @@ def _temporal_result(step: InvestigationStep, df: pd.DataFrame, cohort) -> StepR
 
 def run_card(card: InvestigationCard, state: MetricState, get_connection=None) -> list[StepResult]:
     if get_connection is None:
-        from dashboard.db import get_connection as _gc
+        import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from facility_operations.dashboard.db import get_connection as _gc
         get_connection = _gc
 
     results: list[StepResult] = []

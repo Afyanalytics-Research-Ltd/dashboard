@@ -2,7 +2,12 @@ import os
 import numpy as np
 import pandas as pd
 import streamlit as st
-from dashboard.notifier import send_digest, get_recipients
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from facility_operations.dashboard.notifier import send_digest, get_recipients
 
 _LOGO_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "st_peters_logo.png")
 
@@ -128,19 +133,37 @@ def apply_theme():
     st.markdown(_CSS, unsafe_allow_html=True)
 
 
+# dynamic_file_loader.py (the actual running Streamlit entrypoint — see
+# analytics_app/dashboards/dynamic_file_loader.py) reads ?dashboard=/&page=
+# query params, not URL paths — Streamlit's own pages/ auto-discovery can
+# never see this app's sub-pages, since they're exec()'d inline rather
+# than run as Streamlit's real multi-page app. Plain "/opd"-style hrefs
+# used to be dead links for exactly that reason; every nav URL here must
+# go through nav_url() instead.
+DASHBOARD_ID = "facility_operations_dashboard"
+
+
+def nav_url(page_id: str | None) -> str:
+    """Build a loader-compatible URL. `page_id=None`/"overview" -> the
+    dashboard's own home page; anything else -> that sub-page via ?page=."""
+    if not page_id or page_id == "overview":
+        return f"?dashboard={DASHBOARD_ID}"
+    return f"?dashboard={DASHBOARD_ID}&page={page_id}"
+
+
 _NAV = [
     # ── Home ────────────────────────────────────────────────────────────────
-    ("overview",    "fa-solid fa-house",                  "Home",                   "/"),
+    ("overview",    "fa-solid fa-house",                  "Home",                   nav_url("overview")),
     # ── V2 Operational ──────────────────────────────────────────────────────
     (None,          None,                                 "V2 · Operational",       None),
-    ("opd",         "fa-solid fa-user-clock",             "Patient Flow",           "/opd"),
-    ("dropoff",     "fa-solid fa-route",                  "Patient Drop-off",       "/dropoff"),
-    # ("capacity", "fa-solid fa-gauge-high", "Capacity Pressure", "/capacity"),  # DEFERRED — awaiting denominators + service-level detail
-    ("diagnostics", "fa-solid fa-microscope",             "Diagnostics",            "/diagnostics"),
-    ("pharmacy",    "fa-solid fa-pills",                  "Pharmacy",               "/pharmacy"),
-    ("admissions",  "fa-solid fa-bed-pulse",              "Admissions & Theatre",   "/admissions"),
-    ("physician",   "fa-solid fa-user-doctor",            "Physician Attribution",  "/physician"),
-    ("leakage",     "fa-solid fa-file-invoice-dollar",    "Ops Revenue",            "/leakage"),
+    ("opd",         "fa-solid fa-user-clock",             "Patient Flow",           nav_url("opd")),
+    ("dropoff",     "fa-solid fa-route",                  "Patient Drop-off",       nav_url("dropoff")),
+    # ("capacity", "fa-solid fa-gauge-high", "Capacity Pressure", nav_url("capacity")),  # DEFERRED — awaiting denominators + service-level detail
+    ("diagnostics", "fa-solid fa-microscope",             "Diagnostics",            nav_url("diagnostics")),
+    ("pharmacy",    "fa-solid fa-pills",                  "Pharmacy",               nav_url("pharmacy")),
+    ("admissions",  "fa-solid fa-bed-pulse",              "Admissions & Theatre",   nav_url("admissions")),
+    ("physician",   "fa-solid fa-user-doctor",            "Physician Attribution",  nav_url("physician")),
+    ("leakage",     "fa-solid fa-file-invoice-dollar",    "Ops Revenue",            nav_url("leakage")),
 ]
 
 

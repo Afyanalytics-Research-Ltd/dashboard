@@ -22,11 +22,17 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-from dashboard.theme import (
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from facility_operations.dashboard.theme import (
     apply_theme, render_sidebar, kpi_card,
     page_header, COLORS,
 )
-from dashboard.queries import (
+
+from facility_operations.dashboard.queries import (
     q_lab_summary, q_imaging_summary,
     q_lab_mom, q_imaging_mom,
     q_imaging_modality_completion,

@@ -4,10 +4,20 @@ st.set_page_config(page_title="Disease Burden · MF Camp", layout="wide")
 
 import pandas as pd
 import plotly.graph_objects as go
-from dashboard.theme import (
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from facility_operations.dashboard.theme import (
     apply_theme, render_sidebar, section_header, cl, COLORS,
 )
-from dashboard.queries import get_diagnoses, get_encounters, get_patient_diagnoses, get_patient_spine, get_age_diagnosis
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from facility_operations.dashboard.queries import get_diagnoses, get_encounters, get_patient_diagnoses, get_patient_spine, get_age_diagnosis
 
 apply_theme()
 render_sidebar(active="conditions")

@@ -18,7 +18,12 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from sph.clinicals.opd_ipd_module.ui_template import (
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from clinicals.opd_ipd_module.ui_template import (
     PRIMARY, SUCCESS, DANGER, WARNING, NEUTRAL, SECONDARY,
     SURFACE_1, BORDER, TEXT_PRI, TEXT_SEC, TEXT_MUT,
     CHART_LAYOUT, AXIS_X, AXIS_Y, PC_CFG,
@@ -1106,7 +1111,7 @@ def render_recommendations(
 # ── Tab entry point ───────────────────────────────────────────────────────────
 
 def render_tab() -> None:
-    import sph.clinicals.case_mix_module.cm_queries as CMQ
+    import clinicals.case_mix_module.cm_queries as CMQ
 
     with st.spinner("Loading data…"):
         df_headline      = CMQ.get_cm_headline_kpis()

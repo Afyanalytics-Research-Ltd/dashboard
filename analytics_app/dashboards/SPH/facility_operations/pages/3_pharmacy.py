@@ -24,11 +24,17 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-from dashboard.theme import (
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from facility_operations.dashboard.theme import (
     apply_theme, render_sidebar, kpi_card, section_header, info_card,
     page_header, COLORS, cl,
 )
-from dashboard.queries import (
+
+from facility_operations.dashboard.queries import (
     q_pharm_workload_summary, q_pharm_throughput_monthly,
     q_pharm_tat_dist, q_pharm_class_tat, q_pharm_top_items,
     q_pharm_hour, q_pharm_dow, q_pharm_speed_summary,

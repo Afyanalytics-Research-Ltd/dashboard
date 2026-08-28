@@ -44,6 +44,8 @@
 #
 # Feel free to modify this file to suit your needs.
 ---
+name: dashboard-airflow
+
 x-airflow-common:
   &airflow-common
   # In order to add custom dependencies or upgrade provider distributions you can use your extended image.
@@ -334,4 +336,7 @@ services:
         condition: service_completed_successfully
 
 volumes:
+  # Pinned to its current literal name - see the note in
+  # docker-compose.redash.yaml's volumes: section for why.
   postgres-db-volume:
+    name: dashboard_postgres-db-volume

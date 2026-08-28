@@ -28,8 +28,12 @@ import decimal
 
 import pandas as pd
 import streamlit as st
+import os
+import sys
 
-from sph.clinicals.opd_ipd_module.queries import _run as _run_raw
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from clinicals.opd_ipd_module.queries import _run as _run_raw
 
 
 def _run(sql: str) -> pd.DataFrame:

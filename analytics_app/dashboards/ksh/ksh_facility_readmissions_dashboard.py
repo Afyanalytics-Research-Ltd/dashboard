@@ -4884,7 +4884,7 @@ elif page == "Capacity & Operations":
                     return ""
 
                 st.dataframe(
-                    _tt.style.applymap(_style_tat_cell, subset=["Median TAT (min)"]),
+                    _tt.style.map(_style_tat_cell, subset=["Median TAT (min)"]),
                     use_container_width=True,
                     hide_index=True,
                     height=240,

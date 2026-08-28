@@ -11,6 +11,7 @@ services:
     volumes:
       - ./:/cube/conf
       - ./rsa_key.p8:/cube/conf/rsa_key.p8:ro
+      
     env_file: .env
     networks:
       - dashboard-net

@@ -9,11 +9,27 @@ import json
 import os
 from datetime import datetime
 
-import django
 from django.conf import settings
 
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'airflow_dashboard.settings')
-django.setup()
+# Only mail settings are actually used below (send_mail + DEFAULT_FROM_EMAIL) -
+# configure them directly rather than django.setup()'ing the real
+# airflow_dashboard.settings module, which needs the repo root on sys.path.
+# This file runs exec()'d inside a Streamlit dashboard
+# (analytics_app/dashboards/dynamic_file_loader.py), where only the dashboard's
+# own directory is added to sys.path - the repo root, and so the
+# airflow_dashboard package, isn't importable there. Mirrors the same fix
+# already used in the sibling ksh/inventory_intelligence/utils/notifier.py.
+if not settings.configured:
+    settings.configure(
+        INSTALLED_APPS=[],
+        EMAIL_BACKEND="django.core.mail.backends.smtp.EmailBackend",
+        EMAIL_HOST=os.environ.get("EMAIL_HOST", "smtp.gmail.com").strip(),
+        EMAIL_PORT=int(os.environ.get("EMAIL_PORT", "587").strip()),
+        EMAIL_USE_TLS=os.environ.get("EMAIL_USE_TLS", "true").strip().lower() != "false",
+        EMAIL_HOST_USER=os.environ.get("EMAIL_HOST_USER", "").strip(),
+        EMAIL_HOST_PASSWORD=os.environ.get("EMAIL_HOST_PASSWORD", "").strip(),
+        DEFAULT_FROM_EMAIL=os.environ.get("NOTIFY_EMAIL_FROM", "noreply@afyaanalytics.com").strip(),
+    )
 
 from django.core.mail import send_mail  # noqa: E402
 

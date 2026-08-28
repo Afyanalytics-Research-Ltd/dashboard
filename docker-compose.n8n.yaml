@@ -1,7 +1,20 @@
-# n8n (workflow automation), reverse-proxied at /n8n/ - see the nginx
-# location block in nginx/sites-enabled/django_project. Not published to the
-# host: n8n can execute arbitrary HTTP requests/credentials, so like `web`
-# it's reachable only over the shared dashboard-net network, through nginx.
+# n8n (workflow automation), reverse-proxied at /n8n/ in prod - see the
+# nginx location block in nginx/sites-enabled/django_project.
+#
+# Every URL/host setting below is env-driven with a localhost fallback (same
+# ${VAR:-default} pattern docker-compose.airflow.yaml uses), so:
+#   - Prod: set N8N_HOST/N8N_PROTOCOL/N8N_PATH/N8N_WEBHOOK_URL/
+#     N8N_EDITOR_BASE_URL/N8N_PROXY_HOPS in .env (see values below).
+#   - Local testing: leave those unset. `docker compose -f
+#     docker-compose.n8n.yaml up -d` then open http://localhost:5679 directly
+#     - no nginx, no domain, no .env changes needed. N8N_ENCRYPTION_KEY is
+#     the only var actually worth setting locally too (see below).
+#
+# Host port defaults to 5679, not n8n's usual 5678 - this machine already
+# has an unrelated n8n instance (a different project, "fastisha") bound to
+# 5678. The container's own internal port stays 5678 either way (that's all
+# nginx/dashboard-net ever see); override with N8N_HOST_PORT in .env if
+# 5679 is also taken or you'd rather use something else.
 name: dashboard-n8n
 
 services:
@@ -9,26 +22,32 @@ services:
     restart: always
     image: docker.n8n.io/n8nio/n8n:latest
     container_name: n8n-container
-    expose:
-      - "5678"
+    ports:
+      - "${N8N_HOST_PORT:-5679}:5678"
     environment:
-      N8N_HOST: datahub.afyaanalytics.com
+      N8N_HOST: ${N8N_HOST:-localhost}
       N8N_PORT: "5678"
-      N8N_PROTOCOL: https
+      N8N_PROTOCOL: ${N8N_PROTOCOL:-http}
       # Base path so n8n's own routes/static assets resolve under the nginx
-      # subpath instead of assuming it's mounted at "/".
-      N8N_PATH: /n8n/
-      WEBHOOK_URL: https://datahub.afyaanalytics.com/n8n/
-      N8N_EDITOR_BASE_URL: https://datahub.afyaanalytics.com/n8n/
+      # subpath instead of assuming it's mounted at "/". Prod:
+      # N8N_PATH=/n8n/ in .env. Local: defaults to root, matching direct
+      # http://localhost:5678 access with no proxy in front.
+      N8N_PATH: ${N8N_PATH:-/}
+      WEBHOOK_URL: ${N8N_WEBHOOK_URL:-http://localhost:5679/}
+      N8N_EDITOR_BASE_URL: ${N8N_EDITOR_BASE_URL:-http://localhost:5679/}
       # Trust nginx's X-Forwarded-* headers one hop in, so n8n knows the
       # original request was HTTPS (affects cookie `secure` flag, etc.).
-      N8N_PROXY_HOPS: "1"
+      # Prod: N8N_PROXY_HOPS=1 in .env. Local: 0, there's no proxy in front.
+      N8N_PROXY_HOPS: ${N8N_PROXY_HOPS:-0}
       GENERIC_TIMEZONE: Africa/Nairobi
       TZ: Africa/Nairobi
       # Encrypts credentials n8n stores at rest - must stay the SAME value
-      # for the life of this deployment (rotating it makes every previously
-      # saved credential unreadable). Set in .env, never hardcode it here.
-      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+      # for the life of a given n8n-data volume (rotating it makes every
+      # previously saved credential unreadable). Set in .env; if left unset
+      # n8n auto-generates and persists one in the volume on first boot,
+      # which is fine for local testing but not something to rely on in
+      # prod (a volume rebuild would silently generate a new one).
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:-}
     volumes:
       - n8n-data:/home/node/.n8n
     networks:
@@ -39,4 +58,5 @@ volumes:
 
 networks:
   dashboard-net:
+    external: true
     name: dashboard-net

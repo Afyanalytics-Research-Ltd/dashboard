@@ -161,4 +161,5 @@ volumes:
 
 networks:
   dashboard-net:
+    external: true
     name: dashboard-net

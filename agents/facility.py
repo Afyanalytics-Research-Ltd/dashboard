@@ -80,6 +80,10 @@ FACILITY_REGISTRY: dict[str, dict[str, str | list[str]]] = {
         "source_schema": ["TENRI", "tenri"],
         "facility":      "TENRI",
     },
+    "SPH": {
+            "source_schema": ["SPH", "sph"],
+            "facility":      ["SPH"],
+    }
 }
 
 # Dimension names that represent the facility/schema axis in Cube

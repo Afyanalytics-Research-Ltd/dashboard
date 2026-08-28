@@ -1,0 +1,89 @@
+cubes:
+  - name: rpt_malaria_monthly_zone
+    sql_table: "\"REPORTING\".\"RPT_MALARIA_MONTHLY_ZONE\""
+    data_source: default
+
+    joins:
+      - name: rpt_malaria_zones
+        sql: "{CUBE}.\"ZONE_LABEL\" = {rpt_malaria_zones}.\"ZONE_LABEL\""
+        relationship: many_to_one
+
+    dimensions:
+      - name: is_valid_positivity_month
+        sql: "{CUBE}.\"IS_VALID_POSITIVITY_MONTH\""
+        type: boolean
+
+      - name: source_schema
+        sql: "{CUBE}.\"SOURCE_SCHEMA\""
+        type: string
+
+      - name: zone_label
+        sql: "{CUBE}.\"ZONE_LABEL\""
+        type: string
+        primary_key: true
+
+      - name: visit_month
+        sql: "{CUBE}.\"VISIT_MONTH\""
+        type: time
+        primary_key: true
+
+    measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:01:18.945764+00:00
+      - name: testing_rate
+        sql: '{CUBE}."TESTING_RATE"'
+        type: avg
+      - name: positivity_rate
+        sql: '{CUBE}."POSITIVITY_RATE"'
+        type: avg
+        drill_members: [visit_month, zone_label, is_valid_positivity_month]
+      - name: antibiotic_coprescription_rate
+        sql: '{CUBE}."ANTIBIOTIC_COPRESCRIPTION_RATE"'
+        type: avg
+      - name: sepsis_rate
+        sql: '{CUBE}."SEPSIS_RATE"'
+        type: avg
+      - name: rainfall_mm
+        sql: '{CUBE}."RAINFALL_MM"'
+        type: sum
+      - name: sub_county_pop
+        sql: '{CUBE}."SUB_COUNTY_POP"'
+        type: sum
+      - name: incidence_per_1000_monthly
+        sql: '{CUBE}."INCIDENCE_PER_1000_MONTHLY"'
+        type: sum
+      - name: count
+        type: count
+        drill_members: [visit_month, zone_label, source_schema]
+
+      - name: antibiotic_confirmed_count
+        sql: "{CUBE}.\"ANTIBIOTIC_CONFIRMED_COUNT\""
+        type: sum
+
+      - name: antibiotic_rx_count
+        sql: "{CUBE}.\"ANTIBIOTIC_RX_COUNT\""
+        type: sum
+
+      - name: antimalarial_count
+        sql: "{CUBE}.\"ANTIMALARIAL_COUNT\""
+        type: sum
+
+      - name: confirmed_count
+        sql: "{CUBE}.\"CONFIRMED_COUNT\""
+        type: sum
+
+      - name: sepsis_count
+        sql: "{CUBE}.\"SEPSIS_COUNT\""
+        type: sum
+
+      - name: tested_count
+        sql: "{CUBE}.\"TESTED_COUNT\""
+        type: sum
+
+      - name: visit_count
+        sql: "{CUBE}.\"VISIT_COUNT\""
+        type: sum
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

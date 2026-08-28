@@ -1,0 +1,42 @@
+cubes:
+  - name: rpt_kakamega_population
+    sql_table: "\"REPORTING\".\"RPT_KAKAMEGA_POPULATION\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: facility
+        sql: "{CUBE}.\"FACILITY\""
+        type: string
+
+      - name: source_schema
+        sql: "{CUBE}.\"SOURCE_SCHEMA\""
+        type: string
+
+      - name: sub_county
+        sql: "{CUBE}.\"SUB_COUNTY\""
+        type: string
+
+      - name: visit_month
+        sql: "{CUBE}.\"VISIT_MONTH\""
+        type: time
+
+    measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:00:29.989352+00:00
+      - name: incidence_rate_per_1000
+        sql: '{CUBE}."INCIDENCE_RATE_PER_1000"'
+        type: sum
+        drill_members: [visit_month, facility, sub_county]
+      - name: count
+        type: count
+
+      - name: visit_count
+        sql: "{CUBE}.\"VISIT_COUNT\""
+        type: sum
+        drill_members: [visit_month, facility, sub_county]
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

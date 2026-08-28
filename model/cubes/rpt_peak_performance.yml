@@ -1,0 +1,80 @@
+cubes:
+  - name: rpt_peak_performance
+    sql_table: "\"REPORTING\".\"RPT_PEAK_PERFORMANCE\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: day_name
+        sql: "{CUBE}.\"DAY_NAME\""
+        type: string
+
+      - name: is_admitted
+        sql: "{CUBE}.\"IS_ADMITTED\""
+        type: boolean
+
+      - name: time_bucket
+        sql: "{CUBE}.\"TIME_BUCKET\""
+        type: string
+
+      - name: username
+        sql: "{CUBE}.\"USERNAME\""
+        type: string
+
+      - name: ward_category
+        sql: "{CUBE}.\"WARD_CATEGORY\""
+        type: string
+
+      - name: ward_name
+        sql: "{CUBE}.\"WARD_NAME\""
+        type: string
+
+      - name: admission_month
+        sql: "{CUBE}.\"ADMISSION_MONTH\""
+        type: time
+
+      - name: admitted_at
+        sql: "{CUBE}.\"ADMITTED_AT\""
+        type: time
+
+      - name: visit_month
+        sql: "{CUBE}.\"VISIT_MONTH\""
+        type: time
+
+    measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:03:13.139870+00:00
+      - name: visit_hour
+        sql: '{CUBE}."VISIT_HOUR"'
+        type: sum
+      - name: day_num
+        sql: '{CUBE}."DAY_NUM"'
+        type: sum
+      - name: tat_min
+        sql: '{CUBE}."TAT_MIN"'
+        type: sum
+      - name: count
+        type: count
+        title: Evaluations (count)
+        description: Count of ED evaluations (one row per evaluation). Break down by time_bucket (values include "Peak (Mon 14-17h)" and "Off-Peak") for peak vs off-peak questions, by username for per-doctor evaluation counts. Use for "how many evaluations", "which doctor handles the most evaluations" questions.
+        drill_members: [visit_month, time_bucket, username, ward_category]
+
+      - name: admissions
+        sql: 'IFF({CUBE}."IS_ADMITTED", 1, 0)'
+        type: sum
+        title: Admissions From Evaluation (count)
+        description: Count of evaluations that resulted in an admission.
+        drill_members: [visit_month, time_bucket, username, ward_category]
+
+      - name: conversion_pct
+        sql: "{admissions} * 100.0 / NULLIF({count}, 0)"
+        type: number
+        format: percent
+        title: Admission Conversion Rate (%)
+        description: Percentage of evaluations that resulted in an admission — admissions / count. Break down by time_bucket for "are peak-hour patients more likely to be admitted than off-peak" questions, or by visit_month for a conversion-rate trend.
+        drill_members: [visit_month, time_bucket, username, ward_category]
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

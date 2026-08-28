@@ -1,0 +1,102 @@
+cubes:
+  - name: fact_procurement
+    sql_table: "\"REPORTING\".\"FACT_PROCUREMENT\""
+    data_source: default
+
+    joins:
+      - name: canonical_keys
+        sql: "{CUBE}.\"CANONICAL_PRODUCT_ID\" = {canonical_keys}.\"CANONICAL_PRODUCT_ID\""
+        relationship: many_to_one
+
+      - name: rpt_supplier_summary
+        sql: "{CUBE}.\"SUPPLIER_ID\" = {rpt_supplier_summary}.\"SUPPLIER_ID\""
+        relationship: many_to_one
+
+    dimensions:
+      - name: canonical_name
+        sql: "{CUBE}.\"CANONICAL_NAME\""
+        type: string
+
+      - name: doc_code
+        sql: "{CUBE}.\"DOC_CODE\""
+        type: string
+
+      - name: doc_id
+        sql: "{CUBE}.\"DOC_ID\""
+        type: string
+        primary_key: true
+
+      - name: doc_type
+        sql: "{CUBE}.\"DOC_TYPE\""
+        type: string
+
+      - name: inn_name
+        sql: "{CUBE}.\"INN_NAME\""
+        type: string
+
+      - name: item_id
+        sql: "{CUBE}.\"ITEM_ID\""
+        type: string
+
+      - name: item_name
+        sql: "{CUBE}.\"ITEM_NAME\""
+        type: string
+
+      - name: product_category
+        sql: "{CUBE}.\"PRODUCT_CATEGORY\""
+        type: string
+
+      - name: source_schema
+        sql: "{CUBE}.\"SOURCE_SCHEMA\""
+        type: string
+
+      - name: supplier_id
+        sql: "{CUBE}.\"SUPPLIER_ID\""
+        type: string
+
+      - name: supplier_name
+        sql: "{CUBE}.\"SUPPLIER_NAME\""
+        type: string
+
+      - name: therapeutic_class
+        sql: "{CUBE}.\"THERAPEUTIC_CLASS\""
+        type: string
+
+      - name: unit_label
+        sql: "{CUBE}.\"UNIT_LABEL\""
+        type: string
+
+      - name: batch_expiry
+        sql: "{CUBE}.\"BATCH_EXPIRY\""
+        type: time
+
+      - name: doc_at
+        sql: "{CUBE}.\"DOC_AT\""
+        type: time
+
+      - name: doc_month
+        sql: "{CUBE}.\"DOC_MONTH\""
+        type: time
+
+    measures:
+      - name: count
+        type: count
+        drill_members: [doc_at, source_schema, therapeutic_class, supplier_id]
+
+      - name: line_value
+        sql: "{CUBE}.\"LINE_VALUE\""
+        type: sum
+        drill_members: [doc_month, source_schema, supplier_name, therapeutic_class]
+
+      - name: quantity
+        sql: "{CUBE}.\"QUANTITY\""
+        type: sum
+
+      - name: unit_price
+        sql: "{CUBE}.\"UNIT_PRICE\""
+        type: sum
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

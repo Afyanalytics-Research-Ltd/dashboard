@@ -75,7 +75,7 @@ class FacilitySerializer(serializers.ModelSerializer):
         model = Facility
         fields = [
             'id', 'client', 'client_name', 'name', 'slug',
-            'is_active', 'created_at', 'updated_at',
+            'reporting_source_schema', 'is_active', 'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
 

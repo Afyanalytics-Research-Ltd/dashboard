@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% load static analyst_extras %}
+
+{% block title %}{{ conversation.title|default:workbook.original_name }}{% endblock %}
+{% block page_title %}{{ conversation.title|default:workbook.original_name }}{% endblock %}
+
+{% block breadcrumbs %}
+<div class="afya-breadcrumb-bar">
+  <nav aria-label="breadcrumb">
+    <ol class="breadcrumb mb-0">
+      <li class="breadcrumb-item"><a href="{% url 'analytics:home' %}">Home</a></li>
+      <li class="breadcrumb-item"><a href="{% url 'warehouse:index' %}">Warehouse</a></li>
+      <li class="breadcrumb-item"><a href="{% url 'warehouse:analyst_workbook_list' %}">Spreadsheet Analyst</a></li>
+      <li class="breadcrumb-item"><a href="{{ workbook.get_absolute_url }}">{{ workbook.original_name }}</a></li>
+      <li class="breadcrumb-item active" aria-current="page">Chat</li>
+    </ol>
+  </nav>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/analyst.css' %}" />
+{% endblock %}
+
+{% block content %}
+
+<div class="an-chat-shell">
+
+  <!-- ============ MAIN CHAT ============ -->
+  <div class="an-chat-main">
+    <div class="an-chat-header">
+      <div class="an-chat-header-title">
+        <i class="bi bi-file-earmark-spreadsheet-fill"></i>
+        {{ workbook.original_name }}
+      </div>
+      <div class="d-flex align-items-center gap-2">
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="anResetKernelBtn" title="Reset the pandas kernel">
+          <i class="bi bi-arrow-clockwise"></i> Reset kernel
+        </button>
+      </div>
+    </div>
+
+    <div class="an-chat-scroll" id="anChatScroll">
+      {% if not conversation.messages.all %}
+      <div class="text-center text-muted py-4">
+        <i class="bi bi-chat-heart d-block mb-2" style="font-size:28px;opacity:.35;"></i>
+        <div style="font-size:13px;">Ask a question below, or pick a starting point.</div>
+      </div>
+      {% endif %}
+      {% for message in conversation.messages.all %}
+        {% include "warehouse/analyst/_message.html" %}
+      {% endfor %}
+    </div>
+
+    {% if not conversation.messages.all %}
+    <div class="an-suggestions" id="anSuggestions">
+      {% for s in suggestions %}
+      <button type="button" class="an-suggestion-chip" data-question="{{ s|escapejs }}">{{ s }}</button>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <div class="an-chat-input-area">
+      <form id="anAskForm" class="an-chat-input-row">
+        <textarea id="anQuestionInput" class="an-chat-textarea" rows="1"
+                  placeholder="Ask about the data, or say 'analyse this workbook'…"
+                  maxlength="4000"></textarea>
+        <button type="submit" class="an-chat-send-btn" id="anSendBtn" disabled aria-label="Send">
+          <i class="bi bi-send-fill"></i>
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ============ SIDE PANEL ============ -->
+  <div class="an-side-panel">
+    <div class="an-side-title"><i class="bi bi-layers me-1"></i>Workbook</div>
+    <div style="font-size:12px;color:var(--afya-muted);margin-bottom:12px;">
+      Uploaded {{ workbook.uploaded_at|date:"d M Y" }}. Every sheet is already
+      loaded into pandas for this conversation.
+    </div>
+    <a href="{{ workbook.get_absolute_url }}" class="btn btn-sm btn-outline-primary w-100 mb-3">
+      <i class="bi bi-clipboard-data me-1"></i>View full profile
+    </a>
+
+    <div class="an-side-title"><i class="bi bi-info-circle me-1"></i>How this works</div>
+    <div style="font-size:12px;color:var(--afya-muted);line-height:1.6;">
+      Every sheet is loaded into pandas. The assistant profiles the data first,
+      then runs real Python to answer — never guesses a number. Charts and
+      exported tables appear inline; click "Show work" under any answer to see
+      exactly what it ran.
+    </div>
+  </div>
+
+</div>
+
+<!-- ============ LIGHTBOX ============ -->
+<div class="an-lightbox" id="anLightbox">
+  <div class="an-lightbox-close"><i class="bi bi-x-lg"></i></div>
+  <img src="" alt="" />
+</div>
+
+<script type="application/json" id="analystChatConfig">
+{
+  "askUrl": "{% url 'warehouse:analyst_ask' conversation.id %}",
+  "resetUrl": "{% url 'warehouse:analyst_reset_kernel' conversation.id %}",
+  "csrfToken": "{{ csrf_token }}"
+}
+</script>
+
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/analyst_chat.js' %}"></script>
+{% endblock %}

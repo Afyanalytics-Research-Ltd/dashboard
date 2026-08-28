@@ -1,0 +1,74 @@
+cubes:
+  - name: fact_patient_invoice
+    sql_table: "\"REPORTING\".\"FACT_PATIENT_INVOICE\""
+    data_source: default
+
+    # rpt_retention is the hospital-wide patient hub. This table's facility
+    # column is FACILITY_KEY (not SOURCE_SCHEMA like most other facts) — its
+    # values include a 6th facility, XANALIFE_CLEAN, not yet present in
+    # agents/facility.py's FACILITY_REGISTRY (flagged, not fixed here). The
+    # same "_CLEAN" stripping/uppercasing normalization applies uniformly to
+    # it. Raw PATIENT_ID collides across facilities, so normalization is
+    # required before matching patient_id — a naive join was verified to
+    # overcount by ~14%.
+    joins:
+      - name: rpt_retention
+        sql: "UPPER(REGEXP_REPLACE({CUBE}.\"FACILITY_KEY\", '_CLEAN$', '')) = UPPER(REGEXP_REPLACE({rpt_retention}.\"SOURCE_SCHEMA\", '_CLEAN$', '')) AND {CUBE}.\"PATIENT_ID\" = {rpt_retention}.\"PATIENT_ID\""
+        relationship: many_to_one
+
+    dimensions:
+      - name: facility_key
+        sql: "{CUBE}.\"FACILITY_KEY\""
+        type: string
+
+      - name: invoice_key
+        sql: "{CUBE}.\"INVOICE_KEY\""
+        type: string
+        primary_key: true
+
+      - name: patient_id
+        sql: "{CUBE}.\"PATIENT_ID\""
+        type: string
+
+      - name: first_event_date
+        sql: "{CUBE}.\"FIRST_EVENT_DATE\""
+        type: time
+
+      - name: last_event_date
+        sql: "{CUBE}.\"LAST_EVENT_DATE\""
+        type: time
+
+    measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T12:58:45.455670+00:00
+      - name: total_billed
+        sql: '{CUBE}."TOTAL_BILLED"'
+        type: sum
+        drill_members: [first_event_date, facility_key, patient_id, invoice_key]
+      - name: total_patient_invoice
+        sql: '{CUBE}."TOTAL_PATIENT_INVOICE"'
+        type: sum
+      - name: total_paid_eval
+        sql: '{CUBE}."TOTAL_PAID_EVAL"'
+        type: sum
+      - name: total_transactions
+        sql: '{CUBE}."TOTAL_TRANSACTIONS"'
+        type: sum
+      - name: total_waived
+        sql: '{CUBE}."TOTAL_WAIVED"'
+        type: sum
+      - name: balance_due
+        sql: '{CUBE}."BALANCE_DUE"'
+        type: sum
+        drill_members: [last_event_date, facility_key, patient_id, invoice_key]
+      - name: count
+        type: count
+        drill_members: [first_event_date, facility_key, patient_id, invoice_key]
+
+      - name: event_count
+        sql: "{CUBE}.\"EVENT_COUNT\""
+        type: sum
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

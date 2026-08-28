@@ -350,3 +350,372 @@ class PermissionsTests(TestCase):
         self.client.force_login(self.user)
         resp = self.client.get('/core/notifications/')
         self.assertEqual(resp.status_code, 200)
+
+
+# ---------------------------------------------------------------------------
+# PermissionsView — facility-scoped user management
+# ---------------------------------------------------------------------------
+
+class PermissionsViewTests(TestCase):
+
+    def setUp(self):
+        from django.contrib.auth.models import Group
+
+        from authentication.roles import ROLE_CLIENT_ADMIN, ROLE_FACILITY_ADMIN
+
+        def _set_role(user, role):
+            # RoleRequiredMixin checks Django Group membership (authentication.roles.in_role),
+            # so the test user needs the group, not just profile.role, to pass the view's gate.
+            user.profile.role = role
+            user.profile.save()
+            group, _ = Group.objects.get_or_create(name=role)
+            user.groups.add(group)
+
+        self.client_org = make_client(name='Perm Test Hosp', slug='perm-test-hosp')
+        self.facility_a = make_facility(self.client_org, name='Facility A', slug='facility-a')
+        self.facility_b = make_facility(self.client_org, name='Facility B', slug='facility-b')
+
+        self.facility_admin = make_user('perm_facility_admin')
+        _set_role(self.facility_admin, ROLE_FACILITY_ADMIN)
+        self.facility_admin.profile.facility = self.facility_a
+        self.facility_admin.profile.client = self.client_org
+        self.facility_admin.profile.save()
+
+        self.same_facility_user = make_user('perm_same_facility')
+        _set_role(self.same_facility_user, ROLE_FACILITY_ADMIN)
+        self.same_facility_user.profile.facility = self.facility_a
+        self.same_facility_user.profile.client = self.client_org
+        self.same_facility_user.profile.save()
+
+        self.other_facility_user = make_user('perm_other_facility')
+        _set_role(self.other_facility_user, ROLE_FACILITY_ADMIN)
+        self.other_facility_user.profile.facility = self.facility_b
+        self.other_facility_user.profile.client = self.client_org
+        self.other_facility_user.profile.save()
+
+        self.client_admin = make_user('perm_client_admin')
+        _set_role(self.client_admin, ROLE_CLIENT_ADMIN)
+        self.client_admin.profile.client = self.client_org
+        self.client_admin.profile.save()
+
+        self.c = TestClient()
+
+    def test_requires_login(self):
+        resp = self.c.get(reverse('core:permissions'))
+        self.assertEqual(resp.status_code, 302)
+
+    def test_facility_admin_sees_only_own_facility_users(self):
+        self.c.force_login(self.facility_admin)
+        resp = self.c.get(reverse('core:permissions'))
+        self.assertEqual(resp.status_code, 200)
+        managed = resp.context['managed_users']
+        self.assertIn(self.same_facility_user, managed)
+        self.assertNotIn(self.other_facility_user, managed)
+        self.assertNotIn(self.facility_admin, managed)  # never manages self
+
+    def test_client_admin_sees_whole_client(self):
+        self.c.force_login(self.client_admin)
+        resp = self.c.get(reverse('core:permissions'))
+        managed = resp.context['managed_users']
+        self.assertIn(self.same_facility_user, managed)
+        self.assertIn(self.other_facility_user, managed)
+        self.assertIn(self.facility_admin, managed)
+
+    def test_facility_admin_can_grant_module_to_own_user(self):
+        self.c.force_login(self.facility_admin)
+        resp = self.c.post(reverse('core:permissions'), {
+            'action': 'set_module',
+            'user_id': self.same_facility_user.pk,
+            'module_key': 'warehouse',
+            'is_granted': 'true',
+        })
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.json()['ok'])
+        from authentication.module_access import has_module_access
+        self.assertTrue(has_module_access(self.same_facility_user, 'warehouse'))
+
+    def test_facility_admin_cannot_modify_other_facility_user(self):
+        self.c.force_login(self.facility_admin)
+        resp = self.c.post(reverse('core:permissions'), {
+            'action': 'set_module',
+            'user_id': self.other_facility_user.pk,
+            'module_key': 'warehouse',
+            'is_granted': 'true',
+        })
+        self.assertEqual(resp.status_code, 404)
+
+    def test_clear_module_reverts_to_default(self):
+        from authentication.models import UserModuleGrant
+        from authentication.module_access import has_module_access
+
+        UserModuleGrant.objects.create(
+            user=self.same_facility_user, module_key='warehouse', is_granted=True,
+        )
+        self.c.force_login(self.facility_admin)
+        resp = self.c.post(reverse('core:permissions'), {
+            'action': 'clear_module',
+            'user_id': self.same_facility_user.pk,
+            'module_key': 'warehouse',
+        })
+        self.assertTrue(resp.json()['ok'])
+        self.assertFalse(has_module_access(self.same_facility_user, 'warehouse'))  # back to role default
+
+    def test_toggle_dashboard_hides_for_target_user(self):
+        from analytics_app.models import Dashboard
+
+        dashboard = Dashboard.objects.create(
+            name='Perm Test Dashboard', slug='perm-test-dashboard',
+            client=self.client_org, streamlit_url='http://localhost:8501/?d=1',
+        )
+        self.c.force_login(self.facility_admin)
+        resp = self.c.post(reverse('core:permissions'), {
+            'action': 'toggle_dashboard',
+            'user_id': self.same_facility_user.pk,
+            'dashboard_id': dashboard.pk,
+            'hidden': 'true',
+        })
+        self.assertTrue(resp.json()['ok'])
+        self.assertTrue(
+            dashboard.hidden_from_users.filter(pk=self.same_facility_user.pk).exists()
+        )
+
+
+# ---------------------------------------------------------------------------
+# Ticket / TicketComment model tests
+# ---------------------------------------------------------------------------
+
+class TicketModelTests(TestCase):
+
+    def setUp(self):
+        self.user = make_user('ticket_reporter')
+        self.staff = make_user('ticket_staff')
+        self.staff.is_staff = True
+        self.staff.save()
+
+    def test_create_ticket(self):
+        from .models import Ticket
+        t = Ticket.objects.create(
+            ticket_type=Ticket.TYPE_ISSUE, subject='Login broken', description='Cannot log in.',
+            created_by=self.user,
+        )
+        self.assertEqual(t.status, Ticket.STATUS_OPEN)
+        self.assertEqual(t.priority, Ticket.PRIORITY_MEDIUM)
+        self.assertIn('Login broken', str(t))
+
+    def test_status_color_and_type_icon(self):
+        from .models import Ticket
+        t = Ticket.objects.create(ticket_type=Ticket.TYPE_SUGGESTION, subject='X', description='Y', created_by=self.user)
+        self.assertEqual(t.status_color, 'amber')  # open
+        self.assertEqual(t.type_icon, 'bi-lightbulb-fill')
+
+    def test_set_status_stamps_resolved_at_once(self):
+        from .models import Ticket
+        t = Ticket.objects.create(ticket_type=Ticket.TYPE_ISSUE, subject='X', description='Y', created_by=self.user)
+        self.assertIsNone(t.resolved_at)
+        t.set_status(Ticket.STATUS_RESOLVED, actor=self.staff)
+        self.assertIsNotNone(t.resolved_at)
+        first_resolved_at = t.resolved_at
+        t.set_status(Ticket.STATUS_CLOSED, actor=self.staff)
+        t.set_status(Ticket.STATUS_RESOLVED, actor=self.staff)
+        self.assertEqual(t.resolved_at, first_resolved_at)  # not re-stamped
+
+    def test_set_status_notifies_creator_not_self(self):
+        from .models import Notification, Ticket
+        t = Ticket.objects.create(ticket_type=Ticket.TYPE_ISSUE, subject='X', description='Y', created_by=self.user)
+        t.set_status(Ticket.STATUS_IN_PROGRESS, actor=self.staff)
+        self.assertTrue(Notification.objects.filter(user=self.user, title__icontains='Ticket updated').exists())
+
+        # Creator changing their own ticket's status should not self-notify
+        Notification.objects.all().delete()
+        t.set_status(Ticket.STATUS_CLOSED, actor=self.user)
+        self.assertFalse(Notification.objects.filter(user=self.user).exists())
+
+    def test_set_status_rejects_unknown_status(self):
+        from .models import Ticket
+        t = Ticket.objects.create(ticket_type=Ticket.TYPE_ISSUE, subject='X', description='Y', created_by=self.user)
+        with self.assertRaises(ValueError):
+            t.set_status('not_a_real_status')
+
+
+# ---------------------------------------------------------------------------
+# Ticketing views/API tests
+# ---------------------------------------------------------------------------
+
+class TicketingAPITests(TestCase):
+
+    def setUp(self):
+        self.user = make_user('tk_user')
+        self.other_user = make_user('tk_other_user')
+        self.staff = make_user('tk_staff')
+        self.staff.is_staff = True
+        self.staff.save()
+        self.c = TestClient()
+
+    def _create_ticket(self, user=None, **overrides):
+        from .models import Ticket
+        defaults = dict(
+            ticket_type=Ticket.TYPE_ISSUE, subject='Something broke', description='Details here.',
+            created_by=user or self.user,
+        )
+        defaults.update(overrides)
+        return Ticket.objects.create(**defaults)
+
+    # ---- TicketCreateAPIView ----
+
+    def test_create_ticket_requires_login(self):
+        resp = self.c.post(reverse('core:ticket-create'), {
+            'ticket_type': 'issue', 'subject': 'X', 'description': 'Y',
+        })
+        self.assertEqual(resp.status_code, 302)
+
+    def test_create_ticket_success(self):
+        from .models import Ticket
+        self.c.force_login(self.user)
+        resp = self.c.post(reverse('core:ticket-create'), {
+            'ticket_type': 'suggestion', 'subject': 'Add dark mode', 'description': 'Would love a dark theme.',
+        })
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertTrue(data['ok'])
+        self.assertTrue(Ticket.objects.filter(subject='Add dark mode', created_by=self.user).exists())
+
+    def test_create_ticket_missing_subject_rejected(self):
+        self.c.force_login(self.user)
+        resp = self.c.post(reverse('core:ticket-create'), {
+            'ticket_type': 'issue', 'subject': '', 'description': 'Y',
+        })
+        self.assertEqual(resp.status_code, 400)
+        self.assertFalse(resp.json()['ok'])
+
+    def test_create_ticket_invalid_type_rejected(self):
+        self.c.force_login(self.user)
+        resp = self.c.post(reverse('core:ticket-create'), {
+            'ticket_type': 'not_a_type', 'subject': 'X', 'description': 'Y',
+        })
+        self.assertEqual(resp.status_code, 400)
+
+    def test_create_ticket_notifies_staff(self):
+        from .models import Notification
+        self.c.force_login(self.user)
+        self.c.post(reverse('core:ticket-create'), {
+            'ticket_type': 'issue', 'subject': 'Broken export', 'description': 'It just spins forever.',
+        })
+        self.assertTrue(Notification.objects.filter(user=self.staff).exists())
+        self.assertFalse(Notification.objects.filter(user=self.other_user).exists())
+
+    # ---- SupportView ----
+
+    def test_support_page_requires_login(self):
+        resp = self.c.get(reverse('core:support'))
+        self.assertEqual(resp.status_code, 302)
+
+    def test_support_page_shows_only_own_tickets_for_regular_user(self):
+        mine = self._create_ticket(user=self.user, subject='Mine')
+        self._create_ticket(user=self.other_user, subject='Not mine')
+        self.c.force_login(self.user)
+        resp = self.c.get(reverse('core:support'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn(mine, resp.context['my_tickets'])
+        self.assertEqual(len(resp.context['my_tickets']), 1)
+        self.assertNotIn('board_columns', resp.context)
+
+    def test_support_page_staff_sees_board(self):
+        self._create_ticket(user=self.user)
+        self._create_ticket(user=self.other_user)
+        self.c.force_login(self.staff)
+        resp = self.c.get(reverse('core:support'))
+        self.assertIn('board_columns', resp.context)
+        total_on_board = sum(col['count'] for col in resp.context['board_columns'])
+        self.assertEqual(total_on_board, 2)
+
+    # ---- TicketDetailAPIView ----
+
+    def test_detail_visible_to_creator(self):
+        t = self._create_ticket()
+        self.c.force_login(self.user)
+        resp = self.c.get(reverse('core:ticket-detail', args=[t.pk]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()['ticket']['subject'], t.subject)
+
+    def test_detail_visible_to_staff(self):
+        t = self._create_ticket()
+        self.c.force_login(self.staff)
+        resp = self.c.get(reverse('core:ticket-detail', args=[t.pk]))
+        self.assertEqual(resp.status_code, 200)
+
+    def test_detail_hidden_from_other_users(self):
+        t = self._create_ticket()
+        self.c.force_login(self.other_user)
+        resp = self.c.get(reverse('core:ticket-detail', args=[t.pk]))
+        self.assertEqual(resp.status_code, 404)
+
+    def test_detail_hides_internal_comments_from_creator(self):
+        from .models import TicketComment
+        t = self._create_ticket()
+        TicketComment.objects.create(ticket=t, author=self.staff, body='Internal note', is_internal=True)
+        TicketComment.objects.create(ticket=t, author=self.staff, body='Public reply', is_internal=False)
+
+        self.c.force_login(self.user)
+        resp = self.c.get(reverse('core:ticket-detail', args=[t.pk]))
+        bodies = [c['body'] for c in resp.json()['comments']]
+        self.assertNotIn('Internal note', bodies)
+        self.assertIn('Public reply', bodies)
+
+        self.c.force_login(self.staff)
+        resp = self.c.get(reverse('core:ticket-detail', args=[t.pk]))
+        bodies = [c['body'] for c in resp.json()['comments']]
+        self.assertIn('Internal note', bodies)
+
+    # ---- TicketCommentAPIView ----
+
+    def test_creator_can_comment_on_own_ticket(self):
+        t = self._create_ticket()
+        self.c.force_login(self.user)
+        resp = self.c.post(reverse('core:ticket-comment', args=[t.pk]), {'body': 'Any update?'})
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.json()['ok'])
+
+    def test_other_user_cannot_comment(self):
+        t = self._create_ticket()
+        self.c.force_login(self.other_user)
+        resp = self.c.post(reverse('core:ticket-comment', args=[t.pk]), {'body': 'Butting in'})
+        self.assertEqual(resp.status_code, 404)
+
+    def test_non_staff_cannot_force_internal_comment(self):
+        from .models import TicketComment
+        t = self._create_ticket()
+        self.c.force_login(self.user)
+        self.c.post(reverse('core:ticket-comment', args=[t.pk]), {'body': 'Trying to be sneaky', 'is_internal': 'true'})
+        comment = TicketComment.objects.get(body='Trying to be sneaky')
+        self.assertFalse(comment.is_internal)  # ignored for non-staff
+
+    def test_comment_notifies_creator(self):
+        from .models import Notification
+        t = self._create_ticket()
+        self.c.force_login(self.staff)
+        self.c.post(reverse('core:ticket-comment', args=[t.pk]), {'body': 'Looking into it now.'})
+        self.assertTrue(Notification.objects.filter(user=self.user, title__icontains='New reply').exists())
+
+    # ---- TicketStatusAPIView ----
+
+    def test_status_update_requires_staff(self):
+        t = self._create_ticket()
+        self.c.force_login(self.user)
+        resp = self.c.post(reverse('core:ticket-status', args=[t.pk]), {'status': 'resolved'})
+        self.assertEqual(resp.status_code, 403)
+
+    def test_staff_can_update_status(self):
+        from .models import Ticket
+        t = self._create_ticket()
+        self.c.force_login(self.staff)
+        resp = self.c.post(reverse('core:ticket-status', args=[t.pk]), {'status': 'resolved'})
+        self.assertEqual(resp.status_code, 200)
+        t.refresh_from_db()
+        self.assertEqual(t.status, Ticket.STATUS_RESOLVED)
+        self.assertIsNotNone(t.resolved_at)
+
+    def test_status_update_rejects_unknown_value(self):
+        t = self._create_ticket()
+        self.c.force_login(self.staff)
+        resp = self.c.post(reverse('core:ticket-status', args=[t.pk]), {'status': 'bogus'})
+        self.assertEqual(resp.status_code, 400)

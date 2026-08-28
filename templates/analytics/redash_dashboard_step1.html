@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+
+{% block title %}Create Redash Dashboard{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center mt-3">
+    <div class="col-12 col-lg-8">
+        <div class="card">
+            <div class="card-header d-flex align-items-center justify-content-between">
+                <span class="fw-semibold">Create Redash Dashboard — Step 1 of 2</span>
+                <a href="{% url 'analytics:dashboard_list' %}" class="btn btn-outline-secondary btn-sm">
+                    <i class="bi bi-arrow-left me-1"></i>Cancel
+                </a>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small">
+                    Name the dashboard, then pick which Reporting Queries to pull charts from.
+                    The next step lets you choose specific charts from each selected query.
+                </p>
+                <form method="post" novalidate>
+                    {% csrf_token %}
+                    <div class="mb-3">
+                        <label class="form-label" for="dashboardName">Dashboard Name <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="dashboardName" name="name"
+                               value="{{ prefill_name }}" placeholder="e.g. Kisumu Inventory Overview" required>
+                    </div>
+
+                    <div class="d-flex align-items-center justify-content-between mb-2">
+                        <label class="form-label mb-0">Reporting Queries <span class="text-danger">*</span></label>
+                        {% if reporting_queries %}
+                        <span class="text-muted small" id="rqVisibleCount">{{ reporting_queries|length }} of {{ reporting_queries|length }} shown</span>
+                        {% endif %}
+                    </div>
+                    {% if reporting_queries %}
+                    <div class="mb-2 position-relative">
+                        <i class="bi bi-search position-absolute" style="left:.75rem; top:.55rem; color:#94a3b8;"></i>
+                        <input type="text" class="form-control form-control-sm ps-4" id="rqSearch"
+                               placeholder="Search queries…" autocomplete="off">
+                    </div>
+                    <div class="border rounded" style="max-height: 360px; overflow-y: auto;">
+                        <table class="table table-hover align-middle mb-0">
+                            <thead>
+                                <tr>
+                                    <th style="width: 2.5rem;"></th>
+                                    <th>Name</th>
+                                    <th>Facility</th>
+                                    <th>Source</th>
+                                </tr>
+                            </thead>
+                            <tbody id="rqTableBody">
+                                {% for rq in reporting_queries %}
+                                <tr data-search="{{ rq.name|lower }} {{ rq.facility.name|lower }} {{ rq.source_table|lower }}">
+                                    <td>
+                                        <input type="checkbox" class="form-check-input" name="query_ids" value="{{ rq.id }}">
+                                    </td>
+                                    <td>{{ rq.name }}</td>
+                                    <td>{{ rq.facility.name|default:"—" }}</td>
+                                    <td>
+                                        {% if rq.source_table %}
+                                        <span class="badge bg-info-subtle text-info-emphasis">{{ rq.source_table }}</span>
+                                        {% else %}
+                                        <span class="badge bg-secondary-subtle text-secondary-emphasis">Custom</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                                <tr id="rqNoMatch" style="display:none;">
+                                    <td colspan="4" class="text-center text-muted py-3">No queries match your search.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <div class="text-muted small">
+                        No Reporting Queries yet — go to
+                        <a href="{% url 'analytics:reporting_query_list' %}">Reporting Queries</a>
+                        and sync or add some first.
+                    </div>
+                    {% endif %}
+
+                    <div class="d-flex gap-2 justify-content-end border-top pt-3 mt-3">
+                        <a href="{% url 'analytics:dashboard_list' %}" class="btn btn-outline-secondary">Cancel</a>
+                        <button type="submit" class="btn btn-afya-primary" {% if not reporting_queries %}disabled{% endif %}>
+                            Next: Choose Charts <i class="bi bi-arrow-right ms-1"></i>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  'use strict';
+  var searchInput = document.getElementById('rqSearch');
+  var rows = document.querySelectorAll('#rqTableBody tr[data-search]');
+  var noMatchRow = document.getElementById('rqNoMatch');
+  var countEl = document.getElementById('rqVisibleCount');
+  var total = rows.length;
+
+  if (!searchInput) return;
+
+  searchInput.addEventListener('input', function () {
+    var q = searchInput.value.toLowerCase().trim();
+    var visible = 0;
+    rows.forEach(function (row) {
+      var match = !q || row.dataset.search.indexOf(q) !== -1;
+      row.style.display = match ? '' : 'none';
+      if (match) visible++;
+    });
+    if (noMatchRow) noMatchRow.style.display = visible === 0 ? '' : 'none';
+    if (countEl) countEl.textContent = visible + ' of ' + total + ' shown';
+  });
+})();
+</script>
+{% endblock %}

@@ -18,12 +18,41 @@
   <!-- Self-Service Analytics Chat -->
   {% if request.user.is_authenticated %}
   <link rel="stylesheet" href="{% static 'css/chat.css' %}" />
+  <!-- Support & Ticketing -->
+  <link rel="stylesheet" href="{% static 'css/tickets.css' %}" />
   {% endif %}
 
-  {% block extra_css %}{% endblock %}
-</head>
-<body>
+  {% block extra_css %}
+    <style>
+    .wa-fab {
+      position: fixed;
+      bottom: 24px;
+      left: 24px;
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      background-color: #25D366;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-decoration: none;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+      z-index: 9999;
+    }
 
+    .wa-fab:hover {
+      transform: scale(1.08);
+      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+    }
+
+    .wa-fab:active {
+      transform: scale(0.96);
+    }
+  </style>
+  {% endblock %}
+</head>
+<body{% if request.user.is_authenticated %} data-ticket-create-url="{% url 'core:ticket-create' %}"{% endif %}>
 <!-- Toast container -->
 <div id="afyaToastContainer" class="afya-toast-container" aria-live="polite"></div>
 
@@ -37,6 +66,7 @@
 {% endif %}
 
 <div class="afya-shell">
+  
 
   <!-- ====================================================================
        SIDEBAR
@@ -69,6 +99,7 @@
       </a>
 
       <!-- Analytics -->
+      {% if module_access.analytics %}
       <a href="#"
          data-submenu-toggle="submenuAnalytics"
          class="sidebar-item {% if sidebar_section == 'analytics' %}active{% endif %}">
@@ -86,9 +117,15 @@
            class="sidebar-subitem {% if 'list' in request.path %}active{% endif %}">
           <i class="bi bi-list-ul"></i> Dashboard List
         </a>
+        <a href="{% url 'analytics:dashboard_create' %}"
+           class="sidebar-subitem {% if 'create' in request.path %}active{% endif %}">
+          <i class="bi bi-plus-circle"></i> Create Dashboard
+        </a>
       </div>
+      {% endif %}
 
       <!-- Warehouse -->
+      {% if module_access.warehouse %}
       <a href="#"
          data-submenu-toggle="submenuWarehouse"
          class="sidebar-item {% if sidebar_section == 'warehouse' %}active{% endif %}">
@@ -106,7 +143,12 @@
            class="sidebar-subitem {% if 'snowflake' in request.path %}active{% endif %}">
           <i class="bi bi-snow"></i> Snowflake Query
         </a>
+        <a href="{% url 'warehouse:analyst_workbook_list' %}"
+           class="sidebar-subitem {% if 'analyst' in request.path %}active{% endif %}">
+          <i class="bi bi-robot"></i> Spreadsheet Analyst
+        </a>
       </div>
+      {% endif %}
 
       <!-- Pipelines (superuser only) -->
       {% if request.user.is_superuser %}
@@ -132,6 +174,35 @@
          class="sidebar-item {% if sidebar_section == 'settings' %}active{% endif %}">
         <i class="bi bi-gear sidebar-item-icon"></i>
         <span class="sidebar-item-label">Settings</span>
+      </a>
+      <a href="{% url 'agents:agent-configuration' %}"
+         class="sidebar-item {% if sidebar_section == 'agent-configuration' %}active{% endif %}">
+        <i class="bi bi-robot sidebar-item-icon"></i>
+        <span class="sidebar-item-label">Semantic Layer Configuration</span>
+      </a>
+      {% endif %}
+
+      <!-- Permissions (Client/Facilities/Facility Admin, or superuser) -->
+      {% if request.user.is_authenticated %}
+      <a href="{% url 'core:permissions' %}"
+         class="sidebar-item {% if sidebar_section == 'permissions' %}active{% endif %}">
+        <i class="bi bi-shield-lock sidebar-item-icon"></i>
+        <span class="sidebar-item-label">Permissions</span>
+      </a>
+      {% endif %}
+
+      <!-- Support & Ticketing -->
+      {% if request.user.is_authenticated %}
+      <a href="{% url 'core:support' %}"
+         class="sidebar-item {% if sidebar_section == 'support' %}active{% endif %}">
+        <i class="bi bi-life-preserver sidebar-item-icon"></i>
+        <span class="sidebar-item-label">Support &amp; Ticketing</span>
+        {% if request.user.is_staff and open_ticket_count > 0 %}
+        <span class="badge rounded-pill ms-auto"
+              style="background:var(--afya-amber);font-size:10px;">
+          {{ open_ticket_count }}
+        </span>
+        {% endif %}
       </a>
       {% endif %}
 
@@ -324,6 +395,13 @@
             </li>
             <li>
               <a class="dropdown-item d-flex align-items-center gap-2 py-2"
+                 href="{% url 'agents:agent-configuration' %}">
+                <i class="bi bi-robot" style="color:var(--afya-blue);"></i>
+                Semantic Layer Configuration
+              </a>
+            </li>
+            <li>
+              <a class="dropdown-item d-flex align-items-center gap-2 py-2"
                  href="/admin/">
                 <i class="bi bi-shield-lock" style="color:var(--afya-blue);"></i>
                 Admin Panel
@@ -372,9 +450,9 @@
 
 <!-- ======================================================================
      SELF-SERVICE ANALYTICS — Chatbot FAB + Slide-in Panel
-     Rendered only for authenticated users; invisible to guests.
+     Rendered only for authenticated users with self_service module access.
      ====================================================================== -->
-{% if request.user.is_authenticated %}
+{% if request.user.is_authenticated and module_access.self_service %}
 
 <!-- Floating Action Button -->
 <button id="chatbotFab"
@@ -397,6 +475,10 @@
   <!-- Header -->
   <div class="chatbot-header">
     <div class="chatbot-header-left">
+      <a href="https://wa.me/254768381277" target="_blank" rel="noopener noreferrer"
+         class="chatbot-whatsapp-btn" title="Chat with our WhatsApp bot" aria-label="Chat on WhatsApp">
+        <i class="bi bi-whatsapp"></i>
+      </a>
       <div class="chatbot-avatar-icon">
         <i class="bi bi-robot"></i>
       </div>
@@ -416,9 +498,30 @@
         </div>
       </div>
     </div>
-    <button id="chatbotCloseBtn" class="chatbot-close-btn" aria-label="Close chat panel">
-      <i class="bi bi-x-lg"></i>
-    </button>
+    <div class="chatbot-header-actions">
+      <button id="chatbotNewChatBtn" class="chatbot-icon-btn" title="New conversation" aria-label="Start a new conversation" type="button">
+        <i class="bi bi-plus-lg"></i>
+      </button>
+      <button id="chatbotHistoryBtn" class="chatbot-icon-btn" title="Conversation history" aria-label="View conversation history" type="button">
+        <i class="bi bi-clock-history"></i>
+      </button>
+      <button id="chatbotCloseBtn" class="chatbot-close-btn" aria-label="Close chat panel">
+        <i class="bi bi-x-lg"></i>
+      </button>
+    </div>
+  </div>
+
+  <!-- History Overlay -->
+  <div id="chatbotHistoryOverlay" class="chatbot-history-overlay d-none">
+    <div class="chatbot-history-overlay-header">
+      <i class="bi bi-clock-history"></i> Past Conversations
+      <button id="chatbotHistoryCloseBtn" class="chatbot-icon-btn" aria-label="Close history" type="button">
+        <i class="bi bi-x-lg"></i>
+      </button>
+    </div>
+    <div id="chatbotHistoryList" class="chatbot-history-list">
+      <!-- session items injected by chat.js -->
+    </div>
   </div>
 
   <!-- Messages Area -->
@@ -466,6 +569,203 @@
   </div>
 
 </aside><!-- /chatbotPanel -->
+
+<!-- Chart Lightbox — click any chart in the chat to view it full size -->
+<div id="chatbotLightbox" class="chatbot-lightbox">
+  <div class="chatbot-lightbox-close" aria-label="Close full-size chart"><i class="bi bi-x-lg"></i></div>
+  <img src="" alt="" />
+</div>
+{% endif %}
+
+<!-- ======================================================================
+     SUPPORT & TICKETING — Feedback FAB + speed-dial + 3 ticket modals
+     Rendered for every authenticated user, on every page.
+     ====================================================================== -->
+{% if request.user.is_authenticated %}
+
+<div id="ticketFabWrap" class="ticket-fab-wrap">
+  <div class="ticket-dial">
+    <button type="button" class="ticket-dial-item" data-modal-target="ticketIssueModal">
+      <span class="ticket-dial-label">Report an issue</span>
+      <span class="ticket-dial-icon tt-issue"><i class="bi bi-exclamation-octagon-fill"></i></span>
+    </button>
+    <button type="button" class="ticket-dial-item" data-modal-target="ticketSuggestionModal">
+      <span class="ticket-dial-label">Suggest an improvement</span>
+      <span class="ticket-dial-icon tt-suggestion"><i class="bi bi-lightbulb-fill"></i></span>
+    </button>
+    <button type="button" class="ticket-dial-item" data-modal-target="ticketFeatureModal">
+      <span class="ticket-dial-label">Request a new feature</span>
+      <span class="ticket-dial-icon tt-feature"><i class="bi bi-stars"></i></span>
+    </button>
+  </div>
+  <button id="ticketFab" class="ticket-fab" type="button" aria-label="Give feedback" title="Give feedback">
+    <i class="bi bi-megaphone-fill"></i>
+  </button>
+</div>
+
+<!-- ============ MODAL 1 — Issue / Error / Complaint ============ -->
+<div class="modal fade ticket-modal tm-issue" id="ticketIssueModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title">
+            <span class="modal-title-icon"><i class="bi bi-exclamation-octagon-fill"></i></span>
+            Report an Issue
+          </h5>
+          <div class="modal-subtitle">Something broken, wrong, or frustrating? Tell us.</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <form class="js-ticket-form" novalidate>
+        {% csrf_token %}
+        <input type="hidden" name="ticket_type" value="issue" />
+        <input type="hidden" name="page_url" value="" />
+        <input type="hidden" name="priority" value="medium" data-priority-hidden />
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Subject</label>
+            <input type="text" name="subject" maxlength="200" class="form-control"
+                   placeholder="e.g. Dashboard fails to load KISUMU data" required />
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label fw-semibold">How urgent is this?</label>
+            <div class="priority-chips" data-hidden-input="[data-priority-hidden]">
+              <div class="priority-chip" data-priority="low">Low</div>
+              <div class="priority-chip active" data-priority="medium">Medium</div>
+              <div class="priority-chip" data-priority="high">High</div>
+              <div class="priority-chip" data-priority="critical">Critical</div>
+            </div>
+          </div>
+
+          <div class="mb-2">
+            <label class="form-label fw-semibold">What happened?</label>
+            <textarea name="description" maxlength="2000" rows="4" class="form-control"
+                      placeholder="What were you trying to do, what happened instead, and does it happen every time?"
+                      data-char-counter="#issueCharCount" required></textarea>
+            <div id="issueCharCount" class="char-counter">0 / 2000</div>
+          </div>
+
+          <div class="mb-1">
+            <label class="form-label fw-semibold">Screenshot <span class="text-muted fw-normal">(optional)</span></label>
+            <div class="ticket-dropzone" data-preview="#issueAttachPreview">
+              <i class="bi bi-cloud-arrow-up d-block mb-1" style="font-size:20px;"></i>
+              Click or drag an image here
+              <input type="file" name="attachment" accept="image/*" class="d-none" />
+            </div>
+            <div id="issueAttachPreview" class="ticket-dropzone-preview">
+              <img src="" alt="" style="display:none;" />
+              <span class="dz-filename"></span>
+            </div>
+          </div>
+
+          <div class="alert alert-danger d-none mt-2" data-form-error></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn text-white ticket-submit-btn"
+                  style="background:linear-gradient(135deg,#b91c1c,#ef4444);" data-submit-btn>
+            <span class="btn-text"><i class="bi bi-send-fill me-1"></i>Submit Issue</span>
+            <span class="spinner-border spinner-border-sm d-none" role="status"></span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ============ MODAL 2 — Feature Improvement Suggestion ============ -->
+<div class="modal fade ticket-modal tm-suggestion" id="ticketSuggestionModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title">
+            <span class="modal-title-icon"><i class="bi bi-lightbulb-fill"></i></span>
+            Suggest an Improvement
+          </h5>
+          <div class="modal-subtitle">Something that works, but could work better?</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <form class="js-ticket-form" novalidate>
+        {% csrf_token %}
+        <input type="hidden" name="ticket_type" value="suggestion" />
+        <input type="hidden" name="page_url" value="" />
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Subject</label>
+            <input type="text" name="subject" maxlength="200" class="form-control"
+                   placeholder="e.g. Let me filter the dashboard list by facility" required />
+          </div>
+          <div class="mb-1">
+            <label class="form-label fw-semibold">What would you improve, and why?</label>
+            <textarea name="description" maxlength="2000" rows="5" class="form-control"
+                      placeholder="What's the current experience, and what would make it better for you?"
+                      data-char-counter="#suggestionCharCount" required></textarea>
+            <div id="suggestionCharCount" class="char-counter">0 / 2000</div>
+          </div>
+          <div class="alert alert-danger d-none mt-2" data-form-error></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn text-white ticket-submit-btn"
+                  style="background:linear-gradient(135deg,#047857,var(--afya-teal));" data-submit-btn>
+            <span class="btn-text"><i class="bi bi-send-fill me-1"></i>Submit Suggestion</span>
+            <span class="spinner-border spinner-border-sm d-none" role="status"></span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ============ MODAL 3 — New Feature Request ============ -->
+<div class="modal fade ticket-modal tm-feature" id="ticketFeatureModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title">
+            <span class="modal-title-icon"><i class="bi bi-stars"></i></span>
+            Request a New Feature
+          </h5>
+          <div class="modal-subtitle">Something completely new you wish existed?</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <form class="js-ticket-form" novalidate>
+        {% csrf_token %}
+        <input type="hidden" name="ticket_type" value="feature" />
+        <input type="hidden" name="page_url" value="" />
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Subject</label>
+            <input type="text" name="subject" maxlength="200" class="form-control"
+                   placeholder="e.g. Export any dashboard to PDF" required />
+          </div>
+          <div class="mb-1">
+            <label class="form-label fw-semibold">What would this feature let you do?</label>
+            <textarea name="description" maxlength="2000" rows="5" class="form-control"
+                      placeholder="Describe the feature and the problem it would solve for you."
+                      data-char-counter="#featureCharCount" required></textarea>
+            <div id="featureCharCount" class="char-counter">0 / 2000</div>
+          </div>
+          <div class="alert alert-danger d-none mt-2" data-form-error></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn text-white ticket-submit-btn"
+                  style="background:linear-gradient(135deg,var(--afya-cool-blue),var(--afya-blue));" data-submit-btn>
+            <span class="btn-text"><i class="bi bi-send-fill me-1"></i>Submit Request</span>
+            <span class="spinner-border spinner-border-sm d-none" role="status"></span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
 {% endif %}
 
 <!-- Bootstrap 5.3 JS -->
@@ -475,6 +775,8 @@
 {% if request.user.is_authenticated %}
 <!-- Self-Service Analytics Chat -->
 <script src="{% static 'js/chat.js' %}"></script>
+<!-- Support & Ticketing -->
+<script src="{% static 'js/tickets.js' %}"></script>
 {% endif %}
 {% block extra_js %}{% endblock %}
 

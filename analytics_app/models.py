@@ -48,9 +48,37 @@ class Dashboard(models.Model):
     )
     category = models.CharField(max_length=50, choices=CATEGORY_CHOICES, default='analytics')
     streamlit_url = models.URLField(blank=True)
+    redash_query_id = models.PositiveIntegerField(
+        null=True, blank=True,
+        help_text='Redash query ID powering this dashboard (used instead of streamlit_url).',
+    )
+    redash_visualization_id = models.PositiveIntegerField(
+        null=True, blank=True,
+        help_text='Redash visualization ID to embed (Query -> visualization -> Embed).',
+    )
+    redash_api_key = models.CharField(
+        max_length=100, blank=True,
+        help_text="Per-query API key from Redash (Query -> More Options -> API Key). "
+                  "Scopes what this specific embed can see.",
+    )
+    redash_dashboard_url = models.URLField(
+        blank=True,
+        help_text='Full Redash dashboard URL to embed (Dashboard -> Share -> Publish, '
+                  'e.g. ".../public/dashboards/<token>?org_slug=default"). Used instead '
+                  'of redash_query_id/redash_visualization_id when embedding a whole '
+                  'Redash dashboard rather than a single chart.',
+    )
     thumbnail = models.ImageField(upload_to='dashboards/thumbnails/', blank=True, null=True)
     is_active = models.BooleanField(default=True)
     is_public = models.BooleanField(default=False)
+    hidden_from_users = models.ManyToManyField(
+        settings.AUTH_USER_MODEL,
+        blank=True,
+        related_name='hidden_dashboards',
+        help_text='Users explicitly denied this dashboard even though it would '
+                  'otherwise be visible to their client — set by a facility '
+                  'administrator via the Permissions page.',
+    )
     view_count = models.PositiveIntegerField(default=0)
     order = models.PositiveIntegerField(default=0)
     created_by = models.ForeignKey(
@@ -70,6 +98,48 @@ class Dashboard(models.Model):
 
     def __str__(self):
         return self.name
+
+    def get_embed_url(self, user) -> str:
+        """Return the iframe ``src`` for this dashboard's viewer.
+
+        If a Redash query/visualization is configured, builds a chrome-less
+        Redash embed URL and — unless the viewer holds a multi-facility role
+        (Facilities Admin / Client Admin) — pins the ``facility`` query
+        parameter to the viewer's own facility, so ordinary facility users
+        never see a facility picker and can't request another facility's
+        data from the browser. Snowflake-side row access policies remain the
+        actual security boundary; this only shapes the UI.
+
+        Falls back to ``streamlit_url`` for dashboards not yet migrated to
+        Redash, so existing Streamlit embeds keep working unchanged.
+
+        Args:
+            user: The viewing Django user (or ``None``/anonymous).
+
+        Returns:
+            An absolute URL string suitable for an iframe ``src``, or ``''``
+            if no embed is configured.
+        """
+        if self.redash_query_id and self.redash_visualization_id:
+            from urllib.parse import urlencode
+
+            from authentication.roles import is_facilities_admin
+
+            params = {'api_key': self.redash_api_key}
+            facility = getattr(getattr(user, 'profile', None), 'facility', None)
+            if facility and not is_facilities_admin(user):
+                params['p_facility'] = facility.slug
+
+            base = (
+                f"{settings.REDASH_BASE_URL}/embed/query/"
+                f"{self.redash_query_id}/visualization/{self.redash_visualization_id}"
+            )
+            return f"{base}?{urlencode(params)}"
+
+        if self.redash_dashboard_url:
+            return self.redash_dashboard_url
+
+        return self.streamlit_url
 
     def get_absolute_url(self) -> str:
         """Return the canonical URL for viewing this dashboard.
@@ -112,3 +182,48 @@ class Dashboard(models.Model):
         if not self.slug:
             self.slug = slugify(self.name)[:200]
         super().save(*args, **kwargs)
+
+
+class ReportingQuery(models.Model):
+    """A Redash query provisioned against the Snowflake REPORTING schema.
+
+    Created either by the "sync REPORTING tables" action (one row per table,
+    ``source_table`` set) or ad hoc by a superuser (``source_table`` blank).
+    This is Django's own record of what has been provisioned in Redash, so
+    the DataHub UI can list them without re-querying the Redash API on every
+    page load.
+    """
+
+    name = models.CharField(max_length=200)
+    sql_text = models.TextField()
+    redash_query_id = models.PositiveIntegerField(unique=True)
+    redash_data_source_id = models.PositiveIntegerField()
+    redash_data_source_name = models.CharField(max_length=200, blank=True)
+    source_table = models.CharField(
+        max_length=200, blank=True,
+        help_text='HOSPITALS.REPORTING.<table> this was auto-generated from, blank for custom queries.',
+    )
+    facility = models.ForeignKey(
+        'core.Facility',
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name='reporting_queries',
+        help_text='Facility this query is scoped to (via a source_schema filter), blank for custom queries.',
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True, on_delete=models.SET_NULL,
+        related_name='reporting_queries',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name_plural = 'Reporting queries'
+
+    def __str__(self):
+        return self.name
+
+    def get_redash_url(self) -> str:
+        """Return the URL of this query in the Redash UI."""
+        return f"{settings.REDASH_BASE_URL}/queries/{self.redash_query_id}"

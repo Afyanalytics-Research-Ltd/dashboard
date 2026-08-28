@@ -1,0 +1,108 @@
+cubes:
+  - name: canonical_product_taxonomy
+    sql_table: "\"REPORTING\".\"CANONICAL_PRODUCT_TAXONOMY\""
+    data_source: default
+
+    joins:
+      - name: canonical_keys
+        sql: "{CUBE}.\"CANONICAL_PRODUCT_ID\" = {canonical_keys}.\"CANONICAL_PRODUCT_ID\""
+        relationship: many_to_one
+
+      - name: dim_product_canonical
+        sql: "{CUBE}.\"CANONICAL_PRODUCT_ID\" = {dim_product_canonical}.\"CANONICAL_PRODUCT_ID\""
+        relationship: many_to_one
+
+    dimensions:
+      - name: canonical_name
+        sql: "{CUBE}.\"CANONICAL_NAME\""
+        type: string
+
+      - name: facility
+        sql: "{CUBE}.\"FACILITY\""
+        type: string
+
+      - name: form_canonical
+        sql: "{CUBE}.\"FORM_CANONICAL\""
+        type: string
+
+      - name: form_extracted
+        sql: "{CUBE}.\"FORM_EXTRACTED\""
+        type: string
+
+      - name: inn_map_status
+        sql: "{CUBE}.\"INN_MAP_STATUS\""
+        type: string
+        description: Whether this product's name has been mapped to a canonical drug name — value "needs_review" means it is unmapped. Use for "products not mapped to canonical names" / "products needing taxonomy review" questions.
+
+      - name: inn_name
+        sql: "{CUBE}.\"INN_NAME\""
+        type: string
+
+      - name: match_type
+        sql: "{CUBE}.\"MATCH_TYPE\""
+        type: string
+
+      - name: name_normalised
+        sql: "{CUBE}.\"NAME_NORMALISED\""
+        type: string
+
+      - name: product_category
+        sql: "{CUBE}.\"PRODUCT_CATEGORY\""
+        type: string
+
+      - name: product_id
+        sql: "{CUBE}.\"PRODUCT_ID\""
+        type: string
+        primary_key: true
+
+      - name: canonical_product_id
+        sql: "{CUBE}.\"CANONICAL_PRODUCT_ID\""
+        type: number
+        description: Join key from fact_dispensing — links a dispense event to this product's canonical_name and therapeutic_class.
+
+      - name: product_name
+        sql: "{CUBE}.\"PRODUCT_NAME\""
+        type: string
+
+      - name: strength_canonical
+        sql: "{CUBE}.\"STRENGTH_CANONICAL\""
+        type: string
+
+      - name: strength_extracted
+        sql: "{CUBE}.\"STRENGTH_EXTRACTED\""
+        type: string
+
+      - name: therapeutic_class
+        sql: "{CUBE}.\"THERAPEUTIC_CLASS\""
+        type: string
+        description: Broad drug class (e.g. "Antimalarials", "Antiretrovirals", "Antimicrobials", "Cardiovascular") — join fact_dispensing to this cube via canonical_product_id to break down dispensing/stockout/cost by drug class.
+
+      - name: therapeutic_subclass
+        sql: "{CUBE}.\"THERAPEUTIC_SUBCLASS\""
+        type: string
+        description: Finer-grained drug class than therapeutic_class (e.g. "Penicillins", "Cephalosporins", "Opioid").
+
+      - name: loaded_at
+        sql: "{CUBE}.\"LOADED_AT\""
+        type: time
+
+    measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T12:57:53.111648+00:00
+      - name: match_confidence
+        sql: '{CUBE}."MATCH_CONFIDENCE"'
+        type: sum
+        title: Product Name Match Confidence
+        description: Confidence score (0-100) that a product's name was correctly mapped to its canonical drug identity — a low value (e.g. below 60) flags a data-quality risk. Use for "low confidence product mappings" / "products below 60% confidence" questions.
+        drill_members: [facility, therapeutic_class, product_id]
+      - name: count
+        type: count
+        drill_members: [loaded_at, facility, therapeutic_class, product_id]
+
+      - name: facility_dup_count
+        sql: "{CUBE}.\"FACILITY_DUP_COUNT\""
+        type: sum
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

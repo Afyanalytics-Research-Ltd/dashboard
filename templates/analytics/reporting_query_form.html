@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+
+{% block title %}Add Reporting Query{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center mt-3">
+    <div class="col-12 col-lg-8">
+        <div class="card">
+            <div class="card-header d-flex align-items-center justify-content-between">
+                <span class="fw-semibold">Add Custom Reporting Query</span>
+                <a href="{% url 'analytics:reporting_query_list' %}" class="btn btn-outline-secondary btn-sm">
+                    <i class="bi bi-arrow-left me-1"></i>Cancel
+                </a>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small">
+                    Submitting this creates the query directly in Redash (via the admin API) and
+                    records it here. Anyone without <code>edit_query</code> in Redash will be able
+                    to run it and build visualizations, but not change the SQL below — see the
+                    Reporting Queries page for the read-only access pattern.
+                </p>
+                <form method="post" novalidate>
+                    {% csrf_token %}
+                    {% for field in form %}
+                    <div class="mb-3">
+                        <label class="form-label" for="{{ field.id_for_label }}">
+                            {{ field.label }}
+                            {% if field.field.required %}<span class="text-danger">*</span>{% endif %}
+                        </label>
+                        {{ field }}
+                        {% if field.help_text %}
+                        <div class="form-text">{{ field.help_text }}</div>
+                        {% endif %}
+                        {% for error in field.errors %}
+                        <div class="invalid-feedback d-block">{{ error }}</div>
+                        {% endfor %}
+                    </div>
+                    {% endfor %}
+                    <div class="d-flex gap-2 justify-content-end border-top pt-3 mt-2">
+                        <a href="{% url 'analytics:reporting_query_list' %}" class="btn btn-outline-secondary">Cancel</a>
+                        <button type="submit" class="btn btn-afya-primary">
+                            <i class="bi bi-check2 me-1"></i>Create in Redash
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

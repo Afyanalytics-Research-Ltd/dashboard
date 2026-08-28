@@ -1,0 +1,58 @@
+cubes:
+  - name: rpt_procedure_revenue
+    sql_table: "\"REPORTING\".\"RPT_PROCEDURE_REVENUE\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: facility
+        sql: "{CUBE}.\"FACILITY\""
+        type: string
+
+      - name: insurer
+        sql: "{CUBE}.\"INSURER\""
+        type: string
+
+      - name: payment_mode
+        sql: "{CUBE}.\"PAYMENT_MODE\""
+        type: string
+
+      - name: revenue_category
+        sql: "{CUBE}.\"REVENUE_CATEGORY\""
+        type: string
+
+      - name: revenue_month
+        sql: "{CUBE}.\"REVENUE_MONTH\""
+        type: time
+
+    measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:03:18.456471+00:00
+      - name: line_items
+        sql: '{CUBE}."LINE_ITEMS"'
+        type: sum
+      - name: distinct_visits
+        sql: '{CUBE}."DISTINCT_VISITS"'
+        type: sum
+      - name: distinct_invoices
+        sql: '{CUBE}."DISTINCT_INVOICES"'
+        type: sum
+      - name: total_revenue
+        sql: '{CUBE}."TOTAL_REVENUE"'
+        type: sum
+        title: Procedure Revenue (KES)
+        description: Total revenue from billed procedures/items, per facility/month. Break down by revenue_category (e.g. Pharmacy, Investigations, Rebate) for "top revenue category" questions, by insurer + payment_mode="insured" for "which insurer contributes the most insured revenue" questions, or filter revenue_category="Rebate" for contra-revenue/rebate exposure questions.
+        drill_members: [revenue_month, facility, revenue_category, insurer]
+      - name: count
+        type: count
+        drill_members: [revenue_month, facility, revenue_category, insurer]
+
+      - name: avg_item_amount
+        sql: "{CUBE}.\"AVG_ITEM_AMOUNT\""
+        type: sum
+        title: Average Revenue per Line Item (KES)
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

@@ -1,13 +1,20 @@
 """
-LangGraph node functions.
+LangGraph node functions — shared utilities + the human-in-the-loop
+fallback/resume path.
 
-Each function receives AgentState and returns a dict of state updates.
+The happy-path nodes (plan_intent, retrieve_candidates, generate_cube_query,
+validate_query, execute_query, explain_result) live in nodes_intent.py /
+nodes_query.py / nodes_explain.py. This module keeps:
+  - _openai() / _recent_history() / _context_hint() — shared by every node
+    module above (imported from here, not duplicated).
+  - fallback_notifier / re_classify / auto_notify_user — the deep fallback
+    for questions the retrieval pipeline genuinely can't resolve. Unchanged
+    behavior: email the analytics team, interrupt() until a human resumes
+    via POST /api/resume/, then re-run the query with the now-known metric.
 
-Node order (happy path):
-    classify_intent → execute_query → format_result → END
-
-Fallback path (no match):
-    classify_intent → fallback_notifier ─[interrupt]─ → re_classify → execute_query → format_result → auto_notify_user → END
+Graph topology (see agents/graph.py):
+    plan_intent → retrieve_candidates ─┬─[confident match]──→ generate_cube_query → validate_query → execute_query → explain_result
+                                        └─[nothing relevant]─→ fallback_notifier ─[interrupt]→ re_classify ──────────────────────┘
 """
 
 from __future__ import annotations
@@ -16,7 +23,6 @@ import json
 import logging
 import os
 from copy import deepcopy
-from typing import Any
 
 import httpx
 from django.conf import settings
@@ -24,10 +30,14 @@ from django.core.mail import send_mail
 from langgraph.types import interrupt
 from openai import OpenAI
 
-from .catalog import as_context, get_all, get_by_id, reload as reload_catalog
-from .cube_client import run_query
+from .catalog import get_by_id, reload as reload_catalog
 from .state import AgentState
-from .facility import resolve_facility, inject_facility_filter
+from .schema_validation import (
+    valid_members_for as _valid_members_for,
+    valid_time_members_for as _valid_time_members_for,
+    validate_filters as _validate_filters,
+)
+from .nodes_query import CONFIDENT_SINGLE_SCORE, RELEVANT_FLOOR, is_directly_resolvable
 
 logger = logging.getLogger(__name__)
 
@@ -44,254 +54,44 @@ def _openai() -> OpenAI:
 
 CONFIDENCE_THRESHOLD = 0.75  # below this → fallback
 
-# Valid Cube.dev filter operators
-VALID_CUBE_OPERATORS = {
-    "equals", "notEquals", "contains", "notContains", "startsWith", "endsWith",
-    "gt", "gte", "lt", "lte", "set", "notSet",
-    "inDateRange", "notInDateRange", "beforeDate", "afterDate",
-}
+HISTORY_TURNS = 8  # user+assistant exchanges fed as LLM context per call
 
 
-def _validate_filters(filters: list[dict]) -> list[dict]:
+def _recent_history(state: AgentState, *, include_current: bool = True) -> list[dict]:
     """
-    Strip out any filters that are malformed or use unsupported operators.
-    Prevents Cube 400 errors caused by LLM hallucinating operator names.
+    Last few turns of state["messages"], formatted for a chat-completions
+    `messages` list. plan_intent runs before the current question has been
+    appended, so include_current is moot there; explain_result runs after
+    it (appended by plan_intent), so it passes include_current=False to
+    avoid echoing the current question twice — once from history, once
+    from the explicit prompt built in that node.
     """
-    valid = []
-    for f in filters:
-        member = f.get("member", "")
-        operator = f.get("operator", "")
-        values = f.get("values")
-
-        if not member or not operator:
-            logger.warning("_validate_filters: dropping filter missing member/operator: %s", f)
-            continue
-        # Member must be in CubeName.fieldName format — bare words like "date" are invalid
-        if "." not in member:
-            logger.warning(
-                "_validate_filters: dropping filter — member '%s' is not in Cube.member format", member
-            )
-            continue
-        if operator not in VALID_CUBE_OPERATORS:
-            logger.warning("_validate_filters: dropping filter with invalid operator '%s': %s", operator, f)
-            continue
-        # notSet / set don't require values
-        if operator not in ("set", "notSet") and not values:
-            logger.warning("_validate_filters: dropping filter missing values: %s", f)
-            continue
-
-        valid.append({"member": member, "operator": operator, "values": values or []})
-    return valid
+    history = state.get("messages") or []
+    if not include_current and history and history[-1].get("role") == "user":
+        history = history[:-1]
+    return history[-HISTORY_TURNS * 2:]
 
 
-def _promote_date_filters(query: dict, filters: list[dict]) -> tuple[dict, list[dict]]:
+def _context_hint(state: AgentState) -> str:
     """
-    Date range filters whose member matches an existing timeDimension should be
-    expressed as timeDimension.dateRange, NOT as a separate filter — Cube rejects
-    the latter when a timeDimension for that member already exists.
-
-    Returns (updated_query, remaining_filters).
+    Deterministic anchor for elliptical follow-ups: the last metric that
+    actually matched in this thread. Unlike raw message history (which the
+    model has to parse for itself), this is handed over pre-resolved so a
+    question like "and for last month?" doesn't depend on the model
+    correctly inferring the subject from prior free text alone.
     """
-    date_ops = {"inDateRange", "notInDateRange", "beforeDate", "afterDate"}
-    time_dims = [dict(td) for td in query.get("timeDimensions", [])]
-    remaining = []
-
-    for f in filters:
-        if f["operator"] not in date_ops:
-            remaining.append(f)
-            continue
-
-        member = f["member"]
-        matched = False
-        for td in time_dims:
-            if td.get("dimension") == member:
-                if f["operator"] == "inDateRange":
-                    td["dateRange"] = f["values"]  # e.g. ["2023-09-01", "2023-09-30"]
-                matched = True
-                logger.info("_promote_date_filters: moved %s filter to timeDimension.dateRange", member)
-                break
-
-        if not matched:
-            # No matching timeDimension — keep as a regular filter
-            remaining.append(f)
-
-    updated_query = {**query, "timeDimensions": time_dims}
-    return updated_query, remaining
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Node 1 — classify_intent
-# ─────────────────────────────────────────────────────────────────────────────
-
-CLASSIFY_SYSTEM = """\
-You are a semantic router for an analytics platform.
- 
-Your job is to match a user's natural-language question to ONE of the predefined
-metrics below, and extract any dimension filters implied by the question
-(e.g. date ranges, facility names, product names).
- 
-Predefined metrics:
-{catalog}
- 
-CRITICAL: The valid metric_id values are ONLY the ids listed above.
-You MUST pick from that exact list — do NOT invent or paraphrase an id.
-If no metric fits, return null.
- 
-Respond with valid JSON only — no markdown, no explanation:
-{{
-  "metric_id": "<exact id from the list above, or null>",
-  "confidence": <float 0.0–1.0>,
-  "filters": [
-    {{"member": "<CubeName.dimensionName>", "operator": "<operator>", "values": ["<val>"]}}
-  ],
-  "reasoning": "<one sentence explaining why this metric was chosen or why no match>"
-}}
- 
-Allowed operators (use exactly as written):
-  equals, notEquals, contains, notContains, startsWith, endsWith,
-  gt, gte, lt, lte, set, notSet,
-  inDateRange, notInDateRange, beforeDate, afterDate
- 
-Rules:
-- metric_id MUST be one of the ids shown in the catalog above, or null.
-- If the question clearly maps to a metric, set confidence ≥ 0.8.
-- If it partially matches but you are unsure, set confidence 0.5–0.79.
-- If there is no reasonable match, set metric_id to null and confidence < 0.5.
-- Only include filters explicitly stated or strongly implied by the question.
-- Return an empty filters array [] if no filters apply.
-- For date filters use inDateRange with values ["YYYY-MM-DD", "YYYY-MM-DD"].
-- For facility filters use member "Dispensing.facility" with values like ["KISUMU"].
-"""
-
-def classify_intent(state: AgentState) -> dict:
-    catalog_text = as_context()
-    logging.warning(f'catalog_text: {catalog_text}')
-
-    prompt = CLASSIFY_SYSTEM.format(catalog=catalog_text)
-
-    response = _openai().chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": prompt},
-            {"role": "user", "content": state["question"]},
-        ],
-        temperature=0,
-        response_format={"type": "json_object"},
+    last_metric = state.get("last_matched_metric")
+    if not last_metric:
+        return ""
+    return (
+        f"\nMost recent metric matched in this conversation: '{last_metric['id']}' "
+        f"({last_metric['name']}). A follow-up question with no new subject named "
+        f"almost certainly still means this metric.\n"
     )
 
-    raw = response.choices[0].message.content
-    parsed: dict = json.loads(raw)
-    # import pdb;pdb.set_trace()
-    metric_id = parsed.get("metric_id")
-    confidence = float(parsed.get("confidence", 0.0))
-    filters = parsed.get("filters", [])
-
-    matched_metric = None
-    # import pdb;pdb.set_trace()
-    if metric_id and confidence >= CONFIDENCE_THRESHOLD:
-        base = get_by_id(metric_id)
-        if base:
-            matched_metric = deepcopy(base)
-            # Merge validated LLM-extracted filters into the predefined query
-            matched_metric["cube_query"]["filters"].extend(_validate_filters(filters))
-
-    logger.info(
-        "classify_intent: metric_id=%s confidence=%.2f matched=%s",
-        metric_id,
-        confidence,
-        bool(matched_metric),
-    )
-
-    return {
-        "matched_metric": matched_metric,
-        "classification_confidence": confidence,
-        "fallback_reason": None if matched_metric else parsed.get("reasoning"),
-    }
-
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Node 2 — execute_query  (shared by happy path and resume path)
-# ─────────────────────────────────────────────────────────────────────────────
-
-def execute_query(state: AgentState) -> dict:
-    metric = state["matched_metric"]
-    query = dict(metric["cube_query"])  # shallow copy — don't mutate state
-
-    # Promote inDateRange filters → timeDimension.dateRange before sending
-    user_facility = state.get("user_facility") or resolve_facility(state["user_id"])
-    if user_facility:
-        query = inject_facility_filter(query, user_facility)  # ← filter added here
-    
-    filters = query.get("filters", [])
-    if filters:
-        query, filters = _promote_date_filters(query, filters)
-        query["filters"] = filters
-
-    logger.info("execute_query: metric=%s query=%s", metric["id"], query)
-
-    try:
-        result = run_query(query)
-    except httpx.HTTPStatusError as exc:
-        logger.error("Cube API error: %s — %s", exc.response.status_code, exc.response.text)
-        raise
-    except httpx.TimeoutException:
-        logger.error("Cube API timed out for metric %s", metric["id"])
-        raise
-
-    return {
-        "cube_query": query,
-        "raw_result": result,
-    }
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Node 3 — format_result  (shared)
-# ─────────────────────────────────────────────────────────────────────────────
-
-FORMAT_SYSTEM = """\
-You are a data analyst assistant. Given a user question and a raw Cube.dev API
-response, produce a concise, helpful answer.
-
-Respond with valid JSON only:
-{{
-  "summary": "<1–3 sentence plain-English answer>",
-  "data": <the relevant rows/values from the raw result, cleaned up>,
-  "metric_name": "<human-readable metric name>"
-}}
-"""
-
-
-def format_result(state: AgentState) -> dict:
-    raw = state["raw_result"]
-    question = state["question"]
-    metric = state["matched_metric"]
-
-    response = _openai().chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": FORMAT_SYSTEM},
-            {
-                "role": "user",
-                "content": (
-                    f"Question: {question}\n\n"
-                    f"Metric: {metric['name']}\n\n"
-                    f"Raw result:\n{json.dumps(raw, indent=2)}"
-                ),
-            },
-        ],
-        temperature=0,
-        response_format={"type": "json_object"},
-    )
-
-    formatted = json.loads(response.choices[0].message.content)
-    formatted["metric_id"] = metric["id"]
-    formatted["thread_id"] = state["thread_id"]
-
-    return {"formatted_result": formatted}
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Node 4 — fallback_notifier  ← contains the interrupt()
+# Node — fallback_notifier  ← contains the interrupt()
 # ─────────────────────────────────────────────────────────────────────────────
 
 FALLBACK_USER_MESSAGE = (
@@ -337,6 +137,48 @@ def _send_whatsapp(phone: str, message: str) -> None:
         logger.error("_send_whatsapp: failed to send to %s — %s", phone, exc)
 
 
+def _send_whatsapp_image(phone: str, image_base64: str, caption: str = "", mime: str = "image/png") -> None:
+    """
+    Send an image message via Whapi (https://whapi.cloud/).
+
+    NOT YET VERIFIED against a live Whapi channel — unlike _send_whatsapp's
+    /messages/text call (already exercised in production here), this repo
+    has no prior working example of Whapi's media-message payload shape.
+    Send one real chart to a test number before relying on this — if it
+    fails, check Whapi's current /messages/image (or /messages/media) schema
+    and adjust the payload below to match.
+
+    Required settings: WHAPI_TOKEN, WHAPI_URL (same as _send_whatsapp).
+    """
+    token = getattr(settings, "WHAPI_TOKEN", os.getenv("WHAPI_TOKEN", ""))
+    base_url = getattr(settings, "WHAPI_URL", os.getenv("WHAPI_URL", "https://gate.whapi.cloud")).rstrip("/")
+
+    if not token:
+        logger.warning("_send_whatsapp_image: WHAPI_TOKEN not configured — skipping image send.")
+        return
+
+    phone_clean = phone.lstrip("+").replace(" ", "")
+    to = f"{phone_clean}@s.whatsapp.net"
+
+    payload = {
+        "to": to,
+        "media": f"data:{mime};base64,{image_base64}",
+        "caption": caption,
+    }
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+
+    try:
+        with httpx.Client(timeout=20) as client:
+            resp = client.post(f"{base_url}/messages/image", json=payload, headers=headers)
+            resp.raise_for_status()
+        logger.info("_send_whatsapp_image: chart sent to %s", phone)
+    except Exception as exc:
+        logger.error("_send_whatsapp_image: failed to send to %s — %s", phone, exc)
+
+
 def _ping_callback(callback_url: str, state: AgentState, user_message: str) -> None:
     """
     Immediately POST a 'pending' status to the client's callback_url
@@ -362,6 +204,58 @@ def _ping_callback(callback_url: str, state: AgentState, user_message: str) -> N
         logger.error("_ping_callback: failed to reach %s — %s", callback_url, exc)
 
 
+def _diagnose_fallback(state: AgentState) -> str:
+    """
+    Reconstruct WHY this question fell through to fallback_notifier, from
+    whatever retrieve_candidates/compose_derived_metric already left in
+    state — state["fallback_reason"] itself is never actually set by any
+    node, so relying on it silently produced "Reason: None" in every
+    analytics email. This is computed fresh here instead, so the log line
+    and the email always carry a real, specific explanation.
+    """
+    plan = state.get("intent_plan") or {}
+    candidates = state.get("retrieval_candidates") or []
+
+    parts = [
+        f"subject={plan.get('subject')!r} metric_type={plan.get('metric_type')} "
+        f"candidate_terms={plan.get('candidate_terms')}"
+    ]
+
+    if not candidates:
+        parts.append("retrieval returned no candidates at all — check agents/retrieval.py's index.")
+        return " | ".join(parts)
+
+    relevant = [c for c in candidates if c.get("score", 0) >= RELEVANT_FLOOR]
+    ranked = ", ".join(f"{c['id']}({c.get('score', 0):.2f})" for c in candidates[:5])
+    parts.append(f"top candidates: {ranked}")
+
+    if not relevant:
+        top_score = candidates[0].get("score", 0)
+        parts.append(
+            f"none reached RELEVANT_FLOOR={RELEVANT_FLOOR} (best was {top_score:.2f}) — "
+            f"this question likely isn't covered by any catalog metric, measure, or "
+            f"glossary entry yet. Add one to catalog/metrics.yaml or catalog/glossary.yaml."
+        )
+    elif any(c.get("score", 0) >= CONFIDENT_SINGLE_SCORE and is_directly_resolvable(c) for c in relevant):
+        parts.append(
+            "a directly-resolvable candidate cleared CONFIDENT_SINGLE_SCORE — this should "
+            "NOT have reached fallback_notifier; check _resolve_matched_metric for a bug."
+        )
+    else:
+        parts.append(
+            f"{len(relevant)} candidate(s) reached RELEVANT_FLOOR={RELEVANT_FLOOR} but none "
+            f"was a single directly-resolvable hit at CONFIDENT_SINGLE_SCORE={CONFIDENT_SINGLE_SCORE}, "
+            f"and compose_derived_metric couldn't combine them into a ratio/difference either — "
+            f"needs either a curated catalog/glossary.yaml formula, or 2+ measure-shaped "
+            f"candidates on the SAME cube. Consider adding the missing metric/formula."
+        )
+
+    if state.get("pending_join_writes"):
+        parts.append("a cross-cube auto-join was attempted but nothing computed this turn.")
+
+    return " | ".join(parts)
+
+
 def fallback_notifier(state: AgentState) -> dict:
     """
     Phase 1:
@@ -377,6 +271,9 @@ def fallback_notifier(state: AgentState) -> dict:
     analytics_email = getattr(settings, "ANALYTICS_TEAM_EMAIL", "analytics@example.com")
     from_email = getattr(settings, "DEFAULT_FROM_EMAIL", "noreply@example.com")
 
+    reason = _diagnose_fallback(state)
+    logger.warning("fallback_notifier: question=%r — %s", state["question"], reason)
+
     # ── 1. Email analytics team ───────────────────────────────────────────
     subject = f"[Analytics Request] New metric needed: \"{state['question'][:60]}\""
     body = (
@@ -386,7 +283,7 @@ def fallback_notifier(state: AgentState) -> dict:
         f"User Phone: {state.get('user_phone') or 'not provided'}\n"
         f"Thread ID : {state['thread_id']}\n"
         f"Confidence: {state['classification_confidence']:.0%}\n"
-        f"Reason    : {state.get('fallback_reason', 'No close match found')}\n\n"
+        f"Reason    : {reason}\n\n"
         f"Once you have added the metric to catalog/metrics.yaml, trigger the resume:\n\n"
         f"  POST /api/resume/\n"
         f"  {{\n"
@@ -432,7 +329,7 @@ def fallback_notifier(state: AgentState) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Node 5 — re_classify  (resume path only)
+# Node — re_classify  (resume path only)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def re_classify(state: AgentState) -> dict:
@@ -460,11 +357,16 @@ def re_classify(state: AgentState) -> dict:
         )
 
     # Extract filters from original question for the specific metric
+    allowed_members = _valid_members_for(base)
+    time_members = _valid_time_members_for(base)
     filter_prompt = (
         f"Extract any dimension filters from this question for the metric "
-        f"'{base['name']}' (Cube cube: {list(set(m.split('.')[0] for m in base['cube_query'].get('measures', [])))}). "
+        f"'{base['name']}'. Only use these exact fields as a filter's \"member\" — "
+        f"never invent or paraphrase one: {sorted(allowed_members)}. "
+        f"Date-range operators (inDateRange, notInDateRange, beforeDate, afterDate) "
+        f"may ONLY target one of these date fields: {sorted(time_members) or 'none — do not emit a date-range filter for this metric'}. "
         f"Respond with JSON: {{\"filters\": [...]}}. "
-        f"Return an empty list if no filters are stated. No markdown."
+        f"Return an empty list if no filters are stated, or if none of the fields above fit. No markdown."
     )
 
     response = _openai().chat.completions.create(
@@ -480,18 +382,22 @@ def re_classify(state: AgentState) -> dict:
     extra_filters = json.loads(response.choices[0].message.content).get("filters", [])
 
     matched = deepcopy(base)
-    matched["cube_query"]["filters"].extend(_validate_filters(extra_filters))
+    matched["cube_query"]["filters"].extend(
+        _validate_filters(extra_filters, allowed_members=allowed_members, time_members=time_members)
+    )
 
     logger.info("re_classify: using metric=%s with %d extra filters", metric_id, len(extra_filters))
 
     return {
         "matched_metric": matched,
+        "cube_query": matched["cube_query"],
         "classification_confidence": 1.0,  # team confirmed this metric
+        "last_matched_metric": matched,
     }
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Node 6 — auto_notify_user  (resume path only)
+# Node — auto_notify_user  (resume path only)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def auto_notify_user(state: AgentState) -> dict:

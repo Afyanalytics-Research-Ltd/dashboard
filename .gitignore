@@ -14,6 +14,7 @@
 # Environment
 .env
 venv/
+venv_dash/
 __pycache__/
 *.pyc
 *.pyo
@@ -114,6 +115,10 @@ docs/_build/
 # PyBuilder
 .pybuilder/
 target/
+
+# dbt
+dbt/dbt_packages/
+dbt/logs/
 
 # Jupyter Notebook
 .ipynb_checkpoints
@@ -249,6 +254,13 @@ __marimo__/
 *.csv
 rsa_key*
 service_account.json
+
+# exclude for personal development files
+*.ipynb
+!preprocessing/doctors_notes_cleaning_V2.ipynb
+ksh_clinicals_dashboard_copy.py
+preprocessing/*.jsonl
+*.tmp.*
 **/DATA_QUALITY.md
 
 # ML platform runtime artifacts — never commit (MLflow DB, Evidently reports, lock files)
@@ -265,3 +277,5 @@ ml_platform/retrain_status.json
 
 # AI chat layer — generated runtime files, never commit
 **/chat/metrics_snapshot.json
+.cubestore/
+config/airflow.cfg

@@ -1,0 +1,31 @@
+# Requires docker-compose.yaml's postgres and redis services to be reachable
+# on the shared dashboard-net network (bring them up first, or combine with:
+#   docker compose -f docker-compose.yaml -f docker-compose.streamlit.yaml up -d
+services:
+  streamlit:
+    restart: always
+    build: .
+    container_name: streamlit-container
+    expose:
+      - "8501"
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./:/usr/src/app
+    env_file: .env
+    working_dir: /usr/src/app
+    command:
+      - streamlit
+      - run
+      - analytics_app/dashboards/dynamic_file_loader.py
+      - --server.port=8501
+      - --server.address=0.0.0.0
+      - --server.headless=true
+      - --server.enableCORS=false
+      - --server.enableXsrfProtection=false
+    networks:
+      - dashboard-net
+
+networks:
+  dashboard-net:
+    name: dashboard-net

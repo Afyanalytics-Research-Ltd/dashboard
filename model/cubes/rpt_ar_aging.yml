@@ -1,0 +1,114 @@
+cubes:
+  - name: rpt_ar_aging
+    sql_table: "\"REPORTING\".\"RPT_AR_AGING\""
+    data_source: default
+
+    # rpt_insurance_ar is unique at facility+insurer+invoice_month grain
+    # (verified via direct SQL join-count check: 1,647/1,647 rpt_ar_aging
+    # rows matched, 100%, no fan-out) — see Universe D in the join map.
+    joins:
+      - name: rpt_insurance_ar
+        sql: "{CUBE}.\"FACILITY\" = {rpt_insurance_ar}.\"FACILITY\" AND {CUBE}.\"INSURER\" = {rpt_insurance_ar}.\"INSURER\" AND {CUBE}.\"INVOICE_MONTH\" = {rpt_insurance_ar}.\"INVOICE_MONTH\""
+        relationship: many_to_one
+
+    dimensions:
+      - name: aging_bucket
+        sql: "{CUBE}.\"AGING_BUCKET\""
+        type: string
+        primary_key: true
+
+      - name: facility
+        sql: "{CUBE}.\"FACILITY\""
+        type: string
+        primary_key: true
+
+      - name: insurer
+        sql: "{CUBE}.\"INSURER\""
+        type: string
+        primary_key: true
+
+      - name: facility_data_end
+        sql: "{CUBE}.\"FACILITY_DATA_END\""
+        type: time
+
+      - name: invoice_month
+        sql: "{CUBE}.\"INVOICE_MONTH\""
+        type: time
+        primary_key: true
+
+    measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T12:59:24.754781+00:00
+      - name: invoices
+        sql: '{CUBE}."INVOICES"'
+        type: sum
+      - name: distinct_visits
+        sql: '{CUBE}."DISTINCT_VISITS"'
+        type: sum
+      - name: total_billed
+        sql: '{CUBE}."TOTAL_BILLED"'
+        type: sum
+      - name: total_collected
+        sql: '{CUBE}."TOTAL_COLLECTED"'
+        type: sum
+      - name: total_outstanding
+        sql: '{CUBE}."TOTAL_OUTSTANDING"'
+        type: sum
+        title: Outstanding AR by Aging Bucket (KES)
+        description: Outstanding accounts receivable broken down by aging_bucket (e.g. "90+" days), facility, and insurer — use for "90+ day outstanding AR" and other aging-bucket questions.
+      - name: collection_rate_pct
+        sql: '{CUBE}."COLLECTION_RATE_PCT"'
+        type: avg
+        format: percent
+        title: Collection Rate (%, averaged)
+        description: AVERAGE of a pre-computed per-row rate — not safe when grouping/filtering. Use collection_rate_calc_pct instead.
+      - name: dispatched_invoices
+        sql: '{CUBE}."DISPATCHED_INVOICES"'
+        type: sum
+      - name: dispatch_rate_pct
+        sql: '{CUBE}."DISPATCH_RATE_PCT"'
+        type: avg
+        format: percent
+        title: Dispatch Rate (%, averaged)
+        description: AVERAGE of a pre-computed per-row rate — not safe when grouping/filtering. Use dispatch_rate_calc_pct instead.
+
+      - name: collection_rate_calc_pct
+        sql: "{total_collected} * 100.0 / NULLIF({total_billed}, 0)"
+        type: number
+        format: percent
+        title: Collection Rate (%)
+        description: TRUE collection rate — total_collected / total_billed — correct at any grouping.
+        drill_members: [invoice_month, facility, insurer, aging_bucket]
+
+      - name: dispatch_rate_calc_pct
+        sql: "{dispatched_invoices} * 100.0 / NULLIF({invoices}, 0)"
+        type: number
+        format: percent
+        title: Dispatch Rate (%)
+        description: TRUE dispatch rate — dispatched_invoices / invoices — correct at any grouping.
+
+      - name: avg_days_to_dispatch
+        sql: '{CUBE}."AVG_DAYS_TO_DISPATCH"'
+        type: avg
+      - name: avg_days_to_collection
+        sql: '{CUBE}."AVG_DAYS_TO_COLLECTION"'
+        type: avg
+      - name: avg_days_outstanding
+        sql: '{CUBE}."AVG_DAYS_OUTSTANDING"'
+        type: avg
+      - name: overpaid_invoices
+        sql: '{CUBE}."OVERPAID_INVOICES"'
+        type: sum
+        title: Overpaid Invoices (count)
+      - name: overpayment_kes
+        sql: '{CUBE}."OVERPAYMENT_KES"'
+        type: sum
+        title: Overpayment Amount (KES)
+        description: Total overpaid amount, by facility/insurer — use for "insurers with overpayments" questions.
+      - name: count
+        type: count
+        drill_members: [invoice_month, facility, insurer, aging_bucket]
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

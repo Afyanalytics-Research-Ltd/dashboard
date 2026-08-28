@@ -1,0 +1,47 @@
+cubes:
+  - name: rpt_lodwar_ward_utilisation
+    sql_table: "\"REPORTING\".\"RPT_LODWAR_WARD_UTILISATION\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: facility
+        sql: "{CUBE}.\"FACILITY\""
+        type: string
+
+      - name: source_schema
+        sql: "{CUBE}.\"SOURCE_SCHEMA\""
+        type: string
+
+      - name: ward_name
+        sql: "{CUBE}.\"WARD_NAME\""
+        type: string
+
+    measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:00:43.661656+00:00
+      - name: total_admissions
+        sql: '{CUBE}."TOTAL_ADMISSIONS"'
+        type: sum
+        drill_members: [facility, ward_name]
+      - name: closed_admissions
+        sql: '{CUBE}."CLOSED_ADMISSIONS"'
+        type: sum
+      - name: open_admissions
+        sql: '{CUBE}."OPEN_ADMISSIONS"'
+        type: sum
+      - name: avg_los_days
+        sql: '{CUBE}."AVG_LOS_DAYS"'
+        type: avg
+      - name: count
+        type: count
+
+      - name: pct_of_total
+        sql: "{CUBE}.\"PCT_OF_TOTAL\""
+        type: sum
+        drill_members: [facility, ward_name]
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

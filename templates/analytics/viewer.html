@@ -431,7 +431,7 @@ body { background: #060d1a; }
   </div>
 
   <!-- ========== DASHBOARD FRAME ========== -->
-  {% if dashboard.streamlit_url %}
+  {% if embed_url %}
   <div class="v-frame-area" id="vFrameArea">
 
     <!-- Loader -->
@@ -452,7 +452,7 @@ body { background: #060d1a; }
     <iframe
       id="vIframe"
       class="v-iframe"
-      src="{{ dashboard.streamlit_url }}"
+      src="{{ embed_url }}"
       title="{{ dashboard.name }}"
       allowfullscreen>
     </iframe>

@@ -1,0 +1,46 @@
+cubes:
+  - name: canonical_keys
+    sql_table: "\"REPORTING\".\"CANONICAL_KEYS\""
+    data_source: default
+
+    joins: []
+
+    dimensions:
+      - name: canonical_product_id
+        sql: "{CUBE}.\"CANONICAL_PRODUCT_ID\""
+        type: number
+        primary_key: true
+
+      - name: canonical_name
+        sql: "{CUBE}.\"CANONICAL_NAME\""
+        type: string
+
+      - name: form_canonical
+        sql: "{CUBE}.\"FORM_CANONICAL\""
+        type: string
+
+      - name: inn_name
+        sql: "{CUBE}.\"INN_NAME\""
+        type: string
+
+      - name: strength_canonical
+        sql: "{CUBE}.\"STRENGTH_CANONICAL\""
+        type: string
+
+      - name: therapeutic_class
+        sql: "{CUBE}.\"THERAPEUTIC_CLASS\""
+        type: string
+
+      - name: therapeutic_subclass
+        sql: "{CUBE}.\"THERAPEUTIC_SUBCLASS\""
+        type: string
+
+    measures:
+      - name: count
+        type: count
+        drill_members: [therapeutic_class, canonical_name, form_canonical, canonical_product_id]
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

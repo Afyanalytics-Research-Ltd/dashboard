@@ -14,6 +14,9 @@ Test classes:
     FormsTests                          — all form validations
     WarehouseAPITests                   — REST API (SpreadsheetViewSet)
     SnowflakeAPITests                   — REST API (Snowflake endpoints)
+    FacilityScopeUnitTests              — facility_scope.py pure-function behavior
+    FacilityScopedQueryViewTests        — SnowflakeQueryView enforcing facility scope
+    FacilityScopedAPITests              — Snowflake API endpoints enforcing facility scope
 """
 
 import json
@@ -888,3 +891,877 @@ class SnowflakeAPITests(TestCase):
         MockClient.return_value.get_tables.side_effect = SnowflakeQueryError("conn fail")
         resp = self.api_client.get("/api/v1/warehouse/snowflake/tables/")
         self.assertEqual(resp.status_code, 503)
+
+
+# ════════════════════════════════════════ FACILITY SCOPE TESTS
+
+def _make_facility_user(username: str, facility_name: str, reporting_source_schema: str):
+    """Create a user whose profile is linked to a real Facility row.
+
+    Mirrors how agents/facility.py's resolve_facility_from_user() actually
+    resolves a canonical key in production: through a real UserProfile →
+    Facility relationship, not a mock — so these tests exercise the real
+    resolution path end to end, only mocking the Snowflake connection itself.
+    """
+    from core.models import Client as OrgClient
+    from core.models import Facility
+
+    org, _ = OrgClient.objects.get_or_create(name="Facility Scope Org", slug="fs-org")
+    facility = Facility.objects.create(
+        client=org,
+        name=facility_name,
+        slug=facility_name.lower().replace(" ", "-"),
+        reporting_source_schema=reporting_source_schema,
+    )
+    user = _make_user(username, role=ROLE_CLIENT_ADMIN)
+    user.profile.facility = facility
+    user.profile.save(update_fields=["facility"])
+    return user
+
+
+class FacilityScopeUnitTests(TestCase):
+    """Pure-function tests for warehouse/services/facility_scope.py."""
+
+    def setUp(self):
+        self.kisumu_user = _make_facility_user("kisumu_fac_user", "Kisumu County Hospital", "Kisumu")
+        self.client_admin_no_facility = _make_admin()  # no facility linked → unrestricted
+
+    def test_get_scope_none_for_unlinked_facility(self):
+        from .services.facility_scope import get_facility_scope
+        self.assertIsNone(get_facility_scope(self.client_admin_no_facility))
+
+    def test_get_scope_resolves_kisumu(self):
+        from .services.facility_scope import get_facility_scope
+        scope = get_facility_scope(self.kisumu_user)
+        self.assertIsNotNone(scope)
+        self.assertEqual(scope.facility_key, "KISUMU")
+        self.assertEqual(scope.clean_schema, "KISUMU_CLEAN")
+        self.assertEqual(scope.allowed_schemas, frozenset({"KISUMU_CLEAN"}))
+
+    def test_validate_noop_when_unrestricted(self):
+        from .services.facility_scope import validate_query_scope
+        # Should not raise, even for a schema/table the user shouldn't otherwise see.
+        validate_query_scope('SELECT * FROM "KAKAMEGA_CLEAN"."SOME_TABLE"', None)
+
+    def test_validate_allows_own_clean_schema(self):
+        from .services.facility_scope import get_facility_scope, validate_query_scope
+        scope = get_facility_scope(self.kisumu_user)
+        validate_query_scope('SELECT * FROM "KISUMU_CLEAN"."PATIENTS" LIMIT 10', scope)
+
+    def test_validate_blocks_other_facility_clean_schema(self):
+        from .services.facility_scope import FacilityScopeError, get_facility_scope, validate_query_scope
+        scope = get_facility_scope(self.kisumu_user)
+        with self.assertRaises(FacilityScopeError):
+            validate_query_scope('SELECT * FROM "KAKAMEGA_CLEAN"."PATIENTS"', scope)
+
+    def test_validate_blocks_raw_schema(self):
+        from .services.facility_scope import FacilityScopeError, get_facility_scope, validate_query_scope
+        scope = get_facility_scope(self.kisumu_user)
+        with self.assertRaises(FacilityScopeError):
+            validate_query_scope('SELECT * FROM "KISUMU_RAW"."PATIENTS"', scope)
+
+    def test_validate_blocks_reporting_schema(self):
+        """REPORTING is always blocked for facility-scoped users, filtered or not —
+        it pools every facility's rows behind one column, which a raw-SQL
+        query can't be reliably forced to filter, so it's off-limits entirely."""
+        from .services.facility_scope import FacilityScopeError, get_facility_scope, validate_query_scope
+        scope = get_facility_scope(self.kisumu_user)
+        with self.assertRaises(FacilityScopeError):
+            validate_query_scope("SELECT * FROM REPORTING.RPT_CASE_MIX", scope)
+        with self.assertRaises(FacilityScopeError):
+            validate_query_scope(
+                "SELECT * FROM REPORTING.RPT_CASE_MIX WHERE source_schema ILIKE '%Kisumu%'",
+                scope,
+            )
+
+    def test_filter_tables_unrestricted_passthrough(self):
+        from .services.facility_scope import filter_tables_for_scope
+        tables = [{"SCHEMA_NAME": "KISUMU_CLEAN"}, {"SCHEMA_NAME": "STAGING"}]
+        self.assertEqual(filter_tables_for_scope(tables, None), tables)
+
+    def test_filter_tables_scoped(self):
+        from .services.facility_scope import filter_tables_for_scope, get_facility_scope
+        scope = get_facility_scope(self.kisumu_user)
+        tables = [
+            {"SCHEMA_NAME": "KISUMU_CLEAN", "TABLE_NAME": "A"},
+            {"SCHEMA_NAME": "KISUMU_RAW", "TABLE_NAME": "B"},
+            {"SCHEMA_NAME": "KAKAMEGA_CLEAN", "TABLE_NAME": "C"},
+            {"SCHEMA_NAME": "REPORTING", "TABLE_NAME": "D"},
+            {"SCHEMA_NAME": "STAGING", "TABLE_NAME": "E"},
+        ]
+        result = filter_tables_for_scope(tables, scope)
+        schemas = {t["SCHEMA_NAME"] for t in result}
+        self.assertEqual(schemas, {"KISUMU_CLEAN"})
+
+
+class FacilityScopedQueryViewTests(TestCase):
+    """SnowflakeQueryView enforcing facility scope for a facility-linked user."""
+
+    def setUp(self):
+        self.user = _make_facility_user("kisumu_view_user", "Kisumu County Hospital", "Kisumu")
+        self.c = Client()
+        self.c.force_login(self.user)
+
+    @patch("warehouse.views.SnowflakeClient")
+    def test_own_clean_schema_query_succeeds(self, MockClient):
+        MockClient.return_value.query.return_value = pd.DataFrame({"x": [1]})
+        resp = self.c.post(reverse("warehouse:snowflake"), {
+            "query": 'SELECT * FROM "KISUMU_CLEAN"."SOME_TABLE" LIMIT 10',
+        })
+        self.assertEqual(resp.status_code, 200)
+        self.assertIsNone(resp.context["error_msg"])
+
+    @patch("warehouse.views.SnowflakeClient")
+    def test_other_facility_schema_blocked(self, MockClient):
+        resp = self.c.post(reverse("warehouse:snowflake"), {
+            "query": 'SELECT * FROM "KAKAMEGA_CLEAN"."SOME_TABLE" LIMIT 10',
+        })
+        self.assertEqual(resp.status_code, 200)
+        self.assertIsNotNone(resp.context["error_msg"])
+        self.assertIn("KAKAMEGA_CLEAN", resp.context["error_msg"])
+        MockClient.return_value.query.assert_not_called()
+
+    @patch("warehouse.views.SnowflakeClient")
+    def test_reporting_always_blocked(self, MockClient):
+        """REPORTING is off-limits for facility-scoped users, filtered or not."""
+        resp = self.c.post(reverse("warehouse:snowflake"), {
+            "query": "SELECT * FROM REPORTING.RPT_CASE_MIX LIMIT 10",
+        })
+        self.assertEqual(resp.status_code, 200)
+        self.assertIsNotNone(resp.context["error_msg"])
+        MockClient.return_value.query.assert_not_called()
+
+        resp2 = self.c.post(reverse("warehouse:snowflake"), {
+            "query": "SELECT * FROM REPORTING.RPT_CASE_MIX WHERE source_schema ILIKE '%Kisumu%' LIMIT 10",
+        })
+        self.assertIsNotNone(resp2.context["error_msg"])
+        MockClient.return_value.query.assert_not_called()
+
+    @patch("warehouse.views.SnowflakeClient")
+    def test_raw_schema_blocked(self, MockClient):
+        resp = self.c.post(reverse("warehouse:snowflake"), {
+            "query": 'SELECT * FROM "KISUMU_RAW"."SOME_TABLE" LIMIT 10',
+        })
+        self.assertEqual(resp.status_code, 200)
+        self.assertIsNotNone(resp.context["error_msg"])
+        MockClient.return_value.query.assert_not_called()
+
+    @patch("warehouse.views.SnowflakeClient")
+    def test_unrestricted_admin_unaffected(self, MockClient):
+        """A Client Admin with no linked Facility keeps full, unscoped access."""
+        MockClient.return_value.query.return_value = pd.DataFrame({"x": [1]})
+        unrestricted = _make_user("unrestricted_admin", role=ROLE_CLIENT_ADMIN)
+        c = Client()
+        c.force_login(unrestricted)
+        resp = c.post(reverse("warehouse:snowflake"), {
+            "query": 'SELECT * FROM "KAKAMEGA_CLEAN"."SOME_TABLE" LIMIT 10',
+        })
+        self.assertEqual(resp.status_code, 200)
+        self.assertIsNone(resp.context["error_msg"])
+
+
+class FacilityScopedAPITests(TestCase):
+    """DRF Snowflake endpoints enforcing facility scope."""
+
+    def setUp(self):
+        self.user = _make_facility_user("kisumu_api_user", "Kisumu County Hospital", "Kisumu")
+        self.api_client = APIClient()
+        self.api_client.force_authenticate(user=self.user)
+
+    @patch("warehouse.api.SnowflakeClient")
+    def test_query_api_blocks_other_facility(self, MockClient):
+        resp = self.api_client.post(
+            "/api/v1/warehouse/snowflake/query/",
+            {"query": 'SELECT * FROM "KAKAMEGA_CLEAN"."SOME_TABLE"'},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 403)
+        MockClient.return_value.query.assert_not_called()
+
+    @patch("warehouse.api.SnowflakeClient")
+    def test_query_api_allows_own_clean_schema(self, MockClient):
+        MockClient.return_value.query.return_value = pd.DataFrame({"x": [1]})
+        resp = self.api_client.post(
+            "/api/v1/warehouse/snowflake/query/",
+            {"query": 'SELECT * FROM "KISUMU_CLEAN"."SOME_TABLE"'},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 200)
+
+    @patch("warehouse.api.SnowflakeClient")
+    def test_query_api_blocks_unfiltered_reporting(self, MockClient):
+        resp = self.api_client.post(
+            "/api/v1/warehouse/snowflake/query/",
+            {"query": "SELECT * FROM REPORTING.RPT_CASE_MIX"},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 403)
+        MockClient.return_value.query.assert_not_called()
+
+    @patch("warehouse.api.SnowflakeClient")
+    def test_tables_api_scopes_to_facility(self, MockClient):
+        MockClient.return_value.get_tables.return_value = pd.DataFrame({
+            "SCHEMA_NAME": ["KISUMU_CLEAN", "KISUMU_RAW", "KAKAMEGA_CLEAN", "REPORTING"],
+            "TABLE_NAME": ["A", "B", "C", "D"],
+            "TABLE_TYPE": ["BASE TABLE"] * 4,
+            "ROW_COUNT": [1, 2, 3, 4],
+            "BYTES": [1, 2, 3, 4],
+            "LAST_ALTERED": [None, None, None, None],
+        })
+        resp = self.api_client.get("/api/v1/warehouse/snowflake/tables/")
+        self.assertEqual(resp.status_code, 200)
+        schemas = {t["SCHEMA_NAME"] for t in resp.data["tables"]}
+        self.assertEqual(schemas, {"KISUMU_CLEAN"})
+
+
+# ════════════════════════════════════════ SPREADSHEET ANALYST — agent internals
+# These exercise warehouse/agent/*.py directly — it has no Django or LLM
+# dependency (see its own docstrings), so these are real, unmocked tests that
+# confirm the package still works correctly after being relocated from a
+# standalone project into warehouse/agent/.
+
+class AnalystSandboxTests(TestCase):
+    """warehouse/agent/sandbox.py — AST validation + guarded execution."""
+
+    def test_blocks_import(self):
+        from warehouse.agent.sandbox import execute
+        result = execute("import os", {})
+        self.assertFalse(result.ok)
+        self.assertIn("not allowed", result.error)
+
+    def test_blocks_dunder_attribute_access(self):
+        from warehouse.agent.sandbox import execute
+        # __class__ is deliberately allow-listed (harmless, commonly needed);
+        # __subclasses__ is not — this is what should actually be rejected.
+        result = execute("int.__subclasses__()", {})
+        self.assertFalse(result.ok)
+
+    def test_allows_explicitly_allowed_dunder(self):
+        from warehouse.agent.sandbox import execute
+        result = execute("(1).__class__.__name__", {})
+        self.assertTrue(result.ok)
+
+    def test_blocks_eval_and_exec(self):
+        from warehouse.agent.sandbox import execute
+        self.assertFalse(execute("eval('1')", {}).ok)
+        self.assertFalse(execute("exec('1')", {}).ok)
+
+    def test_allows_basic_arithmetic(self):
+        from warehouse.agent.sandbox import execute
+        result = execute("2 + 2", {})
+        self.assertTrue(result.ok)
+        self.assertIn("4", result.value_repr)
+
+    def test_namespace_persists_across_calls(self):
+        from warehouse.agent.sandbox import execute
+        ns = {}
+        execute("x = 41", ns)
+        result = execute("x + 1", ns)
+        self.assertTrue(result.ok)
+        self.assertIn("42", result.value_repr)
+
+    def test_syntax_error_reported_not_raised(self):
+        from warehouse.agent.sandbox import execute
+        result = execute("def bad(:", {})
+        self.assertFalse(result.ok)
+        self.assertIn("SyntaxError", result.error)
+
+
+class AnalystWorkbookTests(TestCase):
+    """warehouse/agent/workbook.py — CSV/Excel loading and profiling."""
+
+    def _write_csv(self, name="sample.csv"):
+        import tempfile
+        from pathlib import Path
+        tmp_dir = Path(tempfile.mkdtemp())
+        path = tmp_dir / name
+        path.write_text("region,revenue\nWest,100\nEast,150\nWest,120\n", encoding="utf-8")
+        return path
+
+    def test_load_csv_workbook(self):
+        from warehouse.agent.workbook import load_workbook
+        path = self._write_csv()
+        frames, sheet_to_var = load_workbook(path)
+        self.assertEqual(len(frames), 1)
+        var = next(iter(frames))
+        self.assertEqual(list(frames[var].columns), ["region", "revenue"])
+        self.assertEqual(len(frames[var]), 3)
+
+    def test_slugify_sheet(self):
+        from warehouse.agent.workbook import slugify_sheet
+        self.assertEqual(slugify_sheet("Q1 Sales (2026)"), "q1_sales_2026")
+        self.assertEqual(slugify_sheet("2026 Data"), "s_2026_data")
+
+    def test_profile_frame(self):
+        import pandas as pd
+        from warehouse.agent.workbook import profile_frame
+        df = pd.DataFrame({"region": ["West", "East", "West"], "revenue": [100, 150, 120]})
+        profile = profile_frame("sales", "sales", df)
+        self.assertEqual(profile.n_rows, 3)
+        self.assertEqual(profile.n_cols, 2)
+        md = profile.to_markdown()
+        self.assertIn("sales", md)
+        self.assertIn("region", md)
+
+    def test_build_namespace_includes_pandas_and_sheets(self):
+        import pandas as pd
+        from warehouse.agent.workbook import build_namespace
+        frames = {"sales": pd.DataFrame({"x": [1, 2]})}
+        ns = build_namespace(frames)
+        self.assertIn("pd", ns)
+        self.assertIn("np", ns)
+        self.assertIn("plt", ns)
+        self.assertIn("sales", ns)
+        self.assertIn("df", ns)  # alias for the first/only sheet
+
+
+class AnalysisSessionTests(TestCase):
+    """warehouse/agent/session.py — end to end against a real small CSV."""
+
+    def test_open_session_and_overview(self):
+        import tempfile
+        from pathlib import Path
+        from warehouse.agent.session import AnalysisSession
+
+        tmp_dir = Path(tempfile.mkdtemp())
+        source = tmp_dir / "sales.csv"
+        source.write_text("region,revenue\nWest,100\nEast,150\n", encoding="utf-8")
+
+        session = AnalysisSession.open(source, tmp_dir / "artifacts")
+        self.assertIn("region", session.overview())
+        self.assertIn("pd", session.namespace)
+
+        path = session.new_artifact_path("my chart!", ".png")
+        self.assertTrue(str(path).endswith(".png"))
+        artifact = session.record("chart", "My Chart", path)
+        self.assertEqual(len(session.artifacts), 1)
+        self.assertEqual(artifact.to_dict()["kind"], "chart")
+
+
+# ════════════════════════════════════════ SPREADSHEET ANALYST — Django layer
+
+class AnalystModelTests(TestCase):
+
+    def setUp(self):
+        self.user = _make_user("wb_owner")
+
+    def test_create_workbook(self):
+        from warehouse.models import Workbook
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        wb = Workbook.objects.create(
+            owner=self.user,
+            file=SimpleUploadedFile("sales.csv", b"a,b\n1,2\n"),
+            original_name="sales.csv",
+        )
+        self.assertEqual(str(wb), "sales.csv")
+        self.assertIn(str(wb.id), wb.get_absolute_url())
+
+    def test_conversation_and_chatmessage(self):
+        from warehouse.models import ChatMessage, Conversation, Workbook
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        wb = Workbook.objects.create(
+            owner=self.user, file=SimpleUploadedFile("x.csv", b"a\n1\n"), original_name="x.csv",
+        )
+        conv = Conversation.objects.create(workbook=wb, owner=self.user)
+        msg = ChatMessage.objects.create(conversation=conv, role="user", content="Hello")
+        self.assertEqual(conv.messages.count(), 1)
+        self.assertEqual(str(msg), "user: Hello")
+
+
+class AnalystFormTests(TestCase):
+
+    def test_upload_form_rejects_bad_extension(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from warehouse.forms import WorkbookUploadForm
+        form = WorkbookUploadForm(files={"file": SimpleUploadedFile("virus.exe", b"x")})
+        self.assertFalse(form.is_valid())
+
+    def test_upload_form_accepts_csv(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from warehouse.forms import WorkbookUploadForm
+        form = WorkbookUploadForm(files={"file": SimpleUploadedFile("sales.csv", b"a,b\n1,2\n")})
+        self.assertTrue(form.is_valid())
+
+    def test_question_form_requires_question(self):
+        from warehouse.forms import AnalystQuestionForm
+        self.assertFalse(AnalystQuestionForm({"question": ""}).is_valid())
+        self.assertTrue(AnalystQuestionForm({"question": "What drove growth?"}).is_valid())
+
+
+class AnalystViewTests(TestCase):
+
+    def setUp(self):
+        self.user = _make_user("analyst_view_user")
+        self.other_user = _make_user("analyst_other_user")
+        self.c = Client()
+
+    def _upload_csv(self, user, filename="sales.csv"):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        self.c.force_login(user)
+        return self.c.post(reverse("warehouse:analyst_workbook_upload"), {
+            "file": SimpleUploadedFile(filename, b"region,revenue\nWest,100\nEast,150\n"),
+        })
+
+    def test_workbook_list_requires_login(self):
+        resp = self.c.get(reverse("warehouse:analyst_workbook_list"))
+        self.assertEqual(resp.status_code, 302)
+
+    def test_workbook_list_shows_only_own_workbooks(self):
+        from warehouse.models import Workbook
+        self._upload_csv(self.user)
+        self._upload_csv(self.other_user)
+        self.c.force_login(self.user)
+        resp = self.c.get(reverse("warehouse:analyst_workbook_list"))
+        self.assertEqual(Workbook.objects.filter(owner=self.user).count(), 1)
+        self.assertEqual(len(resp.context["workbooks"]), 1)
+
+    def test_upload_real_csv_creates_workbook_and_redirects_to_chat(self):
+        from warehouse.models import Conversation, Workbook
+        resp = self._upload_csv(self.user)
+        wb = Workbook.objects.get(owner=self.user)
+        self.assertEqual(wb.load_error, "")
+        self.assertIn("region", wb.overview)
+        conv = Conversation.objects.get(workbook=wb)
+        self.assertRedirects(resp, conv.get_absolute_url())
+
+    def test_upload_rejects_bad_file_type(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from warehouse.models import Workbook
+        self.c.force_login(self.user)
+        self.c.post(reverse("warehouse:analyst_workbook_upload"), {
+            "file": SimpleUploadedFile("virus.exe", b"x"),
+        })
+        self.assertFalse(Workbook.objects.filter(owner=self.user).exists())
+
+    def test_workbook_detail_ownership_enforced(self):
+        self._upload_csv(self.user)
+        from warehouse.models import Workbook
+        wb = Workbook.objects.get(owner=self.user)
+        self.c.force_login(self.other_user)
+        resp = self.c.get(reverse("warehouse:analyst_workbook_detail", args=[wb.id]))
+        self.assertEqual(resp.status_code, 404)
+
+    def test_new_conversation_creates_second_conversation(self):
+        from warehouse.models import Conversation, Workbook
+        self._upload_csv(self.user)
+        wb = Workbook.objects.get(owner=self.user)
+        self.assertEqual(Conversation.objects.filter(workbook=wb).count(), 1)
+        self.c.force_login(self.user)
+        self.c.post(reverse("warehouse:analyst_new_conversation", args=[wb.id]))
+        self.assertEqual(Conversation.objects.filter(workbook=wb).count(), 2)
+
+    @patch("warehouse.analyst_views.submit_question")
+    def test_ask_returns_rendered_message(self, mock_submit):
+        from warehouse.models import ChatMessage, Conversation, Workbook
+        self._upload_csv(self.user)
+        wb = Workbook.objects.get(owner=self.user)
+        conv = Conversation.objects.get(workbook=wb)
+
+        mock_submit.return_value = ChatMessage.objects.create(
+            conversation=conv, role="assistant", content="Revenue was **$250**.",
+        )
+        self.c.force_login(self.user)
+        resp = self.c.post(reverse("warehouse:analyst_ask", args=[conv.id]), {"question": "Total revenue?"})
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertTrue(data["ok"])
+        self.assertIn("Revenue", data["html"])
+
+    @patch("warehouse.analyst_views.submit_question")
+    def test_ask_requires_a_question(self, mock_submit):
+        self._upload_csv(self.user)
+        from warehouse.models import Conversation
+        conv = Conversation.objects.get(workbook__owner=self.user)
+        self.c.force_login(self.user)
+        resp = self.c.post(reverse("warehouse:analyst_ask", args=[conv.id]), {"question": ""})
+        self.assertEqual(resp.status_code, 400)
+        mock_submit.assert_not_called()
+
+    @patch("warehouse.analyst_views.drop_session")
+    def test_reset_kernel_drops_session(self, mock_drop):
+        self._upload_csv(self.user)
+        from warehouse.models import Conversation
+        conv = Conversation.objects.get(workbook__owner=self.user)
+        self.c.force_login(self.user)
+        resp = self.c.post(reverse("warehouse:analyst_reset_kernel", args=[conv.id]))
+        self.assertEqual(resp.status_code, 200)
+        mock_drop.assert_called_once_with(str(conv.id))
+
+    def test_artifact_download_ownership_enforced(self):
+        from warehouse.models import Artifact, Conversation
+        from django.core.files.base import ContentFile
+        self._upload_csv(self.user)
+        conv = Conversation.objects.get(workbook__owner=self.user)
+        artifact = Artifact.objects.create(conversation=conv, kind="report", title="Report")
+        artifact.file.save("report.md", ContentFile(b"# Report"), save=True)
+
+        self.c.force_login(self.other_user)
+        resp = self.c.get(reverse("warehouse:analyst_artifact_download", args=[artifact.pk]))
+        self.assertEqual(resp.status_code, 404)
+
+        self.c.force_login(self.user)
+        resp = self.c.get(reverse("warehouse:analyst_artifact_download", args=[artifact.pk]))
+        self.assertEqual(resp.status_code, 200)
+
+
+# =============================================================================
+# GOOGLE SHEETS LINKING (warehouse/services/google_sheets_import.py)
+# =============================================================================
+
+class GoogleSheetsImportServiceTests(TestCase):
+    """extract_spreadsheet_id() and fetch_google_sheet_as_xlsx() — no real
+    Google API calls, get_service() is mocked."""
+
+    def test_extract_spreadsheet_id_from_full_url(self):
+        from warehouse.services.google_sheets_import import extract_spreadsheet_id
+        url = "https://docs.google.com/spreadsheets/d/1AbC-XyZ_123/edit#gid=0"
+        self.assertEqual(extract_spreadsheet_id(url), "1AbC-XyZ_123")
+
+    def test_extract_spreadsheet_id_passthrough_raw_id(self):
+        from warehouse.services.google_sheets_import import extract_spreadsheet_id
+        self.assertEqual(extract_spreadsheet_id("1AbC-XyZ_123"), "1AbC-XyZ_123")
+
+    def test_extract_spreadsheet_id_blank_input(self):
+        from warehouse.services.google_sheets_import import extract_spreadsheet_id
+        self.assertEqual(extract_spreadsheet_id(""), "")
+        self.assertEqual(extract_spreadsheet_id(None), "")
+
+    def _mock_service(self, sheets_meta, values_by_tab):
+        service = MagicMock()
+        service.get_spreadsheet.return_value = {
+            "properties": {"title": "My Sheet"},
+            "sheets": [{"properties": {"title": t}} for t in sheets_meta],
+        }
+        service.read_values.side_effect = lambda sid, tab: values_by_tab.get(tab, [])
+        return service
+
+    def test_fetch_builds_valid_xlsx_from_single_tab(self):
+        from warehouse.services.google_sheets_import import fetch_google_sheet_as_xlsx
+        service = self._mock_service(
+            ["Sheet1"],
+            {"Sheet1": [["region", "revenue"], ["West", "100"], ["East", "150"]]},
+        )
+        with patch("warehouse.services.google_sheets_import.get_service", return_value=service):
+            xlsx_bytes, title = fetch_google_sheet_as_xlsx("abc123")
+
+        self.assertEqual(title, "My Sheet")
+        import io
+        df = pd.read_excel(io.BytesIO(xlsx_bytes), sheet_name="Sheet1")
+        self.assertEqual(list(df.columns), ["region", "revenue"])
+        self.assertEqual(len(df), 2)
+
+    def test_fetch_handles_multiple_tabs(self):
+        from warehouse.services.google_sheets_import import fetch_google_sheet_as_xlsx
+        service = self._mock_service(
+            ["Sales", "Costs"],
+            {
+                "Sales": [["region", "revenue"], ["West", "100"]],
+                "Costs": [["region", "cost"], ["West", "40"]],
+            },
+        )
+        with patch("warehouse.services.google_sheets_import.get_service", return_value=service):
+            xlsx_bytes, _ = fetch_google_sheet_as_xlsx("abc123")
+
+        import io
+        book = pd.ExcelFile(io.BytesIO(xlsx_bytes))
+        self.assertEqual(set(book.sheet_names), {"Sales", "Costs"})
+
+    def test_fetch_pads_short_rows_to_header_width(self):
+        from warehouse.services.google_sheets_import import fetch_google_sheet_as_xlsx
+        # Sheets omits trailing empty cells -- second row is short.
+        service = self._mock_service(
+            ["Sheet1"],
+            {"Sheet1": [["a", "b", "c"], ["1", "2", "3"], ["4"]]},
+        )
+        with patch("warehouse.services.google_sheets_import.get_service", return_value=service):
+            xlsx_bytes, _ = fetch_google_sheet_as_xlsx("abc123")
+
+        import io
+        df = pd.read_excel(io.BytesIO(xlsx_bytes), sheet_name="Sheet1")
+        self.assertEqual(len(df), 2)
+        self.assertEqual(df.shape[1], 3)
+
+    def test_fetch_skips_empty_tabs_but_succeeds_if_others_have_data(self):
+        from warehouse.services.google_sheets_import import fetch_google_sheet_as_xlsx
+        service = self._mock_service(
+            ["Empty", "Sheet1"],
+            {"Sheet1": [["a"], ["1"]]},
+        )
+        with patch("warehouse.services.google_sheets_import.get_service", return_value=service):
+            xlsx_bytes, _ = fetch_google_sheet_as_xlsx("abc123")
+
+        import io
+        book = pd.ExcelFile(io.BytesIO(xlsx_bytes))
+        self.assertEqual(book.sheet_names, ["Sheet1"])
+
+    def test_fetch_deduplicates_colliding_sanitized_tab_names(self):
+        from warehouse.services.google_sheets_import import fetch_google_sheet_as_xlsx
+        # "Sales/Q1" and "Sales?Q1" both sanitize to "Sales_Q1" -- without
+        # dedup, the second to_excel() call silently clobbers the first.
+        service = self._mock_service(
+            ["Sales/Q1", "Sales?Q1"],
+            {
+                "Sales/Q1": [["x"], ["1"]],
+                "Sales?Q1": [["y"], ["2"]],
+            },
+        )
+        with patch("warehouse.services.google_sheets_import.get_service", return_value=service):
+            xlsx_bytes, _ = fetch_google_sheet_as_xlsx("abc123")
+
+        import io
+        book = pd.ExcelFile(io.BytesIO(xlsx_bytes))
+        self.assertEqual(len(book.sheet_names), 2)
+        self.assertEqual(len(set(book.sheet_names)), 2)
+        # Both tabs' actual data must have survived -- not just distinct names.
+        first = pd.read_excel(book, sheet_name=book.sheet_names[0])
+        second = pd.read_excel(book, sheet_name=book.sheet_names[1])
+        all_columns = set(first.columns) | set(second.columns)
+        self.assertEqual(all_columns, {"x", "y"})
+
+    def test_fetch_sanitizes_invalid_excel_characters_in_tab_name(self):
+        from warehouse.services.google_sheets_import import fetch_google_sheet_as_xlsx
+        service = self._mock_service(
+            ["Report [Q1]: Final?"],
+            {"Report [Q1]: Final?": [["a"], ["1"]]},
+        )
+        with patch("warehouse.services.google_sheets_import.get_service", return_value=service):
+            xlsx_bytes, _ = fetch_google_sheet_as_xlsx("abc123")
+
+        import io
+        book = pd.ExcelFile(io.BytesIO(xlsx_bytes))
+        self.assertEqual(len(book.sheet_names), 1)
+        for bad_char in "[]/*?:":
+            self.assertNotIn(bad_char, book.sheet_names[0])
+
+    def test_fetch_truncates_tab_name_over_31_chars(self):
+        from warehouse.services.google_sheets_import import fetch_google_sheet_as_xlsx
+        long_name = "A" * 50
+        service = self._mock_service([long_name], {long_name: [["a"], ["1"]]})
+        with patch("warehouse.services.google_sheets_import.get_service", return_value=service):
+            xlsx_bytes, _ = fetch_google_sheet_as_xlsx("abc123")
+
+        import io
+        book = pd.ExcelFile(io.BytesIO(xlsx_bytes))
+        self.assertLessEqual(len(book.sheet_names[0]), 31)
+
+    def test_fetch_raises_when_all_tabs_empty(self):
+        from warehouse.services.google_sheets_import import (
+            GoogleSheetImportError, fetch_google_sheet_as_xlsx,
+        )
+        service = self._mock_service(["Sheet1"], {"Sheet1": []})
+        with patch("warehouse.services.google_sheets_import.get_service", return_value=service):
+            with self.assertRaises(GoogleSheetImportError):
+                fetch_google_sheet_as_xlsx("abc123")
+
+    def test_fetch_raises_when_no_tabs(self):
+        from warehouse.services.google_sheets_import import (
+            GoogleSheetImportError, fetch_google_sheet_as_xlsx,
+        )
+        service = self._mock_service([], {})
+        with patch("warehouse.services.google_sheets_import.get_service", return_value=service):
+            with self.assertRaises(GoogleSheetImportError):
+                fetch_google_sheet_as_xlsx("abc123")
+
+    def test_fetch_raises_on_service_error(self):
+        from warehouse.sheet_service import SheetsServiceError
+        from warehouse.services.google_sheets_import import (
+            GoogleSheetImportError, fetch_google_sheet_as_xlsx,
+        )
+        service = MagicMock()
+        service.get_spreadsheet.side_effect = SheetsServiceError("not shared with service account")
+        with patch("warehouse.services.google_sheets_import.get_service", return_value=service):
+            with self.assertRaises(GoogleSheetImportError):
+                fetch_google_sheet_as_xlsx("abc123")
+
+
+class GoogleSheetLinkFormTests(TestCase):
+
+    def test_accepts_raw_id(self):
+        from warehouse.forms import GoogleSheetLinkForm
+        form = GoogleSheetLinkForm({"id_or_url": "1AbC-XyZ_123"})
+        self.assertTrue(form.is_valid())
+        self.assertEqual(form.cleaned_data["id_or_url"], "1AbC-XyZ_123")
+
+    def test_extracts_id_from_full_url(self):
+        from warehouse.forms import GoogleSheetLinkForm
+        form = GoogleSheetLinkForm({
+            "id_or_url": "https://docs.google.com/spreadsheets/d/1AbC-XyZ_123/edit#gid=0"
+        })
+        self.assertTrue(form.is_valid())
+        self.assertEqual(form.cleaned_data["id_or_url"], "1AbC-XyZ_123")
+
+    def test_rejects_empty_input(self):
+        from warehouse.forms import GoogleSheetLinkForm
+        form = GoogleSheetLinkForm({"id_or_url": ""})
+        self.assertFalse(form.is_valid())
+
+
+class AnalystGoogleSheetViewTests(TestCase):
+    """analyst_link_google_sheet / analyst_refresh_google_sheet — the Google
+    API call itself is mocked (fetch_google_sheet_as_xlsx), everything
+    downstream (Workbook creation, profiling, chat) runs for real."""
+
+    def setUp(self):
+        self.user = _make_user("sheet_view_user")
+        self.other_user = _make_user("sheet_other_user")
+        self.c = Client()
+
+    def _fake_xlsx(self, columns=("region", "revenue"), rows=(("West", 100), ("East", 150))):
+        import io
+        buf = io.BytesIO()
+        pd.DataFrame(list(rows), columns=list(columns)).to_excel(buf, index=False, sheet_name="Sheet1")
+        return buf.getvalue(), "My Linked Sheet"
+
+    def test_link_sheet_requires_login(self):
+        resp = self.c.post(reverse("warehouse:analyst_link_google_sheet"), {"id_or_url": "abc123"})
+        self.assertEqual(resp.status_code, 302)
+
+    @patch("warehouse.analyst_views.fetch_google_sheet_as_xlsx")
+    def test_link_sheet_creates_workbook_and_redirects_to_chat(self, mock_fetch):
+        from warehouse.models import Conversation, Workbook
+        mock_fetch.return_value = self._fake_xlsx()
+        self.c.force_login(self.user)
+        resp = self.c.post(reverse("warehouse:analyst_link_google_sheet"), {
+            "id_or_url": "https://docs.google.com/spreadsheets/d/1AbC-XyZ_123/edit",
+        })
+
+        wb = Workbook.objects.get(owner=self.user)
+        self.assertEqual(wb.source_type, Workbook.SOURCE_GOOGLE_SHEET)
+        self.assertEqual(wb.google_sheet_id, "1AbC-XyZ_123")
+        self.assertEqual(wb.load_error, "")
+        self.assertIn("region", wb.overview)
+        conv = Conversation.objects.get(workbook=wb)
+        self.assertRedirects(resp, conv.get_absolute_url())
+        mock_fetch.assert_called_once_with("1AbC-XyZ_123")
+
+    @patch("warehouse.analyst_views.fetch_google_sheet_as_xlsx")
+    def test_link_sheet_shows_error_on_import_failure(self, mock_fetch):
+        from warehouse.models import Workbook
+        from warehouse.services.google_sheets_import import GoogleSheetImportError
+        mock_fetch.side_effect = GoogleSheetImportError("not shared with the service account")
+        self.c.force_login(self.user)
+        resp = self.c.post(reverse("warehouse:analyst_link_google_sheet"), {"id_or_url": "abc123"})
+
+        self.assertRedirects(resp, reverse("warehouse:analyst_workbook_list"))
+        self.assertFalse(Workbook.objects.filter(owner=self.user).exists())
+
+    def test_link_sheet_rejects_invalid_form(self):
+        from warehouse.models import Workbook
+        self.c.force_login(self.user)
+        self.c.post(reverse("warehouse:analyst_link_google_sheet"), {"id_or_url": ""})
+        self.assertFalse(Workbook.objects.filter(owner=self.user).exists())
+
+    @patch("warehouse.analyst_views.fetch_google_sheet_as_xlsx")
+    def test_refresh_requires_ownership(self, mock_fetch):
+        from warehouse.models import Workbook
+        mock_fetch.return_value = self._fake_xlsx()
+        self.c.force_login(self.user)
+        self.c.post(reverse("warehouse:analyst_link_google_sheet"), {"id_or_url": "abc123"})
+        wb = Workbook.objects.get(owner=self.user)
+
+        self.c.force_login(self.other_user)
+        resp = self.c.post(reverse("warehouse:analyst_refresh_google_sheet", args=[wb.id]))
+        self.assertEqual(resp.status_code, 404)
+
+    def test_refresh_404_for_non_sheet_workbook(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from warehouse.models import Workbook
+        self.c.force_login(self.user)
+        self.c.post(reverse("warehouse:analyst_workbook_upload"), {
+            "file": SimpleUploadedFile("sales.csv", b"a,b\n1,2\n"),
+        })
+        wb = Workbook.objects.get(owner=self.user)
+        resp = self.c.post(reverse("warehouse:analyst_refresh_google_sheet", args=[wb.id]))
+        self.assertEqual(resp.status_code, 404)
+
+    @patch("warehouse.analyst_views.fetch_google_sheet_as_xlsx")
+    def test_refresh_updates_file_and_reprofiles(self, mock_fetch):
+        from warehouse.models import Workbook
+        mock_fetch.return_value = self._fake_xlsx()  # default columns: region, revenue
+        self.c.force_login(self.user)
+        self.c.post(reverse("warehouse:analyst_link_google_sheet"), {"id_or_url": "abc123"})
+        wb = Workbook.objects.get(owner=self.user)
+        old_overview = wb.overview
+        self.assertIn("region", old_overview)
+
+        mock_fetch.return_value = self._fake_xlsx(columns=("totally", "different"), rows=(("y", 2),))
+        resp = self.c.post(reverse("warehouse:analyst_refresh_google_sheet", args=[wb.id]))
+        wb.refresh_from_db()
+        self.assertRedirects(resp, wb.get_absolute_url())
+        self.assertIn("totally", wb.overview)
+        self.assertNotIn("region", wb.overview)
+
+    @patch("warehouse.analyst_views.fetch_google_sheet_as_xlsx")
+    def test_refresh_does_not_leave_an_orphaned_duplicate_file(self, mock_fetch):
+        # Same spreadsheet title each time -> same generated filename in the
+        # same workbook directory, so the interesting question isn't "did
+        # the path change" (it legitimately doesn't) but "is there still
+        # only one file on disk, holding the NEW content, with nothing
+        # stale left behind."
+        import os
+        from warehouse.models import Workbook
+        mock_fetch.return_value = self._fake_xlsx()
+        self.c.force_login(self.user)
+        self.c.post(reverse("warehouse:analyst_link_google_sheet"), {"id_or_url": "abc123"})
+        wb = Workbook.objects.get(owner=self.user)
+        workbook_dir = os.path.dirname(wb.file.path)
+        self.assertTrue(os.path.exists(wb.file.path))
+
+        mock_fetch.return_value = self._fake_xlsx(columns=("c", "d"), rows=(("z", 3),))
+        self.c.post(reverse("warehouse:analyst_refresh_google_sheet", args=[wb.id]))
+        wb.refresh_from_db()
+
+        self.assertTrue(os.path.exists(wb.file.path))
+        self.assertEqual(
+            os.listdir(workbook_dir), [os.path.basename(wb.file.path)],
+            "refresh must not leave a stale file alongside the current one",
+        )
+        with open(wb.file.path, "rb") as fh:
+            content = fh.read()
+        import io
+        df = pd.read_excel(io.BytesIO(content), sheet_name="Sheet1")
+        self.assertIn("c", df.columns)
+        self.assertNotIn("region", df.columns)
+
+    @patch("warehouse.analyst_views.fetch_google_sheet_as_xlsx")
+    def test_refresh_failure_leaves_existing_workbook_untouched(self, mock_fetch):
+        from warehouse.models import Workbook
+        from warehouse.services.google_sheets_import import GoogleSheetImportError
+        mock_fetch.return_value = self._fake_xlsx()
+        self.c.force_login(self.user)
+        self.c.post(reverse("warehouse:analyst_link_google_sheet"), {"id_or_url": "abc123"})
+        wb = Workbook.objects.get(owner=self.user)
+        old_overview = wb.overview
+        old_path = wb.file.path
+
+        mock_fetch.side_effect = GoogleSheetImportError("sheet was unshared")
+        resp = self.c.post(reverse("warehouse:analyst_refresh_google_sheet", args=[wb.id]))
+        wb.refresh_from_db()
+
+        self.assertRedirects(resp, wb.get_absolute_url())
+        self.assertEqual(wb.overview, old_overview)
+        self.assertEqual(wb.file.path, old_path)
+        import os
+        self.assertTrue(os.path.exists(old_path), "original file must survive a failed refresh")
+
+    @patch("warehouse.analyst_views.fetch_google_sheet_as_xlsx")
+    def test_refresh_does_not_create_a_second_workbook(self, mock_fetch):
+        from warehouse.models import Workbook
+        mock_fetch.return_value = self._fake_xlsx()
+        self.c.force_login(self.user)
+        self.c.post(reverse("warehouse:analyst_link_google_sheet"), {"id_or_url": "abc123"})
+        wb = Workbook.objects.get(owner=self.user)
+
+        self.c.post(reverse("warehouse:analyst_refresh_google_sheet", args=[wb.id]))
+        self.assertEqual(Workbook.objects.filter(owner=self.user).count(), 1)
+
+    @patch("warehouse.analyst_views.fetch_google_sheet_as_xlsx")
+    def test_link_sheet_stores_google_sheet_url(self, mock_fetch):
+        from warehouse.models import Workbook
+        mock_fetch.return_value = self._fake_xlsx()
+        self.c.force_login(self.user)
+        self.c.post(reverse("warehouse:analyst_link_google_sheet"), {
+            "id_or_url": "https://docs.google.com/spreadsheets/d/1AbC-XyZ_123/edit",
+        })
+        wb = Workbook.objects.get(owner=self.user)
+        self.assertEqual(wb.google_sheet_url, "https://docs.google.com/spreadsheets/d/1AbC-XyZ_123")

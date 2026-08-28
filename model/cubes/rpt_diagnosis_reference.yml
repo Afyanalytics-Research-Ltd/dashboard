@@ -1,0 +1,78 @@
+cubes:
+  - name: rpt_diagnosis_reference
+    sql_table: "\"REPORTING\".\"RPT_DIAGNOSIS_REFERENCE\""
+    data_source: default
+
+    joins: []
+
+    # One row per visit_id. Ground-truth questions for HAI/SSI leaderboards
+    # query this cube directly (COUNT(DISTINCT visit_id)) rather than via a
+    # join to the staging visits table — the join some source queries use
+    # only re-derives the same visit_id already present here.
+    dimensions:
+      - name: source_schema
+        sql: "{CUBE}.\"SOURCE_SCHEMA\""
+        type: string
+
+      - name: visit_id
+        sql: "{CUBE}.\"VISIT_ID\""
+        type: number
+        primary_key: true
+
+      - name: clean_diagnosis
+        sql: "{CUBE}.\"CLEAN_DIAGNOSIS\""
+        type: string
+
+      - name: final_disease_burden_group
+        sql: "{CUBE}.\"FINAL_DISEASE_BURDEN_GROUP\""
+        type: string
+
+      - name: classification_source
+        sql: "{CUBE}.\"CLASSIFICATION_SOURCE\""
+        type: string
+
+      - name: hai_ssi_flag
+        sql: "{CUBE}.\"HAI_SSI_FLAG\""
+        type: string
+        description: '"HAI" (hospital-acquired infection) or "SSI" (surgical site infection) — filter to one for leading-infection-type questions.'
+
+      - name: note_dx_raw
+        sql: "{CUBE}.\"NOTE_DX_RAW\""
+        type: string
+        description: Raw doctor-note diagnosis text — use "contains" filters for keyword detection (e.g. "hypertension", "pre-eclampsia") when no structured comorbidity flag exists for the combination asked about.
+
+      - name: is_comorbidity
+        sql: "{CUBE}.\"IS_COMORBIDITY\""
+        type: boolean
+
+      - name: has_comorbidity_flag
+        sql: "{CUBE}.\"HAS_COMORBIDITY_FLAG\""
+        type: boolean
+
+      - name: comorbidity_pair
+        sql: "{CUBE}.\"COMORBIDITY_PAIR\""
+        type: string
+
+      - name: has_chronic_diagnosis
+        sql: "{CUBE}.\"HAS_CHRONIC_DIAGNOSIS\""
+        type: boolean
+
+      - name: is_chronic
+        sql: "{CUBE}.\"IS_CHRONIC\""
+        type: number
+
+      - name: primary_chronic_disease_group
+        sql: "{CUBE}.\"PRIMARY_CHRONIC_DISEASE_GROUP\""
+        type: string
+
+    measures:
+      - name: confirmed_visits
+        sql: "{CUBE}.\"VISIT_ID\""
+        type: count_distinct
+        title: Confirmed Visits (count)
+        description: Distinct visit count — filter hai_ssi_flag = 'HAI' or 'SSI' and break down by clean_diagnosis for "leading HAI/SSI infection type" questions.
+        drill_members: [clean_diagnosis, final_disease_burden_group, hai_ssi_flag, classification_source]
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started

@@ -1,0 +1,69 @@
+cubes:
+  - name: rpt_malaria_treatment_matrix
+    sql_table: "\"REPORTING\".\"RPT_MALARIA_TREATMENT_MATRIX\""
+    data_source: default
+
+    joins:
+      - name: rpt_malaria_zones
+        sql: "{CUBE}.\"ZONE_LABEL\" = {rpt_malaria_zones}.\"ZONE_LABEL\""
+        relationship: many_to_one
+
+    dimensions:
+      - name: appropriateness_category
+        sql: "{CUBE}.\"APPROPRIATENESS_CATEGORY\""
+        type: string
+
+      - name: cell_label
+        sql: "{CUBE}.\"CELL_LABEL\""
+        type: string
+
+      - name: cell_name
+        sql: "{CUBE}.\"CELL_NAME\""
+        type: string
+        primary_key: true
+
+      - name: source_schema
+        sql: "{CUBE}.\"SOURCE_SCHEMA\""
+        type: string
+
+      - name: zone_label
+        sql: "{CUBE}.\"ZONE_LABEL\""
+        type: string
+        primary_key: true
+
+    measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:01:30.739441+00:00
+      - name: cell_order
+        sql: '{CUBE}."CELL_ORDER"'
+        type: sum
+      - name: total_visits
+        sql: '{CUBE}."TOTAL_VISITS"'
+        type: sum
+      - name: cell_pct_of_zone
+        sql: '{CUBE}."CELL_PCT_OF_ZONE"'
+        type: sum
+      - name: empirical_treatment_rate_pct
+        sql: '{CUBE}."EMPIRICAL_TREATMENT_RATE_PCT"'
+        type: avg
+        drill_members: [zone_label, cell_name, appropriateness_category]
+      - name: documented_act_rate_pct
+        sql: '{CUBE}."DOCUMENTED_ACT_RATE_PCT"'
+        type: avg
+      - name: over_prescription_rate_pct
+        sql: '{CUBE}."OVER_PRESCRIPTION_RATE_PCT"'
+        type: avg
+      - name: integrity_delta
+        sql: '{CUBE}."INTEGRITY_DELTA"'
+        type: sum
+      - name: count
+        type: count
+        drill_members: [zone_label, cell_name, appropriateness_category, source_schema]
+
+      - name: cell_count
+        sql: "{CUBE}.\"CELL_COUNT\""
+        type: sum
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

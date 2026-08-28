@@ -1,0 +1,146 @@
+cubes:
+  - name: rpt_opd_ipd
+    sql_table: "\"REPORTING\".\"RPT_OPD_IPD\""
+    data_source: default
+
+    joins: []
+
+    # IMPORTANT grain note from the source analyst: this table mixes two
+    # grains in the SAME row. total_opd_visits/direct_ipd_conversions/
+    # escalations_72h/conversion_rate_pct/escalation_rate_pct are computed
+    # once per (source_schema, visit_month) and repeated on every breakdown
+    # row for that month (by age_group, gender, etc.) — summing them across
+    # a breakdown inflates by the number of breakdown values. They must be
+    # aggregated with MAX, never SUM. total_visits/distinct_patients/
+    # visit_conversions/visit_escalations are genuinely breakdown-level and
+    # safe to SUM by any dimension. See each measure's type below — this
+    # distinction is already baked in, not something the caller has to
+    # remember.
+    dimensions:
+      - name: source_schema
+        sql: "{CUBE}.\"SOURCE_SCHEMA\""
+        type: string
+
+      - name: clean_diagnosis
+        sql: "{CUBE}.\"CLEAN_DIAGNOSIS\""
+        type: string
+
+      - name: final_disease_burden_group
+        sql: "{CUBE}.\"FINAL_DISEASE_BURDEN_GROUP\""
+        type: string
+
+      - name: classification_source
+        sql: "{CUBE}.\"CLASSIFICATION_SOURCE\""
+        type: string
+
+      - name: age_group
+        sql: "{CUBE}.\"AGE_GROUP\""
+        type: string
+
+      - name: gender
+        sql: "{CUBE}.\"GENDER\""
+        type: string
+
+      - name: payment_mode
+        sql: "{CUBE}.\"PAYMENT_MODE\""
+        type: string
+
+      - name: is_comorbidity
+        sql: "{CUBE}.\"IS_COMORBIDITY\""
+        type: boolean
+
+      - name: has_chronic_diagnosis
+        sql: "{CUBE}.\"HAS_CHRONIC_DIAGNOSIS\""
+        type: boolean
+
+      - name: is_chronic
+        sql: "{CUBE}.\"IS_CHRONIC\""
+        type: number
+        description: 0/1 flag — this visit/patient is chronic.
+
+      - name: hai_ssi_flag
+        sql: "{CUBE}.\"HAI_SSI_FLAG\""
+        type: string
+
+      - name: visit_month
+        sql: "{CUBE}.\"VISIT_MONTH\""
+        type: time
+
+    measures:
+      - name: total_visits
+        sql: '{CUBE}."TOTAL_VISITS"'
+        type: sum
+        title: OPD Visits (count)
+        description: Breakdown-level OPD visit count — safe to sum by any dimension (age_group, gender, payment_mode, diagnosis, etc.).
+        drill_members: [visit_month, clean_diagnosis, final_disease_burden_group, age_group, payment_mode]
+
+      - name: distinct_patients
+        sql: '{CUBE}."DISTINCT_PATIENTS"'
+        type: sum
+        title: Distinct OPD Patients (count)
+
+      - name: visit_conversions
+        sql: '{CUBE}."VISIT_CONVERSIONS"'
+        type: sum
+        title: Direct OPD-to-IPD Conversions, by breakdown (count)
+        description: Breakdown-level direct-conversion count — safe to sum by age_group/gender/payment_mode/diagnosis. For the facility-month total, use direct_ipd_conversions (MAX) instead.
+
+      - name: visit_escalations
+        sql: '{CUBE}."VISIT_ESCALATIONS"'
+        type: sum
+        title: 72-Hour Escalations, by breakdown (count)
+        description: Breakdown-level 72-hour-escalation count — safe to sum by age_group/gender/payment_mode/diagnosis. For the facility-month total, use escalations_72h (MAX) instead.
+
+      - name: total_opd_visits
+        sql: '{CUBE}."TOTAL_OPD_VISITS"'
+        type: max
+        title: Total OPD Visits (facility-month, count)
+        description: Facility-month-level total OPD visit count — this value repeats across every breakdown row for the month, so it is aggregated with MAX (never SUM) to avoid inflation. Use for "total OPD visits" / "OPD volume trend" questions with NO further breakdown beyond visit_month.
+
+      - name: direct_ipd_conversions
+        sql: '{CUBE}."DIRECT_IPD_CONVERSIONS"'
+        type: max
+        title: Direct OPD-to-IPD Conversions (facility-month, count)
+        description: Facility-month-level direct-conversion count (MAX, not SUM — see total_opd_visits note). Use for "total direct OPD to IPD conversions" questions.
+
+      - name: escalations_72h
+        sql: '{CUBE}."ESCALATIONS_72H"'
+        type: max
+        title: 72-Hour Escalations (facility-month, count)
+
+      - name: conversion_rate_pct
+        sql: '{CUBE}."CONVERSION_RATE_PCT"'
+        type: max
+        format: percent
+        title: OPD to IPD Conversion Rate (%)
+        description: Facility-month OPD-to-IPD conversion rate (MAX, not SUM/AVG — see total_opd_visits note). Use for "OPD to IPD conversion rate" trend/most-recent-month questions.
+
+      - name: escalation_rate_pct
+        sql: '{CUBE}."ESCALATION_RATE_PCT"'
+        type: max
+        format: percent
+        title: 72-Hour Escalation Rate (%)
+        description: Facility-month 72-hour escalation rate (MAX, not SUM/AVG). Use for "72-hour escalation rate trend" questions.
+
+      - name: chronic_visits
+        sql: '{CUBE}."TOTAL_VISITS"'
+        type: sum
+        filters:
+          - sql: "{CUBE}.\"IS_CHRONIC\" = 1"
+        title: Chronic OPD Visits (count)
+
+      - name: chronic_opd_pct
+        sql: "{chronic_visits} * 100.0 / NULLIF({total_visits}, 0)"
+        type: number
+        format: percent
+        title: Chronic OPD Visit Share (%)
+        description: Percentage of OPD visits classified as chronic — chronic_visits / total_visits.
+        drill_members: [visit_month, clean_diagnosis, age_group, payment_mode]
+
+      - name: count
+        type: count
+        drill_members: [visit_month, clean_diagnosis, age_group]
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started

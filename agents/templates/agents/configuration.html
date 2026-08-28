@@ -1,0 +1,579 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Semantic Layer Configuration{% endblock %}
+{% block page_title %}Semantic Layer Configuration{% endblock %}
+
+{% block breadcrumbs %}
+<div class="afya-breadcrumb-bar">
+  <nav aria-label="breadcrumb">
+    <ol class="breadcrumb mb-0">
+      <li class="breadcrumb-item"><a href="{% url 'analytics:home' %}">Home</a></li>
+      <li class="breadcrumb-item active" aria-current="page">Semantic Layer Configuration</li>
+    </ol>
+  </nav>
+</div>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+  .ac-row {
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--afya-border);
+  }
+  .ac-row:last-child { border-bottom: none; }
+  .ac-row:hover { background: var(--afya-bg); }
+
+  .ac-key {
+    font-size: 13px;
+    font-weight: 700;
+    font-family: 'Courier New', monospace;
+    color: var(--afya-cool-blue);
+  }
+  .ac-desc { font-size: 12px; color: var(--afya-muted); margin-top: 2px; }
+  .ac-json {
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    color: var(--afya-text);
+    background: var(--afya-bg);
+    border-radius: 6px;
+    padding: 6px 10px;
+    max-width: 420px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .ac-badge-live { background:#f1f5f9; color:var(--afya-muted); font-size:10px; }
+  .ac-badge-curated { background:var(--afya-teal-light); color:var(--afya-teal); font-size:10px; }
+  .ac-badge-pending { background:#fef3c7; color:#92400e; font-size:10px; }
+  .ac-badge-written { background:var(--afya-teal-light); color:var(--afya-teal); font-size:10px; }
+  .ac-badge-rejected { background:#fee2e2; color:#991b1b; font-size:10px; }
+
+  .modal-header { background: var(--afya-cool-blue); color: #fff; }
+  .modal-header .btn-close { filter: invert(1); }
+
+  .ac-search-bar { padding: 12px 20px; border-bottom: 1px solid var(--afya-border); }
+  .ac-search-bar form { max-width: 360px; }
+  .ac-pagination {
+    padding: 10px 20px;
+    border-top: 1px solid var(--afya-border);
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<div class="page-header">
+  <div class="d-flex align-items-center justify-content-between flex-wrap gap-3">
+    <div>
+      <h1><i class="bi bi-robot me-2 text-afya-blue"></i>Semantic Layer Configuration</h1>
+      <p class="lead">Manage the AI agent's metric catalog and Cube schema measures.</p>
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+      <form method="post" action="{% url 'agents:sync-cube-schemas' %}"
+            onsubmit="return confirm('Check every cube against Snowflake\'s REPORTING schema and write anything missing directly into model/cubes/*.yml? No review step — this writes immediately. May take a few minutes (one Snowflake round trip per cube).');">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-outline-primary">
+          <i class="bi bi-cloud-download me-2"></i>Sync Cube Schema
+        </button>
+      </form>
+      <form method="post" action="{% url 'agents:generate-metrics' %}"
+            onsubmit="return confirm('Draft new metrics for every live cube that has none yet? This calls the LLM once per missing cube and may take a minute.');">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-outline-primary">
+          <i class="bi bi-magic me-2"></i>Generate Missing Metrics
+        </button>
+      </form>
+      <form method="post" action="{% url 'agents:rebuild-embeddings' %}"
+            onsubmit="return confirm('Rebuild the retrieval index from the current catalog? This may take a minute.');">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-outline-secondary">
+          <i class="bi bi-arrow-repeat me-2"></i>Rebuild Embeddings
+        </button>
+      </form>
+      <button class="btn btn-afya-primary" data-bs-toggle="modal" data-bs-target="#addMetricModal">
+        <i class="bi bi-plus-lg me-2"></i>Add Metric
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== Pending measure proposals ==================== -->
+<div class="card mb-4">
+  <div class="card-header d-flex align-items-center justify-content-between">
+    <span><i class="bi bi-hourglass-split me-2"></i>Pending Cube Measure Proposals</span>
+    <span class="badge bg-secondary">{{ pending_page.paginator.count }} pending</span>
+  </div>
+  <div class="ac-search-bar">
+    <form method="get" class="d-flex gap-2">
+      <input type="search" name="pending_q" value="{{ pending_q }}" class="form-control form-control-sm"
+             placeholder="Filter by cube or measure name…" autocomplete="off">
+      <button type="submit" class="btn btn-outline-secondary btn-sm"><i class="bi bi-search"></i></button>
+      {% if pending_q %}
+      <a href="{% querystring pending_q=None pending_page=None %}" class="btn btn-outline-secondary btn-sm" title="Clear filter">
+        <i class="bi bi-x-lg"></i>
+      </a>
+      {% endif %}
+    </form>
+  </div>
+  {% if pending_page %}
+  <div>
+    {% for p in pending_page %}
+    <div class="ac-row d-flex align-items-center justify-content-between gap-3 flex-wrap">
+      <div class="flex-grow-1">
+        <div class="d-flex align-items-center gap-2 mb-1">
+          <span class="ac-key">{{ p.cube_name }}.{{ p.measure_name }}</span>
+          <span class="badge rounded-pill ac-badge-pending">{{ p.measure_type }}</span>
+          {% if p.action == 'edit' %}
+          <span class="badge rounded-pill bg-secondary">edit</span>
+          {% else %}
+          <span class="badge rounded-pill bg-secondary">new</span>
+          {% endif %}
+        </div>
+        {% if p.sql_expression %}<div class="ac-json">{{ p.sql_expression }}</div>{% endif %}
+        <div class="ac-desc">
+          Requested by {{ p.requested_by }} on {{ p.requested_at|date:"d M Y H:i" }}
+          {% if p.description %} — {{ p.description }}{% endif %}
+        </div>
+      </div>
+      <div class="d-flex align-items-center gap-2 flex-shrink-0">
+        <form method="post" action="{% url 'agents:measure-approve' p.pk %}"
+              onsubmit="return confirm('Approve and write {{ p.cube_name }}.{{ p.measure_name }} to the live Cube schema now?');">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-sm btn-outline-success">
+            <i class="bi bi-check-lg"></i> Approve
+          </button>
+        </form>
+        <button type="button" class="btn btn-sm btn-outline-danger"
+                data-bs-toggle="modal" data-bs-target="#rejectModal{{ p.pk }}">
+          <i class="bi bi-x-lg"></i> Reject
+        </button>
+      </div>
+    </div>
+
+    <div class="modal fade" id="rejectModal{{ p.pk }}" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <form method="post" action="{% url 'agents:measure-reject' p.pk %}">
+            {% csrf_token %}
+            <div class="modal-header">
+              <h5 class="modal-title">Reject {{ p.cube_name }}.{{ p.measure_name }}</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+              <label class="form-label">Reason (optional)</label>
+              <textarea name="rejection_reason" class="form-control" rows="2"></textarea>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+              <button type="submit" class="btn btn-danger">Reject</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% if pending_page.paginator.num_pages > 1 %}
+  <nav class="ac-pagination d-flex justify-content-between align-items-center" aria-label="Pending proposals pagination">
+    <span class="text-muted small">Page {{ pending_page.number }} of {{ pending_page.paginator.num_pages }}</span>
+    <div class="btn-group btn-group-sm">
+      {% if pending_page.has_previous %}
+      <a class="btn btn-outline-secondary" href="{% querystring pending_page=pending_page.previous_page_number %}">Previous</a>
+      {% else %}
+      <span class="btn btn-outline-secondary disabled">Previous</span>
+      {% endif %}
+      {% if pending_page.has_next %}
+      <a class="btn btn-outline-secondary" href="{% querystring pending_page=pending_page.next_page_number %}">Next</a>
+      {% else %}
+      <span class="btn btn-outline-secondary disabled">Next</span>
+      {% endif %}
+    </div>
+  </nav>
+  {% endif %}
+  {% else %}
+  <div class="empty-state">
+    <div class="empty-state-icon"><i class="bi bi-hourglass-split"></i></div>
+    <div class="empty-state-title">{% if pending_q %}No pending proposals match "{{ pending_q }}"{% else %}No pending proposals{% endif %}</div>
+    <div class="empty-state-desc">Propose a new measure from the "Live Cube Schema" section below.</div>
+  </div>
+  {% endif %}
+
+  {% if reviewed_page %}
+  <div class="card-header border-top d-flex align-items-center justify-content-between">
+    <span><i class="bi bi-clock-history me-2"></i>Recent decisions</span>
+    <span class="badge bg-secondary">{{ reviewed_page.paginator.count }}</span>
+  </div>
+  <div class="ac-search-bar">
+    <form method="get" class="d-flex gap-2">
+      <input type="search" name="reviewed_q" value="{{ reviewed_q }}" class="form-control form-control-sm"
+             placeholder="Filter by cube or measure name…" autocomplete="off">
+      <button type="submit" class="btn btn-outline-secondary btn-sm"><i class="bi bi-search"></i></button>
+      {% if reviewed_q %}
+      <a href="{% querystring reviewed_q=None reviewed_page=None %}" class="btn btn-outline-secondary btn-sm" title="Clear filter">
+        <i class="bi bi-x-lg"></i>
+      </a>
+      {% endif %}
+    </form>
+  </div>
+  {% for p in reviewed_page %}
+  <div class="ac-row d-flex align-items-center justify-content-between gap-3 flex-wrap">
+    <div>
+      <span class="ac-key">{{ p.cube_name }}.{{ p.measure_name }}</span>
+      {% if p.status == 'written' %}
+      <span class="badge rounded-pill ac-badge-written">written</span>
+      {% else %}
+      <span class="badge rounded-pill ac-badge-rejected">rejected</span>
+      {% endif %}
+      <div class="ac-desc">
+        Reviewed by {{ p.reviewed_by }} on {{ p.reviewed_at|date:"d M Y H:i" }}
+        {% if p.rejection_reason %} — {{ p.rejection_reason }}{% endif %}
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+  {% if reviewed_page.paginator.num_pages > 1 %}
+  <nav class="ac-pagination d-flex justify-content-between align-items-center" aria-label="Reviewed proposals pagination">
+    <span class="text-muted small">Page {{ reviewed_page.number }} of {{ reviewed_page.paginator.num_pages }}</span>
+    <div class="btn-group btn-group-sm">
+      {% if reviewed_page.has_previous %}
+      <a class="btn btn-outline-secondary" href="{% querystring reviewed_page=reviewed_page.previous_page_number %}">Previous</a>
+      {% else %}
+      <span class="btn btn-outline-secondary disabled">Previous</span>
+      {% endif %}
+      {% if reviewed_page.has_next %}
+      <a class="btn btn-outline-secondary" href="{% querystring reviewed_page=reviewed_page.next_page_number %}">Next</a>
+      {% else %}
+      <span class="btn btn-outline-secondary disabled">Next</span>
+      {% endif %}
+    </div>
+  </nav>
+  {% endif %}
+  {% endif %}
+</div>
+
+<!-- ==================== Curated metric definitions ==================== -->
+<div class="card mb-4">
+  <div class="card-header d-flex align-items-center justify-content-between">
+    <span><i class="bi bi-clipboard-data me-2"></i>Metric Definitions</span>
+    <span class="badge bg-secondary">{{ metrics_page.paginator.count }} metric{{ metrics_page.paginator.count|pluralize }}</span>
+  </div>
+  <div class="ac-search-bar">
+    <form method="get" class="d-flex gap-2">
+      <input type="search" name="metrics_q" value="{{ metrics_q }}" class="form-control form-control-sm"
+             placeholder="Filter by ID, name, or description…" autocomplete="off">
+      <button type="submit" class="btn btn-outline-secondary btn-sm"><i class="bi bi-search"></i></button>
+      {% if metrics_q %}
+      <a href="{% querystring metrics_q=None metrics_page=None %}" class="btn btn-outline-secondary btn-sm" title="Clear filter">
+        <i class="bi bi-x-lg"></i>
+      </a>
+      {% endif %}
+    </form>
+  </div>
+  {% if metrics_page %}
+  <div>
+    {% for m in metrics_page %}
+    <div class="ac-row d-flex align-items-center justify-content-between gap-3 flex-wrap">
+      <div class="flex-grow-1">
+        <div class="d-flex align-items-center gap-2 mb-1">
+          <span class="ac-key">{{ m.metric_id }}</span>
+          <span>{{ m.name }}</span>
+          {% if not m.is_active %}<span class="badge rounded-pill bg-secondary">inactive</span>{% endif %}
+        </div>
+        <div class="ac-desc">{{ m.description|truncatechars:160 }}</div>
+        <div class="ac-json mt-1">{{ m.cube_query }}</div>
+      </div>
+      <div class="d-flex align-items-center gap-2 flex-shrink-0">
+        <button class="btn btn-sm btn-outline-secondary"
+                data-metric-id="{{ m.metric_id }}"
+                data-name="{{ m.name|escapejs }}"
+                data-description="{{ m.description|escapejs }}"
+                data-cube-query="{{ m.cube_query_json }}"
+                data-active="{{ m.is_active|yesno:'true,false' }}"
+                onclick="openEditMetricModal(this)">
+          <i class="bi bi-pencil me-1"></i>Edit
+        </button>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% if metrics_page.paginator.num_pages > 1 %}
+  <nav class="ac-pagination d-flex justify-content-between align-items-center" aria-label="Metric definitions pagination">
+    <span class="text-muted small">Page {{ metrics_page.number }} of {{ metrics_page.paginator.num_pages }}</span>
+    <div class="btn-group btn-group-sm">
+      {% if metrics_page.has_previous %}
+      <a class="btn btn-outline-secondary" href="{% querystring metrics_page=metrics_page.previous_page_number %}">Previous</a>
+      {% else %}
+      <span class="btn btn-outline-secondary disabled">Previous</span>
+      {% endif %}
+      {% if metrics_page.has_next %}
+      <a class="btn btn-outline-secondary" href="{% querystring metrics_page=metrics_page.next_page_number %}">Next</a>
+      {% else %}
+      <span class="btn btn-outline-secondary disabled">Next</span>
+      {% endif %}
+    </div>
+  </nav>
+  {% endif %}
+  {% else %}
+  <div class="empty-state">
+    <div class="empty-state-icon"><i class="bi bi-clipboard-data"></i></div>
+    <div class="empty-state-title">{% if metrics_q %}No metrics match "{{ metrics_q }}"{% else %}No metrics defined yet{% endif %}</div>
+    <div class="empty-state-desc">Click <strong>Add Metric</strong>, or <strong>Generate Missing Metrics</strong> to draft them from the live Cube schema.</div>
+  </div>
+  {% endif %}
+</div>
+
+<!-- ==================== Live Cube fields ==================== -->
+<div class="card mb-4">
+  <div class="card-header d-flex align-items-center justify-content-between">
+    <span><i class="bi bi-diagram-3 me-2"></i>Live Cube Schema</span>
+    <span class="badge bg-secondary">{{ cubes_page.paginator.count }} cube{{ cubes_page.paginator.count|pluralize }}</span>
+  </div>
+  {% if cube_fetch_error %}
+  <div class="alert alert-danger m-3 mb-0">
+    Could not reach Cube's /meta endpoint: {{ cube_fetch_error }}
+  </div>
+  {% endif %}
+  <div class="ac-search-bar">
+    <form method="get" class="d-flex gap-2">
+      <input type="search" name="cubes_q" value="{{ cubes_q }}" class="form-control form-control-sm"
+             placeholder="Filter by cube, measure, or dimension name…" autocomplete="off">
+      <button type="submit" class="btn btn-outline-secondary btn-sm"><i class="bi bi-search"></i></button>
+      {% if cubes_q %}
+      <a href="{% querystring cubes_q=None cubes_page=None %}" class="btn btn-outline-secondary btn-sm" title="Clear filter">
+        <i class="bi bi-x-lg"></i>
+      </a>
+      {% endif %}
+    </form>
+  </div>
+  {% if cubes_page %}
+  <div>
+    {% for cube in cubes_page %}
+    <div class="ac-row d-flex align-items-center justify-content-between gap-3 flex-wrap">
+      <div class="flex-grow-1">
+        <div class="d-flex align-items-center gap-2 mb-1">
+          <span class="ac-key">{{ cube.name }}</span>
+          {% if cube.has_metric_definition %}
+          <span class="badge rounded-pill ac-badge-curated">curated</span>
+          {% else %}
+          <span class="badge rounded-pill ac-badge-live">live only</span>
+          {% endif %}
+        </div>
+        <div class="ac-desc d-flex flex-wrap align-items-center gap-1">
+          <span class="me-1">Measures:</span>
+          {% for m in cube.measure_details %}
+          <span class="badge rounded-pill border d-inline-flex align-items-center gap-1"
+                style="background:var(--afya-bg); color:var(--afya-text); font-size:11px; font-weight:400;">
+            {{ m.name }}
+            <i class="bi bi-pencil-square" role="button" title="Edit {{ m.name }}"
+               data-cube-name="{{ cube.name }}"
+               data-measure-name="{{ m.name }}"
+               data-sql="{{ m.sql|escapejs }}"
+               data-type="{{ m.type }}"
+               data-title="{{ m.title|escapejs }}"
+               data-description="{{ m.description|escapejs }}"
+               onclick="openEditMeasureModal(this)"></i>
+          </span>
+          {% empty %}
+          <span>none</span>
+          {% endfor %}
+        </div>
+        <div class="ac-desc">
+          Dimensions: {{ cube.dimensions|join:", "|default:"none" }}
+        </div>
+      </div>
+      <div class="d-flex align-items-center gap-2 flex-shrink-0">
+        <button class="btn btn-sm btn-outline-primary"
+                data-cube-name="{{ cube.name }}"
+                onclick="openProposeModal(this)">
+          <i class="bi bi-plus-lg me-1"></i>Propose Measure
+        </button>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% if cubes_page.paginator.num_pages > 1 %}
+  <nav class="ac-pagination d-flex justify-content-between align-items-center" aria-label="Live cube schema pagination">
+    <span class="text-muted small">Page {{ cubes_page.number }} of {{ cubes_page.paginator.num_pages }}</span>
+    <div class="btn-group btn-group-sm">
+      {% if cubes_page.has_previous %}
+      <a class="btn btn-outline-secondary" href="{% querystring cubes_page=cubes_page.previous_page_number %}">Previous</a>
+      {% else %}
+      <span class="btn btn-outline-secondary disabled">Previous</span>
+      {% endif %}
+      {% if cubes_page.has_next %}
+      <a class="btn btn-outline-secondary" href="{% querystring cubes_page=cubes_page.next_page_number %}">Next</a>
+      {% else %}
+      <span class="btn btn-outline-secondary disabled">Next</span>
+      {% endif %}
+    </div>
+  </nav>
+  {% endif %}
+  {% else %}
+  <div class="empty-state">
+    <div class="empty-state-icon"><i class="bi bi-diagram-3"></i></div>
+    <div class="empty-state-title">
+      {% if cubes_q %}No cubes match "{{ cubes_q }}"{% else %}No live cube data{% endif %}
+    </div>
+    <div class="empty-state-desc">Cube's /meta endpoint returned nothing, or is unreachable.</div>
+  </div>
+  {% endif %}
+</div>
+
+<!-- ==================== Add / edit metric modal ==================== -->
+<div class="modal fade" id="addMetricModal" tabindex="-1" aria-labelledby="addMetricModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <form method="post" action="{% url 'agents:metric-save' %}">
+        {% csrf_token %}
+        <div class="modal-header">
+          <h5 class="modal-title" id="addMetricModalLabel">
+            <i class="bi bi-clipboard-data me-2"></i>
+            <span id="metricModalActionLabel">Add Metric</span>
+          </h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label for="metricId" class="form-label">Metric ID <span class="text-danger">*</span></label>
+            <input type="text" id="metricId" name="metric_id" class="form-control font-monospace"
+                   placeholder="e.g. bed_turnover_metrics" pattern="[a-z0-9_]+" required />
+            <div class="form-text">Lowercase letters, numbers, and underscores only. Existing ID = update, new ID = create.</div>
+          </div>
+          <div class="mb-3">
+            <label for="metricName" class="form-label">Name <span class="text-danger">*</span></label>
+            <input type="text" id="metricName" name="name" class="form-control" required />
+          </div>
+          <div class="mb-3">
+            <label for="metricDescription" class="form-label">Description</label>
+            <textarea id="metricDescription" name="description" class="form-control" rows="3"
+                      placeholder="What this metric measures and example questions it answers — this drives question matching."></textarea>
+          </div>
+          <div class="mb-3">
+            <label for="metricCubeQuery" class="form-label">Cube Query (JSON)</label>
+            <textarea id="metricCubeQuery" name="cube_query" class="form-control font-monospace" rows="6"
+                      placeholder='{"measures": ["cube.count"], "dimensions": [], "timeDimensions": [], "filters": [], "limit": 500}'></textarea>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" id="metricActive" name="is_active" checked />
+            <label class="form-check-label" for="metricActive">Active</label>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-afya-primary">Save Metric</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== Propose / edit measure modal ==================== -->
+<div class="modal fade" id="proposeMeasureModal" tabindex="-1" aria-labelledby="proposeMeasureModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" action="{% url 'agents:measure-propose' %}">
+        {% csrf_token %}
+        <input type="hidden" id="measureAction" name="action" value="add" />
+        <div class="modal-header">
+          <h5 class="modal-title" id="proposeMeasureModalLabel">Propose a New Measure</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label class="form-label">Cube <span class="text-danger">*</span></label>
+            <input type="text" id="proposeCubeName" name="cube_name" class="form-control font-monospace" readonly required />
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Measure name <span class="text-danger">*</span></label>
+            <input type="text" id="proposeMeasureName" name="measure_name" class="form-control font-monospace"
+                   placeholder="e.g. bed_turnover_rate" pattern="[a-z0-9_]+" required />
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Type <span class="text-danger">*</span></label>
+            <select id="proposeMeasureType" name="measure_type" class="form-select" required>
+              <option value="count">count</option>
+              <option value="sum">sum</option>
+              <option value="avg">avg</option>
+              <option value="min">min</option>
+              <option value="max">max</option>
+              <option value="countDistinct">countDistinct</option>
+              <option value="number">number</option>
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">SQL expression</label>
+            <input type="text" id="proposeSqlExpression" name="sql_expression" class="form-control font-monospace"
+                   placeholder='{CUBE}."SOME_COLUMN", or {other_measure} / {another_measure} — leave blank for type=count' />
+            <div class="form-text">
+              Paste the bare expression only — no surrounding quotes, no YAML syntax.
+              A raw column (e.g. <code>{CUBE}."SOME_COLUMN"</code>) is checked against live Snowflake;
+              a calculated measure referencing other measures (e.g. <code>{total_admissions} / NULLIF({bed_count}, 0)</code>)
+              is checked against this cube's own already-defined measures/dimensions instead.
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Title</label>
+            <input type="text" id="proposeTitle" name="title" class="form-control" />
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Description</label>
+            <textarea id="proposeDescription" name="description" class="form-control" rows="2"></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-afya-primary" id="proposeSubmitBtn">Propose</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  function openEditMetricModal(btn) {
+    document.getElementById('metricModalActionLabel').textContent = 'Edit Metric';
+    document.getElementById('metricId').value = btn.dataset.metricId;
+    document.getElementById('metricId').readOnly = true;
+    document.getElementById('metricName').value = btn.dataset.name;
+    document.getElementById('metricDescription').value = btn.dataset.description;
+    document.getElementById('metricCubeQuery').value = btn.dataset.cubeQuery;
+    document.getElementById('metricActive').checked = btn.dataset.active === 'true';
+    new bootstrap.Modal(document.getElementById('addMetricModal')).show();
+  }
+
+  document.getElementById('addMetricModal').addEventListener('hidden.bs.modal', function () {
+    document.getElementById('metricId').readOnly = false;
+    document.getElementById('metricModalActionLabel').textContent = 'Add Metric';
+    document.querySelector('#addMetricModal form').reset();
+  });
+
+  function openProposeModal(btn) {
+    document.querySelector('#proposeMeasureModal form').reset();
+    document.getElementById('measureAction').value = 'add';
+    document.getElementById('proposeMeasureModalLabel').textContent = 'Propose a New Measure';
+    document.getElementById('proposeSubmitBtn').textContent = 'Propose';
+    document.getElementById('proposeCubeName').value = btn.dataset.cubeName;
+    document.getElementById('proposeMeasureName').readOnly = false;
+    new bootstrap.Modal(document.getElementById('proposeMeasureModal')).show();
+  }
+
+  function openEditMeasureModal(btn) {
+    document.querySelector('#proposeMeasureModal form').reset();
+    document.getElementById('measureAction').value = 'edit';
+    document.getElementById('proposeMeasureModalLabel').textContent = 'Edit ' + btn.dataset.measureName;
+    document.getElementById('proposeSubmitBtn').textContent = 'Propose Edit';
+    document.getElementById('proposeCubeName').value = btn.dataset.cubeName;
+    document.getElementById('proposeMeasureName').value = btn.dataset.measureName;
+    document.getElementById('proposeMeasureName').readOnly = true;  // renaming isn't supported — same name, new definition
+    document.getElementById('proposeMeasureType').value = btn.dataset.type;
+    document.getElementById('proposeSqlExpression').value = btn.dataset.sql;
+    document.getElementById('proposeTitle').value = btn.dataset.title;
+    document.getElementById('proposeDescription').value = btn.dataset.description;
+    new bootstrap.Modal(document.getElementById('proposeMeasureModal')).show();
+  }
+</script>
+{% endblock %}

@@ -1,0 +1,86 @@
+cubes:
+  - name: upd_inventory_profile
+    sql_table: "\"REPORTING\".\"UPD_INVENTORY_PROFILE\""
+    data_source: default
+
+    # rpt_retention is the hospital-wide patient hub. Raw PATIENT_ID collides
+    # across facilities, so the join must normalize source_schema first
+    # (strip the "_CLEAN" suffix and uppercase) before matching patient_id —
+    # a naive patient_id-only join was verified to overcount by ~14%.
+    joins:
+      - name: rpt_retention
+        sql: "UPPER(REGEXP_REPLACE({CUBE}.\"SOURCE_SCHEMA\", '_CLEAN$', '')) = UPPER(REGEXP_REPLACE({rpt_retention}.\"SOURCE_SCHEMA\", '_CLEAN$', '')) AND {CUBE}.\"PATIENT_ID\" = {rpt_retention}.\"PATIENT_ID\""
+        relationship: many_to_one
+
+    dimensions:
+      - name: source_schema
+        sql: "{CUBE}.\"SOURCE_SCHEMA\""
+        type: string
+        primary_key: true
+
+      - name: patient_id
+        sql: "{CUBE}.\"PATIENT_ID\""
+        type: number
+        primary_key: true
+        description: ~95% unique per source_schema (88,837/93,347) — the best available row identifier for this cube; used as a composite primary_key with source_schema since Cube requires one now that this cube joins to rpt_retention.
+
+      - name: first_dispensed_at
+        sql: "{CUBE}.\"FIRST_DISPENSED_AT\""
+        type: time
+
+      - name: last_dispensed_at
+        sql: "{CUBE}.\"LAST_DISPENSED_AT\""
+        type: time
+
+    measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:04:28.715580+00:00
+      - name: total_dispensing_visits
+        sql: '{CUBE}."TOTAL_DISPENSING_VISITS"'
+        type: sum
+        drill_members: [first_dispensed_at, source_schema]
+      - name: total_drugs_dispensed
+        sql: '{CUBE}."TOTAL_DRUGS_DISPENSED"'
+        type: sum
+      - name: lifetime_units_dispensed
+        sql: '{CUBE}."LIFETIME_UNITS_DISPENSED"'
+        type: sum
+      - name: ever_had_antibiotic
+        sql: '{CUBE}."EVER_HAD_ANTIBIOTIC"'
+        type: sum
+      - name: ever_had_antimalarial
+        sql: '{CUBE}."EVER_HAD_ANTIMALARIAL"'
+        type: sum
+      - name: ever_had_arv
+        sql: '{CUBE}."EVER_HAD_ARV"'
+        type: sum
+      - name: ever_had_chronic_drug
+        sql: '{CUBE}."EVER_HAD_CHRONIC_DRUG"'
+        type: sum
+      - name: ever_had_opioid
+        sql: '{CUBE}."EVER_HAD_OPIOID"'
+        type: sum
+      - name: ever_had_obstetric_drug
+        sql: '{CUBE}."EVER_HAD_OBSTETRIC_DRUG"'
+        type: sum
+      - name: ever_had_reserve_antibiotic
+        sql: '{CUBE}."EVER_HAD_RESERVE_ANTIBIOTIC"'
+        type: sum
+      - name: ever_had_other_drug
+        sql: '{CUBE}."EVER_HAD_OTHER_DRUG"'
+        type: sum
+      - name: total_unclassified_drugs
+        sql: '{CUBE}."TOTAL_UNCLASSIFIED_DRUGS"'
+        type: sum
+      - name: count
+        type: count
+        drill_members: [first_dispensed_at, source_schema]
+
+      - name: lifetime_drug_cost
+        sql: "{CUBE}.\"LIFETIME_DRUG_COST\""
+        type: sum
+        drill_members: [last_dispensed_at, source_schema]
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

@@ -23,10 +23,14 @@ else:
     if os.path.exists(file_path):
         with open(file_path, encoding='utf-8') as f:
             code = f.read()
-        
+
         try:
             compiled_code = compile(code, file_path, "exec")
-            exec(compiled_code, {"st": st, "__name__": "__main__"})
+            exec(compiled_code, {
+                "st": st,
+                "__name__": "__main__",
+                "__file__": os.path.abspath(file_path),
+            })
         except Exception as e:
             st.error(f"Error: {e}")
             st.code(traceback.format_exc())

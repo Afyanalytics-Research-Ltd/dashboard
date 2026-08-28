@@ -59,16 +59,16 @@
 
 /* --------------------------------------------------------------------------
    Slide-in Panel
-   ≤ 25% screen width (capped at 420 px, min 320 px)
+   Half the screen width, so a chart or a wide table has real room to
+   breathe (min 420px so it never gets cramped on a narrower desktop).
    -------------------------------------------------------------------------- */
 .chatbot-panel {
   position: fixed;
   top: 0;
   right: 0;
   bottom: 0;
-  width: 25%;
-  min-width: 320px;
-  max-width: 420px;
+  width: 50%;
+  min-width: 420px;
   background: #fff;
   border-left: 1px solid var(--afya-border);
   box-shadow: -6px 0 32px rgba(0, 0, 0, 0.12);
@@ -116,6 +116,31 @@
   flex-shrink: 0;
 }
 
+/* WhatsApp shortcut — top-left of the panel header, opens a chat with the
+   WhatsApp bot number in a new tab. */
+.chatbot-whatsapp-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: #25d366;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  flex-shrink: 0;
+  text-decoration: none;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.chatbot-whatsapp-btn:hover,
+.chatbot-whatsapp-btn:focus-visible {
+  color: #fff;
+  transform: scale(1.08);
+  box-shadow: 0 3px 9px rgba(0, 0, 0, 0.25);
+}
+
 .chatbot-title {
   font-size: 14px;
   font-weight: 600;
@@ -131,21 +156,132 @@
   margin-top: 1px;
 }
 
-.chatbot-close-btn {
+.chatbot-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.chatbot-close-btn,
+.chatbot-icon-btn {
   background: none;
   border: none;
   color: rgba(255, 255, 255, 0.85);
-  font-size: 18px;
+  font-size: 16px;
   cursor: pointer;
-  padding: 4px;
+  padding: 6px;
   line-height: 1;
   border-radius: 4px;
   transition: color 0.15s, background 0.15s;
 }
 
-.chatbot-close-btn:hover {
+.chatbot-close-btn { font-size: 18px; }
+
+.chatbot-close-btn:hover,
+.chatbot-icon-btn:hover {
   color: #fff;
   background: rgba(255, 255, 255, 0.15);
+}
+
+/* --------------------------------------------------------------------------
+   History Overlay
+   -------------------------------------------------------------------------- */
+.chatbot-history-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  animation: chatBubbleIn 0.18s ease forwards;
+}
+
+.chatbot-history-overlay-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 16px;
+  background: linear-gradient(135deg, var(--afya-blue) 0%, var(--afya-teal) 100%);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.chatbot-history-overlay-header .chatbot-icon-btn {
+  margin-left: auto;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.chatbot-history-overlay-header .chatbot-icon-btn:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.chatbot-history-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px;
+  background: #f8f9fb;
+}
+
+.chatbot-history-list::-webkit-scrollbar { width: 4px; }
+.chatbot-history-list::-webkit-scrollbar-track { background: transparent; }
+.chatbot-history-list::-webkit-scrollbar-thumb { background: var(--afya-border); border-radius: 2px; }
+
+.chatbot-history-empty {
+  text-align: center;
+  color: var(--afya-muted);
+  font-size: 12.5px;
+  padding: 48px 20px;
+}
+
+.chatbot-history-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: #fff;
+  border: 1px solid var(--afya-border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+}
+
+.chatbot-history-item:hover {
+  border-color: var(--afya-blue);
+  box-shadow: var(--afya-shadow-sm);
+}
+
+.chatbot-history-item.active {
+  border-color: var(--afya-blue);
+  background: rgba(0, 114, 206, 0.06);
+}
+
+.chatbot-history-item-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--afya-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chatbot-history-item-preview {
+  font-size: 11.5px;
+  color: var(--afya-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 2px;
+}
+
+.chatbot-history-item-time {
+  font-size: 10px;
+  color: var(--afya-muted);
+  margin-top: 4px;
 }
 
 /* --------------------------------------------------------------------------
@@ -174,7 +310,7 @@
   padding: 16px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
   background: #f8f9fb;
   scroll-behavior: smooth;
 }
@@ -188,11 +324,12 @@
    Chat Bubbles
    -------------------------------------------------------------------------- */
 .chat-bubble {
-  max-width: 88%;
-  padding: 10px 13px;
-  border-radius: 14px;
-  font-size: 13.5px;
-  line-height: 1.55;
+  box-sizing: border-box;
+  max-width: 80%;
+  padding: 10px 14px;
+  border-radius: 16px;
+  font-size: 14px;
+  line-height: 1.5;
   animation: chatBubbleIn 0.2s ease forwards;
   word-break: break-word;
 }
@@ -226,6 +363,167 @@
   margin: 6px 0 0;
 }
 .chat-bubble.assistant li { margin-bottom: 3px; }
+
+/* --------------------------------------------------------------------------
+   Answer / Chart tabs — every metric answer that produced a chart shows
+   both in one bubble instead of two stacked ones.
+
+   The active tab is an inset "pill" (background + shadow), not an
+   underline — a border-based indicator sits flush against the tab bar's
+   own border and reads as a doubled/misaligned line at that shared edge,
+   and any per-tab border (even a transparent placeholder one, to reserve
+   its space) is a common source of the two tabs rendering at very
+   slightly different heights. Pill-on-inset-frame avoids both: nothing
+   here is ever indicated with a border.
+   -------------------------------------------------------------------------- */
+.chat-bubble.chat-bubble-tabbed {
+  /* Rich content (a chart with axis labels/legends, or a long answer)
+     needs real width to be legible — squeezing it into a chat-bubble-width
+     column is what was making the chart look small/cramped no matter how
+     its own sizing was tuned. This is the only bubble type that goes
+     (near-)full width; plain text bubbles stay narrower, per normal chat
+     convention, since short answers don't benefit from extra width. */
+  align-self: stretch;
+  max-width: 100%;
+  width: 100%;
+  padding: 0;
+  overflow: hidden;
+}
+
+.chat-tabs {
+  box-sizing: border-box;
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  height: 34px;
+  margin: 8px 8px 0;
+  padding: 3px;
+  background: var(--afya-bg);
+  border-radius: 8px;
+}
+
+.chat-tab {
+  box-sizing: border-box;
+  flex: 1 1 0;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 4px 8px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--afya-muted);
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.chat-tab i { font-size: 13px; flex-shrink: 0; }
+
+.chat-tab:hover:not(.active) {
+  color: var(--afya-text);
+}
+
+.chat-tab.active {
+  background: #fff;
+  color: var(--afya-blue);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.chat-tab-panel {
+  display: none;
+  padding: 12px 14px;
+}
+
+.chat-tab-panel.active {
+  display: block;
+}
+
+.chat-tab-panel-chart {
+  padding: 10px;
+}
+
+.chat-chart-frame {
+  container-type: inline-size;
+  position: relative;
+  width: 100%;
+  min-height: 160px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--afya-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.chat-chart-frame img {
+  /* Sized to the chart's OWN aspect ratio, not forced into a fixed
+     16:9 frame — build_chart()'s figures are already ~16:9, but a
+     dynamically-generated chart (matplotlib's default is 4:3, and the
+     model can pick anything) would otherwise letterbox inside a fixed
+     ratio, showing dead space above/below instead of a "neat", fully
+     used frame. object-fit:contain + a generous max-height is what
+     guarantees the whole chart is always visible with no internal
+     scrollbar, whatever its shape. */
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: min(560px, calc(100vh - 260px));
+  object-fit: contain;
+  cursor: zoom-in;
+  transition: opacity 0.15s ease;
+}
+
+.chat-chart-frame img:hover {
+  opacity: 0.9;
+}
+
+.chat-chart-frame-expand {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  border: none;
+  background: rgba(3, 10, 20, 0.55);
+  color: #fff;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  transform: translateY(-2px);
+  transition: opacity 0.15s ease, transform 0.15s ease, background 0.15s ease;
+}
+
+.chat-chart-frame:hover .chat-chart-frame-expand {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.chat-chart-frame-expand:hover {
+  background: rgba(3, 10, 20, 0.78);
+}
+
+@container (max-width: 320px) {
+  .chat-chart-frame img {
+    max-height: 280px;
+  }
+}
+
+.chat-chart-caption {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--afya-muted);
+  text-align: center;
+}
 
 /* --------------------------------------------------------------------------
    Typing Indicator
@@ -340,6 +638,54 @@
 .chatbot-send-btn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+/* --------------------------------------------------------------------------
+   Chart Lightbox — full-size view
+   -------------------------------------------------------------------------- */
+.chatbot-lightbox {
+  position: fixed;
+  inset: 0;
+  background: rgba(3, 10, 20, 0.88);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  padding: 40px;
+  backdrop-filter: blur(4px);
+}
+
+.chatbot-lightbox.show {
+  display: flex;
+}
+
+.chatbot-lightbox img {
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 10px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  cursor: default;
+}
+
+.chatbot-lightbox-close {
+  position: absolute;
+  top: 24px;
+  right: 28px;
+  color: #fff;
+  font-size: 26px;
+  cursor: pointer;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s ease;
+}
+
+.chatbot-lightbox-close:hover {
+  background: rgba(255, 255, 255, 0.22);
 }
 
 /* --------------------------------------------------------------------------

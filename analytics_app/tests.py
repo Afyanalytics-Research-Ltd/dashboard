@@ -139,7 +139,7 @@ class DashboardListViewTests(TestCase):
         self.superuser = make_user('superadmin', is_superuser=True)
         self.client_obj = make_client(name='Test Hosp', slug='test-hosp')
         # Patch profile so user has a client
-        self.user.profile.client = 'Test Hosp'
+        self.user.profile.client = self.client_obj
         self.user.profile.save()
 
     def _login(self, user):
@@ -218,7 +218,7 @@ class DashboardDetailViewTests(TestCase):
         self.user = make_user('detailuser')
         self.superuser = make_user('superdetail', is_superuser=True)
         self.client_obj = make_client(name='Detail Hosp', slug='detail-hosp')
-        self.user.profile.client = 'Detail Hosp'
+        self.user.profile.client = self.client_obj
         self.user.profile.save()
         self.dashboard = make_dashboard(
             name='Clinical Overview', slug='clinical-overview', client=self.client_obj
@@ -335,7 +335,7 @@ class DashboardAPITests(TestCase):
         self.user = make_user('apiuser')
         self.superuser = make_user('apisuper', is_superuser=True)
         self.client_obj = make_client(name='API Hosp', slug='api-hosp')
-        self.user.profile.client = 'API Hosp'
+        self.user.profile.client = self.client_obj
         self.user.profile.save()
         self.dashboard = make_dashboard(
             name='API Dashboard', slug='api-dashboard', client=self.client_obj
@@ -399,3 +399,65 @@ class DashboardAPITests(TestCase):
         self.client_http.force_login(self.user)
         resp = self.client_http.post('/api/v1/analytics/dashboards/sync/')
         self.assertEqual(resp.status_code, 403)
+
+
+# ---------------------------------------------------------------------------
+# Dashboard.hidden_from_users — per-user visibility override
+# ---------------------------------------------------------------------------
+
+class HiddenFromUsersTests(TestCase):
+
+    def setUp(self):
+        self.client_obj = make_client(name='Hide Test Hosp', slug='hide-test-hosp')
+        self.user = make_user('hide_target_user')
+        self.user.profile.client = self.client_obj
+        self.user.profile.save()
+        self.other_user = make_user('hide_other_user')
+        self.other_user.profile.client = self.client_obj
+        self.other_user.profile.save()
+        # Not using make_dashboard(): it hardcodes a "localhost"-style
+        # streamlit_url, and DashboardListView.get() auto-deactivates any
+        # dashboard with that URL pattern that isn't part of its filesystem
+        # sync batch on every GET — an unrelated pre-existing side effect
+        # that would silently flip is_active=False out from under this test.
+        # A Redash-backed URL isn't swept up by that sync at all.
+        self.dashboard = Dashboard.objects.create(
+            name='Financial Report', slug='financial-report-hide-test',
+            client=self.client_obj, redash_dashboard_url='https://redash.example.com/public/dashboards/abc123',
+        )
+        self.c = TestClient()
+
+    def test_visible_by_default_in_list(self):
+        self.c.force_login(self.user)
+        resp = self.c.get(reverse('analytics:dashboard_list'))
+        self.assertIn(self.dashboard, list(resp.context['dashboards']))
+
+    def test_hidden_from_specific_user_disappears_from_list(self):
+        self.dashboard.hidden_from_users.add(self.user)
+        self.c.force_login(self.user)
+        resp = self.c.get(reverse('analytics:dashboard_list'))
+        self.assertNotIn(self.dashboard, list(resp.context['dashboards']))
+
+    def test_still_visible_to_other_user_in_same_client(self):
+        self.dashboard.hidden_from_users.add(self.user)
+        self.c.force_login(self.other_user)
+        resp = self.c.get(reverse('analytics:dashboard_list'))
+        self.assertIn(self.dashboard, list(resp.context['dashboards']))
+
+    def test_direct_url_blocked_when_hidden(self):
+        self.dashboard.hidden_from_users.add(self.user)
+        self.c.force_login(self.user)
+        resp = self.c.get(reverse('analytics:dashboard_view', kwargs={'slug': self.dashboard.slug}))
+        self.assertEqual(resp.status_code, 403)
+
+    def test_direct_url_allowed_when_not_hidden(self):
+        self.c.force_login(self.user)
+        resp = self.c.get(reverse('analytics:dashboard_view', kwargs={'slug': self.dashboard.slug}))
+        self.assertEqual(resp.status_code, 200)
+
+    def test_superuser_unaffected_by_hiding(self):
+        self.dashboard.hidden_from_users.add(self.user)
+        superuser = make_user('hide_superuser', is_superuser=True)
+        self.c.force_login(superuser)
+        resp = self.c.get(reverse('analytics:dashboard_view', kwargs={'slug': self.dashboard.slug}))
+        self.assertEqual(resp.status_code, 200)

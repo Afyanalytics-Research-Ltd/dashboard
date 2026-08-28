@@ -32,6 +32,7 @@ ALLOWED_HOSTS = [
     '127.0.0.1',
     '0.0.0.0',
     '2c97-129-222-187-199.ngrok-free.app',
+    '8fa2-105-164-5-177.ngrok-free.app'
 ]
 
 CSRF_TRUSTED_ORIGINS = [
@@ -39,6 +40,7 @@ CSRF_TRUSTED_ORIGINS = [
     'http://localhost:8000',
     'http://127.0.0.1:8000',
     'https://2c97-129-222-187-199.ngrok-free.app',
+    'https://8fa2-105-164-5-177.ngrok-free.app'
 ]
 
 # Add this — CORS was missing the ngrok origin
@@ -47,6 +49,7 @@ CORS_ALLOWED_ORIGINS = [
     'http://localhost:8000',
     'http://127.0.0.1:8000',
     'https://2c97-129-222-187-199.ngrok-free.app',
+    'https://8fa2-105-164-5-177.ngrok-free.app'
 ]
 
 # Or for dev, just allow everything:
@@ -110,6 +113,28 @@ CUBE_API_URL = os.getenv("CUBE_API_URL", "http://localhost:4000").strip()
 CUBE_API_TOKEN = os.getenv("CUBE_API_TOKEN", "your-cube-api-secret").strip()
 ANALYTICS_TEAM_EMAIL = os.getenv("ANALYTICS_TEAM_EMAIL", "data@afya.ai").strip()
 
+# ---------------------------------------------------------------------------
+# Spreadsheet analyst (warehouse/agent + warehouse/analyst_views.py)
+# ---------------------------------------------------------------------------
+ANALYST_MODEL = os.getenv("ANALYST_MODEL", "gpt-4.1").strip()
+ANALYST_EXEC_TIMEOUT = int(os.getenv("ANALYST_EXEC_TIMEOUT", "30"))
+ANALYST_MAX_TOOL_ROUNDS = int(os.getenv("ANALYST_MAX_TOOL_ROUNDS", "12"))
+ANALYST_SESSION_TTL = int(os.getenv("ANALYST_SESSION_TTL", "1800"))
+ANALYST_SESSION_CACHE_SIZE = int(os.getenv("ANALYST_SESSION_CACHE_SIZE", "8"))
+ANALYST_MAX_HISTORY_MESSAGES = int(os.getenv("ANALYST_MAX_HISTORY_MESSAGES", "40"))
+ANALYST_MAX_UPLOAD_BYTES = int(os.getenv("ANALYST_MAX_UPLOAD_BYTES", str(50 * 1024 * 1024)))
+
+# ---------------------------------------------------------------------------
+# Dynamic chart generation for the main analytics chatbot (agents/chart_codegen.py)
+# LLM writes matplotlib code against the already-fetched, already access-scoped
+# Cube result; the same AST-validated, timeout-guarded sandbox used by the
+# spreadsheet analyst (warehouse/agent/sandbox.py) executes it. Falls back to
+# the deterministic agents/charts.py:build_chart() on any failure.
+# ---------------------------------------------------------------------------
+CHART_CODEGEN_MODEL = os.getenv("CHART_CODEGEN_MODEL", "gpt-4o-mini").strip()
+CHART_CODEGEN_TIMEOUT = int(os.getenv("CHART_CODEGEN_TIMEOUT", "8"))
+CHART_CODEGEN_MAX_ROWS = int(os.getenv("CHART_CODEGEN_MAX_ROWS", "2000"))
+
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
@@ -123,6 +148,8 @@ TEMPLATES = [
                 'django.contrib.messages.context_processors.messages',
                 'core.context_processors.notifications',
                 'core.context_processors.brand_settings',
+                'core.context_processors.module_access',
+                'core.context_processors.open_tickets',
             ],
         },
     },
@@ -212,6 +239,17 @@ STREAMLIT_BASE_URL = os.getenv(
     'STREAMLIT_BASE_URL',
     'http://localhost:8501'
 ).rstrip('/')
+
+# Browser-facing Redash URL (used to build iframe embed src's — must be
+# reachable from the user's browser, not just from inside the docker network).
+REDASH_BASE_URL = os.getenv(
+    'REDASH_BASE_URL',
+    'http://localhost:5050'
+).rstrip('/')
+
+# Admin-user API key used server-side to provision Redash Groups/Data
+# Sources per facility (see analytics_app/management/commands/provision_redash_facility.py).
+REDASH_ADMIN_API_KEY = os.getenv('REDASH_ADMIN_API_KEY', '').strip()
 
 AIRFLOW_BASE_URL = os.getenv('AIRFLOW_BASE_URL', 'http://localhost:8080').rstrip('/')
 AIRFLOW_USERNAME = os.getenv('AIRFLOW_USERNAME', 'airflow').strip()
@@ -432,6 +470,17 @@ SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SECURE = not DEBUG
 
 # ---------------------------------------------------------------------------
+# Reverse proxy trust (nginx terminates TLS; Django itself is only ever
+# reached over plain HTTP inside the docker network — see
+# nginx/sites-enabled/django_project, which sets X-Forwarded-Proto on
+# every proxied location). Without this, request.is_secure() is always
+# False behind the proxy, which breaks secure-cookie logic above and any
+# https:// URL Django generates for itself (e.g. redirects).
+# ---------------------------------------------------------------------------
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+USE_X_FORWARDED_HOST = True
+
+# ---------------------------------------------------------------------------
 # Django Channels — Self-Service Analytics WebSocket
 # ---------------------------------------------------------------------------
 
@@ -451,3 +500,26 @@ else:
             'BACKEND': 'channels.layers.InMemoryChannelLayer',
         }
     }
+
+# ---------------------------------------------------------------------------
+# Celery — background tasks (agents/tasks.py: Agent Configuration's
+# "Generate Missing Metrics" / "Rebuild Embeddings" buttons — both make
+# several slow LLM/embedding calls, too slow to run in a request/response
+# cycle). Broker/backend default to the `redis` service already defined in
+# docker-compose.yaml / docker-compose.dev.yaml, on the same `dashboard-net`
+# network as `web` — no new infrastructure, override via env if deployed
+# differently.
+# ---------------------------------------------------------------------------
+
+CELERY_BROKER_URL = os.getenv('CELERY_BROKER_URL', 'redis://redis:6379/1')
+CELERY_RESULT_BACKEND = os.getenv('CELERY_RESULT_BACKEND', CELERY_BROKER_URL)
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = TIME_ZONE
+CELERY_RESULT_EXPIRES = 60 * 60 * 24  # 24 hours — enough to check a result the next morning
+
+# Runs a task synchronously in-process (no broker/worker needed) when set —
+# for local dev without docker-compose's redis service running. Off by
+# default so production always actually queues instead of silently blocking.
+CELERY_TASK_ALWAYS_EAGER = os.getenv('CELERY_TASK_ALWAYS_EAGER', 'false').strip().lower() == 'true'

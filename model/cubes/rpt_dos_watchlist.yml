@@ -1,0 +1,70 @@
+cubes:
+  - name: rpt_dos_watchlist
+    sql_table: "\"REPORTING\".\"RPT_DOS_WATCHLIST\""
+    data_source: default
+
+    joins:
+      - name: canonical_product_taxonomy
+        sql: "{CUBE}.\"FACILITY\" = {canonical_product_taxonomy}.\"FACILITY\" AND {CUBE}.\"PRODUCT_ID\" = {canonical_product_taxonomy}.\"PRODUCT_ID\""
+        relationship: many_to_one
+
+    dimensions:
+      - name: canonical_name
+        sql: "{CUBE}.\"CANONICAL_NAME\""
+        type: string
+
+      - name: facility
+        sql: "{CUBE}.\"FACILITY\""
+        type: string
+        primary_key: true
+
+      - name: inn_name
+        sql: "{CUBE}.\"INN_NAME\""
+        type: string
+
+      - name: product_name
+        sql: "{CUBE}.\"PRODUCT_NAME\""
+        type: string
+        primary_key: true
+
+      - name: reorder_urgency
+        sql: "{CUBE}.\"REORDER_URGENCY\""
+        type: string
+
+      - name: therapeutic_class
+        sql: "{CUBE}.\"THERAPEUTIC_CLASS\""
+        type: string
+
+      - name: last_dispensed_at
+        sql: "{CUBE}.\"LAST_DISPENSED_AT\""
+        type: time
+
+    measures:
+      # Added by sync_cube_schemas_from_snowflake on 2026-08-05T13:00:10.554243+00:00
+      - name: current_soh_raw
+        sql: '{CUBE}."CURRENT_SOH_RAW"'
+        type: sum
+      - name: current_soh
+        sql: '{CUBE}."CURRENT_SOH"'
+        type: sum
+      - name: total_dispensed_30d
+        sql: '{CUBE}."TOTAL_DISPENSED_30D"'
+        type: sum
+      - name: avg_daily_consumption
+        sql: '{CUBE}."AVG_DAILY_CONSUMPTION"'
+        type: avg
+      - name: active_dispensing_days
+        sql: '{CUBE}."ACTIVE_DISPENSING_DAYS"'
+        type: sum
+      - name: days_of_stock_remaining
+        sql: '{CUBE}."DAYS_OF_STOCK_REMAINING"'
+        type: sum
+        drill_members: [facility, reorder_urgency, product_name]
+      - name: count
+        type: count
+        drill_members: [last_dispensed_at, facility, reorder_urgency, product_name]
+
+    pre_aggregations:
+      # Pre-aggregation definitions go here.
+      # Learn more in the documentation: https://cube.dev/docs/caching/pre-aggregations/getting-started
+

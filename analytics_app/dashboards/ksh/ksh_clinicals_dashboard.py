@@ -1,16 +1,16 @@
 import sys
 import os
 # Add dashboards/ to path so 'import ksh.clinical_module.X' resolves correctly
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath('__file__'))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import streamlit as st
-import plotly.io as pio
 import plotly.graph_objects as go
 import pandas as pd
 from datetime import date, timedelta
 
 import ksh.clinical_module.queries as Q
-from ksh.clinical_module.queries import run_query
 import ksh.clinical_module.views as V
+from ksh.clinical_module.queries import run_query
+from ksh.clinical_module.ui_template import inject_global_css
 
 st.set_page_config(
     page_title="Afya Clinical Analytics",
@@ -18,6 +18,77 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+st.markdown(
+    '<link rel="preconnect" href="https://fonts.googleapis.com">'
+    '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
+    '<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">',
+    unsafe_allow_html=True,
+)
+inject_global_css()
+st.markdown("<style>" + """
+html, body, .stMarkdown, .stMetric, .stDataFrame, .stSelectbox, .stRadio,
+.stCaption, .element-container, .block-container, button, input, select,
+textarea, label, p {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
+}
+[data-testid="stIconMaterial"],
+[data-testid="stExpanderIcon"],
+[data-testid="stExpanderIconCheck"],
+[data-testid="stExpanderIconError"],
+[data-testid="stExpanderIconSpinner"] {
+    font-family: 'Material Symbols Rounded' !important;
+    font-style: normal !important;
+    font-weight: 400 !important;
+    font-feature-settings: 'liga' !important;
+    -webkit-font-smoothing: antialiased !important;
+}
+[data-testid="stSidebar"] [data-testid="stExpander"] {
+    border: 1px solid #E5E7EB !important;
+    border-radius: 8px !important;
+    background: #FFFFFF !important;
+    box-shadow: none !important;
+    margin-bottom: 6px !important;
+    overflow: hidden !important;
+}
+[data-testid="stSidebar"] [data-testid="stExpander"] summary {
+    font-size: 13px !important;
+    font-family: Inter, -apple-system, sans-serif !important;
+    font-weight: 500 !important;
+    color: #374151 !important;
+    padding: 9px 12px !important;
+    background: #FFFFFF !important;
+    min-height: 40px !important;
+}
+[data-testid="stSidebar"] [data-baseweb="tag"] {
+    background-color: #0F6E56 !important;
+    border-radius: 20px !important;
+}
+[data-testid="stSidebar"] [data-baseweb="tag"] span {
+    color: #FFFFFF !important;
+    font-size: 12px !important;
+    font-family: Inter, -apple-system, sans-serif !important;
+    font-weight: 500 !important;
+}
+/* Section F accordion: arrow toggle buttons in narrow right columns */
+[data-testid="stMain"] [data-testid="stHorizontalBlock"] [data-testid="column"]:last-child button,
+[data-testid="stMain"] [data-testid="stHorizontalBlock"] [data-testid="column"]:last-of-type button {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    color: #9CA3AF !important;
+    font-size: 16px !important;
+    padding: 8px 4px !important;
+    min-height: unset !important;
+    line-height: 1 !important;
+}
+[data-testid="stMain"] [data-testid="stHorizontalBlock"] [data-testid="column"]:last-child button:hover,
+[data-testid="stMain"] [data-testid="stHorizontalBlock"] [data-testid="column"]:last-of-type button:hover {
+    color: #374151 !important;
+    background: rgba(0,0,0,0.04) !important;
+    border-radius: 4px !important;
+}
+""" + "</style>", unsafe_allow_html=True)
 
 # ── PALETTE ───────────────────────────────────────────────────────────────────
 AFYA_BLUE = "#0072CE"
@@ -35,89 +106,38 @@ GREEN     = "#38A169"
 AMBER     = "#D97706"
 RED       = "#C53030"
 
-pio.templates["afya"] = pio.templates["plotly_white"]
-_t = pio.templates["afya"].layout
-_t.font        = dict(family="Montserrat, sans-serif", color=COOL_BLUE, size=11)
-_t.legend.font = dict(family="Montserrat, sans-serif", color=COOL_BLUE, size=10)
-_t.xaxis.tickfont   = dict(color=MUTED, size=10)
-_t.xaxis.title.font = dict(color=COOL_BLUE, size=11)
-_t.yaxis.tickfont   = dict(color=MUTED, size=10)
-_t.yaxis.title.font = dict(color=COOL_BLUE, size=11)
-_t.xaxis.gridcolor  = "#EBF3FB"
-_t.yaxis.gridcolor  = "#EBF3FB"
-_t.paper_bgcolor    = "#fff"
-_t.plot_bgcolor     = "#fff"
-pio.templates.default = "afya"
-
+# Plotly template and chart defaults are set by ui_template.py (imported above)
 CHART_LAYOUT = dict(
-    plot_bgcolor="#fff", paper_bgcolor="#fff",
-    font=dict(family="Montserrat, sans-serif", size=11, color=COOL_BLUE),
-    margin=dict(t=10, b=10, l=0, r=10),
-    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1,
-                font=dict(family="Montserrat, sans-serif", size=10, color=COOL_BLUE),
-                bgcolor="rgba(0,0,0,0)"),
-    colorway=SEQ,
+    plot_bgcolor  = "rgba(0,0,0,0)",
+    paper_bgcolor = "rgba(0,0,0,0)",
+    autosize      = True,
+    font          = dict(family="Inter, -apple-system, sans-serif", size=12, color="#6B7280"),
+    margin        = dict(t=8, b=0, l=0, r=16),
+    legend        = dict(orientation="h", y=1.08, x=0,
+                         font=dict(family="Inter, -apple-system, sans-serif", size=11),
+                         bgcolor="rgba(0,0,0,0)"),
+    colorway      = SEQ,
 )
 AXIS = dict(
-    showgrid=True, gridcolor="#EBF3FB", zeroline=False, color=COOL_BLUE,
-    tickfont=dict(color=MUTED, size=10, family="Montserrat, sans-serif"),
-    title_font=dict(color=COOL_BLUE, size=11, family="Montserrat, sans-serif"),
-    title_standoff=8,
+    showgrid    = True,
+    gridcolor   = "rgba(0,0,0,0.05)",
+    zeroline    = False,
+    color       = "#6B7280",
+    tickfont    = dict(color="#9CA3AF", size=11, family="Inter, -apple-system, sans-serif"),
+    title_font  = dict(color="#6B7280", size=11, family="Inter, -apple-system, sans-serif"),
+    title_standoff = 8,
 )
 def _ax(**overrides): return {**AXIS, **overrides}
 
-# ── CSS ───────────────────────────────────────────────────────────────────────
-st.markdown("""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap');
-html, body { font-family: 'Montserrat', sans-serif; background: #fff; color: #003467; }
-.stApp { background: #F4F8FC; }
-[data-testid="stSidebar"] { background: #F4F8FC; border-right: 1px solid #D6E4F0; }
-[data-testid="stSidebar"] p,
-[data-testid="stSidebar"] label,
-[data-testid="stSidebar"] button,
-[data-testid="stSidebar"] .stMarkdown { color: #003467; font-family: 'Montserrat', sans-serif; }
-[data-testid="stSidebar"] span[class*="material"] {
-    font-family: 'Material Symbols Rounded', 'Material Icons' !important; }
-.sh { font-size:11px; font-weight:700; color:#0072CE; text-transform:uppercase;
-      letter-spacing:2px; padding:8px 0 6px; border-bottom:2px solid #EBF3FB; margin-bottom:10px; }
-/* Diagnostic / predictive / prescriptive insight styles */
-.insight-blue  { background:#F4F8FC; border-left:4px solid #0072CE; border-radius:0 6px 6px 0; padding:10px 13px; margin-bottom:10px; }
-.insight-teal  { background:#E8F7F4; border-left:4px solid #0BB99F; border-radius:0 6px 6px 0; padding:10px 13px; margin-bottom:10px; }
-.insight-amber { background:#FFFBEB; border-left:4px solid #D97706; border-radius:0 6px 6px 0; padding:10px 13px; margin-bottom:10px; }
-.insight-red   { background:#FFF5F5; border-left:4px solid #E53E3E; border-radius:0 6px 6px 0; padding:10px 13px; margin-bottom:10px; }
-.insight-purple { background:#F5F0FF; border-left:4px solid #7B5EA7; border-radius:0 6px 6px 0; padding:10px 13px; margin-bottom:10px; }
-.insight-lbl   { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:1.5px; margin-bottom:4px; }
-.insight-txt   { font-size:13px; color:#003467; line-height:1.6; }
-/* Analytics tier badges */
-.badge-diag  { background:#EBF5FF; color:#185FA5; font-size:10px; font-weight:700; padding:2px 8px; border-radius:20px; }
-.badge-pred  { background:#FFFBEB; color:#854F0B; font-size:10px; font-weight:700; padding:2px 8px; border-radius:20px; }
-.badge-presc { background:#E8F7F4; color:#0F6E56; font-size:10px; font-weight:700; padding:2px 8px; border-radius:20px; }
-/* KPI & flag cards */
-.kpi-card { background:#fff; border:1px solid #D6E4F0; border-radius:8px; padding:14px 14px 10px; }
-.fbadge-high  { background:#FED7D7; color:#9B2C2C; font-size:10px; font-weight:700; padding:2px 8px; border-radius:20px; }
-.fbadge-med   { background:#FEEBC8; color:#7B341E; font-size:10px; font-weight:700; padding:2px 8px; border-radius:20px; }
-.fbadge-watch { background:#BEE3F8; color:#2C5282; font-size:10px; font-weight:700; padding:2px 8px; border-radius:20px; }
-.fbadge-ok    { background:#C6F6D5; color:#276749; font-size:10px; font-weight:700; padding:2px 8px; border-radius:20px; }
-.freshness { background:#E8F7F4; border:1px solid #9FE1CB; border-radius:6px;
-             padding:8px 10px; font-size:11px; color:#0F6E56; margin-bottom:12px; }
-::-webkit-scrollbar { width:5px; }
-::-webkit-scrollbar-thumb { background:#B0C8E0; border-radius:10px; }
-[data-baseweb="tab"] { font-family:'Montserrat',sans-serif !important; font-weight:600 !important;
-                        font-size:13px !important; color:#6B8CAE !important; }
-[aria-selected="true"] { color:#0072CE !important; border-bottom-color:#0072CE !important; }
-</style>
-""", unsafe_allow_html=True)
-
 # ── UI HELPERS ────────────────────────────────────────────────────────────────
 def kpi_card(label, value, sub="", delta="", delta_color=MUTED, color=COOL_BLUE):
-    delta_html = f'<div style="font-size:11px;color:{delta_color};margin-top:3px">{delta}</div>' if delta else ""
-    sub_html   = f'<div style="font-size:10px;color:{MUTED};margin-top:2px">{sub}</div>' if sub else ""
+    delta_html = f'<div style="font-family:Montserrat,sans-serif;font-size:12px;color:{delta_color};margin-top:3px">{delta}</div>' if delta else ""
+    sub_html   = f'<div style="font-family:Inter,sans-serif;font-size:11px;color:{MUTED};margin-top:2px">{sub}</div>' if sub else ""
     st.markdown(
         f'<div style="background:#fff;border:1px solid {BORDER};border-radius:8px;padding:14px 14px 10px">'
-        f'<div style="font-size:10px;font-weight:600;color:{MUTED};text-transform:uppercase;'
+        f'<div style="font-family:Montserrat,sans-serif;font-size:11px;font-weight:600;color:{MUTED};text-transform:uppercase;'
         f'letter-spacing:1.2px;margin-bottom:5px">{label}</div>'
-        f'<div style="font-size:22px;font-weight:700;color:{color};line-height:1.1">{value}</div>'
+        f'<div style="font-family:Montserrat,sans-serif;font-size:26px;font-weight:700;color:{color};line-height:1.1">{value}</div>'
         f'{delta_html}{sub_html}</div>', unsafe_allow_html=True)
 
 def section_header(title):
@@ -132,7 +152,7 @@ def insight_card(text, label="Key insight", variant="blue"):
         f'<div class="insight-txt">{text}</div></div>', unsafe_allow_html=True)
 
 def prescriptive_card(text, action=""):
-    action_html = f'<div style="font-size:11px;font-weight:600;color:#0F6E56;margin-top:6px">→ {action}</div>' if action else ""
+    action_html = f'<div style="font-size:13px;font-weight:600;color:#0F6E56;margin-top:6px">→ {action}</div>' if action else ""
     st.markdown(
         f'<div style="background:#E8F7F4;border-left:4px solid #0BB99F;border-radius:0 6px 6px 0;padding:10px 13px;margin-bottom:10px">'
         f'<div class="insight-lbl" style="color:#0BB99F">Recommended action</div>'
@@ -153,10 +173,6 @@ def predictive_card(text):
 def flag_badge(level, text):
     cls = {"high":"fbadge-high","med":"fbadge-med","watch":"fbadge-watch","ok":"fbadge-ok"}.get(level,"fbadge-watch")
     return f'<span class="{cls}">{text}</span>'
-
-def freshness_bar(date_str, schema=""):
-    schema_html = f' &nbsp;·&nbsp; <code style="font-size:10px">{schema}</code>' if schema else ""
-    st.markdown(f'<div class="freshness">📅 Data as of <strong>{date_str}</strong>{schema_html} · Anchored to MAX(visit_date)</div>', unsafe_allow_html=True)
 
 def fmt_num(v, suffix=""):
     if v is None: return "—"
@@ -185,7 +201,7 @@ def horizontal_bar(df, label_col, value_col, color=AFYA_BLUE, height=280, title=
     fig = go.Figure(go.Bar(
         y=df[label_col], x=df[value_col], orientation="h", marker_color=color,
         text=df[value_col].apply(lambda v: f"{v:.1f}{xaxis_suffix}"),
-        textposition="outside", textfont=dict(size=10, color=COOL_BLUE),
+        textposition="outside", textfont=dict(size=12, color=COOL_BLUE),
     ))
     fig.update_layout(**{**CHART_LAYOUT,"height":height,"title_text":title},
                       xaxis={**_ax(),"showgrid":False},
@@ -216,7 +232,7 @@ def donut_chart(labels, values, colors=None, height=220, title=""):
     colors = colors or SEQ
     fig = go.Figure(go.Pie(labels=labels,values=values,hole=0.55,
                            marker=dict(colors=colors),textinfo="percent",
-                           textfont=dict(size=10,family="Montserrat, sans-serif")))
+                           textfont=dict(size=12,family="Montserrat, sans-serif")))
     fig.update_layout(**{**CHART_LAYOUT,"height":height,"title_text":title,
                          "legend":dict(orientation="v",x=1.05,y=0.5,
                                        font=dict(size=10,family="Montserrat, sans-serif"))},
@@ -233,69 +249,25 @@ def heatmap_chart(z, x_labels, y_labels, height=220, title="", colorscale="Blues
 # ── SESSION STATE ─────────────────────────────────────────────────────────────
 if "role" not in st.session_state:
     st.session_state["role"] = "Head of Clinician"
-if "filters" not in st.session_state:
-    st.session_state["filters"] = {
-        "source_schemas": [], "schema_display": [], "facilities": [],
-        "visit_type": "All", "payer_type": "All",
-        "age_group": "All", "disease_group": "All",
-        "date_range": "Last 12 months",
-        "date_from": None, "date_to": None,
-    }
+if "nav_page" not in st.session_state:
+    st.session_state["nav_page"] = "Today's Briefing"
 if "selected_patient" not in st.session_state:
     st.session_state["selected_patient"] = None
 if "selected_schema" not in st.session_state:
     st.session_state["selected_schema"] = None
 
-# ── TOPBAR ────────────────────────────────────────────────────────────────────
-def _get_freshness():
-    try:
-        df = run_query("SELECT MAX(created_at)::DATE AS max_date FROM HOSPITALS.STAGING.STG_EVALUATION_VISITS")
-        if not df.empty and df["max_date"].iloc[0] is not None:
-            return str(df["max_date"].iloc[0])[:10]
-    except: pass
-    return "—"
+# ── CONSTANTS ─────────────────────────────────────────────────────────────────
+DATA_START = "2024-09-01"
 
-def render_topbar():
-    c1, c2, c3 = st.columns([3, 4, 3])
-    with c1:
-        schemas = st.session_state.get("filters", {}).get("schema_display", [])
-        schema_display = " · ".join(schemas) if schemas else "All hospitals"
-        st.markdown(
-            f'<div style="display:flex;align-items:center;gap:8px;padding-top:6px">'
-            f'<div style="width:9px;height:9px;border-radius:50%;background:#0BB99F;flex-shrink:0"></div>'
-            f'<span style="font-size:15px;font-weight:700;color:#003467">Afya Clinical Analytics</span>'
-            f'<code style="font-size:10px;background:#F4F8FC;border:1px solid #D6E4F0;'
-            f'border-radius:4px;padding:2px 7px;color:#6B8CAE">{schema_display}</code>'
-            f'</div>', unsafe_allow_html=True)
-    with c2:
-        freshness = _get_freshness()
-        st.markdown(
-            f'<div style="text-align:center;padding-top:10px;font-size:11px;color:#6B8CAE">'
-            f'📅 Data as of <strong style="color:#0F6E56">{freshness}</strong>'
-            f'&nbsp;·&nbsp;anchored to MAX(visit_date)</div>', unsafe_allow_html=True)
-    with c3:
-        _roles = ["Head of Clinician", "Clinician"]
-        _cur   = st.session_state.get("role", _roles[0])
-        role = st.selectbox(
-            "Role", _roles,
-            index=_roles.index(_cur) if _cur in _roles else 0,
-            label_visibility="collapsed", key="role_selector")
-        st.session_state["role"] = role
-    st.divider()
-
-# ── SIDEBAR ───────────────────────────────────────────────────────────────────
-# Maps raw source_schema values to human-readable display names.
-# Multiple raw schemas can map to the same display name (deduplication).
 SCHEMA_DISPLAY = {
-    "kisumu":      "Kisumu Specialists",
-    "tenri":       "Tendri",
+    "kisumu": "Kisumu Specialists",
+    "tenri":  "Tendri",
 }
 
 def _display_name(schema: str) -> str:
     return SCHEMA_DISPLAY.get(schema.lower(), schema)
 
 def _display_to_schemas(display_names: list) -> list:
-    """Expand selected display names back to all matching raw schemas."""
     inverse: dict[str, list] = {}
     for raw, display in SCHEMA_DISPLAY.items():
         inverse.setdefault(display, []).append(raw)
@@ -326,42 +298,76 @@ def _facility_options(schemas: list) -> list:
     except:
         return []
 
+# ── NAV OPTIONS ───────────────────────────────────────────────────────────────
+def _nav_options(role: str) -> list:
+    if role == "Clinician":
+        return ["🩺  Patient Card"]
+    return [
+        "🗓  Today's Briefing",
+        "📊  OPD → IPD Conversion",
+        "🏥  Clinical Activity",
+        "👥  Patient Acquisition",
+        "🔄  Flow and Retention",
+        "🦠  Disease Burden",
+    ]
+
+
+def _page_clean(page: str) -> str:
+    """Strip leading emoji + whitespace from nav label to get the plain page name."""
+    return page.split("  ", 1)[-1].strip()
+
+# ── SIDEBAR ───────────────────────────────────────────────────────────────────
 def render_sidebar():
     with st.sidebar:
+        # ── Logo ──────────────────────────────────────────────────────────
         st.markdown(
-            '<div style="font-size:11px;font-weight:700;color:#0072CE;text-transform:uppercase;'
-            'letter-spacing:2px;padding:8px 0 6px;border-bottom:2px solid #EBF3FB;margin-bottom:12px">'
-            'FILTERS</div>', unsafe_allow_html=True)
+            '<div style="padding:14px 4px 6px;">'
+            '<span style="font-size:18px;font-weight:800;color:#0F6E56;font-family:Inter,-apple-system,sans-serif;'
+            'letter-spacing:-0.02em;">Afya</span>'
+            '<span style="font-size:18px;font-weight:800;color:#111827;font-family:Inter,-apple-system,sans-serif;'
+            'letter-spacing:-0.02em;">Analytics</span>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
 
-        # ── Date range ────────────────────────────────────────────────────
-        with st.expander("📅 Date range", expanded=True):
-            col_from, col_to = st.columns(2)
-            with col_from:
-                date_from = st.date_input("From", value=date(2024, 9, 1), key="date_from",
-                                          label_visibility="visible")
-            with col_to:
-                date_to = st.date_input("To", value=None, key="date_to",
-                                        label_visibility="visible")
-            quick = st.radio("Quick range",
-                ["Last 12 months", "Last 6 months", "Last 90 days", "Custom"],
-                index=3, label_visibility="collapsed")
-            _today = date.today()
-            if quick == "Last 12 months":
-                effective_from = str(_today - timedelta(days=365))
-                effective_to   = None
-            elif quick == "Last 6 months":
-                effective_from = str(_today - timedelta(days=182))
-                effective_to   = None
-            elif quick == "Last 90 days":
-                effective_from = str(_today - timedelta(days=90))
-                effective_to   = None
-            else:  # Custom
-                effective_from = str(date_from) if date_from else None
-                effective_to   = str(date_to)   if date_to   else None
+        # ── Facility badge ─────────────────────────────────────────────────
+        st.markdown(
+            '<div style="background:#F0FAF6;border:1px solid #A7F3D0;border-radius:6px;'
+            'padding:7px 10px;margin:2px 0 12px;">'
+            '<div style="font-size:12px;font-weight:700;color:#0F6E56;font-family:Inter,-apple-system,sans-serif;">'
+            '🏥 Kisumu Specialists</div>'
+            '<div style="font-size:11px;color:#6B7280;margin-top:1px;font-family:Inter,-apple-system,sans-serif;">'
+            'Sep 2024 – present</div>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
 
-        # ── Hospital — fixed display names, no DB query ───────────────────
+        # ── Navigation ────────────────────────────────────────────────────
+        role = st.session_state.get("role", "Head of Clinician")
+        nav_label = "Patient view" if role == "Clinician" else "Clinical tabs"
+        st.markdown(f'<div class="nav-section">{nav_label}</div>', unsafe_allow_html=True)
+        _nav_opts = _nav_options(role)
+        # _nav_to is set by the role-toggle buttons as a pending redirect;
+        # we consume it here (before the widget is created) to set the index.
+        _pending = st.session_state.pop("_nav_to", None)
+        if _pending and _pending in _nav_opts:
+            _nav_idx = _nav_opts.index(_pending)
+        else:
+            _current = st.session_state.get("nav_page", _nav_opts[0])
+            _nav_idx = _nav_opts.index(_current) if _current in _nav_opts else 0
+        page = st.radio(
+            label="Navigation",
+            options=_nav_opts,
+            index=_nav_idx,
+            label_visibility="collapsed",
+            key="nav_page",
+        )
+
+        st.markdown('<hr style="margin:10px 0;border:none;border-top:1px solid #E5E7EB">', unsafe_allow_html=True)
+
+        # ── Hospital filter ───────────────────────────────────────────────
         with st.expander("🏥 Hospital", expanded=True):
-            schema_opts = list(SCHEMA_DISPLAY.values())
+            schema_opts = list(dict.fromkeys(SCHEMA_DISPLAY.values()))
             _hosp_default = ["Kisumu Specialists"] if "Kisumu Specialists" in schema_opts else []
             selected_display = st.multiselect(
                 "Select hospital", options=schema_opts,
@@ -369,111 +375,118 @@ def render_sidebar():
                 label_visibility="collapsed")
             selected_schemas = _display_to_schemas(selected_display)
 
-        # ── Facility — reads from clinic column ───────────────────────────
-        with st.expander("🏢 Facility", expanded=True):
+        # ── Facility filter ───────────────────────────────────────────────
+        with st.expander("🏢 Facility", expanded=False):
             facility_opts = _facility_options(selected_schemas)
             _fac_default = ["1"] if "1" in facility_opts else (facility_opts[:1] if facility_opts else [])
             selected_facilities = st.multiselect(
                 "Select facilities", options=facility_opts,
-                default=_fac_default, placeholder="All facilities" if facility_opts else "Select a hospital first",
+                default=_fac_default,
+                placeholder="All facilities" if facility_opts else "Select a hospital first",
                 label_visibility="collapsed",
                 disabled=not facility_opts)
 
-        with st.expander("🚪 Visit type", expanded=False):
-            visit_type = st.radio("Visit type", ["All", "Outpatient", "Inpatient"],
-                index=0, label_visibility="collapsed")
+        st.markdown('<hr style="margin:10px 0;border:none;border-top:1px solid #E5E7EB">', unsafe_allow_html=True)
 
-        with st.expander("💳 Payer type", expanded=False):
-            payer_type = st.radio("Payer", ["All", "NHIF / SHA", "Private insurance", "Cash"],
-                index=0, label_visibility="collapsed")
+        # ── Role selector (segmented toggle) ──────────────────────────
+        st.markdown('<div class="nav-section">View</div>', unsafe_allow_html=True)
+        _c1, _c2 = st.columns(2, gap="small")
+        with _c1:
+            if st.button(
+                "Head of Clinician",
+                key="btn_hoc",
+                use_container_width=True,
+                type="primary" if role == "Head of Clinician" else "secondary",
+            ):
+                st.session_state["role"] = "Head of Clinician"
+                st.session_state["_nav_to"] = "🗓  Today's Briefing"
+                st.rerun()
+        with _c2:
+            if st.button(
+                "Clinician",
+                key="btn_clin",
+                use_container_width=True,
+                type="primary" if role == "Clinician" else "secondary",
+            ):
+                st.session_state["role"] = "Clinician"
+                st.session_state["_nav_to"] = "🩺  Patient Card"
+                st.rerun()
 
-        with st.expander("👥 Age group", expanded=False):
-            age_group = st.radio("Age",
-                ["All", "Paediatric (<18)", "Adult (18–64)", "Senior (65+)"],
-                index=0, label_visibility="collapsed")
+        st.markdown('<hr style="margin:10px 0;border:none;border-top:1px solid #E5E7EB">', unsafe_allow_html=True)
 
-        with st.expander("🦠 Disease group", expanded=False):
-            disease_group = st.radio("Disease group",
-                ["All", "NCD / Chronic", "Communicable", "MNCH", "Injury"],
-                index=0, label_visibility="collapsed")
-
-        st.divider()
-
-        with st.expander("📖 Abbreviations", expanded=False):
-            st.markdown("""
-<div style="font-size:11px;line-height:1.8;color:#003467">
-<b>ANC</b> — Antenatal Care<br><b>BP</b> — Blood Pressure<br>
-<b>HTN</b> — Hypertension<br><b>LTFU</b> — Lost to Follow-Up (&gt;180 days)<br>
-<b>MNCH</b> — Maternal, Newborn &amp; Child Health<br>
-<b>MoM</b> — Month-on-Month<br><b>NCD</b> — Non-Communicable Disease<br>
-<b>NHIF / SHA</b> — Kenya public insurer<br><b>PNC</b> — Postnatal Care<br>
-<b>pp</b> — Percentage points<br><b>YoY</b> — Year-on-Year
-</div>""", unsafe_allow_html=True)
-
-        st.divider()
-        if st.button("✕ Clear all filters", width='stretch'):
-            st.session_state["filters"] = {
-                "source_schemas": [], "schema_display": [], "facilities": [],
-                "visit_type": "All", "payer_type": "All",
-                "age_group": "All", "disease_group": "All",
-                "date_range": "Custom",
-                "date_from": "2024-09-01", "date_to": None,
-            }
-            st.session_state.pop("date_from", None)
-            st.session_state.pop("date_to", None)
+        if st.button("↺ Refresh data", use_container_width=True, type="secondary"):
+            st.cache_data.clear()
             st.rerun()
 
     filters = {
         "source_schemas":  selected_schemas,
         "schema_display":  selected_display,
         "facilities":      selected_facilities,
-        "visit_type":      visit_type,
-        "payer_type":      payer_type,
-        "age_group":       age_group,
-        "disease_group":   disease_group,
-        "date_range":      quick if quick != "Custom" else "Last 12 months",
-        "date_from":       effective_from,
-        "date_to":         effective_to,
+        "date_range":      "Custom",
+        "date_from":       DATA_START,
+        "date_to":         None,
     }
     st.session_state["filters"] = filters
-    return filters
+    return filters, page
 
-# ── MAIN ─────────────────────────────────────────────────────────────────────
+# ── PAGE HEADER ───────────────────────────────────────────────────────────────
+def page_header(title: str, subtitle: str = "") -> None:
+    sub_html = f'<div class="page-subtitle">{subtitle}</div>' if subtitle else ""
+    st.markdown(
+        f'<div class="page-header">'
+        f'<div class="page-title">{title}</div>'
+        f'{sub_html}'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
 # ── HELPERS DICT — consumed by views.py ──────────────────────────────────────
 st.session_state["helpers"] = {
     "gap":      lambda px=10: st.markdown(f'<div style="margin:{px}px 0"></div>', unsafe_allow_html=True),
     "sh":       lambda t, mt=0: st.markdown(f'<div class="sh" style="margin-top:{mt}px">{t}</div>', unsafe_allow_html=True),
     "kpi_card": kpi_card,
-    "pc":       lambda f: st.plotly_chart(f, use_container_width=True),
+    "pc":       lambda f: st.plotly_chart(f, use_container_width=True, config={"responsive": True, "displayModeBar": False, "useResizeHandler": True}),
     "note":     lambda t, warn=False: st.markdown(
                     f'<div style="background:{"#FFFBEB" if warn else "#F4F8FC"};'
                     f'border-left:3px solid {"#D97706" if warn else "#0072CE"};'
-                    f'padding:7px 11px;font-size:13px;margin-top:5px;border-radius:0 4px 4px 0">{t}</div>',
+                    f'padding:7px 11px;font-size:15px;margin-top:5px;border-radius:0 4px 4px 0">{t}</div>',
                     unsafe_allow_html=True),
     "fmt_num":  fmt_num,
     "fmt_pct":  fmt_pct,
     "fmt_kes":  lambda v: fmt_num(v, suffix=""),
 }
 
-render_topbar()
-filters = render_sidebar()
-role    = st.session_state.get("role", "Head of Clinician")
+# ── MAIN ─────────────────────────────────────────────────────────────────────
+import importlib
+importlib.reload(V)
 
-if role == "Clinician":
-    V.render_clinician_view(filters, run_query)
+filters, page = render_sidebar()
+role  = st.session_state.get("role", "Head of Clinician")
+_page = _page_clean(page)
 
-else:  # Head of Clinician — full access to all tabs including patient card
-    tabs = st.tabs([
-        "📈  Operations",
-        "🧑‍🤝‍🧑  Patient Demographics",
-        "📊  Flow and Retention",
-        "🦠  Disease Burden",
-        "🩺  Clinical Quality & Workload",
-        "👤  Patient Card",
-    ])
-    with tabs[0]: V.render_tab1_operations(filters, run_query)
-    with tabs[1]: V.render_tab2_segmentation(filters, run_query)
-    with tabs[2]: V.render_tab3_retention(filters, run_query)
-    with tabs[3]: V.render_tab4_disease_burden(filters, run_query)
-    with tabs[4]: V.render_tab5_workload(filters, run_query)
-    with tabs[5]: V.render_clinician_view(filters, run_query)
+VIEW_MAP = {
+    "Today's Briefing":     lambda: V.render_briefing(filters, run_query),
+    "OPD → IPD Conversion": lambda: V.render_tab_opd_ipd(filters, run_query),
+    "Clinical Activity":    lambda: V.render_tab_clinical_activity(filters, run_query),
+    "Patient Acquisition":  lambda: V.render_tab2_patient_acquisition(filters, run_query),
+    "Flow and Retention":   lambda: V.render_tab3_retention(filters, run_query),
+    "Disease Burden":       lambda: V.render_tab4_disease_burden(filters, run_query),
+    "Patient Card":         lambda: V.render_clinician_view(filters, run_query),
+}
+
+CLINICAL_TABS = {
+    "Today's Briefing", "OPD → IPD Conversion", "Clinical Activity",
+    "Patient Acquisition", "Flow and Retention", "Disease Burden",
+}
+
+if _page == "Patient Card" and role == "Head of Clinician":
+    st.warning("Patient Card is only available in Clinician view.")
+    st.stop()
+
+if _page in CLINICAL_TABS and role == "Clinician":
+    st.info("Switch to Head of Clinician view to access clinical dashboards.")
+    st.stop()
+
+render_fn = VIEW_MAP.get(_page)
+if render_fn:
+    render_fn()

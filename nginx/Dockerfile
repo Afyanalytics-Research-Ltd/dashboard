@@ -9,6 +9,7 @@ RUN apt-get update && \
 # Copy your custom nginx configurations
 COPY sites-enabled/ /etc/nginx/sites-enabled
 COPY sites-enabled/ /etc/nginx/sites-available
+COPY snippets/ /etc/nginx/snippets
 
 # Command to start nginx (if not started by default)
 CMD ["nginx", "-g", "daemon off;"]

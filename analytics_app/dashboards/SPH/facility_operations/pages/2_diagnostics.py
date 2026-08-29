@@ -1,6 +1,6 @@
 """
 Diagnostics — pages/2_diagnostics.py
-Single-layout, no tabs. 5-section chain.
+Single-layout, no tabs. 3-section chain.
 Question: Is diagnostics supporting patient flow, or becoming a bottleneck?
 
 Imaging TAT: V2 + V1 2024+ only (same stage: order→scan completion, Inv 137).
@@ -40,7 +40,6 @@ from facility_operations.dashboard.queries import (
     q_imaging_modality_tat,
     q_lab_tat_by_test, q_lab_chain_tat,
     q_lab_collect_wait_by_test,
-    q_imaging_tat_by_hour,
 )
 
 apply_theme()
@@ -103,7 +102,6 @@ mod_tat_df   = q_imaging_modality_tat()
 lab_test_df  = q_lab_tat_by_test()
 chain_kpis   = q_lab_chain_tat().iloc[0]
 collect_wait_df = q_lab_collect_wait_by_test()
-hour_df      = q_imaging_tat_by_hour()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -408,119 +406,6 @@ _note(
     f"(of {int(chain_kpis['WITH_COLLECTION']):,} with collection timestamp)"
 )
 
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# SECTION 4 — OPERATIONAL IMPACT
-# ══════════════════════════════════════════════════════════════════════════════
-
-_section("4 · Operational Impact")
-
-col_narr, col_before_after = st.columns([3, 2])
-
-with col_narr:
-    st.markdown(
-        f'<div style="background:#F0F9FF;border-left:4px solid {COLORS["primary"]};'
-        f'border-radius:6px;padding:16px 20px;margin-bottom:16px">'
-        f'<div style="font-size:12px;font-weight:700;color:{COLORS["dark"]};margin-bottom:8px">'
-        f'Same-Day Imaging Reduced Avoidable Return Visits</div>'
-        f'<div style="font-size:12px;color:{COLORS["dark"]};line-height:1.7">'
-        f'<b>Before 2024</b>, imaging results were reported the following day — median 42 hours '
-        f'from order to result. Patients whose scans were not ready left and returned. '
-        f'<b>From 2024</b>, same-day reporting was introduced and median TAT dropped to 3 hours.'
-        f'<br><br>'
-        f'Comparing both groups: the rate of patients returning within 7 days fell from '
-        f'<b>22.4% → 19.6%</b> — a 2.8 percentage point reduction. '
-        f'Fewer patients needed a return visit to collect results they had not yet received.'
-        f'</div>'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
-
-with col_before_after:
-    st.markdown(
-        f'<div style="font-size:11px;font-weight:700;color:{COLORS["dark"]};'
-        f'margin-bottom:8px">7-Day Return Rate</div>',
-        unsafe_allow_html=True,
-    )
-    ba1, ba2 = st.columns(2)
-    with ba1:
-        kpi_card("Before 2024", "22.4%", "Next-day results · return within 7 days")
-    with ba2:
-        kpi_card("From 2024", "19.6%", "Same-day results · −2.8pp")
-
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# SECTION 5 — VARIATION (conditional — only rendered if meaningful pattern found)
-# ══════════════════════════════════════════════════════════════════════════════
-
-if not hour_df.empty:
-    variation = (
-        hour_df.groupby("MODALITY_GROUP")["P50_MINS"]
-        .agg(p50_max="max", p50_min="min", hour_count="count")
-        .reset_index()
-    )
-    variation["ratio"] = (
-        variation["p50_max"] / variation["p50_min"].replace(0, 1)
-    )
-    meaningful_mods = variation[
-        (variation["hour_count"] >= 3) & (variation["ratio"] >= 1.5)
-    ].sort_values("ratio", ascending=False)
-
-    if not meaningful_mods.empty:
-        _section("5 · Variation — Does Time of Day Explain the Tail?")
-
-        st.markdown(
-            f'<div style="font-size:12px;color:{COLORS["dark"]};margin-bottom:12px;line-height:1.6">'
-            f'Each line shows median TAT for orders placed at that hour. A rising line means '
-            f'orders placed later in the day take longer — pointing to afternoon staffing or '
-            f'capacity constraints rather than a systemic workflow issue.'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
-
-        show_mods   = meaningful_mods["MODALITY_GROUP"].tolist()[:3]
-        hour_subset = hour_df[hour_df["MODALITY_GROUP"].isin(show_mods)]
-        palette     = [COLORS["primary"], COLORS["coral"], COLORS["warning"]]
-
-        fig_hour = go.Figure()
-        for i, mod in enumerate(show_mods):
-            df_m = hour_subset[hour_subset["MODALITY_GROUP"] == mod].sort_values("REQUEST_HOUR")
-            if df_m.empty:
-                continue
-            fig_hour.add_trace(go.Scatter(
-                x=df_m["REQUEST_HOUR"],
-                y=df_m["P50_MINS"],
-                mode="lines+markers",
-                name=mod,
-                line=dict(color=palette[i % len(palette)], width=2),
-                marker=dict(size=6),
-            ))
-
-        fig_hour.update_layout(
-            height=280,
-            paper_bgcolor="#fff", plot_bgcolor="#fff",
-            font=dict(family="Montserrat", color=COLORS["dark"]),
-            margin=dict(l=0, r=20, t=10, b=30),
-            xaxis=dict(
-                gridcolor="#EBF3FB",
-                tickfont=dict(size=9, color=COLORS["muted"]),
-                title="Hour of day (order placed)",
-                dtick=2,
-            ),
-            yaxis=dict(
-                gridcolor="#EBF3FB",
-                tickfont=dict(size=9, color=COLORS["muted"]),
-                title="Median TAT (min)",
-            ),
-            legend=dict(orientation="h", y=1.10, font=dict(size=9)),
-        )
-        st.plotly_chart(fig_hour, use_container_width=True)
-        _caption(
-            "Median imaging TAT by hour of order · modalities with ≥1.5× intraday variation shown · "
-            "V2 + V1 2024+ · hours with <10 orders excluded"
-        )
 
 
 # ══════════════════════════════════════════════════════════════════════════════

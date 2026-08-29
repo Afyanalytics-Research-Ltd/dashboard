@@ -1691,7 +1691,7 @@ def q_lab_chain_tat():
 
 
 def q_imaging_tat_by_hour():
-    """Imaging TAT by hour of day and modality — tests whether afternoon drives the tail.
+    """Imaging TAT by hour of day and modality — tests whether evening drives the tail.
     V2 + V1 2024+ only. Capped at 1440 min."""
     return run_query_df("""
         SELECT
@@ -1700,6 +1700,8 @@ def q_imaging_tat_by_hour():
             COUNT(*)                                                AS orders,
             ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP
                   (ORDER BY result_tat_mins), 0)                   AS p50_mins,
+            ROUND(PERCENTILE_CONT(0.9) WITHIN GROUP
+                  (ORDER BY result_tat_mins), 0)                   AS p90_mins,
             ROUND(COUNT_IF(result_tat_mins <= 60) * 100.0
                   / NULLIF(COUNT(*), 0), 1)                        AS pct_within_60
         FROM HOSPITALS.REPORTING.rpt_ortho_imaging
@@ -1711,7 +1713,7 @@ def q_imaging_tat_by_hour():
               OR (source_system = 'EMR_V1' AND YEAR(request_date) >= 2024)
           )
         GROUP BY 1, 2
-        HAVING COUNT(*) >= 10
+        HAVING COUNT(*) >= 30
         ORDER BY 1, 2
     """)
 

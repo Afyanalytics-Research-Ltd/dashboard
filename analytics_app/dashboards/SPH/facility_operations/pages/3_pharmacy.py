@@ -379,22 +379,38 @@ with v1:
             'Median TAT by Hour Prescriptions Written (V2)</div>',
             unsafe_allow_html=True,
         )
+        _OVERNIGHT = {3, 4, 5}
         hd = hour_df.copy().sort_values("ORDER_HOUR")
+        hours = hd["ORDER_HOUR"].tolist()
+        tats  = hd["MEDIAN_TAT_MINS"].tolist()
+        daytime_max = hd[~hd["ORDER_HOUR"].isin(_OVERNIGHT)]["MEDIAN_TAT_MINS"].max()
+        bar_colors = [
+            COLORS["muted"] if h in _OVERNIGHT
+            else COLORS["danger"] if v == daytime_max
+            else COLORS["primary"]
+            for h, v in zip(hours, tats)
+        ]
         fig_hr = go.Figure(go.Bar(
-            x=hd["ORDER_HOUR"].tolist(),
-            y=hd["MEDIAN_TAT_MINS"].tolist(),
-            marker_color=[
-                COLORS["danger"] if v == hd["MEDIAN_TAT_MINS"].max() else COLORS["primary"]
-                for v in hd["MEDIAN_TAT_MINS"].tolist()
-            ],
+            x=hours,
+            y=tats,
+            marker_color=bar_colors,
             opacity=0.80,
-            text=[f"{int(v)}" for v in hd["MEDIAN_TAT_MINS"].tolist()],
+            text=[f"{int(v)}" for v in tats],
             textposition="outside",
             textfont=dict(size=8, color="#003467"),
             hovertemplate="<b>Hour %{x}:00</b>: %{y} min median<extra></extra>",
         ))
+        for h, v in zip(hours, tats):
+            if h in _OVERNIGHT:
+                fig_hr.add_annotation(
+                    x=h, y=v + 4,
+                    text="low vol",
+                    showarrow=False,
+                    font=dict(size=7, color=COLORS["muted"]),
+                    yanchor="bottom",
+                )
         fig_hr.update_layout(**cl(
-            height=240,
+            height=260,
             xaxis=dict(title="Hour of Day", gridcolor="rgba(0,0,0,0)",
                        tickmode="linear", tick0=0, dtick=1),
             yaxis=dict(title="Median TAT (min)", gridcolor="#EBF3FB"),

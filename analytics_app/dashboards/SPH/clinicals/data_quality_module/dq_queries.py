@@ -20,6 +20,7 @@ Five dimensions, one query each:
 """
 
 import pandas as pd
+import streamlit as st
 
 import os
 import sys
@@ -51,6 +52,7 @@ anc_flagged_visits AS (
 """
 
 
+@st.cache_data(ttl=3600)
 def get_dq_consistency() -> pd.DataFrame:
     """
     Patients whose recorded gender differs across their own visits —
@@ -73,6 +75,7 @@ def get_dq_consistency() -> pd.DataFrame:
     return _run(sql)
 
 
+@st.cache_data(ttl=3600)
 def get_dq_reliability_anc_anomalies() -> pd.DataFrame:
     """
     ANC-flagged visits carrying an implausible patient profile: male
@@ -95,6 +98,7 @@ def get_dq_reliability_anc_anomalies() -> pd.DataFrame:
     return _run(sql)
 
 
+@st.cache_data(ttl=3600)
 def get_dq_validity() -> pd.DataFrame:
     """
     Required-field completeness and value-set validity for gender and
@@ -117,6 +121,7 @@ def get_dq_validity() -> pd.DataFrame:
     return _run(sql)
 
 
+@st.cache_data(ttl=3600)
 def get_dq_timeliness() -> pd.DataFrame:
     """
     Freshness of the visit record vs. today, plus the count of visits
@@ -134,6 +139,7 @@ def get_dq_timeliness() -> pd.DataFrame:
     return _run(sql)
 
 
+@st.cache_data(ttl=3600)
 def get_dq_uniqueness() -> pd.DataFrame:
     """
     Duplicate rows for the same (visit_id, source_system) composite key —

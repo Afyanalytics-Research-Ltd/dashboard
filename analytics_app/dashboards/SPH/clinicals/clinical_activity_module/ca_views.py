@@ -56,6 +56,41 @@ _teal_ramp = ["#0F6E56", "#1B8A82", "#4FADA5", "#8FCFC8", "#E1F5EE"]
 
 _AX = {**AXIS_STYLE}
 
+# Readmission-category y-axis labels (from ca_queries.py's fixed CASE
+# statement) were getting clipped whenever the column narrows — e.g. with
+# the sidebar open — because Plotly's automargin caps how much width it will
+# give a categorical axis before truncating, and these labels were both
+# full-length text and missing automargin/a smaller font in the first place.
+# Shortened here for on-chart display only; hover/tooltips still show the
+# full label via the DIAGNOSIS_LABEL/READMISSION_TYPE column itself.
+_READMIT_LABEL_SHORT = {
+    "Wound / infection complication": "Infection",
+    "Hardware / implant complication": "Implant",
+    "Amputation-related": "Amputation",
+    "Likely ward misattribution": "Ward misattrib.",
+    "Pain management": "Pain mgmt",
+    "GI / metabolic": "GI / metabolic",
+    "Cardiac": "Cardiac",
+    "Respiratory": "Respiratory",
+    "New / unrelated fracture or injury": "Fracture/injury",
+    "Planned follow-up / staged procedure": "Staged proc.",
+    "Other / unclear": "Other/unclear",
+    "No diagnosis recorded": "No diagnosis",
+}
+
+
+def _short_readmit_label(label: str) -> str:
+    return _READMIT_LABEL_SHORT.get(label, label)
+
+
+def _truncate_label(label: str, max_len: int = 26) -> str:
+    """For free-text labels with no fixed short-name map (e.g. raw diagnosis
+    text) — ellipsis on-chart only, so long strings can't push the axis
+    margin wide enough to crowd out the bars themselves."""
+    label = str(label)
+    return label if len(label) <= max_len else label[:max_len - 1].rstrip() + "…"
+
+
 _VARIANT_MAP = {"amber": "warning", "red": "danger", "blue": "primary", "teal": "success"}
 
 
@@ -117,7 +152,7 @@ def _render_overview(kpis: pd.DataFrame) -> None:
 
     kpi_row([
         {"label": "Readmission Rate (Current System)", "value": f"{r:.1f}%",
-         "delta": f"{r_min:.0f}–{r_max:.0f}% monthly range", "accent_color": ACCENT_CRITICAL},
+         "delta": f"{r_min:.0f}–{r_max:.0f}% monthly range", "accent_color": ACCENT_POSITIVE},
         {"label": "Length of Stay, Hospital-wide", "value": f"{avg_los:.1f}d avg",
          "delta": f"Median {med_los:.1f}d", "accent_color": DARK_NAVY},
         {"label": "Worst SSI Category vs Benchmark", "value": f"{worst_ssi:.1f}%",
@@ -259,18 +294,22 @@ def _ward_condition_chart(df_ward: pd.DataFrame, ward_name: str, rate: float, is
         CA_MUTED if label == "No diagnosis recorded" else bar_color
         for label in df_ward["DIAGNOSIS_LABEL"]
     ]
+    short_labels = [_short_readmit_label(label) for label in df_ward["DIAGNOSIS_LABEL"]]
     fig = go.Figure(go.Bar(
-        orientation="h", y=df_ward["DIAGNOSIS_LABEL"], x=df_ward["READMISSION_COUNT"],
+        orientation="h", y=short_labels, x=df_ward["READMISSION_COUNT"],
         marker=dict(color=bar_colors, cornerradius=3),
         text=df_ward["READMISSION_COUNT"].astype(str), textposition="outside",
         textfont=dict(size=12, color=CA_MUTED, family=_BL["font"]["family"]),
+        customdata=df_ward["DIAGNOSIS_LABEL"],
         cliponaxis=False,
-        hovertemplate="%{y}: <b>%{x}</b> readmissions<extra></extra>",
+        hovertemplate="%{customdata}: <b>%{x}</b> readmissions<extra></extra>",
     ))
     fig.update_layout(
         **{**_BL, "height": height, "margin": dict(t=10, b=40, l=10, r=60)}, showlegend=False,
         xaxis={**_AX, "showgrid": False, "title": "Readmissions"},
-        yaxis={**_AX, "showgrid": False, "automargin": True},
+        # Smaller than the other charts' 10.5px — this one renders 3-across,
+        # the tightest column width on the tab, so it needs the extra margin.
+        yaxis={**_AX, "showgrid": False, "automargin": True, "tickfont": {"size": 9.5}},
     )
     st.plotly_chart(fig, use_container_width=True, config=PC_CFG)
     chart_card_close()
@@ -360,17 +399,6 @@ def _render_s2_ward_analysis(ward_rates: pd.DataFrame, ward_cause: pd.DataFrame,
     if _safe(ward_diagnoses):
         st.markdown('<div class="ca-divider-label" style="margin-top:16px">Readmission categories — '
                     'top 3 wards by readmission rate</div>', unsafe_allow_html=True)
-        st.markdown(
-            '<div class="ca-explain">Each chart shows every readmission for that ward, grouped into a '
-            'clinical category (Hardware / implant complication, Wound / infection complication, '
-            'Amputation-related, Likely ward misattribution, Pain management, GI / metabolic, Cardiac, '
-            'Respiratory, New / unrelated fracture or injury, Planned follow-up / staged procedure, '
-            'Other / unclear) — not just whichever exact diagnosis phrasing happened to repeat, so counts '
-            'add up to the ward\'s full readmission total. Ordered highest to lowest readmission rate. Bar '
-            'colour: red = outlier ward (above 1.5× threshold), amber = all others. Lower-rate wards are '
-            'summarized in the insight below.</div>',
-            unsafe_allow_html=True,
-        )
         cols = st.columns(3)
         for col, ward in zip(cols, top_wards):
             df_w = ward_diagnoses[ward_diagnoses["WARD"] == ward]
@@ -398,6 +426,23 @@ def _render_s2_ward_analysis(ward_rates: pd.DataFrame, ward_cause: pd.DataFrame,
                 other_summaries.append(f"{ward} ({rate:.1f}%)")
         bullets.append(
             "Lower-rate wards not charted above — " + "; ".join(other_summaries) + "."
+        )
+
+    # Rate = readmissions ÷ total discharges, and a ward can clear the top-3
+    # ranking with a very small discharge count — the chart above only shows
+    # the numerator, so the rate itself can look more dramatic than the
+    # underlying volume supports.
+    if top_wards and "DISCHARGE_COUNT" in df.columns:
+        volatility_parts = []
+        for ward in top_wards:
+            row = df[df["WARD"] == ward].iloc[0]
+            discharges = int(row["DISCHARGE_COUNT"])
+            readmits = round(discharges * float(row["READMISSION_RATE"]) / 100)
+            volatility_parts.append(f"{ward}: {readmits} of {discharges} discharges")
+        bullets.append(
+            "<strong>Rate ≠ volume.</strong> " + "; ".join(volatility_parts) + " — one or two more/fewer "
+            "readmissions at a small-discharge ward would swing its rate substantially, so a high rate "
+            "here doesn't necessarily mean a bigger problem than a lower-rate, higher-volume ward."
         )
     if outlier_wards:
         outlier_row = df[df["WARD"] == outlier_wards[0]].iloc[0]
@@ -478,7 +523,12 @@ def _render_s2_ward_analysis(ward_rates: pd.DataFrame, ward_cause: pd.DataFrame,
                 "outlier ward's number."
             )
     bullets.append(f"<em><strong>So what:</strong> {so_what}</em>")
-    _insight(bullets, variant="red" if outlier_wards else "blue")
+    # "blue" ("primary") renders as a plain near-white box with only a thin
+    # border — it reads as unstyled/flat compared to the tinted amber/red/
+    # teal boxes used everywhere else in this tab. Swapped for "teal"
+    # (success) here since "no outlier wards" is a genuinely positive state,
+    # not a neutral one.
+    _insight(bullets, variant="red" if outlier_wards else "teal")
 
 
 # ── Section 3 — Why ───────────────────────────────────────────────────────────
@@ -497,19 +547,21 @@ def _render_s3_readmission_type(type_breakdown: pd.DataFrame, area_breakdown: pd
         else:
             df = type_breakdown.sort_values("COUNT")
             chart_card("Readmission type breakdown")
+            short_types = [_short_readmit_label(t) for t in df["READMISSION_TYPE"]]
             fig = go.Figure(go.Bar(
-                orientation="h", y=df["READMISSION_TYPE"], x=df["COUNT"],
+                orientation="h", y=short_types, x=df["COUNT"],
                 marker=dict(color=CA_BLUE, cornerradius=3),
                 text=[f"{p:.0f}%" for p in df["PCT"]], textposition="outside",
                 textfont=dict(size=12, color=CA_MUTED, family=_BL["font"]["family"]),
+                customdata=df["READMISSION_TYPE"],
                 cliponaxis=False,
-                hovertemplate="%{y}: <b>%{x}</b> readmissions<extra></extra>",
+                hovertemplate="%{customdata}: <b>%{x}</b> readmissions<extra></extra>",
             ))
             fig.update_layout(
                 **{**_BL, "height": 260, "margin": dict(t=8, b=52, l=10, r=70)}, showlegend=False,
                 xaxis={**_AX, "title": "Number of readmissions (labels show % of total)",
                        "range": [0, df["COUNT"].max() * 1.15]},
-                yaxis={**_AX, "showgrid": False},
+                yaxis={**_AX, "showgrid": False, "automargin": True, "tickfont": {"size": 10.5}},
             )
             st.plotly_chart(fig, use_container_width=True, config=PC_CFG)
             chart_card_close()
@@ -533,20 +585,35 @@ def _render_s3_readmission_type(type_breakdown: pd.DataFrame, area_breakdown: pd
 
     if _safe(area_diagnoses):
         col_l2, col_r2 = st.columns(2)
-        for col, area_label, color in ((col_l2, "Same clinical area", CA_BLUE),
-                                        (col_r2, "Different clinical area", CA_PINK)):
-            sub = area_diagnoses[area_diagnoses["AREA_GROUP"] == area_label].sort_values("COUNT")
+        # Distinct shades per slice (not one flat color) since a donut needs
+        # each wedge visually distinguishable, unlike a bar chart where
+        # position alone separates categories.
+        _teal_shades = ["#0B5C48", "#0F6E56", "#1B8A82", "#4FADA5", "#8FCFC8", "#B3E0D9"]
+        _pink_shades = ["#8A1F44", "#C13868", "#D45E88", "#E184AA", "#EDA8C4", "#F5CCDD"]
+        for col, area_label, shades in ((col_l2, "Same clinical area", _teal_shades),
+                                         (col_r2, "Different clinical area", _pink_shades)):
+            sub = area_diagnoses[area_diagnoses["AREA_GROUP"] == area_label].sort_values("COUNT", ascending=False)
             with col:
                 chart_card(f"Top diagnoses — {area_label}")
                 if sub.empty:
                     _empty_state()
                 else:
-                    fig = go.Figure(go.Bar(
-                        orientation="h", y=sub["DIAGNOSIS_LABEL"], x=sub["COUNT"],
-                        marker=dict(color=color, cornerradius=3),
+                    fig = go.Figure(go.Pie(
+                        labels=sub["DIAGNOSIS_LABEL"], values=sub["COUNT"], hole=0.55,
+                        marker=dict(colors=[shades[i % len(shades)] for i in range(len(sub))]),
+                        textinfo="percent", textfont=dict(size=10),
+                        hovertemplate="%{label}: <b>%{value}</b><extra></extra>",
                     ))
-                    fig.update_layout(**{**_BL, "height": 260}, showlegend=False,
-                                       xaxis={**_AX, "showgrid": False}, yaxis={**_AX, "showgrid": False})
+                    # Legend below and centered, not a right-side column —
+                    # a right-side legend left the donut hugging the left
+                    # edge with blank space after the legend; centered
+                    # bottom-legend centers the whole composition instead,
+                    # matching the "Same vs. different clinical area" donut
+                    # earlier in this section.
+                    fig.update_layout(
+                        **{**_BL, "height": 380, "margin": dict(t=8, b=8, l=10, r=10),
+                           "legend": dict(orientation="h", x=0.5, xanchor="center", y=-0.15)},
+                    )
                     st.plotly_chart(fig, use_container_width=True, config=PC_CFG)
                 chart_card_close()
 
@@ -582,7 +649,7 @@ def _render_s3_readmission_type(type_breakdown: pd.DataFrame, area_breakdown: pd
         "distinct problems as one. The actionable categories above are the most targeted place to start.</em>"
     )
     if bullets:
-        _insight(bullets, variant="blue")
+        _insight(bullets, variant="amber")
 
 
 # ── Section 4 — Who ───────────────────────────────────────────────────────────
@@ -712,8 +779,7 @@ def _render_s4_demographics(age_complication: pd.DataFrame) -> None:
 
 # ── Section 5 — Blind spot ───────────────────────────────────────────────────
 
-def _render_s5_blind_spot(blind_spot: pd.DataFrame, blind_spot_type: pd.DataFrame,
-                           delayed: pd.DataFrame) -> None:
+def _render_s5_blind_spot(blind_spot: pd.DataFrame, blind_spot_type: pd.DataFrame) -> None:
     section_header("5 — The 31–90 Day Blind Spot")
     if not _safe(blind_spot):
         _empty_state("31–90 day lookback data not yet available.")
@@ -737,8 +803,18 @@ def _render_s5_blind_spot(blind_spot: pd.DataFrame, blind_spot_type: pd.DataFram
         if not _safe(blind_spot_type):
             _empty_state()
         else:
-            colors_map = {"Delayed complication": CA_RED, "Planned staged care": CA_GREEN,
-                          "New / unrelated injury": CA_BLUE, "Other / unclear": CA_AMBER}
+            # 7-category classification (replaces the earlier 4-category
+            # version) — see _RETURN_TYPE_CASE in ca_queries.py for the
+            # exact keyword rules behind each bucket.
+            colors_map = {
+                "Infection / sepsis": CA_RED,
+                "Post-surgical complication": RASP_3,
+                "Planned hardware removal": CA_GREEN,
+                "Staged / revision surgery": CA_BLUE,
+                "New trauma / re-fracture": DARK_NAVY,
+                "Unrelated medical": CA_PINK,
+                "Other / unclear": CA_AMBER,
+            }
             colors = [colors_map.get(t, CA_MUTED) for t in blind_spot_type["RETURN_TYPE"]]
             chart_card("31–90 day return type breakdown")
             fig2 = go.Figure(go.Pie(
@@ -752,21 +828,43 @@ def _render_s5_blind_spot(blind_spot: pd.DataFrame, blind_spot_type: pd.DataFram
             st.plotly_chart(fig2, use_container_width=True, config=PC_CFG)
             chart_card_close()
 
-    if _safe(delayed):
-        df_d = delayed.sort_values("PATIENT_COUNT")
-        chart_card("Delayed complications", "Named diagnoses behind the 31–90 day 'delayed complication' bucket")
-        # Same category, same color everywhere it appears — "Delayed
-        # complication" is red in the return-type donut above, so it stays
-        # red here too, not a different amber.
-        fig3 = go.Figure(go.Bar(
-            orientation="h", y=df_d["COMPLICATION_LABEL"], x=df_d["PATIENT_COUNT"],
-            marker=dict(color=CA_RED, cornerradius=3),
-            text=[f"{n} patients" for n in df_d["PATIENT_COUNT"]], textposition="outside",
-        ))
-        fig3.update_layout(**{**_BL, "height": 272, "margin": dict(t=8, b=52, l=10, r=100)}, showlegend=False,
-                            xaxis={**_AX, "showgrid": False}, yaxis={**_AX, "showgrid": False})
-        st.plotly_chart(fig3, use_container_width=True, config=PC_CFG)
-        chart_card_close()
+    if _safe(blind_spot_type):
+        # Instead of hardcoding one category (previously always
+        # "Infection / sepsis"), let the user pick which of the 7
+        # return-type buckets to see named diagnoses for.
+        available_types = blind_spot_type["RETURN_TYPE"].tolist()
+        default_idx = available_types.index("Infection / sepsis") if "Infection / sepsis" in available_types else 0
+        selected_type = st.selectbox(
+            "Show named diagnoses for", available_types, index=default_idx, key="ca_s5_return_type_select",
+        )
+        delayed = CAQ.get_ca_delayed_complications(return_type=selected_type)
+        if _safe(delayed):
+            df_d = delayed.sort_values("PATIENT_COUNT")
+            chart_card(f"{selected_type} diagnoses",
+                       f"Named diagnoses behind the 31–90 day '{selected_type}' bucket")
+            bar_color = colors_map.get(selected_type, CA_MUTED)
+            # Full diagnosis text, not truncated — this chart renders
+            # full-width, unlike the 3-across ward charts, so there's room
+            # to show the whole name; automargin + extra height give it
+            # space to actually use.
+            fig3 = go.Figure(go.Bar(
+                orientation="h", y=df_d["COMPLICATION_LABEL"], x=df_d["PATIENT_COUNT"],
+                marker=dict(color=bar_color, cornerradius=3),
+                text=[f"{n} patients" for n in df_d["PATIENT_COUNT"]], textposition="outside",
+                cliponaxis=False,
+                hovertemplate="%{y}: <b>%{x}</b> patients<extra></extra>",
+            ))
+            fig3.update_layout(
+                **{**_BL, "height": 320, "margin": dict(t=8, b=52, l=10, r=140)}, showlegend=False,
+                xaxis={**_AX, "showgrid": False},
+                yaxis={**_AX, "showgrid": False, "automargin": True, "tickfont": {"size": 10.5}},
+            )
+            st.plotly_chart(fig3, use_container_width=True, config=PC_CFG)
+            chart_card_close()
+        else:
+            delayed = None
+    else:
+        selected_type, delayed = None, None
 
     blind_n = int(blind_spot.loc[blind_spot["IS_BLIND_SPOT"], "PATIENT_COUNT"].sum())
     bullets = [
@@ -777,22 +875,26 @@ def _render_s5_blind_spot(blind_spot: pd.DataFrame, blind_spot_type: pd.DataFram
         delayed_n = int(delayed["PATIENT_COUNT"].sum())
         delayed_pct = round(100 * delayed_n / blind_n) if blind_n else 0
         bullets.append(
-            f"Of these {blind_n}, <strong>{delayed_n} ({delayed_pct}%) are delayed complications</strong> — "
+            f"Of these {blind_n}, <strong>{delayed_n} ({delayed_pct}%) are {selected_type.lower()}</strong> — "
             "named clinical events, not administrative returns."
         )
     if _safe(blind_spot_type):
-        planned = blind_spot_type[blind_spot_type["RETURN_TYPE"] == "Planned staged care"]
+        # "Planned staged care" (old 4-category taxonomy) is now split into
+        # two categories — combined here since both represent expected,
+        # non-safety-concern returns, matching the bullet's original point.
+        planned = blind_spot_type[
+            blind_spot_type["RETURN_TYPE"].isin(["Planned hardware removal", "Staged / revision surgery"])
+        ]
         if not planned.empty and blind_n:
-            planned_n = int(planned["COUNT"].iloc[0])
+            planned_n = int(planned["COUNT"].sum())
             planned_pct = round(100 * planned_n / blind_n)
             bullets.append(
-                f"The remaining {planned_n} ({planned_pct}%) are planned staged care — expected returns not "
-                "tracked as readmissions, not a patient safety concern."
+                f"Another {planned_n} ({planned_pct}%) are planned hardware removal or staged/revision "
+                "surgery — expected returns not tracked as readmissions, not a patient safety concern."
             )
     bullets.append(
-        "<em><strong>So what:</strong> The delayed complications above represent a measurable, named "
-        "patient safety gap. The hospital's official readmission rate is undercounting by at least that "
-        "much.</em>"
+        "<em><strong>So what:</strong> Named clinical returns like these represent a measurable patient "
+        "safety gap. The hospital's official readmission rate is undercounting by at least that much.</em>"
     )
     _insight(bullets, variant="amber")
 
@@ -853,62 +955,68 @@ def _render_s6_los(los_ward: pd.DataFrame, los_dist: pd.DataFrame, los_condition
 
     los_condition_caveat = None
     if _safe(los_conditions):
-        chart_card(
-            "Top conditions by average length of stay",
-            "Top 8 shown, ranked by average days. Ward, case count, and average age shown per "
-            "condition — most are small samples (n≤8).",
-        )
+        chart_card("Top conditions behind LOS outliers")
         df_c = los_conditions.sort_values("AVG_LOS", ascending=False).reset_index(drop=True)
         max_los = float(df_c["AVG_LOS"].max()) or 1.0
-        _RELIABLE_N = 15  # case count at/above which an average is treated as reasonably stable
+        _RELIABLE_N = 15  # total case count at/above which the outlier % is treated as reasonably stable
+
+        # _teal_ramp only has 5 stops; with 8 rows shown here, rank index
+        # clamped to len-1 meant ranks 5-8 all collapsed onto the same
+        # near-white final stop (#E1F5EE) — and that same washed-out color
+        # was used for the ward name and value text too, not just the bar,
+        # making everything from rank 5 onward unreadable. Fixed with an
+        # 8-stop ramp that never gets that pale, and by no longer tying
+        # text color to the ramp at all — text always uses a fixed legible
+        # color regardless of rank; only the bar fill varies by rank.
+        _los_bar_ramp = ["#0B5C48", "#0F6E56", "#146B58", "#1B8A82",
+                         "#2FA093", "#4FADA5", "#6DBDB2", "#8FCFC8"]
 
         rows_html = ""
         for i, row in df_c.iterrows():
-            n = int(row["CASE_COUNT"])
+            outlier_n = int(row["CASE_COUNT"])
+            total_n = int(row["TOTAL_CASE_COUNT"])
+            pct_outlier = float(row["PCT_OF_CASES_OUTLIER"])
             los = float(row["AVG_LOS"])
             age = row.get("AVG_AGE")
             age_txt = f" · avg age {age:.0f}" if pd.notna(age) else ""
             ward = row["WARD"] or "Unknown ward"
             condition_label = str(row["CONDITION_LABEL"]).strip().title()
 
-            # Ranked list, no verdict attached — a graded teal ramp by rank,
-            # not a red/amber/teal mix implying "top 2 = bad, small-sample =
-            # caution." Sample-size reliability is already called out in the
-            # text caveat below, not through bar color.
-            bar_color = _teal_ramp[min(i, len(_teal_ramp) - 1)]
+            bar_color = _los_bar_ramp[min(i, len(_los_bar_ramp) - 1)]
 
             bar_pct = max(4, round(100 * los / max_los))
             rows_html += textwrap.dedent(f"""\
                 <div style="display:flex;align-items:center;gap:10px;padding:4px 0;border-bottom:1px solid {BORDER}">
-                <div style="flex:0 0 190px;min-width:0">
+                <div style="flex:0 0 220px;min-width:0">
                 <div style="font-size:11.5px;font-weight:600;color:#141F3D;line-height:1.3">{condition_label}</div>
-                <div style="font-size:9.5px;color:{bar_color};font-weight:600;line-height:1.4">{ward}</div>
-                <div style="font-size:9.5px;color:{TEXT_MUTED};line-height:1.4">{n} cases{age_txt}</div>
+                <div style="font-size:9.5px;color:{TEXT_MUTED};font-weight:600;line-height:1.4">{ward}</div>
+                <div style="font-size:9.5px;color:{TEXT_MUTED};line-height:1.4">
+                    {outlier_n} of {total_n} cases were outliers ({pct_outlier:.0f}%){age_txt}</div>
                 </div>
                 <div style="flex:1;display:flex;align-items:center;gap:6px;min-width:0">
                 <div style="flex:1;background:#F4F6FA;border-radius:3px;height:10px;overflow:hidden">
                 <div style="width:{bar_pct}%;height:100%;background:{bar_color};border-radius:3px"></div>
                 </div>
-                <div style="flex:0 0 38px;text-align:right;font-size:11px;font-weight:600;color:{bar_color}">{los:.1f}d</div>
+                <div style="flex:0 0 38px;text-align:right;font-size:11px;font-weight:600;color:#141F3D">{los:.1f}d</div>
                 </div>
                 </div>
                 """)
         st.markdown(f'<div style="padding:2px 2px">{rows_html}</div>', unsafe_allow_html=True)
 
-        reliable = df_c[df_c["CASE_COUNT"] >= _RELIABLE_N]
+        reliable = df_c[df_c["TOTAL_CASE_COUNT"] >= _RELIABLE_N]
         if not reliable.empty:
             reliable_label = str(reliable.iloc[0]["CONDITION_LABEL"]).strip().title()
-            reliable_n = int(reliable.iloc[0]["CASE_COUNT"])
-            other_max_n = int(df_c.loc[df_c["CASE_COUNT"] < _RELIABLE_N, "CASE_COUNT"].max())
+            reliable_n = int(reliable.iloc[0]["TOTAL_CASE_COUNT"])
+            other_max_n = int(df_c.loc[df_c["TOTAL_CASE_COUNT"] < _RELIABLE_N, "TOTAL_CASE_COUNT"].max())
             los_condition_caveat = (
-                f'<strong>{reliable_label}</strong> (n={reliable_n}) is the only condition here with '
-                f'enough patients to trust its average — every other one has {other_max_n} or fewer, so '
-                'a single unusual case could move it up or down the ranking.'
+                f'<strong>{reliable_label}</strong> (n={reliable_n} total cases) is the only condition here '
+                f'with enough patients to trust its outlier rate — every other one has {other_max_n} or '
+                'fewer total cases, so a single unusual case could swing the % substantially.'
             )
         else:
             los_condition_caveat = (
                 f'<strong>Small samples:</strong> every condition here has {_RELIABLE_N - 1} or fewer '
-                'cases — treat these averages as directional, not statistically robust.'
+                'total cases — treat these outlier rates as directional, not statistically robust.'
             )
         chart_card_close()
 
@@ -918,18 +1026,24 @@ def _render_s6_los(los_ward: pd.DataFrame, los_dist: pd.DataFrame, los_condition
             _empty_state()
         else:
             chart_card("Ward LOS vs. readmission rate")
-            _positions = ["top center", "bottom center", "middle right", "middle left", "top right"]
+            # On-chart text labels (cycling through 5 fixed positions)
+            # inevitably overlapped whenever points clustered close together
+            # — no fixed position scheme can avoid that for an arbitrary
+            # cluster. A distinct color + legend entry per ward removes the
+            # collision risk entirely, and the full ward name is always
+            # available on hover regardless of how tight the cluster is.
+            _ward_scatter_colors = [CA_BLUE, CA_GREEN, CA_RED, CA_AMBER, DARK_NAVY, CA_PINK, RASP_3, CA_MUTED]
             fig4 = go.Figure()
             for i, (_, r) in enumerate(los_scatter.iterrows()):
                 fig4.add_trace(go.Scatter(
-                    x=[r["AVG_LOS"]], y=[r["READMISSION_RATE"]], mode="markers+text",
-                    text=[r["WARD"]], textposition=_positions[i % len(_positions)],
-                    textfont=dict(size=9),
-                    marker=dict(size=10, color=CA_BLUE, opacity=0.85),
-                    showlegend=False,
+                    x=[r["AVG_LOS"]], y=[r["READMISSION_RATE"]], mode="markers",
+                    name=r["WARD"],
+                    marker=dict(size=11, color=_ward_scatter_colors[i % len(_ward_scatter_colors)], opacity=0.9),
+                    hovertemplate=f"<b>{r['WARD']}</b><br>Avg LOS: %{{x}} days<br>Readmission: %{{y}}%<extra></extra>",
                 ))
             fig4.update_layout(
-                **{**_BL, "height": 300, "margin": dict(t=24, b=48, l=10, r=40)},
+                **{**_BL, "height": 300, "margin": dict(t=24, b=8, l=10, r=10),
+                   "legend": dict(orientation="h", y=-0.3, x=0.5, xanchor="center", font=dict(size=9.5))},
                 xaxis={**_AX, "title": "Avg LOS (days)", "range": [
                     float(los_scatter["AVG_LOS"].min()) - 3, float(los_scatter["AVG_LOS"].max()) + 3,
                 ]},
@@ -988,16 +1102,17 @@ def _render_s6_los(los_ward: pd.DataFrame, los_dist: pd.DataFrame, los_condition
     if _safe(los_conditions):
         top_los = los_conditions.sort_values("AVG_LOS", ascending=False).head(2)
         top_parts = [
-            f"{str(r['CONDITION_LABEL']).strip().title()} ({float(r['AVG_LOS']):.1f}d, "
-            f"n={int(r['CASE_COUNT'])}, {r['WARD']})"
+            f"{str(r['CONDITION_LABEL']).strip().title()} ({float(r['AVG_LOS']):.1f}d avg outlier stay, "
+            f"{int(r['CASE_COUNT'])}/{int(r['TOTAL_CASE_COUNT'])} cases were outliers "
+            f"[{float(r['PCT_OF_CASES_OUTLIER']):.0f}%], {r['WARD']})"
             for _, r in top_los.iterrows()
         ]
         if top_parts:
             bullets.append(
-                "Longest average stays: " + "; ".join(top_parts) + ". Both are small-sample enough that "
-                "whether these are clinically expected (genuine complexity/complication) or outliers "
-                "(e.g. one prolonged case skewing a thin group) can't be determined from volume alone — "
-                "worth a chart-level review before treating either as a pattern."
+                "Most severe LOS-outlier conditions: " + "; ".join(top_parts) + ". The % of cases that "
+                "were outliers is the tell: a high % means a long stay is the norm for that condition "
+                "(clinically expected, not a red flag); a low % means these specific cases ran unusually "
+                "long for a condition that's normally fine — worth a chart-level review."
             )
     if pct_shorter:
         bullets.append(
@@ -1026,7 +1141,7 @@ def _render_s6_los(los_ward: pd.DataFrame, los_dist: pd.DataFrame, los_condition
             "the readmission link is checked ward by ward.</em>"
         )
     bullets.append(so_what)
-    _insight(bullets, variant="blue")
+    _insight(bullets, variant="amber")
 
 
 # ── Section 7 — SSI benchmark ────────────────────────────────────────────────
@@ -1399,7 +1514,7 @@ def _render_s10_recommendations(ssi_benchmark: pd.DataFrame, blind_spot: pd.Data
     p2_items = [
         f"{blind_n} patients return in the 31–90 day window — comparable in size to confirmed 30-day "
         f"readmissions and currently invisible to the standard KPI; {delayed_n} of those are named "
-        "delayed complications.",
+        "infection/sepsis returns.",
         "Action: report the 30-day and 90-day rate side by side, and add a structured post-discharge "
         "wound review at 6 weeks.",
     ]
@@ -1454,7 +1569,7 @@ def _render_s10_recommendations(ssi_benchmark: pd.DataFrame, blind_spot: pd.Data
     col2.markdown(_lim_card(
         "⚠ 30-day tracking window",
         f"{blind_n} patients sit in the 31–90 day window, invisible to the standard KPI; {delayed_n} of "
-        "those are named delayed clinical complications.",
+        "those are named infection/sepsis returns.",
         "Extend reporting to 90 days as a secondary KPI alongside the standard 30-day rate.",
     ), unsafe_allow_html=True)
     col3.markdown(_lim_card(
@@ -1481,7 +1596,6 @@ def render_clinical_activity_tab() -> None:
         age_complication = CAQ.get_ca_age_complication()
         blind_spot = CAQ.get_ca_blind_spot()
         blind_spot_type = CAQ.get_ca_blind_spot_type()
-        delayed = CAQ.get_ca_delayed_complications()
         los_ward = CAQ.get_ca_los_by_ward()
         los_dist = CAQ.get_ca_los_distribution()
         los_conditions = CAQ.get_ca_top_los_conditions()
@@ -1501,12 +1615,18 @@ def render_clinical_activity_tab() -> None:
     _render_s2_ward_analysis(ward_rates, ward_cause, ward_diagnoses)
     _render_s3_readmission_type(type_breakdown, area_breakdown, area_diagnoses)
     _render_s4_demographics(age_complication)
-    _render_s5_blind_spot(blind_spot, blind_spot_type, delayed)
+    _render_s5_blind_spot(blind_spot, blind_spot_type)
     _render_s6_los(los_ward, los_dist, los_conditions, los_scatter, los_index_readmit)
     _render_s7_ssi_benchmark(ssi_benchmark)
     _render_s8_ssi_risk(ssi_comorbidity, ssi_multimorbidity, ssi_gender, ssi_benchmark)
     _render_s9_ssi_timing(ssi_timing, ssi_during_after, ssi_trend, ssi_benchmark)
-    _render_s10_recommendations(ssi_benchmark, blind_spot, delayed, ward_rates)
+    # get_ca_delayed_complications() now takes a return_type (Section 5's
+    # named-diagnosis chart is user-selectable via dropdown there) — this
+    # recommendations summary is independent of that selection, so it uses
+    # the same "Infection / sepsis" default rather than whatever category
+    # happens to be selected in Section 5's dropdown at render time.
+    delayed_for_summary = CAQ.get_ca_delayed_complications()
+    _render_s10_recommendations(ssi_benchmark, blind_spot, delayed_for_summary, ward_rates)
 
 
 # Backward-compat alias for the previous entry-point name.

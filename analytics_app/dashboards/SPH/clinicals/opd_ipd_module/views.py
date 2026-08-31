@@ -99,7 +99,6 @@ def render_s1_kpis(df: pd.DataFrame) -> None:
     total      = int(row.get("TOTAL_VISITS", 0))
     admitted   = int(row.get("TOTAL_ADMISSIONS", 0))
     overall    = float(row.get("OVERALL_CONVERSION_PCT", 0))
-    acute      = float(row.get("ACUTE_CONVERSION_PCT", 0))
 
     overall_color = ACCENT_MONITOR if overall < 10 else ACCENT_POSITIVE
     admitted_color = ACCENT_CRITICAL if overall < 8 else ACCENT_MONITOR
@@ -114,8 +113,7 @@ def render_s1_kpis(df: pd.DataFrame) -> None:
         {
             "label":        "Overall conversion rate",
             "value":        fmt_pct(overall),
-            "delta":        f"New/acute only: {fmt_pct(acute)}",
-            "delta_good":   acute > overall,
+            "delta":        "All visit types",
             "accent_color": overall_color,
         },
         {

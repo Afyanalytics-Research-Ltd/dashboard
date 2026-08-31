@@ -1,12 +1,18 @@
 """
-sph/email_digest.py
-=====================
+sph/clinicals/email_digest.py
+================================
 Sidebar control that emails the Overview ("Hospital at a Glance") page's
-KPI strip and top signals as a plain HTML digest.
+KPI strip and top signals as an HTML digest.
 
-Sends via SMTP using credentials from Streamlit secrets or environment
-variables (never hardcoded):
-    SMTP_HOST, SMTP_PORT (default 587), SMTP_USER, SMTP_PASSWORD, SMTP_FROM
+Reads the same .env values (EMAIL_HOST, EMAIL_PORT, EMAIL_HOST_USER,
+EMAIL_HOST_PASSWORD, DEFAULT_FROM_EMAIL, DIGEST_RECIPIENTS) already used by
+analytics_app/dashboards/ksh/facility_utilization/notifier.py — but sends
+with plain smtplib instead of routing through django.setup(). Bootstrapping
+the full Django app registry (as notifier.py does) pulls in every
+dependency the whole Django project needs at import time (Celery, Redis,
+etc. via airflow_dashboard/__init__.py's `from .celery import app`), which
+isn't installed in this Streamlit app's environment — so this reuses the
+*values*, not the Django plumbing.
 
 Only sends on explicit user action ("Send now") — there is no background
 scheduler here. Streamlit's process model (one script re-run per browser
@@ -19,26 +25,48 @@ import os
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from pathlib import Path
 
 import streamlit as st
 
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    load_dotenv = None
 
-def _smtp_config():
-    def _get(key, default=None):
-        try:
-            if key in st.secrets:
-                return st.secrets[key]
-        except Exception:
-            pass
-        return os.environ.get(key, default)
 
+def _load_env():
+    """
+    Loads the same .env the Django settings module reads — explicit path
+    computed from this file's own location (dashboard root is 4 levels up:
+    clinicals -> sph -> dashboards -> analytics_app -> dashboard), so this
+    works regardless of the process's current working directory.
+    """
+    if load_dotenv is None:
+        return
+    dashboard_root = Path(__file__).resolve().parents[4]
+    load_dotenv(dashboard_root / ".env")
+
+
+def _email_config() -> dict:
+    _load_env()
     return dict(
-        host=_get("SMTP_HOST"),
-        port=int(_get("SMTP_PORT", 587) or 587),
-        user=_get("SMTP_USER"),
-        password=_get("SMTP_PASSWORD"),
-        sender=_get("SMTP_FROM"),
+        host=os.getenv("EMAIL_HOST", "smtp.gmail.com").strip(),
+        port=int(os.getenv("EMAIL_PORT", "587").strip()),
+        use_tls=os.getenv("EMAIL_USE_TLS", "True").strip().lower() in ("true", "1", "yes"),
+        user=os.getenv("EMAIL_HOST_USER", "").strip(),
+        password=os.getenv("EMAIL_HOST_PASSWORD", "").strip(),
+        sender=os.getenv("DEFAULT_FROM_EMAIL", "").strip(),
     )
+
+
+def get_recipients() -> list:
+    """Matches notifier.py's get_recipients() — DIGEST_RECIPIENTS env var,
+    comma-separated — falling back to a single known recipient if unset."""
+    _load_env()
+    raw = os.getenv("DIGEST_RECIPIENTS", "")
+    recipients = [e.strip() for e in raw.split(",") if e.strip()]
+    return recipients or [DEFAULT_DIGEST_RECIPIENT]
 
 
 def _safe(fn, *a):
@@ -117,7 +145,13 @@ def build_overview_snapshot() -> dict:
     )
 
 
-def build_digest_html(snap: dict) -> str:
+def build_digest_html(snap: dict, today: str) -> str:
+    """
+    Same branded card structure as notifier.py's _build_html() (navy header,
+    uppercase eyebrow label, bordered content card, muted footer) so the two
+    digests this codebase sends look like they came from the same product,
+    adapted to a KPI table instead of a notices list.
+    """
     rows = [
         ("Total visits", f"{snap['total_visits']:,}" if snap["total_visits"] else "—"),
         ("Core orthopedics share", _fmt(snap["core_ortho_pct"])),
@@ -131,91 +165,127 @@ def build_digest_html(snap: dict) -> str:
         ("Data quality score", f"{snap['dq_overall']:.0f} / 100" if snap["dq_overall"] is not None else "—"),
     ]
     rows_html = "".join(
-        f'<tr><td style="padding:8px 12px;border-bottom:1px solid #E4E7ED;color:#4B5468">{label}</td>'
-        f'<td style="padding:8px 12px;border-bottom:1px solid #E4E7ED;font-weight:700;color:#141F3D;'
-        f'text-align:right">{value}</td></tr>'
+        f"""
+        <tr>
+          <td style="padding:14px 24px;border-bottom:1px solid #EBF3FB;font-size:13px;color:#003467">{label}</td>
+          <td style="padding:14px 24px;border-bottom:1px solid #EBF3FB;font-size:15px;font-weight:800;
+            color:#003467;text-align:right">{value}</td>
+        </tr>"""
         for label, value in rows
     )
-    return f"""
-    <div style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto">
-      <div style="background:#1B8A82;padding:16px 20px;border-radius:8px 8px 0 0">
-        <span style="color:#FFFFFF;font-size:16px;font-weight:700">Hospital at a Glance — Digest</span>
-      </div>
-      <div style="border:1px solid #E4E7ED;border-top:0;border-radius:0 0 8px 8px;padding:4px 0">
-        <table style="width:100%;border-collapse:collapse;font-size:13px">{rows_html}</table>
-      </div>
-      <p style="font-size:11px;color:#8A93A6;margin-top:12px">
-        Generated from live St. Peter's Orthopaedic Hospital data. See the full Overview page in the
-        dashboard for charts, trends, and section-level detail behind each figure above.
-      </p>
-    </div>
-    """
+    return f"""<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+</head>
+<body style="margin:0;padding:0;background:#F4F8FC;
+  font-family:'Helvetica Neue',Helvetica,Arial,sans-serif">
+  <table width="100%" cellpadding="0" cellspacing="0" style="padding:32px 12px">
+    <tr><td>
+      <table width="600" cellpadding="0" cellspacing="0"
+        style="max-width:600px;margin:0 auto;background:#fff;
+        border-radius:8px;border:1px solid #D6E4F0;overflow:hidden">
 
+        <!-- Header -->
+        <tr>
+          <td style="padding:20px 24px;background:#003467">
+            <div style="font-size:9px;font-weight:700;color:#7FB3E0;
+              text-transform:uppercase;letter-spacing:2px">
+              St. Peter's Orthopaedic Hospital &middot; Clinical Operations
+            </div>
+            <div style="font-size:20px;font-weight:800;color:#fff;margin-top:4px">
+              Hospital at a Glance — Digest
+            </div>
+            <div style="font-size:11px;color:#7FB3E0;margin-top:2px">{today}</div>
+          </td>
+        </tr>
 
-def send_overview_digest(recipients: list) -> tuple:
-    """Returns (success: bool, message: str)."""
-    cfg = _smtp_config()
-    missing = [k for k in ("host", "user", "password", "sender") if not cfg[k]]
-    if missing:
-        return False, f"SMTP not configured — missing: {', '.join(missing)}."
-    if not recipients:
-        return False, "No recipients provided."
+        <!-- Label -->
+        <tr>
+          <td style="padding:14px 24px 6px;font-size:9px;font-weight:800;
+            color:#0072CE;text-transform:uppercase;letter-spacing:2px">
+            Headline KPIs
+          </td>
+        </tr>
 
-    snap = build_overview_snapshot()
-    html = build_digest_html(snap)
+        <!-- KPI rows -->
+        <table width="100%" cellpadding="0" cellspacing="0">{rows_html}</table>
 
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = "Hospital at a Glance — Digest"
-    msg["From"] = cfg["sender"]
-    msg["To"] = ", ".join(recipients)
-    msg.attach(MIMEText(html, "html"))
+        <!-- Footer -->
+        <tr>
+          <td style="padding:14px 24px;border-top:1px solid #EBF3FB;
+            font-size:10px;color:#B0C8E0;text-align:center">
+            Afya Analytics &middot; Private Hospitals Dashboard
+          </td>
+        </tr>
 
-    try:
-        with smtplib.SMTP(cfg["host"], cfg["port"], timeout=20) as server:
-            server.starttls()
-            server.login(cfg["user"], cfg["password"])
-            server.sendmail(cfg["sender"], recipients, msg.as_string())
-        return True, "Digest sent."
-    except Exception as exc:
-        return False, f"Send failed: {exc}"
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>"""
 
 
 DEFAULT_DIGEST_RECIPIENT = "mkubania@afya.ai"
 
 
+def send_overview_digest(recipients: list = None) -> tuple:
+    """Returns (success: bool, message: str)."""
+    to_list = recipients if recipients else get_recipients()
+    if not to_list:
+        return False, "No recipients configured (set DIGEST_RECIPIENTS in .env)."
+
+    cfg = _email_config()
+    if not cfg["user"] or not cfg["password"]:
+        return False, "EMAIL_HOST_USER/EMAIL_HOST_PASSWORD not set in .env — same config notifier.py uses for KSH digests."
+
+    from datetime import datetime
+    today = datetime.now().strftime("%d %b %Y")
+
+    try:
+        snap = build_overview_snapshot()
+        html = build_digest_html(snap, today)
+
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = f"Hospital at a Glance — Digest | {today}"
+        msg["From"] = cfg["sender"] or cfg["user"]
+        msg["To"] = ", ".join(to_list)
+        msg.attach(MIMEText(html, "html"))
+
+        with smtplib.SMTP(cfg["host"], cfg["port"], timeout=20) as server:
+            if cfg["use_tls"]:
+                server.starttls()
+            server.login(cfg["user"], cfg["password"])
+            server.sendmail(cfg["sender"] or cfg["user"], to_list, msg.as_string())
+        return True, "Digest sent."
+    except Exception as exc:
+        return False, f"Send failed: {exc}"
+
+
 def render_sidebar_control() -> None:
     """
-    Icon-tile toggle (matches the app's other "Option D" tile pattern) —
-    flipping it on fires the send once; flipping it off then on again
-    re-sends. No recipient is ever shown in the UI.
+    One-click icon-tile button — no toggle state, no visible sending
+    process. Click fires the send immediately; only the final result
+    (sent / failed) is shown. No recipient is ever shown in the UI.
     """
-    prev_on = st.session_state.get("dq_email_digest_prev", False)
-
     with st.sidebar.container(border=True):
-        col_icon, col_toggle = st.columns([5, 1], vertical_alignment="center")
-        status_placeholder = col_icon.empty()
-        with col_toggle:
-            is_on = st.toggle("Email digest", key="dq_email_digest_toggle", label_visibility="collapsed")
+        col_icon, col_btn = st.columns([5, 1], vertical_alignment="center")
+        col_icon.markdown(
+            '<div style="display:flex;align-items:center;gap:10px">'
+            '<div style="background:#DCEFE9;border-radius:8px;width:34px;height:34px;min-width:34px;'
+            'display:flex;align-items:center;justify-content:center">'
+            '<i class="ti ti-mail" style="font-size:16px;color:#1B8A82"></i></div>'
+            '<div><div style="font-size:13px;font-weight:600;color:#141F3D;line-height:1.3">Email digest</div>'
+            '<div style="font-size:11px;color:#8A93A6;font-weight:500">Click to send</div></div>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+        clicked = col_btn.button("➤", key="dq_email_digest_send", help="Send email digest",
+                                  use_container_width=True)
 
-    status_text = "Active" if is_on else "Idle"
-    status_color = "#1B8A82" if is_on else "#8A93A6"
-    status_placeholder.markdown(
-        '<div style="display:flex;align-items:center;gap:10px">'
-        '<div style="background:#DCEFE9;border-radius:8px;width:34px;height:34px;min-width:34px;'
-        'display:flex;align-items:center;justify-content:center">'
-        '<i class="ti ti-mail" style="font-size:16px;color:#1B8A82"></i></div>'
-        '<div><div style="font-size:13px;font-weight:600;color:#141F3D;line-height:1.3">Email digest</div>'
-        f'<div style="font-size:11px;color:{status_color};font-weight:500">{status_text}</div></div>'
-        '</div>',
-        unsafe_allow_html=True,
-    )
-
-    if is_on and not prev_on:
-        with st.spinner("Sending digest…"):
-            ok, message = send_overview_digest([DEFAULT_DIGEST_RECIPIENT])
+    if clicked:
+        ok, message = send_overview_digest()
         if ok:
             st.sidebar.success("Digest sent.")
         else:
             st.sidebar.error(message)
-
-    st.session_state["dq_email_digest_prev"] = is_on

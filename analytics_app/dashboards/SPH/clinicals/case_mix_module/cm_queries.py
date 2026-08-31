@@ -159,25 +159,36 @@ final_hierarchy AS (
 
 @st.cache_data(ttl=3600)
 def get_cm_headline_kpis() -> pd.DataFrame:
-    """TOTAL_VISITS (and every share % against it) is counted from
-    STG_VISITS — the canonical, all-visits table — not from the
-    diagnosis-classification CTE. STG_SPH_DIAGNOSIS_ENRICHED only contains
-    visits that had a diagnosis entered, so using it as the "total" universe
-    silently excludes every visit without one. Segment counts (spine/ortho/
-    etc.) still come from the classifier, since a segment can only be
-    assigned where a diagnosis exists — they're now expressed as a share of
-    the true total, not of the diagnosed subset."""
+    """TOTAL_VISITS is counted from STG_VISITS — the canonical, all-visits
+    table — not from the diagnosis-classification CTE, since
+    STG_SPH_DIAGNOSIS_ENRICHED only contains visits that had a diagnosis
+    entered and would silently exclude every visit without one.
+
+    The share percentages (CORE_ORTHO_SHARE_PCT etc.) are a different
+    question: "of the visits we can actually classify, what fraction are
+    ortho?" — so they're measured against classifiable_total (every row in
+    final_hierarchy, i.e. every visit with a diagnosis on file), not against
+    the raw STG_VISITS total. Measuring share against the raw total was
+    tried first and produced a ~15% "core orthopedics share" for an
+    orthopaedic hospital — visits with no diagnosis entered at all can never
+    be classified as ortho, so they were dragging the denominator up without
+    ever being able to contribute to the numerator, deflating the share far
+    below reality. TOTAL_VISITS itself stays correct either way; only the
+    share calculations' denominator changed."""
     sql = f"""
     {_SEGMENT_CTE},
     true_total AS (
         SELECT COUNT(DISTINCT visit_id) AS total_visits_all
         FROM HOSPITALS.STAGING.STG_VISITS
+    ),
+    classifiable_total AS (
+        SELECT COUNT(*) AS n FROM final_hierarchy
     )
     SELECT
         tt.total_visits_all                                                     AS TOTAL_VISITS,
         COUNT(CASE WHEN fh.is_spine=1 OR fh.is_ortho=1 THEN 1 END)              AS CORE_ORTHO_VISITS,
         ROUND(100.0 * COUNT(CASE WHEN fh.is_spine=1 OR fh.is_ortho=1 THEN 1 END)
-              / tt.total_visits_all, 1)                                         AS CORE_ORTHO_SHARE_PCT,
+              / ct.n, 1)                                                        AS CORE_ORTHO_SHARE_PCT,
         COUNT(CASE WHEN fh.is_spine=1 THEN 1 END)                               AS SPINE_VISITS,
         ROUND(100.0 * COUNT(CASE WHEN fh.is_spine=1 AND YEAR(fh.diagnosis_created_at)=2022 THEN 1 END)
               / NULLIF(COUNT(CASE WHEN YEAR(fh.diagnosis_created_at)=2022 THEN 1 END), 0), 1)
@@ -187,10 +198,11 @@ def get_cm_headline_kpis() -> pd.DataFrame:
                                                                                   AS SPINE_SHARE_LATEST_PCT,
         COUNT(CASE WHEN fh.is_spine=0 AND fh.is_ortho=0 THEN 1 END)             AS DIVERSIFICATION_VISITS,
         ROUND(100.0 * COUNT(CASE WHEN fh.is_spine=0 AND fh.is_ortho=0 THEN 1 END)
-              / tt.total_visits_all, 1)                                         AS DIVERSIFICATION_SHARE_PCT
+              / ct.n, 1)                                                        AS DIVERSIFICATION_SHARE_PCT
     FROM final_hierarchy fh
     CROSS JOIN true_total tt
-    GROUP BY tt.total_visits_all
+    CROSS JOIN classifiable_total ct
+    GROUP BY tt.total_visits_all, ct.n
     """
     return _run(sql)
 

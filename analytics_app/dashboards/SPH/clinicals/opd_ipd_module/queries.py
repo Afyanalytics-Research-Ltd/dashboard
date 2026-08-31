@@ -772,6 +772,60 @@ def get_workload_vs_conversion() -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
+# Q8b — Conversion rate per individual clinician
+# ---------------------------------------------------------------------------
+@st.cache_data(ttl=3600)
+def get_conversion_by_clinician(min_visits: int = 20) -> pd.DataFrame:
+    """
+    Returns one row per clinician:
+      FILLED_BY_USER_ID, TOTAL_VISITS, INPATIENT_CONVERSIONS, CONVERSION_RATE_PCT
+
+    Scoped to EMR_V1 only (2022–Jan 2025) — same reason as
+    get_workload_vs_conversion()/get_staffing_trend(): the clinician ID
+    scheme changed at the Feb 2025 EMR cutover, so IDs aren't comparable
+    across that boundary. min_visits filters out clinicians with too few
+    visits for their rate to mean anything (default 20, matching the
+    workload bucket floor used elsewhere).
+    """
+    sql = f"""
+    WITH visit_diagnoses AS (
+        SELECT
+            d.visit_id,
+            d.visit_type,
+            d.source_system,
+            v.filled_by_user_id
+        FROM HOSPITALS.STAGING.STG_SPH_DIAGNOSIS_ENRICHED d
+        LEFT JOIN HOSPITALS.STAGING.STG_SPH_DIAGNOSIS v
+          ON d.visit_id = v.visit_id AND d.source_system = v.source_system
+        WHERE d.source_system = 'EMR_V1'
+        GROUP BY ALL
+    ),
+    -- Same dedupe as get_fr_clinician_scheduling_rate() — the raw join can
+    -- produce more than one filled_by_user_id per visit_id, so one is
+    -- picked deterministically rather than double-counting the visit.
+    clinician_link AS (
+        SELECT visit_id, visit_type, filled_by_user_id
+        FROM visit_diagnoses
+        WHERE filled_by_user_id IS NOT NULL
+        QUALIFY ROW_NUMBER() OVER (PARTITION BY visit_id ORDER BY filled_by_user_id) = 1
+    )
+    SELECT
+        filled_by_user_id                                                      AS FILLED_BY_USER_ID,
+        COUNT(DISTINCT visit_id)                                               AS TOTAL_VISITS,
+        COUNT(DISTINCT CASE WHEN visit_type = 'Inpatient' THEN visit_id END)   AS INPATIENT_CONVERSIONS,
+        ROUND(
+            100.0 * COUNT(DISTINCT CASE WHEN visit_type = 'Inpatient' THEN visit_id END)
+            / NULLIF(COUNT(DISTINCT visit_id), 0), 1
+        )                                                                       AS CONVERSION_RATE_PCT
+    FROM clinician_link
+    GROUP BY filled_by_user_id
+    HAVING COUNT(DISTINCT visit_id) >= {min_visits}
+    ORDER BY CONVERSION_RATE_PCT DESC
+    """
+    return _run(sql)
+
+
+# ---------------------------------------------------------------------------
 # Q9 — Staffing trend: yearly clinician count + conversion (S7b dual line)
 # ---------------------------------------------------------------------------
 @st.cache_data(ttl=3600)

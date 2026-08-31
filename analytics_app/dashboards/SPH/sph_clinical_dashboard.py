@@ -27,7 +27,20 @@ from urllib.parse import quote
 # Parent of sph/ must be on the path for clinicals.opd_ipd_module.* to resolve
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # Also insert sph/ itself so intra-module imports work
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+_SPH_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, _SPH_DIR)
+
+# dynamic_file_loader.py exec's every dashboard in one long-lived Streamlit
+# process, and more than one dashboard ships a top-level package literally
+# named `clinicals` (e.g. lreb/nandi/clinicals, which is a namespace
+# package). Whichever dashboard ran first in this process owns
+# sys.modules['clinicals'], so its __path__ shadows ours and
+# `import clinicals.opd_ipd_module` fails. Drop any pre-existing
+# `clinicals*` entries so our sph/clinicals resolves from _SPH_DIR above.
+for _m in [m for m in list(sys.modules) if m == "clinicals" or m.startswith("clinicals.")]:
+    if getattr(sys.modules[_m], "__file__", "") and _SPH_DIR in (sys.modules[_m].__file__ or ""):
+        continue
+    del sys.modules[_m]
 
 import streamlit as st
 import pandas as pd
@@ -350,14 +363,14 @@ if active == "Overview":
          "delta": "Jun 2022–Jun 2026", "accent_color": _SEV_ACCENT["neutral"]},
         {"label": "Core orthopedics share", "value": _fmt(core_ortho_pct),
          "delta": "expected core identity", "accent_color": _SEV_ACCENT["success"]},
-        {"label": "Blended conversion", "value": _fmt(blended_conv),
+        {"label": "Conversion rate", "value": _fmt(blended_conv),
          "delta": "dominated by ortho volume", "accent_color": _SEV_ACCENT["warning"]},
     ])
     _kpi_spacer()
     kpi_row([
         {"label": "Readmission rate", "value": _fmt(readmission_rate),
          "delta": f"Lowest month {r_min:.0f}%, highest {r_max:.0f}%" if r_min is not None else "",
-         "accent_color": _SEV_ACCENT["danger"]},
+         "accent_color": _SEV_ACCENT["success"]},
         {"label": "Retention rate", "value": _fmt(retention_pct),
          "delta": f"Lapsing {_fmt(lapsing_pct)}" if lapsing_pct is not None else "",
          "accent_color": _SEV_ACCENT["warning" if (lapsing_pct or 0) >= 15 else "success"]},
@@ -766,23 +779,32 @@ if active == "Overview":
         if _ca_ward is None or _ca_ward.empty:
             _empty_chart()
             return
+        # Was a dual-axis grouped bar (LOS in days vs. Readmission %) — with
+        # both axes auto-ranging to fill the same plot height independently,
+        # the two bars ended up overlapping at the same x-position instead
+        # of sitting side-by-side, so whichever metric reached a taller % of
+        # its own axis visually buried the other one. A scatter (one dot per
+        # ward, matching the same LOS-vs-readmission comparison already
+        # built correctly in the Clinical Activity tab's own Section 6)
+        # avoids that failure mode entirely.
         d = _ca_ward.sort_values("AVG_LOS")
+        _ward_colors = [PRIMARY, DANGER, WARNING, SUCCESS, NEUTRAL, "#8A1F44", "#141F3D", "#C13868"]
         fig = go.Figure()
-        fig.add_trace(go.Bar(x=d["WARD"], y=d["AVG_LOS"], name="Avg LOS (days)", marker_color=WARNING, yaxis="y"))
-        fig.add_trace(go.Bar(x=d["WARD"], y=d["READMISSION_RATE"], name="Readmission %", marker_color=DANGER, yaxis="y2"))
+        for i, (_, r) in enumerate(d.iterrows()):
+            fig.add_trace(go.Scatter(
+                x=[r["AVG_LOS"]], y=[r["READMISSION_RATE"]], mode="markers",
+                name=r["WARD"],
+                marker=dict(size=11, color=_ward_colors[i % len(_ward_colors)], opacity=0.9),
+                hovertemplate=f"<b>{r['WARD']}</b><br>Avg LOS: %{{x}} days<br>Readmission: %{{y}}%<extra></extra>",
+            ))
         fig.update_layout(
             **{**CHART_LAYOUT, "showlegend": True,
-               # Legend pinned above the plot, ward labels rotated below it —
-               # with no explicit position they landed on top of each other.
-               "legend": dict(orientation="h", y=1.18, x=0.5, xanchor="center", font=dict(size=10)),
-               "margin": {**CHART_LAYOUT.get("margin", {}), "t": 40, "b": 100}},
+               "legend": dict(orientation="h", y=-0.3, x=0.5, xanchor="center", font=dict(size=9.5)),
+               "margin": {**CHART_LAYOUT.get("margin", {}), "t": 20, "b": 8}},
             height=310,
-            barmode="group",
-            yaxis=dict(title="LOS (days)", **{k: v for k, v in AXIS_Y.items() if k != "title_font"}),
-            yaxis2=dict(title="Readmission %", overlaying="y", side="right",
-                        showgrid=False, tickfont=AXIS_Y["tickfont"]),
         )
-        fig.update_xaxes(**AXIS_X, tickangle=-30, automargin=True)
+        fig.update_xaxes(**AXIS_X, title="Avg LOS (days)")
+        fig.update_yaxes(**AXIS_Y, title="Readmission %", ticksuffix="%")
         st.plotly_chart(fig, use_container_width=True, config=PC_CFG)
 
     ca_issues = []
@@ -829,9 +851,21 @@ if active == "Overview":
             return
         d = df_orth_vte.sort_values("PCT_PROPHYLAXIS_COMPLIANCE")
         colors = [DANGER if p < 70 else (WARNING if p < 85 else NEUTRAL) for p in d["PCT_PROPHYLAXIS_COMPLIANCE"]]
-        fig = go.Figure(go.Bar(x=d["PCT_PROPHYLAXIS_COMPLIANCE"], y=d["MAJOR_PROCEDURE_CATEGORY"],
-                                orientation="h", marker_color=colors))
+        fig = go.Figure(go.Bar(
+            x=d["PCT_PROPHYLAXIS_COMPLIANCE"], y=d["MAJOR_PROCEDURE_CATEGORY"],
+            orientation="h", marker_color=colors, showlegend=False,
+            hovertemplate="%{y}: <b>%{x}</b>% compliance<extra></extra>",
+        ))
+        # add_vline's shape has no hover on its own — a thin invisible
+        # marker trace at x=90 spanning the categories gives the threshold
+        # line an actual hover tooltip, not just a static dashed line with
+        # no explanation of what it represents.
         fig.add_vline(x=90, line_dash="dash", line_color="#8A93A6")
+        fig.add_trace(go.Scatter(
+            x=[90] * len(d), y=d["MAJOR_PROCEDURE_CATEGORY"], mode="markers",
+            marker=dict(opacity=0), showlegend=False,
+            hovertemplate="90% standard<extra></extra>",
+        ))
         fig.update_layout(**CHART_LAYOUT, height=230)
         fig.update_xaxes(**AXIS_X, range=[0, 100], title="Compliance %")
         fig.update_yaxes(**{**AXIS_Y, "showgrid": False})

@@ -1090,10 +1090,6 @@
 
         <!-- Footer -->
         <div class="dl-card-foot">
-          <div class="dl-views">
-            <i class="bi bi-eye"></i>
-            {{ db.view_count }} view{{ db.view_count|pluralize }}
-          </div>
           <div class="dl-actions">
             {% if request.user.is_superuser %}
             <a href="{% url 'analytics:dashboard_edit' db.slug %}"
@@ -1117,6 +1113,10 @@
                     Open <i class="bi bi-arrow-right-short" style="font-size:1.1em;"></i>
                 </a>
             {% endif %}
+          </div>
+          <div class="dl-views">
+            <i class="bi bi-eye"></i>
+            {{ db.view_count }} view{{ db.view_count|pluralize }}
           </div>
         </div>
 

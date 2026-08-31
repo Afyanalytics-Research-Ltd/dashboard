@@ -1,0 +1,22 @@
+{
+  "engine": "inventory_intelligence.run_training",
+  "n_items_total": 1092,
+  "n_items_cv": 1032,
+  "n_items_pooled": 60,
+  "cv_min_folds": 3,
+  "cv_horizon_days": 28,
+  "random_seed": 42,
+  "data_window": [
+    "2022-06-02 00:00:00",
+    "2025-01-23 00:00:00"
+  ],
+  "name": "replenishment",
+  "saved_at_utc": "2026-08-05T16:42:54.419076+00:00",
+  "payload_file": "replenishment.joblib",
+  "missing_recommended_metadata": [
+    "fit_window_start",
+    "fit_window_end",
+    "model_version",
+    "loss"
+  ]
+}

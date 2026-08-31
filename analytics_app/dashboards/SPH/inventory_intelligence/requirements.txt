@@ -1,0 +1,13 @@
+# SPH Inventory Intelligence — serving dashboard dependencies.
+# The offline training/extraction pipeline lives in a separate repo; this
+# module only reads the pre-computed parquet tables and live Snowflake.
+pandas
+numpy
+pyarrow                     # parquet engine for the analytics tables
+plotly
+streamlit
+streamlit-option-menu       # sidebar navigation
+snowflake-connector-python
+cryptography                # RSA key-pair auth for Snowflake
+python-dotenv
+# Django is provided by the host application (used by utils/notifier.py for email).

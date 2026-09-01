@@ -775,13 +775,12 @@ def render_s6(df: pd.DataFrame) -> None:
 
 _PRIORITY_DX = [
     "Upper Respiratory Tract Infection", "Gastritis", "Lower Respiratory Tract Infection",
-    "Gastroenteritis", "Peptic Ulcer Disease", "Pneumonia",
+    "Peptic Ulcer Disease", "Pneumonia",
 ]
 _DX_COLORS = {
     "Upper Respiratory Tract Infection": "#1B8A82",
     "Gastritis": "#854F0B",
     "Lower Respiratory Tract Infection": "rgba(27,138,130,0.7)",
-    "Gastroenteritis": "rgba(133,79,11,0.7)",
     "Peptic Ulcer Disease": "#8A93A6",
     "Pneumonia": "rgba(138,147,166,0.7)",
     "blank": "#A32D2D",
@@ -836,7 +835,11 @@ def render_s7(df_other_dx: pd.DataFrame, df_other_trend: pd.DataFrame, df_other_
             df = df_other_dx.copy()
             df["UNIFIED_DIAGNOSIS"] = df["UNIFIED_DIAGNOSIS"].fillna("")
             is_blank = df["UNIFIED_DIAGNOSIS"].str.strip() == ""
-            is_gastritis = df["UNIFIED_DIAGNOSIS"].str.contains("gastritis", case=False, na=False)
+            # Gastritis and gastroenteritis are clinically adjacent walk-in
+            # complaints — collapse them into one bar so the bucket isn't
+            # split across two near-identical rows.
+            is_gastritis = df["UNIFIED_DIAGNOSIS"].str.contains(
+                "gastritis|gastroenterit", case=False, na=False)
 
             gastritis_total = df.loc[is_gastritis, "OCCURRENCES"].sum()
             blank_total = df.loc[is_blank, "OCCURRENCES"].sum()
@@ -844,7 +847,8 @@ def render_s7(df_other_dx: pd.DataFrame, df_other_trend: pd.DataFrame, df_other_
             rows = []
             for label in _PRIORITY_DX:
                 if label == "Gastritis":
-                    rows.append({"LABEL": "Gastritis (all subtypes)", "OCCURRENCES": gastritis_total,
+                    rows.append({"LABEL": "Gastritis / gastroenteritis (all subtypes)",
+                                  "OCCURRENCES": gastritis_total,
                                   "COLOR": _DX_COLORS[label]})
                 else:
                     match = df[df["UNIFIED_DIAGNOSIS"] == label]

@@ -571,6 +571,13 @@ section[data-testid="stSidebarNav"],
     margin-bottom: 3px !important;
 }}
 .at-insight ul li:last-child {{ margin-bottom: 0 !important; }}
+/* Bold spans were only bold — same muted color as the surrounding text —
+   so the key numbers/phrases didn't actually stand out on a skim. Each
+   variant's <strong> now uses that variant's accent color instead. */
+.at-insight.primary ul li strong {{ color: {DARK_NAVY}; }}
+.at-insight.success ul li strong {{ color: {SUCCESS_BORDER}; }}
+.at-insight.danger  ul li strong {{ color: {DANGER_BORDER}; }}
+.at-insight.warning ul li strong {{ color: {WARNING_BORDER}; }}
 .at-insight-action {{
     font-size: 12px;
     font-weight: 600;

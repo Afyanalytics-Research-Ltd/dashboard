@@ -62,6 +62,58 @@ admissions_base AS (
 )
 """
 
+# 31-90 day return-type classification — used by both get_ca_blind_spot_type()
+# (the donut) and get_ca_delayed_complications() (the named-diagnosis
+# drill-down), interpolated identically into both so the two never drift
+# apart. 7 categories, replacing the earlier 4-category version:
+# Infection / sepsis, Post-surgical complication, Planned hardware removal,
+# Staged / revision surgery, New trauma / re-fracture, Unrelated medical,
+# Other / unclear. Classifies on the RETURN visit's diagnosis text only —
+# the index-visit diagnosis is available in window_31_90 as
+# index_diagnosis_label but is not part of the bucketing rule.
+_RETURN_TYPE_CASE = """
+    CASE
+        -- Infection / sepsis
+        WHEN return_dx_text LIKE '%septic%' OR return_dx_text LIKE '%sepsis%'
+             OR return_dx_text LIKE '%infection%' OR return_dx_text LIKE '%cellulitis%'
+             OR return_dx_text LIKE '%dehiscen%' OR return_dx_text LIKE '%surgical site%'
+            THEN 'Infection / sepsis'
+        -- Non-infectious post-surgical complications
+        WHEN return_dx_text LIKE '%thrombos%' OR return_dx_text LIKE '%dvt%'
+             OR return_dx_text LIKE '%embolism%' OR return_dx_text LIKE '%pneumonia%'
+             OR return_dx_text LIKE '%anaemia%' OR return_dx_text LIKE '%anemia%'
+             OR return_dx_text LIKE '%stiffness%' OR return_dx_text LIKE '%failed%'
+             OR return_dx_text LIKE '%dislocat%' OR return_dx_text LIKE '%nonunion%'
+             OR return_dx_text LIKE '%malunion%' OR return_dx_text LIKE '%symptomatic implant%'
+             OR return_dx_text LIKE '%symtomatic implant%'
+            THEN 'Post-surgical complication'
+        -- Hardware removal / management
+        WHEN return_dx_text LIKE '%implant removal%' OR return_dx_text LIKE '%pin removal%'
+             OR return_dx_text LIKE '%exofix removal%' OR return_dx_text LIKE '%illizarov removal%'
+             OR return_dx_text LIKE '%screw removal%' OR return_dx_text LIKE '%hardware removal%'
+            THEN 'Planned hardware removal'
+        -- Staged / revision surgery
+        WHEN return_dx_text LIKE '%staged%' OR return_dx_text LIKE '%planned%'
+             OR return_dx_text LIKE '%elective%' OR return_dx_text LIKE '%review%'
+             OR return_dx_text LIKE '%revision%' OR return_dx_text LIKE '%skin graft%'
+             OR return_dx_text LIKE '%wash out%' OR return_dx_text LIKE '%closure%'
+             OR return_dx_text LIKE '%plating%' OR return_dx_text LIKE '%nailing%'
+             OR return_dx_text LIKE '%fixation%' OR return_dx_text LIKE '%buttress%'
+             OR return_dx_text LIKE '%arthroplasty%' OR return_dx_text LIKE '%replacement%'
+             OR return_dx_text LIKE '%excision%' OR return_dx_text LIKE '%sequestec%'
+            THEN 'Staged / revision surgery'
+        -- New trauma or re-fracture
+        WHEN return_dx_text LIKE '%fracture%' OR return_dx_text LIKE '%injury%'
+             OR return_dx_text LIKE '%compound%'
+            THEN 'New trauma / re-fracture'
+        -- Non-surgical / medical
+        WHEN return_dx_text LIKE '%medical management%' OR return_dx_text LIKE '%circumcision%'
+             OR return_dx_text LIKE '%hydrocele%' OR return_dx_text LIKE '%ganglion%'
+            THEN 'Unrelated medical'
+        ELSE 'Other / unclear'
+    END
+"""
+
 _READMIT_PAIRS_CTE = """
 readmit_pairs AS (
     SELECT
@@ -650,6 +702,7 @@ def get_ca_blind_spot_type() -> pd.DataFrame:
     WITH {_ADMISSIONS_BASE_CTE},
     return_pairs AS (
         SELECT a1.visit_id AS index_visit_id, a2.visit_id AS return_visit_id,
+               a1.patient_id, a1.source_system, a2.ward AS return_ward,
                DATEDIFF('day', a1.discharge_date, a2.admission_date) AS days_to_return
         FROM admissions_base a1
         JOIN admissions_base a2
@@ -658,26 +711,17 @@ def get_ca_blind_spot_type() -> pd.DataFrame:
         QUALIFY ROW_NUMBER() OVER (PARTITION BY a1.visit_id ORDER BY a2.admission_date ASC) = 1
     ),
     window_31_90 AS (
-        SELECT rp.*, LOWER(COALESCE(d.diagnosis_name_expanded, '') || ' ' || COALESCE(d.icd10_names, '')) AS return_dx_text
+        SELECT rp.*,
+               COALESCE(d_idx.diagnosis_name_expanded, 'Unspecified') AS index_diagnosis_label,
+               COALESCE(d_ret.diagnosis_name_expanded, 'Unspecified') AS return_diagnosis_label,
+               LOWER(COALESCE(d_ret.diagnosis_name_expanded, '') || ' ' || COALESCE(d_ret.icd10_names, '')) AS return_dx_text
         FROM return_pairs rp
-        LEFT JOIN HOSPITALS.STAGING.STG_SPH_DIAGNOSIS_ENRICHED d ON d.visit_id = rp.return_visit_id
+        LEFT JOIN HOSPITALS.STAGING.STG_SPH_DIAGNOSIS_ENRICHED d_idx ON d_idx.visit_id = rp.index_visit_id
+        LEFT JOIN HOSPITALS.STAGING.STG_SPH_DIAGNOSIS_ENRICHED d_ret ON d_ret.visit_id = rp.return_visit_id
         WHERE rp.days_to_return BETWEEN 31 AND 90
     ),
     classified AS (
-        SELECT
-            CASE
-                WHEN return_dx_text LIKE '%septic%' OR return_dx_text LIKE '%infection%'
-                     OR return_dx_text LIKE '%wound%' OR return_dx_text LIKE '%failed%'
-                     OR return_dx_text LIKE '%dislocat%'
-                    THEN 'Delayed complication'
-                WHEN return_dx_text LIKE '%staged%' OR return_dx_text LIKE '%planned%'
-                     OR return_dx_text LIKE '%elective%' OR return_dx_text LIKE '%removal%'
-                     OR return_dx_text LIKE '%review%'
-                    THEN 'Planned staged care'
-                WHEN return_dx_text LIKE '%fracture%' OR return_dx_text LIKE '%injury%'
-                    THEN 'New / unrelated injury'
-                ELSE 'Other / unclear'
-            END AS return_type
+        SELECT {_RETURN_TYPE_CASE} AS return_type
         FROM window_31_90
     )
     SELECT
@@ -692,11 +736,19 @@ def get_ca_blind_spot_type() -> pd.DataFrame:
 
 
 @st.cache_data(ttl=3600)
-def get_ca_delayed_complications() -> pd.DataFrame:
+def get_ca_delayed_complications(return_type: str = "Infection / sepsis") -> pd.DataFrame:
+    """Named diagnoses behind one 31-90 day return-type bucket. Defaults to
+    'Infection / sepsis' — the closest single-category match to the old
+    'Delayed complication' bucket this replaced (which combined septic/
+    infection/wound/failed/dislocation keywords now split across
+    'Infection / sepsis' and 'Post-surgical complication'). Pass a
+    different return_type to drill into any of the other 6 categories from
+    _RETURN_TYPE_CASE instead."""
     sql = f"""
     WITH {_ADMISSIONS_BASE_CTE},
     return_pairs AS (
         SELECT a1.visit_id AS index_visit_id, a2.visit_id AS return_visit_id,
+               a1.patient_id, a1.source_system, a2.ward AS return_ward,
                DATEDIFF('day', a1.discharge_date, a2.admission_date) AS days_to_return
         FROM admissions_base a1
         JOIN admissions_base a2
@@ -706,23 +758,24 @@ def get_ca_delayed_complications() -> pd.DataFrame:
     ),
     window_31_90 AS (
         SELECT rp.*,
-               COALESCE(d.diagnosis_name_expanded, 'Unspecified') AS diagnosis_label,
-               LOWER(COALESCE(d.diagnosis_name_expanded, '') || ' ' || COALESCE(d.icd10_names, '')) AS return_dx_text
+               COALESCE(d_idx.diagnosis_name_expanded, 'Unspecified') AS index_diagnosis_label,
+               COALESCE(d_ret.diagnosis_name_expanded, 'Unspecified') AS return_diagnosis_label,
+               LOWER(COALESCE(d_ret.diagnosis_name_expanded, '') || ' ' || COALESCE(d_ret.icd10_names, '')) AS return_dx_text
         FROM return_pairs rp
-        LEFT JOIN HOSPITALS.STAGING.STG_SPH_DIAGNOSIS_ENRICHED d ON d.visit_id = rp.return_visit_id
+        LEFT JOIN HOSPITALS.STAGING.STG_SPH_DIAGNOSIS_ENRICHED d_idx ON d_idx.visit_id = rp.index_visit_id
+        LEFT JOIN HOSPITALS.STAGING.STG_SPH_DIAGNOSIS_ENRICHED d_ret ON d_ret.visit_id = rp.return_visit_id
         WHERE rp.days_to_return BETWEEN 31 AND 90
     ),
-    delayed_only AS (
-        SELECT diagnosis_label FROM window_31_90
-        WHERE return_dx_text LIKE '%septic%' OR return_dx_text LIKE '%infection%'
-           OR return_dx_text LIKE '%wound%' OR return_dx_text LIKE '%failed%'
-           OR return_dx_text LIKE '%dislocat%'
+    classified AS (
+        SELECT *, {_RETURN_TYPE_CASE} AS return_type
+        FROM window_31_90
     )
     SELECT
-        diagnosis_label   AS COMPLICATION_LABEL,
-        COUNT(*)          AS PATIENT_COUNT
-    FROM delayed_only
-    GROUP BY diagnosis_label
+        return_diagnosis_label   AS COMPLICATION_LABEL,
+        COUNT(*)                 AS PATIENT_COUNT
+    FROM classified
+    WHERE return_type = '{return_type}'
+    GROUP BY return_diagnosis_label
     ORDER BY PATIENT_COUNT DESC
     LIMIT 8
     """
@@ -773,40 +826,100 @@ def get_ca_los_distribution() -> pd.DataFrame:
 
 @st.cache_data(ttl=3600)
 def get_ca_top_los_conditions() -> pd.DataFrame:
+    """
+    Ranks conditions by how often they actually produce a statistical LOS
+    outlier — not by raw average LOS across all their cases. Previously this
+    ranked purely on AVG(los_days), which surfaces conditions where every
+    case happens to run long (often just a handful of genuinely complex
+    cases) mixed in with conditions that are mostly normal-length but have
+    one or two extreme cases dragging nothing (since it's an average of a
+    small n). This instead uses the same Tukey 1.5×IQR-per-ward rule
+    Plotly's own box plot applies for "LOS distribution by ward (IQR)"
+    (boxpoints="outliers"), so a case counts here exactly when it would
+    render as one of those outlier dots — then reports PCT_OF_CASES_OUTLIER
+    per condition, which is the real signal for "is this an expected LOS
+    for this condition, or a rare/unexpected extreme": a condition where
+    most of its cases are outliers runs long as a rule (expected), while a
+    condition where only a small fraction are outliers means something
+    unusual happened in those specific cases (worth reviewing).
+    """
     sql = f"""
     WITH {_ADMISSIONS_BASE_CTE},
     with_dx AS (
         SELECT
-            ab.ward, ab.los_days, ab.age_years,
+            ab.visit_id, ab.ward, ab.los_days, ab.age_years,
             COALESCE(d.diagnosis_name_expanded, 'Unspecified') AS condition_label
         FROM admissions_base ab
         LEFT JOIN HOSPITALS.STAGING.STG_SPH_DIAGNOSIS_ENRICHED d ON d.visit_id = ab.visit_id
-        WHERE ab.{_CURRENT_SYSTEM_FILTER}
+        WHERE ab.{_CURRENT_SYSTEM_FILTER} AND ab.ward IS NOT NULL
+        QUALIFY ROW_NUMBER() OVER (PARTITION BY ab.visit_id ORDER BY d.diagnosis_name_expanded NULLS LAST) = 1
+    ),
+    ward_iqr AS (
+        SELECT DISTINCT
+            ward,
+            PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY los_days) OVER (PARTITION BY ward) AS q1,
+            PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY los_days) OVER (PARTITION BY ward) AS q3
+        FROM with_dx
+    ),
+    flagged AS (
+        SELECT
+            wd.*,
+            wi.q3 + 1.5 * (wi.q3 - wi.q1) AS upper_fence
+        FROM with_dx wd
+        JOIN ward_iqr wi ON wi.ward = wd.ward
+    ),
+    condition_totals AS (
+        -- 'Unspecified' (no diagnosis recorded) is kept in ward_iqr above so
+        -- the outlier fence itself is computed against the ward's real
+        -- admission population, but excluded here — there's no actual
+        -- condition to judge "is a long stay expected" against when the
+        -- diagnosis is simply missing, so it can't sit in the same ranked
+        -- list as real diagnoses under an expected/unexpected framing.
+        SELECT condition_label, COUNT(*) AS total_cases
+        FROM flagged
+        WHERE condition_label != 'Unspecified'
+        GROUP BY condition_label
     ),
     ward_counts AS (
         SELECT condition_label, ward, COUNT(*) AS n
-        FROM with_dx GROUP BY condition_label, ward
+        FROM flagged
+        WHERE condition_label != 'Unspecified'
+        GROUP BY condition_label, ward
     ),
     ward_mode AS (
         SELECT condition_label, ward
         FROM ward_counts
         QUALIFY ROW_NUMBER() OVER (PARTITION BY condition_label ORDER BY n DESC) = 1
     ),
-    agg AS (
+    outlier_agg AS (
         SELECT
-            condition_label                                             AS CONDITION_LABEL,
-            COUNT(*)                                                    AS CASE_COUNT,
-            ROUND(AVG(age_years), 0)                                    AS AVG_AGE,
-            ROUND(AVG(los_days), 1)                                     AS AVG_LOS
-        FROM with_dx
+            condition_label,
+            COUNT(*)                       AS outlier_case_count,
+            ROUND(AVG(age_years), 0)       AS avg_age,
+            ROUND(AVG(los_days), 1)        AS avg_los
+        FROM flagged
+        WHERE los_days > upper_fence AND condition_label != 'Unspecified'
         GROUP BY condition_label
-        HAVING COUNT(*) >= 3
     )
     SELECT
-        a.CONDITION_LABEL, wm.ward AS WARD, a.CASE_COUNT, a.AVG_AGE, a.AVG_LOS
-    FROM agg a
-    LEFT JOIN ward_mode wm ON wm.condition_label = a.CONDITION_LABEL
-    ORDER BY a.AVG_LOS DESC
+        oa.condition_label                                                    AS CONDITION_LABEL,
+        wm.ward                                                               AS WARD,
+        oa.outlier_case_count                                                 AS CASE_COUNT,
+        ct.total_cases                                                        AS TOTAL_CASE_COUNT,
+        ROUND(100.0 * oa.outlier_case_count / ct.total_cases, 1)              AS PCT_OF_CASES_OUTLIER,
+        oa.avg_age                                                            AS AVG_AGE,
+        oa.avg_los                                                            AS AVG_LOS
+    FROM outlier_agg oa
+    JOIN condition_totals ct ON ct.condition_label = oa.condition_label
+    LEFT JOIN ward_mode wm ON wm.condition_label = oa.condition_label
+    -- Severity first, not frequency first — a condition with a single
+    -- 300+ day outlier is more worth seeing than one with five mild
+    -- outliers just past the ward's fence, but ORDER BY count DESC alone
+    -- buried the former under the latter. avg_los here is already the
+    -- average among just that condition's outlier cases (not all its
+    -- cases), so this ranks by "how severe are this condition's outliers,"
+    -- with outlier frequency only as the tiebreaker.
+    ORDER BY oa.avg_los DESC, oa.outlier_case_count DESC
     LIMIT 8
     """
     return _run(sql)

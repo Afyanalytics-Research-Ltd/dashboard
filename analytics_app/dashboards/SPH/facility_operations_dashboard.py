@@ -83,8 +83,8 @@ except Exception:
 _intel = None
 try:
     _intel_path = os.path.join(
-        _root,
-        "ai_foundation", "latest_run.json",
+        _here,
+        "facility_operations","ai_foundation", "latest_run.json",
     )
     with open(_intel_path, encoding="utf-8") as _f:
         _intel = json.load(_f)

@@ -7,18 +7,25 @@ import os
 from pathlib import Path
 
 ROOT = Path(os.path.abspath("analytics_app/dashboards/ksh/inventory_intelligence"))
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
 # dynamic_file_loader exec()s every dashboard inside one long-lived Streamlit
-# process, and this dashboard's submodules import each other via bare
-# top-level names ("queries", "intelligence", "utils") rather than a
-# qualified package path. If a different dashboard was visited earlier in
-# the same process and left its own module cached under one of those names,
-# Python reuses that stale sys.modules entry instead of re-resolving via the
-# ROOT just inserted above — surfacing as "ModuleNotFoundError: 'queries' is
-# not a package" or similar. Drop any such stale entries so these names
-# always resolve fresh, from this dashboard's own ROOT.
+# process, and each dashboard's own sys.path.insert(0, ...) call accumulates
+# in the shared sys.path list rather than resetting between page loads. Once
+# ROOT is in sys.path, leaving it there means a dashboard visited *later*
+# (e.g. facility_utilization, which has its own flat queries.py) can insert
+# itself at position 0 and shadow ROOT on the next visit here. Always remove
+# any prior occurrence and re-insert at the front so ROOT wins this lookup.
+while str(ROOT) in sys.path:
+    sys.path.remove(str(ROOT))
+sys.path.insert(0, str(ROOT))
+
+# This dashboard's submodules import each other via bare top-level names
+# ("queries", "intelligence", "utils") rather than a qualified package path.
+# If a different dashboard was visited earlier in the same process and left
+# its own module cached under one of those names, Python reuses that stale
+# sys.modules entry instead of re-resolving via the ROOT just inserted above
+# — surfacing as "ModuleNotFoundError: 'queries' is not a package" or
+# similar. Drop any such stale entries so these names always resolve fresh,
+# from this dashboard's own ROOT.
 for _name in list(sys.modules):
     if _name in ("queries", "intelligence", "utils") or _name.startswith(
         ("queries.", "intelligence.", "utils.")

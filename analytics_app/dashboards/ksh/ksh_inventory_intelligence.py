@@ -10,6 +10,21 @@ ROOT = Path(os.path.abspath("analytics_app/dashboards/ksh/inventory_intelligence
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+# dynamic_file_loader exec()s every dashboard inside one long-lived Streamlit
+# process, and this dashboard's submodules import each other via bare
+# top-level names ("queries", "intelligence", "utils") rather than a
+# qualified package path. If a different dashboard was visited earlier in
+# the same process and left its own module cached under one of those names,
+# Python reuses that stale sys.modules entry instead of re-resolving via the
+# ROOT just inserted above — surfacing as "ModuleNotFoundError: 'queries' is
+# not a package" or similar. Drop any such stale entries so these names
+# always resolve fresh, from this dashboard's own ROOT.
+for _name in list(sys.modules):
+    if _name in ("queries", "intelligence", "utils") or _name.startswith(
+        ("queries.", "intelligence.", "utils.")
+    ):
+        del sys.modules[_name]
+
 import pandas as pd
 import streamlit as st
 from streamlit_option_menu import option_menu

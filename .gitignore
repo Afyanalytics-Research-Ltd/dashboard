@@ -279,3 +279,4 @@ ml_platform/retrain_status.json
 **/chat/metrics_snapshot.json
 .cubestore/
 config/airflow.cfg
+logs/

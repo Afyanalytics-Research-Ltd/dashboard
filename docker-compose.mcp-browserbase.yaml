@@ -1,0 +1,41 @@
+name: dashboard-mcp-browserbase
+
+services:
+  # MCP server exposing Browserbase browser-automation tools (start/navigate/
+  # act/extract/observe/end) over Streamable HTTP, for the Django agents app
+  # to call — distinct from the human-facing console in browser_automation/,
+  # which talks to Browserbase directly via its Python SDK. See
+  # browser_automation/mcp_client.py for the client side.
+  #
+  # --host 0.0.0.0 is required for the port to be reachable from other
+  # containers on dashboard-net (the image's own default, localhost, only
+  # accepts connections from inside this container).
+  mcp-browserbase:
+    restart: always
+    image: mcp/browserbase:latest
+    container_name: mcp-browserbase
+    # --contextId pins every session `start` to the SAME Browserbase Context
+    # (a persistent cookie/localStorage profile), and --persist true (also
+    # the image's own default) saves changes back to it after each session
+    # ends. This is what lets someone log into a site ONCE by hand in the
+    # live view and have every later chat session already be logged in —
+    # see BROWSERBASE_CONTEXT_ID's comment in .env for how to create one.
+    #
+    # --modelName/--modelApiKey pick the LLM behind the AI-driven act/
+    # extract/observe tools (start/navigate/end don't need one). Without
+    # these the image defaults to gemini-2.0-flash and needs a GEMINI_API_KEY
+    # we don't have, which fails every act call with "API key not valid" —
+    # so point it at OpenAI using the key we already have in .env instead.
+    command: ["cli.js", "--port", "8931", "--host", "0.0.0.0", "--contextId", "${BROWSERBASE_CONTEXT_ID}", "--persist", "true", "--modelName", "openai/gpt-4o", "--modelApiKey", "${OPENAI_API_KEY}"]
+    environment:
+      BROWSERBASE_API_KEY: ${BROWSERBASE_API_KEY}
+      BROWSERBASE_PROJECT_ID: ${BROWSERBASE_PROJECT_ID}
+    ports:
+      - "8931:8931"
+    networks:
+      - dashboard-net
+
+networks:
+  dashboard-net:
+    external: true
+    name: dashboard-net

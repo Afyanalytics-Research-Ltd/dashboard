@@ -30,6 +30,7 @@ urlpatterns = [
     path('chat/', include('analytics_app.dashboards.ksh.facility_utilization.chat.urls')),
     path('forecast/', include('forecasting.urls')),
     path('analytics/chat/', include('self_service.urls', namespace='self_service')),
+    path('browser-automation/', include('browser_automation.urls', namespace='browserbase')),
 
     # REST API v1
     path('api/v1/', include([

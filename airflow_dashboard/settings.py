@@ -73,6 +73,7 @@ INSTALLED_APPS = [
     'drf_spectacular',
     'django_filters',
     'channels',
+    'django_celery_beat',
     # Local apps
     'core',
     'authentication',
@@ -84,6 +85,7 @@ INSTALLED_APPS = [
     'corsheaders',
     'catalog',
     'forecasting',
+    'browser_automation',
 ]
 
 # ---------------------------------------------------------------------------
@@ -261,6 +263,39 @@ SNOWFLAKE_PASSWORD = os.getenv('SNOWFLAKE_PASSWORD', '').strip()
 SNOWFLAKE_WAREHOUSE = os.getenv('SNOWFLAKE_WAREHOUSE', '').strip()
 SNOWFLAKE_DATABASE = os.getenv('SNOWFLAKE_DATABASE', '').strip()
 SNOWFLAKE_SCHEMA = os.getenv('SNOWFLAKE_SCHEMA', 'PUBLIC').strip()
+
+# Databend HTTP handler (docker-compose.databend.yaml) — reached from inside
+# the docker network, not the browser, so the container/service name is fine.
+DATABEND_HTTP_URL = os.getenv('DATABEND_HTTP_URL', 'http://databend:8000').rstrip('/')
+DATABEND_USER = os.getenv('DATABEND_USER', 'databend').strip()
+DATABEND_PASSWORD = os.getenv('DATABEND_PASSWORD', '').strip()
+
+# Browserbase (browserbase.com) — hosted headless-browser SaaS, used by the
+# browserbase app's SDK client. No self-hosted URL: the SDK talks to
+# api.browserbase.com directly, and the live-view iframe src returned by
+# their API points at their own domain (loaded straight in the user's
+# browser, not proxied through this app or nginx).
+BROWSERBASE_API_KEY = os.getenv('BROWSERBASE_API_KEY', '').strip()
+BROWSERBASE_PROJECT_ID = os.getenv('BROWSERBASE_PROJECT_ID', '').strip()
+
+# MCP server (docker-compose.mcp-browserbase.yaml) that wraps Browserbase as
+# agent tools (start/navigate/act/extract/observe/end) over Streamable HTTP.
+# Reached from inside the docker network — see browser_automation/mcp_client.py.
+BROWSERBASE_MCP_URL = os.getenv(
+    'BROWSERBASE_MCP_URL', 'http://mcp-browserbase:8931/mcp'
+).strip()
+
+# Persistent Browserbase Context — see BROWSERBASE_CONTEXT_ID's comment in
+# .env. Shared by both browser_automation/services.py (direct SDK sessions)
+# and the mcp-browserbase container, so a login made in either place carries
+# over to the other.
+BROWSERBASE_CONTEXT_ID = os.getenv('BROWSERBASE_CONTEXT_ID', '').strip()
+
+# Bright Data external proxy (Kenya) — see BRIGHTDATA_PROXY_SERVER's comment
+# in .env for why this exists instead of Browserbase's own geo-proxy.
+BRIGHTDATA_PROXY_SERVER = os.getenv('BRIGHTDATA_PROXY_SERVER', '').strip()
+BRIGHTDATA_PROXY_USERNAME = os.getenv('BRIGHTDATA_PROXY_USERNAME', '').strip()
+BRIGHTDATA_PROXY_PASSWORD = os.getenv('BRIGHTDATA_PROXY_PASSWORD', '').strip()
 
 # ---------------------------------------------------------------------------
 # Email
@@ -523,3 +558,10 @@ CELERY_RESULT_EXPIRES = 60 * 60 * 24  # 24 hours — enough to check a result th
 # for local dev without docker-compose's redis service running. Off by
 # default so production always actually queues instead of silently blocking.
 CELERY_TASK_ALWAYS_EAGER = os.getenv('CELERY_TASK_ALWAYS_EAGER', 'false').strip().lower() == 'true'
+
+# django_celery_beat's DatabaseScheduler reads PeriodicTask rows (created by
+# browser_automation's ScheduledBrowserTask forms) instead of a static
+# schedule — lets "run this every day at 4pm" be configured from the UI
+# without a code deploy. Only takes effect for a `celery beat` process
+# started with this scheduler (see docker-compose.celery.yaml).
+CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'

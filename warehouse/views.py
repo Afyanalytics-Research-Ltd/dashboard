@@ -29,6 +29,7 @@ from .forms import (
     BatchUpdateForm,
     ClearRangeForm,
     CreateSpreadsheetForm,
+    DatabendQueryForm,
     DeleteRowsForm,
     DeleteSpreadsheetForm,
     DeleteTabForm,
@@ -44,7 +45,8 @@ from .forms import (
     UpdateValuesForm,
     format_table_text,
 )
-from .models import SnowflakeQueryLog, TrackedSpreadsheet
+from .models import DatabendQueryLog, SnowflakeQueryLog, TrackedSpreadsheet
+from .services.databend import DatabendClient, DatabendQueryError
 from .services.facility_scope import FacilityScopeError, get_facility_scope, validate_query_scope
 from .services.snowflake import SnowflakeClient, SnowflakeQueryError
 from .sheet_service import SheetsServiceError, get_service, hex_to_rgb01
@@ -332,6 +334,83 @@ class SnowflakeQueryView(LoginRequiredMixin, UserPassesTestMixin, View):
                 log.execution_time_ms = elapsed_ms
                 log.save(update_fields=["status", "error_message", "execution_time_ms"])
                 logger.error("Snowflake query error: %s", exc)
+
+        return render(request, self.template_name, {
+            "form": form,
+            "history": history,
+            "result_cols": result_cols,
+            "result_rows": result_rows,
+            "exec_stats": exec_stats,
+            "error_msg": error_msg,
+            "sidebar_section": self.sidebar_section,
+        })
+
+
+class DatabendQueryView(LoginRequiredMixin, UserPassesTestMixin, View):
+    """Interactive Databend SQL query interface."""
+
+    template_name = "warehouse/databend.html"
+    sidebar_section = "warehouse"
+
+    def test_func(self) -> bool:
+        return _is_warehouse_user(self.request.user)
+
+    def get(self, request: HttpRequest) -> HttpResponse:
+        history = DatabendQueryLog.objects.filter(user=request.user)[:10]
+        return render(request, self.template_name, {
+            "form": DatabendQueryForm(),
+            "history": history,
+            "sidebar_section": self.sidebar_section,
+        })
+
+    def post(self, request: HttpRequest) -> HttpResponse:
+        form = DatabendQueryForm(request.POST)
+        history = DatabendQueryLog.objects.filter(user=request.user)[:10]
+        result_cols: list = []
+        result_rows: list = []
+        exec_stats: dict = {}
+        error_msg: str | None = None
+
+        if form.is_valid():
+            sql = form.cleaned_data["query"]
+            log = DatabendQueryLog.objects.create(
+                user=request.user, query=sql, status="pending"
+            )
+            import time as _time
+            t0 = _time.monotonic()
+            try:
+                client = DatabendClient()
+                result_cols, result_rows = client.query(sql, max_rows=10_000)
+                elapsed_ms = int((_time.monotonic() - t0) * 1000)
+
+                result_rows = result_rows[:1000]
+                exec_stats = {
+                    "rows_returned": len(result_rows),
+                    "execution_time_ms": elapsed_ms,
+                    "truncated": len(result_rows) >= 1000,
+                }
+
+                log.status = "success"
+                log.rows_returned = len(result_rows)
+                log.execution_time_ms = elapsed_ms
+                log.save(update_fields=["status", "rows_returned", "execution_time_ms"])
+
+                AuditLog.log(
+                    user=request.user,
+                    action="query",
+                    resource="Databend",
+                    detail=f"Rows: {len(result_rows)}, Time: {elapsed_ms}ms",
+                    ip_address=request.META.get("REMOTE_ADDR"),
+                )
+
+            except (DatabendQueryError, Exception) as exc:
+                elapsed_ms = int((_time.monotonic() - t0) * 1000)
+                error_msg = str(exc)
+                log.status = "error"
+                log.error_message = error_msg
+                log.execution_time_ms = elapsed_ms
+                log.save(update_fields=["status", "error_message", "execution_time_ms"])
+                logger.error("Databend query error: %s", exc)
 
         return render(request, self.template_name, {
             "form": form,

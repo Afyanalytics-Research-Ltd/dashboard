@@ -11,6 +11,7 @@ from channels.routing import ProtocolTypeRouter, URLRouter
 from channels.security.websocket import AllowedHostsOriginValidator
 from django.core.asgi import get_asgi_application
 
+import browser_automation.routing
 import self_service.routing
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'airflow_dashboard.settings')
@@ -21,7 +22,10 @@ application = ProtocolTypeRouter({
     'http': django_asgi_app,
     'websocket': AllowedHostsOriginValidator(
         AuthMiddlewareStack(
-            URLRouter(self_service.routing.websocket_urlpatterns)
+            URLRouter(
+                self_service.routing.websocket_urlpatterns
+                + browser_automation.routing.websocket_urlpatterns
+            )
         )
     ),
 })

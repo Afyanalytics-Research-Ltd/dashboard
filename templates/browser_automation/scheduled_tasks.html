@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+
+{% block title %}Scheduled Browser Tasks — Afya DataHub{% endblock %}
+
+{% block extra_css %}
+<style>
+  :root {
+    --afya-blue: #0072CE;
+    --afya-teal: #0BB99F;
+    --afya-cool: #003467;
+    --afya-amber: #D97706;
+  }
+  .bb-hero {
+    background: linear-gradient(135deg, var(--afya-cool), var(--afya-blue));
+    border-radius: 14px; padding: 1.75rem 2rem; color: #fff;
+    display: flex; justify-content: space-between; align-items: center;
+    flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem;
+  }
+  .bb-hero h3 { font-weight: 700; margin: 0 0 .25rem; }
+  .bb-hero p { margin: 0; opacity: .85; font-size: .9rem; max-width: 46ch; }
+  .bb-task-card { border: 1px solid #e5e7eb; border-radius: 12px; padding: 1rem 1.1rem; background: #fff; }
+  .bb-task-instructions {
+    font-family: 'Fira Code','Consolas',monospace; font-size: .78rem; color: #374151;
+    background: #f8fafc; border-radius: 6px; padding: .5rem .65rem; white-space: pre-wrap;
+    max-height: 100px; overflow-y: auto; margin: .5rem 0;
+  }
+  .bb-schedule-pill {
+    font-size: .75rem; font-weight: 600; padding: .2rem .6rem; border-radius: 20px;
+    background: #eef2ff; color: #4338ca;
+  }
+  .bb-run-status { font-size: .72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .02em; }
+  .bb-run-success { color: #15803d; }
+  .bb-run-error { color: #b91c1c; }
+  .bb-empty { text-align: center; padding: 3rem 1rem; color: #6c757d; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<div class="bb-hero">
+  <div>
+    <h3><i class="bi bi-clock-history me-2"></i>Scheduled Browser Tasks</h3>
+    <p>Run a browser automation on a recurring daily schedule — one instruction per line, same routing as the chat.</p>
+  </div>
+  <a href="{% url 'browserbase:console' %}" class="btn btn-light btn-sm fw-semibold">
+    <i class="bi bi-arrow-left me-1"></i>Back to Console
+  </a>
+</div>
+
+<div class="row g-3">
+
+  <div class="col-lg-5">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header fw-semibold py-2">New Scheduled Task</div>
+      <div class="card-body">
+        <form method="post" action="{% url 'browserbase:create_scheduled_task' %}">
+          {% csrf_token %}
+          <div class="mb-2">
+            <label class="form-label small fw-semibold">{{ form.name.label }}</label>
+            {{ form.name }}
+          </div>
+          <div class="mb-2">
+            <label class="form-label small fw-semibold">Instructions</label>
+            {{ form.instructions }}
+            <div class="form-text">{{ form.instructions.help_text }}</div>
+          </div>
+          <div class="row g-2 mb-2">
+            <div class="col-6">
+              <label class="form-label small fw-semibold">Hour (0-23)</label>
+              {{ form.hour }}
+            </div>
+            <div class="col-6">
+              <label class="form-label small fw-semibold">Minute (0-59)</label>
+              {{ form.minute }}
+            </div>
+          </div>
+          <div class="form-check mb-3">
+            {{ form.is_active }}
+            <label class="form-check-label small" for="{{ form.is_active.id_for_label }}">Active</label>
+          </div>
+          <button type="submit" class="btn btn-primary btn-sm w-100">
+            <i class="bi bi-plus-circle me-1"></i>Schedule Task
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-7">
+    {% if tasks %}
+    <div class="d-flex flex-column gap-3">
+      {% for t in tasks %}
+      <div class="bb-task-card">
+        <div class="d-flex justify-content-between align-items-start">
+          <div>
+            <div class="fw-semibold">
+              {{ t.name }}
+              {% if not t.is_active %}<span class="badge bg-secondary ms-1">Inactive</span>{% endif %}
+            </div>
+            <span class="bb-schedule-pill mt-1 d-inline-block">
+              <i class="bi bi-clock me-1"></i>Daily {{ t.periodic_task.crontab.hour }}:{{ t.periodic_task.crontab.minute }}
+            </span>
+          </div>
+          <div class="d-flex gap-1">
+            <form method="post" action="{% url 'browserbase:run_scheduled_task' pk=t.pk %}">
+              {% csrf_token %}
+              <button type="submit" class="btn btn-sm btn-outline-primary" title="Run now">
+                <i class="bi bi-play-fill"></i>
+              </button>
+            </form>
+            <form method="post" action="{% url 'browserbase:delete_scheduled_task' pk=t.pk %}"
+                  onsubmit="return confirm('Delete this scheduled task?');">
+              {% csrf_token %}
+              <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete">
+                <i class="bi bi-trash"></i>
+              </button>
+            </form>
+          </div>
+        </div>
+
+        <div class="bb-task-instructions">{{ t.instructions }}</div>
+
+        <div class="d-flex justify-content-between align-items-center">
+          {% if t.last_run_at %}
+          <span class="bb-run-status bb-run-{{ t.last_run_status }}">
+            {{ t.get_last_run_status_display }} &bull; {{ t.last_run_at|timesince }} ago
+          </span>
+          {% else %}
+          <span class="text-muted small">Never run yet</span>
+          {% endif %}
+        </div>
+
+        {% if t.last_run_status == "error" and t.last_run_detail %}
+        <div class="alert alert-danger py-1 px-2 mt-2 mb-0 small">{{ t.last_run_detail|truncatechars:200 }}</div>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="bb-empty">
+      <i class="bi bi-clock-history display-4 d-block mb-2 text-muted"></i>
+      No scheduled tasks yet. Create one on the left.
+    </div>
+    {% endif %}
+  </div>
+
+</div>
+
+{% endblock %}

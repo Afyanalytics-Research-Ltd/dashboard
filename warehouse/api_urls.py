@@ -4,6 +4,7 @@ from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
 from .api import (
+    DatabendTablesAPIView,
     SnowflakeQueryAPIView,
     SnowflakeQueryLogViewSet,
     SnowflakeTablesAPIView,
@@ -18,4 +19,5 @@ urlpatterns = [
     path("", include(router.urls)),
     path("snowflake/query/", SnowflakeQueryAPIView.as_view(), name="snowflake-query"),
     path("snowflake/tables/", SnowflakeTablesAPIView.as_view(), name="snowflake-tables"),
+    path("databend/tables/", DatabendTablesAPIView.as_view(), name="databend-tables"),
 ]

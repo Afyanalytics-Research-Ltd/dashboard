@@ -89,6 +89,43 @@ class SnowflakeQueryLog(models.Model):
         )
 
 
+class DatabendQueryLog(models.Model):
+    """Record of every SQL query executed against Databend from the UI."""
+
+    STATUS_CHOICES = [
+        ('success', 'Success'),
+        ('error', 'Error'),
+        ('pending', 'Pending'),
+    ]
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='databend_queries',
+    )
+    query = models.TextField()
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    rows_returned = models.PositiveIntegerField(default=0)
+    execution_time_ms = models.PositiveIntegerField(default=0)
+    error_message = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = 'Databend Query Log'
+        verbose_name_plural = 'Databend Query Logs'
+        indexes = [
+            models.Index(fields=['user', 'created_at'], name='wh_dbqlog_user_created_idx'),
+            models.Index(fields=['status', 'created_at'], name='wh_dbqlog_status_created_idx'),
+        ]
+
+    def __str__(self) -> str:
+        return (
+            f"{self.user} — {self.created_at.strftime('%Y-%m-%d %H:%M')} "
+            f"({self.status})"
+        )
+
+
 # ---------------------------------------------------------------------------
 # Spreadsheet analyst — Workbook, Conversation, ChatMessage, Artifact
 #

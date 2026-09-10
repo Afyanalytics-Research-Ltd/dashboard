@@ -1,0 +1,41 @@
+name: dashboard-databend
+
+
+services:
+  databend:
+    restart: always
+    image: datafuselabs/databend:latest
+    container_name: databend
+    environment:
+      QUERY_DEFAULT_USER: ${DATABEND_USER}
+      QUERY_DEFAULT_PASSWORD: ${DATABEND_PASSWORD}
+      # Runs Databend as a single all-in-one node (meta + query) backed by
+      # its embedded MinIO for object storage, instead of standing up
+      # separate databend-meta/databend-query services + external S3 - the
+      # simplest correct setup for a single-node deployment.
+      MINIO_ENABLED: "true"
+    ports:
+      # Host 8000 is already taken by the Django web app (docker-compose.dev.yaml),
+      # so the HTTP handler is published on 8008 instead - the container
+      # still listens on 8000 internally, which is what nginx proxies to.
+      - "8008:8000"   # HTTP handler - REST API used by clients/BI tools
+      - "3307:3307"   # MySQL-compatible protocol
+      - "8124:8124"   # ClickHouse-compatible HTTP handler
+    volumes:
+      - databend-meta:/var/lib/databend/meta
+      - databend-data:/var/lib/databend/query
+      - databend-minio:/var/lib/minio
+      - databend-logs:/var/log/databend
+    networks:
+      - dashboard-net
+
+volumes:
+  databend-meta:
+  databend-data:
+  databend-minio:
+  databend-logs:
+
+networks:
+  dashboard-net:
+    external: true
+    name: dashboard-net

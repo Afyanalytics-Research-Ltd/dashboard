@@ -40,6 +40,7 @@ class BrowserAgentChatConsumer(AsyncWebsocketConsumer):
 
     async def connect(self):
         self.open_session = None
+        self.startup_error = None
 
         user = self.scope.get('user')
         if not user or not user.is_authenticated or not user.is_superuser:
@@ -51,38 +52,52 @@ class BrowserAgentChatConsumer(AsyncWebsocketConsumer):
         requested_key = self._requested_session_key()
         self.session_obj, is_new = await database_sync_to_async(self._get_or_create_session)(requested_key)
 
-        try:
-            self.open_session = await mcp_client.open_session()
-            start_result = await self.open_session.call('start')
-        except Exception as exc:
-            logger.error('browser-agent chat: failed to open MCP session: %s', exc)
-            await self.accept()
-            await self._send({
-                'type': 'message',
-                'role': 'assistant',
-                'content': f"Couldn't reach the browser-agent tool server: {exc}",
-            })
-            await self.close(code=4002)
-            return
-
-        if isinstance(start_result, dict) and start_result.get('sessionId'):
-            self.open_session.browserbase_session_id = start_result['sessionId']
-            await database_sync_to_async(self._set_browserbase_session_id)(start_result['sessionId'])
-
+        # Accept BEFORE opening the MCP/Browserbase session, not after: that
+        # call can take several seconds (longer still while it retries into
+        # a 402), and leaving the client's `new WebSocket(...)` sitting in
+        # "connecting" for that long got it abandoned client-side — the
+        # socket died with code 1006 the instant the server finally got
+        # around to accept() (confirmed live in logs/afya_datahub.log: every
+        # "WS connected" was followed by "WS disconnected code=1006" within
+        # milliseconds to ~2s, even on runs where the MCP call succeeded).
+        # Accepting immediately and doing the slow setup over the
+        # already-open socket avoids that race entirely.
         await self.accept()
-        logger.info(
-            'Browser-agent chat WS connected: user=%s session=%s new=%s browserbase_session=%s',
-            user.username, self.session_obj.session_key, is_new,
-            self.open_session.browserbase_session_id,
-        )
         await self._send({
             'type': 'session',
             'session_key': str(self.session_obj.session_key),
             'is_new': is_new,
-            'browserbase_session_id': self.open_session.browserbase_session_id,
+            'browserbase_session_id': None,
             'history': await database_sync_to_async(self._history)() if not is_new else [],
         })
-        if is_new:
+        await self._send({'type': 'typing', 'status': True})
+
+        await self._ensure_open_session()
+
+        await self._send({'type': 'typing', 'status': False})
+        logger.info(
+            'Browser-agent chat WS connected: user=%s session=%s new=%s browserbase_session=%s',
+            user.username, self.session_obj.session_key, is_new,
+            self.open_session.browserbase_session_id if self.open_session else None,
+        )
+        if self.open_session is not None and self.open_session.browserbase_session_id:
+            await self._send({
+                'type': 'session',
+                'session_key': str(self.session_obj.session_key),
+                'is_new': is_new,
+                'browserbase_session_id': self.open_session.browserbase_session_id,
+                'history': [],
+            })
+        if self.startup_error is not None:
+            await self._send({
+                'type': 'message',
+                'role': 'assistant',
+                'content': (
+                    f"Couldn't reach the browser-agent tool server yet ({self.startup_error}). "
+                    "The connection is still open — send a command and I'll retry."
+                ),
+            })
+        elif is_new:
             await self._send({
                 'type': 'message',
                 'role': 'assistant',
@@ -101,13 +116,39 @@ class BrowserAgentChatConsumer(AsyncWebsocketConsumer):
             getattr(self, 'user', '?'), close_code,
         )
 
+    async def _ensure_open_session(self):
+        """(Re)try opening the MCP/Browserbase session if we don't have one yet.
+
+        Never raises and never closes the socket — a failure here (MCP server
+        unreachable, Browserbase 402 on session create, etc.) is recorded on
+        self.startup_error instead, so a transient upstream outage degrades
+        to a retryable no-op rather than killing the WebSocket connection.
+        """
+        if self.open_session is not None:
+            return
+
+        try:
+            session = await mcp_client.open_session()
+            start_result = await session.call('start')
+        except Exception as exc:
+            logger.error('browser-agent chat: failed to open MCP session: %s', exc)
+            self.startup_error = exc
+            return
+
+        if isinstance(start_result, dict) and start_result.get('sessionId'):
+            session.browserbase_session_id = start_result['sessionId']
+            await database_sync_to_async(self._set_browserbase_session_id)(start_result['sessionId'])
+
+        self.open_session = session
+        self.startup_error = None
+
     def _requested_session_key(self):
         query_string = self.scope.get('query_string', b'').decode('utf-8', 'ignore')
         values = parse_qs(query_string).get('session')
         return values[0].strip() if values and values[0].strip() else None
 
     async def receive(self, text_data=None, bytes_data=None):
-        if not text_data or self.open_session is None:
+        if not text_data:
             return
 
         try:
@@ -122,17 +163,22 @@ class BrowserAgentChatConsumer(AsyncWebsocketConsumer):
         await self._send({'type': 'typing', 'status': True})
         await database_sync_to_async(self._save_message)('user', message, '')
 
-        tool_name, args = route_message(message)
-        try:
-            result = await self.open_session.call(tool_name, args)
-            content = format_tool_reply(tool_name, result)
-        except BrowserMCPError as exc:
-            content = f"That didn't work: {exc}"
-        except Exception:
-            logger.exception('browser-agent chat: tool call failed')
-            content = "I ran into an unexpected problem running that."
+        await self._ensure_open_session()
+        if self.open_session is None:
+            tool_name = None
+            content = f"The browser tool still isn't available: {self.startup_error}"
+        else:
+            tool_name, args = route_message(message)
+            try:
+                result = await self.open_session.call(tool_name, args)
+                content = format_tool_reply(tool_name, result)
+            except BrowserMCPError as exc:
+                content = f"That didn't work: {exc}"
+            except Exception:
+                logger.exception('browser-agent chat: tool call failed')
+                content = "I ran into an unexpected problem running that."
 
-        await database_sync_to_async(self._save_message)('assistant', content, tool_name)
+        await database_sync_to_async(self._save_message)('assistant', content, tool_name or '')
         await self._send({
             'type': 'message',
             'role': 'assistant',

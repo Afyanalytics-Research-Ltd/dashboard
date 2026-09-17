@@ -10,7 +10,7 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import EmptyPage, PageNotAnInteger, Paginator
 from django.db.models import Q
-from django.http import HttpResponseRedirect
+from django.http import HttpResponseRedirect, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
 from django.views.generic import (
@@ -152,12 +152,18 @@ class DashboardListView(LoginRequiredMixin, BreadcrumbMixin, ListView):
         user = self.request.user
         client_obj = _get_client_obj(user)
 
-        qs = Dashboard.objects.filter(is_active=True)
-        if client_obj:
-            qs = qs.filter(client=client_obj)
-        elif not user.is_superuser:
-            qs = qs.none()
-        if not user.is_superuser:
+        qs = Dashboard.objects.all()
+        if user.is_superuser:
+            # Superusers can also see hidden (is_active=False) dashboards
+            # in the list so they can toggle them back on.
+            if client_obj:
+                qs = qs.filter(client=client_obj)
+        else:
+            qs = qs.filter(is_active=True)
+            if client_obj:
+                qs = qs.filter(client=client_obj)
+            else:
+                qs = qs.none()
             qs = qs.exclude(hidden_from_users=user)
 
         q = self.request.GET.get('q', '').strip()
@@ -259,6 +265,34 @@ class DashboardSyncView(SuperuserRequiredMixin, View):
         messages.success(request, f'Sync complete — {summary}')
         logger.info('Superuser %s triggered dashboard sync: %s', request.user.username, summary)
         return redirect('analytics:dashboard_list')
+
+
+class DashboardToggleActiveView(LoggingMixin, View):
+    """AJAX: superuser hides/unhides a dashboard from the list page.
+
+    Flips ``Dashboard.is_active`` — a hidden dashboard drops out of every
+    non-superuser's list, detail, and home-page views.
+    """
+
+    def post(self, request, *args, **kwargs):
+        if not request.user.is_superuser:
+            return JsonResponse({'ok': False, 'error': 'Superuser access is required.'}, status=403)
+
+        dashboard = get_object_or_404(Dashboard, slug=kwargs['slug'])
+        dashboard.is_active = not dashboard.is_active
+        dashboard.save(update_fields=['is_active', 'updated_at'])
+
+        self.audit_log(
+            action='update',
+            resource='Dashboard',
+            resource_id=dashboard.slug,
+            detail=f'{"Unhid" if dashboard.is_active else "Hid"} dashboard "{dashboard.name}"',
+        )
+        logger.info(
+            'Superuser %s %s dashboard "%s"',
+            request.user.username, 'unhid' if dashboard.is_active else 'hid', dashboard.name,
+        )
+        return JsonResponse({'ok': True, 'is_active': dashboard.is_active})
 
 
 # ---------------------------------------------------------------------------

@@ -564,6 +564,24 @@
   text-decoration: none;
 }
 
+.dl-visibility-toggle {
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+  margin: 0;
+  padding-left: 0;
+}
+.dl-visibility-toggle .form-check-input {
+  margin: 0;
+  cursor: pointer;
+}
+.dl-visibility-toggle .form-check-label {
+  font-size: .72rem;
+  font-weight: 600;
+  color: #64748b;
+  cursor: pointer;
+}
+
 /* ---- EMPTY ---- */
 .dl-empty {
   text-align: center;
@@ -1092,6 +1110,14 @@
         <div class="dl-card-foot">
           <div class="dl-actions">
             {% if request.user.is_superuser %}
+            <div class="form-check form-switch dl-visibility-toggle"
+                 title="{% if db.is_active %}Visible to users — click to hide{% else %}Hidden from users — click to show{% endif %}">
+              <input class="form-check-input dl-toggle-active" type="checkbox" role="switch"
+                     id="dlActive{{ db.pk }}"
+                     data-toggle-url="{% url 'analytics:dashboard_toggle_active' db.slug %}"
+                     {% if db.is_active %}checked{% endif %}>
+              <label class="form-check-label" for="dlActive{{ db.pk }}">Visible</label>
+            </div>
             <a href="{% url 'analytics:dashboard_edit' db.slug %}"
                class="dl-btn-edit" title="Edit dashboard">
               <i class="bi bi-pencil-square"></i>
@@ -1357,6 +1383,46 @@
       }
     });
   }
+
+  /* ---- Superuser: toggle dashboard visibility (is_active) ---- */
+  document.querySelectorAll('.dl-toggle-active').forEach(function (checkbox) {
+    checkbox.addEventListener('change', function () {
+      var wasChecked = checkbox.checked;
+      var body = new FormData();
+      body.append('csrfmiddlewaretoken', '{{ csrf_token }}');
+
+      fetch(checkbox.dataset.toggleUrl, {
+        method: 'POST',
+        body: body,
+        credentials: 'same-origin',
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (!data.ok) {
+            checkbox.checked = !wasChecked;
+            if (window.AfyaToast) AfyaToast.show(data.error || 'Could not update visibility.', 'danger');
+            return;
+          }
+          var card = checkbox.closest('.dl-card');
+          var tag = card ? card.querySelector('.dl-inactive-tag') : null;
+          if (data.is_active) {
+            if (tag) tag.remove();
+          } else if (card && !tag) {
+            tag = document.createElement('div');
+            tag.className = 'dl-inactive-tag';
+            tag.textContent = 'Inactive';
+            card.insertBefore(tag, card.firstChild);
+          }
+          if (window.AfyaToast) {
+            AfyaToast.show(data.is_active ? 'Dashboard is now visible.' : 'Dashboard hidden from users.', 'success');
+          }
+        })
+        .catch(function () {
+          checkbox.checked = !wasChecked;
+          if (window.AfyaToast) AfyaToast.show('Network error. Please try again.', 'danger');
+        });
+    });
+  });
 
 })();
 </script>

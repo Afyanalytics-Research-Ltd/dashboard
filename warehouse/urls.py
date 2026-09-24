@@ -13,6 +13,9 @@ urlpatterns = [
     # Snowflake query interface
     path("snowflake/", views.SnowflakeQueryView.as_view(), name="snowflake"),
 
+    # Databend query interface
+    path("databend/", views.DatabendQueryView.as_view(), name="databend"),
+
     # Report missing data (AJAX or form POST)
     path("report-missing/", views.ReportMissingView.as_view(), name="report_missing"),
 

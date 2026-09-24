@@ -143,6 +143,10 @@
            class="sidebar-subitem {% if 'snowflake' in request.path %}active{% endif %}">
           <i class="bi bi-snow"></i> Snowflake Query
         </a>
+        <a href="{% url 'warehouse:databend' %}"
+           class="sidebar-subitem {% if 'databend' in request.path %}active{% endif %}">
+          <i class="bi bi-database"></i> Databend Query
+        </a>
         <a href="{% url 'warehouse:analyst_workbook_list' %}"
            class="sidebar-subitem {% if 'analyst' in request.path %}active{% endif %}">
           <i class="bi bi-robot"></i> Spreadsheet Analyst
@@ -164,6 +168,28 @@
         <a href="{% url 'airflow:dashboard' %}"
            class="sidebar-subitem {% if request.path == '/pipelines/' %}active{% endif %}">
           <i class="bi bi-diagram-3"></i> DAG Monitor
+        </a>
+      </div>
+      {% endif %}
+
+      <!-- Browser Automation (superuser only) -->
+      {% if request.user.is_superuser %}
+      <a href="#"
+         data-submenu-toggle="submenuBrowserAutomation"
+         class="sidebar-item {% if sidebar_section == 'browserbase' %}active{% endif %}">
+        <i class="bi bi-window sidebar-item-icon"></i>
+        <span class="sidebar-item-label">Browser Automation</span>
+        <i class="bi bi-chevron-right sidebar-chevron"></i>
+      </a>
+      <div id="submenuBrowserAutomation"
+           class="sidebar-submenu {% if sidebar_section == 'browserbase' %}open{% endif %}">
+        <a href="{% url 'browserbase:console' %}"
+           class="sidebar-subitem {% if request.path == '/browser-automation/' %}active{% endif %}">
+          <i class="bi bi-window"></i> Console
+        </a>
+        <a href="{% url 'browserbase:scheduled_tasks' %}"
+           class="sidebar-subitem {% if 'scheduled' in request.path %}active{% endif %}">
+          <i class="bi bi-clock-history"></i> Scheduled Tasks
         </a>
       </div>
       {% endif %}

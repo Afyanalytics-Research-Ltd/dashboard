@@ -1,4 +1,4 @@
-# Per-deployment: set FACILITY_NAME and drop logo file into this directory.
-# LOGO_PATH: filename only (e.g. "logo.png") — file must be in demo/dashboard/.
+# Per-deployment: set FACILITY_NAME and drop logo file into demo/logo/.
+# LOGO_PATH is resolved relative to demo/facility_operations/dashboard/.
 FACILITY_NAME = "AFYA"
-LOGO_PATH = "../logo.png"
+LOGO_PATH = "../../logo/logo.png"

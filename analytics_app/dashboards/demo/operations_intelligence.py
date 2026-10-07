@@ -9,11 +9,38 @@ import os
 import json
 import threading
 _here = os.path.dirname(os.path.abspath(__file__))
-_root = _here if os.path.exists(os.path.join(_here, 'dashboard')) else os.path.dirname(_here)
+_root = _here if os.path.exists(os.path.join(_here, 'dashboard')) else os.path.join(_here, 'facility_operations')
+# dynamic_file_loader runs every dashboard in one process, so a `dashboard`
+# module cached by an earlier import (the repo folder itself is named
+# `dashboard`) would shadow ours. Re-insert _root at the front and drop any
+# cached `dashboard*` entries that don't come from _root.
+while _root in sys.path:
+    sys.path.remove(_root)
 sys.path.insert(0, _root)
+for _m in [m for m in list(sys.modules) if m == "dashboard" or m.startswith("dashboard.")]:
+    _paths = list(getattr(sys.modules[_m], "__path__", []) or []) + [getattr(sys.modules[_m], "__file__", None) or ""]
+    if not any(p.startswith(_root) for p in _paths):
+        del sys.modules[_m]
 
 import streamlit as st
 import pandas as pd
+
+# Sub-page routing for ?page=<id> (the nav links built by theme.nav_url).
+# Under dynamic_file_loader the loader runs the page file itself and this file
+# never sees ?page=; when this file is run directly (`streamlit run
+# demo/operations_intelligence.py`) nothing else handles it, so do it here.
+_page = st.query_params.get("page")
+if _page:
+    import glob
+    _pages_dir = os.path.join(_root, "pages")
+    _match = (glob.glob(os.path.join(_pages_dir, f"*_{_page}.py"))
+              or glob.glob(os.path.join(_pages_dir, f"{_page}.py")))
+    if _match:
+        with open(_match[0], encoding="utf-8") as _f:
+            _code = compile(_f.read(), _match[0], "exec")
+        exec(_code, {"__name__": "__main__", "__file__": os.path.abspath(_match[0])})
+        st.stop()
+
 from dashboard.config import FACILITY_NAME
 
 st.set_page_config(
@@ -24,7 +51,7 @@ st.set_page_config(
 )
 
 from dashboard.theme import (
-    apply_theme, render_sidebar, COLORS, STATUS_BG, STATUS_BORDER, STATUS_LABEL, STATUS_EMOJI,
+    nav_url, apply_theme, render_sidebar, COLORS, STATUS_BG, STATUS_BORDER, STATUS_LABEL, STATUS_EMOJI,
     notice_card, section_header, page_header, info_card,
 )
 from dashboard.queries import (
@@ -1024,19 +1051,19 @@ _alert_domains = [
         "title": "Patient Drop-off",   "icon": "fa-solid fa-route",
         "status": _dropoff_status,     "urgency": _dropoff_urgency,
         "story": _dropoff_story,       "metrics": _dropoff_metrics,
-        "href": "/dropoff",            "href_label": "Patient Drop-off",
+        "href": nav_url("dropoff"),            "href_label": "Patient Drop-off",
     },
     {
         "title": "Revenue Leakage",    "icon": "fa-solid fa-file-invoice-dollar",
         "status": _leakage_status,     "urgency": _leakage_urgency,
         "story": _leakage_story,       "metrics": _leakage_metrics,
-        "href": "/leakage",            "href_label": "Revenue Leakage",
+        "href": nav_url("leakage"),            "href_label": "Revenue Leakage",
     },
     {
         "title": "Diagnostics",        "icon": "fa-solid fa-vials",
         "status": _diag_status,        "urgency": _diag_urgency,
         "story": _diag_story,          "metrics": _diag_findings,
-        "href": "/diagnostics",        "href_label": "Diagnostics",
+        "href": nav_url("diagnostics"),        "href_label": "Diagnostics",
     },
 ]
 
@@ -1111,7 +1138,7 @@ with p1:
             _lab_svc_val if _lab_svc_val is not None else _lab_comp_pct,
             _lab_svc_lbl,
             _lab_svc_narr,
-            "/diagnostics", "Diagnostics",
+            nav_url("diagnostics"), "Diagnostics",
             unit="min" if _lab_svc_val is not None else "%",
         ),
         unsafe_allow_html=True,
@@ -1122,7 +1149,7 @@ with p2:
             "Imaging", "fa-solid fa-x-ray",
             _img_p50, "Order → radiology arrival · 28-day avg",
             _tat_narrative("Imaging", _img_p50),
-            "/diagnostics", "Diagnostics",
+            nav_url("diagnostics"), "Diagnostics",
         ),
         unsafe_allow_html=True,
     )
@@ -1135,7 +1162,7 @@ with p3:
             "Pharmacy", "fa-solid fa-pills",
             _pharm_p50, "Dispensing interval · V2",
             _pharm_narrative,
-            "/pharmacy", "Pharmacy",
+            nav_url("pharmacy"), "Pharmacy",
         ),
         unsafe_allow_html=True,
     )
@@ -1166,7 +1193,7 @@ with o1:
             _lab_per100_cur,
             f"Orders per 100 OPD visits · {_lab_per100_lbl}",
             _lab_per100_trend or "Insufficient history",
-            "/diagnostics", "Diagnostics",
+            nav_url("diagnostics"), "Diagnostics",
         ),
         unsafe_allow_html=True,
     )
@@ -1177,7 +1204,7 @@ with o2:
             _img_per100_cur,
             f"Orders per 100 OPD visits · {_img_per100_lbl}",
             _img_per100_trend or "Insufficient history",
-            "/diagnostics", "Diagnostics",
+            nav_url("diagnostics"), "Diagnostics",
         ),
         unsafe_allow_html=True,
     )
@@ -1188,7 +1215,7 @@ with o3:
             _conv_rate_cur,
             f"Conversion rate · {_conv_rate_lbl}",
             _conv_rate_trend or "Insufficient history",
-            "/admissions", "Admissions",
+            nav_url("admissions"), "Admissions",
             decimals=2,
         ),
         unsafe_allow_html=True,

@@ -25,6 +25,45 @@ from utils.formatting import (
 
 _CSS = """
 <style>
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap');
+html, body, [class*="css"], .stApp, .stMarkdown, [data-testid="stSidebar"] *:not(i):not([class*="material"]):not([data-testid="stIconMaterial"]):not([data-testid="stSidebarCollapseButton"] *) {
+    font-family: 'Montserrat', sans-serif;
+    color: #003467;
+}
+/* Keep Streamlit's Material icons (expander arrows, sidebar toggle) on their icon font */
+[data-testid="stIconMaterial"],
+[data-testid="stExpanderIcon"],
+[data-testid="stSidebarCollapseButton"] span,
+[data-testid="stSidebarCollapsedControl"] span {
+    font-family: 'Material Symbols Rounded' !important;
+    font-style: normal !important;
+    font-weight: 400 !important;
+    font-feature-settings: 'liga' !important;
+}
+/* Sidebar nav (shared look across all demo dashboards): Montserrat 13px,
+   teal #0BB99F icons, light-teal pill on the active page */
+.st-key-side_nav { gap: 2px !important; }
+.st-key-side_nav button {
+    justify-content: flex-start !important;
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 8px 12px !important;
+    min-height: 0 !important;
+    border-radius: 6px !important;
+    color: #1E3A55 !important;
+}
+.st-key-side_nav button > div { justify-content: flex-start !important; gap: 10px !important; }
+.st-key-side_nav button p {
+    font-family: 'Montserrat', sans-serif !important;
+    font-size: 13px !important;
+    font-weight: 500 !important;
+    color: inherit !important;
+}
+.st-key-side_nav button:hover { background: #F0F5FA !important; }
+.st-key-side_nav button[data-testid="stBaseButton-primary"] { background: #F0FBF8 !important; color: #0BB99F !important; }
+.st-key-side_nav button[data-testid="stBaseButton-primary"] p { font-weight: 700 !important; }
+.st-key-side_nav [data-testid="stIconMaterial"] { color: #0BB99F !important; font-size: 14px !important; }
 /* ── Hide Streamlit auto-nav ───────────────────────── */
 section[data-testid="stSidebarNav"],
 [data-testid="stSidebarNavItems"],
@@ -43,16 +82,16 @@ section[data-testid="stSidebarNav"],
 .page-header {
     padding-bottom: 14px;
     margin-bottom: 20px;
-    border-bottom: 1px solid #E5E7EB;
+    border-bottom: 1px solid #D6E4F0;
 }
 .page-title {
     font-size: 28px;
     font-weight: 800;
-    color: #111827;
+    color: #003467;
     margin: 0 0 4px;
     line-height: 1.2;
 }
-.page-subtitle { font-size: 14px; color: #9CA3AF; margin: 0; line-height: 1.5; }
+.page-subtitle { font-size: 14px; color: #9BAEC8; margin: 0; line-height: 1.5; }
 
 /* ── Section header ────────────────────────────────── */
 .section-header {
@@ -60,17 +99,17 @@ section[data-testid="stSidebarNav"],
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.07em;
-    color: #9CA3AF;
+    color: #9BAEC8;
     margin: 20px 0 10px;
     padding-bottom: 6px;
-    border-bottom: 1px solid #E5E7EB;
+    border-bottom: 1px solid #D6E4F0;
 }
 
 /* ── KPI tiles ─────────────────────────────────────── */
 .kpi-tile {
     background: #FFFFFF;
-    border: 1px solid #E5E7EB;
-    border-top: 3px solid #E5E7EB;  /* accent overridden inline */
+    border: 1px solid #D6E4F0;
+    border-top: 3px solid #D6E4F0;  /* accent overridden inline */
     border-radius: 10px;
     padding: 14px 14px 12px;
 }
@@ -79,14 +118,14 @@ section[data-testid="stSidebarNav"],
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    color: #9CA3AF;
+    color: #9BAEC8;
     margin-bottom: 6px;
     line-height: 1.4;              /* allow wrapping — no truncation */
 }
 .kpi-value {
     font-size: 28px;
     font-weight: 700;
-    color: #111827;
+    color: #003467;
     line-height: 1.1;
     word-break: break-word;        /* allow wrapping — no truncation */
 }
@@ -102,8 +141,8 @@ section[data-testid="stSidebarNav"],
     align-items: center;
     gap: 10px;
     background: #FFFFFF;
-    border: 1px solid #E5E7EB;
-    border-left: 3px solid #E5E7EB;  /* accent overridden inline */
+    border: 1px solid #D6E4F0;
+    border-left: 3px solid #D6E4F0;  /* accent overridden inline */
     border-radius: 0 10px 10px 0;
     padding: 11px 14px;
     margin-bottom: 6px;
@@ -117,14 +156,14 @@ section[data-testid="stSidebarNav"],
 .action-drug {
     font-weight: 600;
     font-size: 14px;
-    color: #111827;
+    color: #003467;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 .action-reason {
     font-size: 13px;
-    color: #9CA3AF;
+    color: #9BAEC8;
     margin-top: 2px;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -159,14 +198,14 @@ section[data-testid="stSidebarNav"],
 
 /* ── AI summary ────────────────────────────────────── */
 .ai-summary {
-    background: #F0FAF6;
-    border: 1px solid #C3E8D8;
-    border-left: 4px solid #0F6E56;
+    background: #F0FBF8;
+    border: 1px solid #A7D9D4;
+    border-left: 4px solid #0BB99F;
     border-radius: 0 10px 10px 0;
     padding: 14px 18px;
     font-size: 15px;
     line-height: 1.65;
-    color: #111827;
+    color: #003467;
     margin-bottom: 16px;
 }
 .ai-label {
@@ -174,14 +213,14 @@ section[data-testid="stSidebarNav"],
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: #0F6E56;
+    color: #0BB99F;
     margin-bottom: 6px;
 }
 
 /* ── Anomaly banner ────────────────────────────────── */
 .anomaly-banner {
     background: #FFFBEB;
-    border: 1px solid #FDE68A;
+    border: 1px solid #F0C580;
     border-left: 3px solid #D97706;
     border-radius: 0 8px 8px 0;
     padding: 10px 14px;
@@ -190,7 +229,7 @@ section[data-testid="stSidebarNav"],
 .anomaly-title {
     font-weight: 700;
     font-size: 13px;
-    color: #92400E;
+    color: #D97706;
     margin-bottom: 3px;
 }
 
@@ -198,10 +237,10 @@ section[data-testid="stSidebarNav"],
 .empty-state {
     text-align: center;
     padding: 40px 20px;
-    color: #9CA3AF;
+    color: #9BAEC8;
     font-size: 14px;
-    background: #FAFAFA;
-    border: 1.5px dashed #E5E7EB;
+    background: #F8FBFE;
+    border: 1.5px dashed #D6E4F0;
     border-radius: 10px;
 }
 .empty-state-icon { font-size: 28px; margin-bottom: 10px; }
@@ -221,17 +260,17 @@ section[data-testid="stSidebarNav"],
 /* ── Generic cards ─────────────────────────────────── */
 .afya-card {
     background: #FFFFFF;
-    border: 1px solid #E5E7EB;
+    border: 1px solid #D6E4F0;
     border-radius: 10px;
     padding: 16px 20px;
     margin-bottom: 8px;
 }
 .afya-card-accent {
     background: #FFFFFF;
-    border-left: 4px solid #0F6E56;
-    border-top: 1px solid #E5E7EB;
-    border-right: 1px solid #E5E7EB;
-    border-bottom: 1px solid #E5E7EB;
+    border-left: 4px solid #0BB99F;
+    border-top: 1px solid #D6E4F0;
+    border-right: 1px solid #D6E4F0;
+    border-bottom: 1px solid #D6E4F0;
     border-radius: 0 10px 10px 0;
     padding: 14px 18px;
     margin-bottom: 8px;
@@ -241,7 +280,7 @@ section[data-testid="stSidebarNav"],
 .stat-strip {
     display: flex;
     background: #fff;
-    border: 1px solid #E5E7EB;
+    border: 1px solid #D6E4F0;
     border-radius: 10px;
     overflow: hidden;
     margin-bottom: 16px;
@@ -249,7 +288,7 @@ section[data-testid="stSidebarNav"],
 .stat-item {
     flex: 1;
     padding: 12px 16px 10px;
-    border-right: 1px solid #E5E7EB;
+    border-right: 1px solid #D6E4F0;
     min-width: 0;
 }
 .stat-item:last-child { border-right: none; }
@@ -258,7 +297,7 @@ section[data-testid="stSidebarNav"],
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    color: #9CA3AF;
+    color: #9BAEC8;
     margin-bottom: 5px;
     line-height: 1.3;
     min-height: 2.3em;            /* reserve 2 lines so values stay aligned */
@@ -267,7 +306,7 @@ section[data-testid="stSidebarNav"],
 .stat-value {
     font-size: 27px;
     font-weight: 700;
-    color: #111827;
+    color: #003467;
     line-height: 1.1;
 }
 .stat-hint {
@@ -279,8 +318,8 @@ section[data-testid="stSidebarNav"],
 /* ── AI Decision cards ─────────────────────────────────── */
 .decision-card {
     background: #FFFFFF;
-    border: 1px solid #E5E7EB;
-    border-left: 4px solid #E5E7EB;  /* accent overridden inline */
+    border: 1px solid #D6E4F0;
+    border-left: 4px solid #D6E4F0;  /* accent overridden inline */
     border-radius: 0 10px 10px 0;
     padding: 12px 14px 10px;
     margin-bottom: 2px;
@@ -288,25 +327,25 @@ section[data-testid="stSidebarNav"],
 .decision-drug {
     font-size: 15px;
     font-weight: 700;
-    color: #111827;
+    color: #003467;
     margin-bottom: 3px;
 }
 .decision-meta {
     font-size: 12px;
-    color: #6B7280;
+    color: #6B8CAE;
     margin-bottom: 6px;
     line-height: 1.4;
 }
 .decision-narrative {
     font-size: 13px;
-    color: #374151;
+    color: #1E3A55;
     line-height: 1.55;
     margin-bottom: 0;
 }
 .decision-ai-badge {
     font-size: 10px;
     font-weight: 700;
-    color: #0F6E56;
+    color: #0BB99F;
     text-transform: uppercase;
     letter-spacing: 0.06em;
 }
@@ -314,13 +353,13 @@ section[data-testid="stSidebarNav"],
 /* ── Anomaly analysis box ───────────────────────────── */
 .anomaly-analysis {
     background: #FFFBEB;
-    border: 1px solid #FDE68A;
+    border: 1px solid #F0C580;
     border-left: 4px solid #D97706;
     border-radius: 0 8px 8px 0;
     padding: 12px 16px;
     margin-top: 4px;
     font-size: 13px;
-    color: #374151;
+    color: #1E3A55;
     line-height: 1.65;
 }
 .anomaly-analysis-label {
@@ -334,9 +373,9 @@ section[data-testid="stSidebarNav"],
 
 /* ── Traceability card ─────────────────────────────── */
 .trace-card {
-    background: #FAFBFF;
-    border: 1px solid #C7D2FE;
-    border-left: 4px solid #3730A3;
+    background: #F8FBFE;
+    border: 1px solid #C5D8EC;
+    border-left: 4px solid #0072CE;
     border-radius: 0 10px 10px 0;
     padding: 16px 20px;
     margin-top: 8px;
@@ -346,13 +385,13 @@ section[data-testid="stSidebarNav"],
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.10em;
-    color: #3730A3;
+    color: #0072CE;
     margin-bottom: 6px;
 }
 .trace-drug-name {
     font-size: 15px;
     font-weight: 700;
-    color: #1E1B4B;
+    color: #003467;
     margin-bottom: 14px;
 }
 .trace-cols {
@@ -366,10 +405,10 @@ section[data-testid="stSidebarNav"],
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: #6B7280;
+    color: #6B8CAE;
     margin: 10px 0 5px;
     padding-bottom: 3px;
-    border-bottom: 1px solid #E5E7EB;
+    border-bottom: 1px solid #D6E4F0;
 }
 .trace-section:first-child { margin-top: 0; }
 .trace-row {
@@ -377,32 +416,32 @@ section[data-testid="stSidebarNav"],
     justify-content: space-between;
     font-size: 13px;
     padding: 2px 0;
-    border-bottom: 1px dotted #F3F4F6;
+    border-bottom: 1px dotted #F0F5FA;
 }
-.trace-key  { color: #6B7280; }
-.trace-val  { font-weight: 600; color: #111827; text-align: right; }
+.trace-key  { color: #6B8CAE; }
+.trace-val  { font-weight: 600; color: #003467; text-align: right; }
 .trace-formula-line {
     font-size: 12.5px;
-    font-family: 'Consolas', 'Courier New', monospace;
-    color: #374151;
-    background: #EEF2FF;
+    font-family: 'Montserrat', sans-serif;
+    color: #1E3A55;
+    background: #EBF3FB;
     border-radius: 4px;
     padding: 4px 8px;
     margin: 4px 0 2px;
 }
 .trace-formula-step {
     font-size: 12px;
-    color: #6B7280;
-    font-family: 'Consolas', 'Courier New', monospace;
+    color: #6B8CAE;
+    font-family: 'Montserrat', sans-serif;
     padding: 1px 8px;
 }
 .trace-formula-answer {
     font-size: 14px;
     font-weight: 700;
-    color: #1E1B4B;
-    font-family: 'Consolas', 'Courier New', monospace;
+    color: #003467;
+    font-family: 'Montserrat', sans-serif;
     padding: 4px 8px;
-    background: #C7D2FE;
+    background: #C5D8EC;
     border-radius: 4px;
     margin-top: 4px;
     display: inline-block;
@@ -419,7 +458,7 @@ section[data-testid="stSidebarNav"],
 /* ── Data quality banner ────────────────────────────── */
 .dq-banner {
     background: #FFFBEB;
-    border: 1px solid #FDE68A;
+    border: 1px solid #F0C580;
     border-left: 4px solid #D97706;
     border-radius: 0 8px 8px 0;
     padding: 10px 16px;
@@ -431,16 +470,16 @@ section[data-testid="stSidebarNav"],
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.07em;
-    color: #92400E;
+    color: #D97706;
     margin-bottom: 4px;
 }
-.dq-banner-item { color: #78350F; padding: 1px 0; }
+.dq-banner-item { color: #D97706; padding: 1px 0; }
 
 /* ── Insight cards (Phase 2) ────────────────────────── */
 .insight-card {
     background: #FFFFFF;
-    border: 1px solid #E5E7EB;
-    border-left: 4px solid #E5E7EB;   /* accent overridden inline */
+    border: 1px solid #D6E4F0;
+    border-left: 4px solid #D6E4F0;   /* accent overridden inline */
     border-radius: 0 10px 10px 0;
     padding: 12px 16px 10px;
     margin-bottom: 8px;
@@ -455,13 +494,13 @@ section[data-testid="stSidebarNav"],
 .insight-headline {
     font-size: 13px;
     font-weight: 700;
-    color: #111827;
+    color: #003467;
     line-height: 1.4;
     margin-bottom: 4px;
 }
 .insight-narration {
     font-size: 12px;
-    color: #374151;
+    color: #1E3A55;
     line-height: 1.5;
     margin-bottom: 6px;
     font-style: italic;
@@ -473,12 +512,12 @@ section[data-testid="stSidebarNav"],
 }
 .insight-facts li {
     font-size: 11px;
-    color: #6B7280;
+    color: #6B8CAE;
     padding: 1px 0;
 }
 .insight-facts li::before {
     content: "· ";
-    color: #9CA3AF;
+    color: #9BAEC8;
 }
 .insight-action-chip {
     display: inline-block;
@@ -486,9 +525,9 @@ section[data-testid="stSidebarNav"],
     font-weight: 700;
     padding: 3px 10px;
     border-radius: 4px;
-    background: #F0FDF4;
-    color: #166534;
-    border: 1px solid #86EFAC;
+    background: #F0FBF8;
+    color: #117A65;
+    border: 1px solid #A7D9D4;
     text-transform: uppercase;
     letter-spacing: 0.05em;
 }
@@ -498,11 +537,11 @@ section[data-testid="stSidebar"] > div { padding-top: 1rem; }
 .sidebar-facility {
     font-size: 13px;
     font-weight: 700;
-    color: #0F6E56;
+    color: #0BB99F;
     padding: 2px 0;
     line-height: 1.4;
 }
-.sidebar-date { font-size: 11px; color: #9CA3AF; }
+.sidebar-date { font-size: 11px; color: #9BAEC8; }
 </style>
 """
 
@@ -587,7 +626,7 @@ def stat_strip(metrics: list[dict]) -> None:
     """
     items_html = ""
     for m in metrics:
-        accent = m.get("accent_color", "#111827")
+        accent = m.get("accent_color", "#003467")
         hint_html = ""
         if m.get("hint"):
             good = m.get("hint_good", True)
@@ -627,12 +666,12 @@ def action_cards(actions: list[dict]) -> None:
     """
     for a in actions:
         act   = a.get("action", "MONITOR")
-        color = ACTION_COLORS.get(act, "#888780")
+        color = ACTION_COLORS.get(act, "#6B8CAE")
         cp    = a.get("clinical_priority", "")
 
         priority_html = ""
         if cp:
-            cp_color = PRIORITY_COLORS.get(cp, "#888780")
+            cp_color = PRIORITY_COLORS.get(cp, "#6B8CAE")
             priority_html = (
                 f'<span class="priority-badge" style="background:{cp_color}">{cp}</span>'
             )
@@ -684,14 +723,14 @@ def decision_card_ai(
     # Prefixed with "CONF:" so it can't be mistaken for clinical priority.
     # HIGH=green (reliable forecast), MEDIUM=amber, LOW=red (sparse/stocked-out data).
     _conf_styles = {
-        "HIGH":   "background:#DCFCE7;color:#166534;border:1px solid #86EFAC",
-        "MEDIUM": "background:#FEF3C7;color:#92400E;border:1px solid #FDE68A",
-        "LOW":    "background:#FEE2E2;color:#991B1B;border:1px solid #FECACA",
+        "HIGH":   "background:#F0FBF8;color:#117A65;border:1px solid #A7D9D4",
+        "MEDIUM": "background:#FFFBEB;color:#D97706;border:1px solid #F0C580",
+        "LOW":    "background:#FFF1F3;color:#C0392B;border:1px solid #F5B7B1",
     }
     conf_badge = ""
     if confidence:
         _lvl = confidence.upper()
-        _style = _conf_styles.get(_lvl, "background:#F3F4F6;color:#6B7280;border:1px solid #E5E7EB")
+        _style = _conf_styles.get(_lvl, "background:#F0F5FA;color:#6B8CAE;border:1px solid #D6E4F0")
         conf_badge = (
             f'<span style="display:inline-block;{_style};border-radius:4px;'
             f'padding:1px 7px;font-size:9px;font-weight:700;letter-spacing:0.05em;'
@@ -721,7 +760,7 @@ def decision_card_ai(
     if remainder:
         with st.expander("Full reasoning →"):
             st.markdown(
-                f'<div style="font-size:12px;color:#374151;line-height:1.65">{remainder}</div>',
+                f'<div style="font-size:12px;color:#1E3A55;line-height:1.65">{remainder}</div>',
                 unsafe_allow_html=True,
             )
 
@@ -731,17 +770,17 @@ def decision_card_ai(
 def status_badge(status: str) -> str:
     """Return inline HTML badge string for stock status."""
     from utils.formatting import STATUS_COLORS
-    color = STATUS_COLORS.get(status.lower(), "#888780")
+    color = STATUS_COLORS.get(status.lower(), "#6B8CAE")
     return f'<span class="badge" style="background:{color}">{status.upper()}</span>'
 
 
 def priority_badge(priority: str) -> str:
-    color = PRIORITY_COLORS.get(priority.upper(), "#888780")
+    color = PRIORITY_COLORS.get(priority.upper(), "#6B8CAE")
     return f'<span class="badge" style="background:{color}">{priority}</span>'
 
 
 def confidence_pill(level: str) -> str:
-    color = CONFIDENCE_COLORS.get(level.upper(), "#888780")
+    color = CONFIDENCE_COLORS.get(level.upper(), "#6B8CAE")
     return f'<span class="badge" style="background:{color};opacity:0.85">{level}</span>'
 
 
@@ -752,7 +791,7 @@ def anomaly_banner(canonical_name: str, message: str) -> None:
         f"""
         <div class="anomaly-banner">
           <div class="anomaly-title">⚠ &nbsp;{canonical_name}</div>
-          <div style="font-size:12px;color:#78350F">{message}</div>
+          <div style="font-size:12px;color:#D97706">{message}</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -763,14 +802,14 @@ def anomaly_banner(canonical_name: str, message: str) -> None:
 
 # Severity → left-border colour
 _INSIGHT_SEV_COLORS = {
-    "CRITICAL": "#DC2626",   # red-600
+    "CRITICAL": "#E11D48",   # red-600
     "HIGH":     "#D97706",   # amber-600
-    "MEDIUM":   "#0F6E56",   # Afya teal
+    "MEDIUM":   "#0BB99F",   # Afya teal
 }
 _INSIGHT_SEV_LABEL_COLORS = {
-    "CRITICAL": "#991B1B",
-    "HIGH":     "#92400E",
-    "MEDIUM":   "#065F46",
+    "CRITICAL": "#C0392B",
+    "HIGH":     "#D97706",
+    "MEDIUM":   "#117A65",
 }
 
 
@@ -787,8 +826,8 @@ def insight_card(row: "Any") -> None:
     facts  = list(getattr(row, "supporting_facts", []))[:2]   # max 2 bullets
     action = str(getattr(row, "recommended_action", "Review"))
 
-    border_col = _INSIGHT_SEV_COLORS.get(sev, "#9CA3AF")
-    label_col  = _INSIGHT_SEV_LABEL_COLORS.get(sev, "#374151")
+    border_col = _INSIGHT_SEV_COLORS.get(sev, "#9BAEC8")
+    label_col  = _INSIGHT_SEV_LABEL_COLORS.get(sev, "#1E3A55")
 
     facts_items = "".join(f"<li>{f}</li>" for f in facts)
     facts_block = f'<ul class="insight-facts">{facts_items}</ul>' if facts_items else ""
@@ -831,7 +870,7 @@ def sidebar_nav(fac=None) -> None:
         if os.path.exists("ksh_logo.png"):
             st.image("ksh_logo.png", use_container_width=True)
             st.markdown(
-                "<hr style='margin:8px 0 6px;border:none;border-top:1px solid #E5E7EB'>",
+                "<hr style='margin:8px 0 6px;border:none;border-top:1px solid #D6E4F0'>",
                 unsafe_allow_html=True,
             )
 
@@ -857,7 +896,7 @@ def sidebar_nav(fac=None) -> None:
             )
 
         st.markdown(
-            "<hr style='margin:10px 0 6px;border:none;border-top:1px solid #E5E7EB'>",
+            "<hr style='margin:10px 0 6px;border:none;border-top:1px solid #D6E4F0'>",
             unsafe_allow_html=True,
         )
 
@@ -871,7 +910,7 @@ def sidebar_nav(fac=None) -> None:
         st.page_link("pages/6_compliance_log.py",   label="Compliance Log",     icon="📜")
 
         st.markdown(
-            "<hr style='margin:6px 0 10px;border:none;border-top:1px solid #E5E7EB'>",
+            "<hr style='margin:6px 0 10px;border:none;border-top:1px solid #D6E4F0'>",
             unsafe_allow_html=True,
         )
 
@@ -880,11 +919,11 @@ def sidebar_nav(fac=None) -> None:
             from intelligence.ai_client import get_provider, last_error
             _provider = get_provider()
             _provider_label = {
-                "groq":   ("✦ Groq",   "#F55036", "#FEF0EE"),
-                "grok":   ("✦ Grok",   "#0F6E56", "#E6F4EE"),
-                "claude": ("✦ Claude", "#6B48FF", "#F0EEFF"),
-                "none":   ("○ AI offline", "#9CA3AF", "#F5F6FA"),
-            }.get(_provider, ("○ AI offline", "#9CA3AF", "#F5F6FA"))
+                "groq":   ("✦ Groq",   "#E11D48", "#FFF1F3"),
+                "grok":   ("✦ Grok",   "#0BB99F", "#EBF3FB"),
+                "claude": ("✦ Claude", "#7F77DD", "#EBF3FB"),
+                "none":   ("○ AI offline", "#9BAEC8", "#F4F8FC"),
+            }.get(_provider, ("○ AI offline", "#9BAEC8", "#F4F8FC"))
             st.markdown(
                 f"<div style='font-size:10px;font-weight:700;color:{_provider_label[1]};"
                 f"background:{_provider_label[2]};padding:3px 8px;border-radius:4px;"
@@ -946,21 +985,21 @@ def traceability_card(
     # Derived values
     lt_p90 = lt_mean + 1.645 * lt_std
     trend_arrow = {"UP": "↑", "DOWN": "↓", "STABLE": "→"}.get(trend_direction.upper(), "→")
-    trend_color = {"UP": "#D97706", "DOWN": "#DC2626", "STABLE": "#6B7280"}.get(trend_direction.upper(), "#6B7280")
+    trend_color = {"UP": "#D97706", "DOWN": "#E11D48", "STABLE": "#6B8CAE"}.get(trend_direction.upper(), "#6B8CAE")
 
-    conf_colors = {"HIGH": ("#166534", "#DCFCE7"), "MEDIUM": ("#92400E", "#FEF3C7"), "LOW": ("#991B1B", "#FEE2E2")}
-    cc, cbg = conf_colors.get(confidence.upper(), ("#6B7280", "#F3F4F6"))
+    conf_colors = {"HIGH": ("#117A65", "#F0FBF8"), "MEDIUM": ("#D97706", "#FFFBEB"), "LOW": ("#C0392B", "#FFF1F3")}
+    cc, cbg = conf_colors.get(confidence.upper(), ("#6B8CAE", "#F0F5FA"))
 
-    cp_colors = {"CRITICAL": "#A32D2D", "HIGH": "#854F0B", "STANDARD": "#0C447C"}
-    cp_color = cp_colors.get(clinical_priority.upper(), "#6B7280")
+    cp_colors = {"CRITICAL": "#C0392B", "HIGH": "#D97706", "STANDARD": "#0072CE"}
+    cp_color = cp_colors.get(clinical_priority.upper(), "#6B8CAE")
 
     dt_colors = {
-        "SMOOTH":       ("#166534", "#DCFCE7"),
-        "ERRATIC":      ("#854F0B", "#FEF3C7"),
-        "INTERMITTENT": ("#1D4ED8", "#EFF6FF"),
-        "LUMPY":        ("#991B1B", "#FEE2E2"),
+        "SMOOTH":       ("#117A65", "#F0FBF8"),
+        "ERRATIC":      ("#D97706", "#FFFBEB"),
+        "INTERMITTENT": ("#0072CE", "#EBF3FB"),
+        "LUMPY":        ("#C0392B", "#FFF1F3"),
     }
-    dt_c, dt_bg = dt_colors.get(demand_type.upper(), ("#6B7280", "#F3F4F6"))
+    dt_c, dt_bg = dt_colors.get(demand_type.upper(), ("#6B8CAE", "#F0F5FA"))
     dt_desc = {
         "SMOOTH":       "frequent · stable quantity",
         "ERRATIC":      "frequent · variable quantity",
@@ -987,7 +1026,7 @@ def traceability_card(
 <div class="trace-row"><span class="trace-key">Demand pattern</span>
   <span class="trace-val">
     <span class="trace-confidence-pill" style="background:{dt_bg};color:{dt_c}">{demand_type}</span>
-    &nbsp;<span style="color:#6B7280;font-weight:400;font-size:11px">{dt_desc}</span>
+    &nbsp;<span style="color:#6B8CAE;font-weight:400;font-size:11px">{dt_desc}</span>
   </span></div>
 <div class="trace-row"><span class="trace-key">Demand interval</span>
   <span class="trace-val">{adi_label}</span></div>
@@ -1000,7 +1039,7 @@ def traceability_card(
 
 <div class="trace-section" style="margin-top:12px">Lead Time</div>
 <div class="trace-row"><span class="trace-key">P50 (used in calc)</span>
-  <span class="trace-val">{lt_mean:.1f}d &nbsp;<span style="color:#9CA3AF;font-size:10px">{lt_obs_label}</span></span></div>
+  <span class="trace-val">{lt_mean:.1f}d &nbsp;<span style="color:#9BAEC8;font-size:10px">{lt_obs_label}</span></span></div>
 <div class="trace-row"><span class="trace-key">P90 worst case</span>
   <span class="trace-val">{lt_p90:.1f}d</span></div>
 <div class="trace-row"><span class="trace-key">Lead time σ</span>
@@ -1032,7 +1071,7 @@ def traceability_card(
 
 <div class="trace-section" style="margin-top:14px">Order Quantity</div>
 <div class="trace-formula-line">Qty = (Cover + LT) × μ − SOH</div>
-<div class="trace-formula-step" style="color:#9CA3AF;font-size:10px">SS determines <em>when</em> to order (via ROP), not how much</div>
+<div class="trace-formula-step" style="color:#9BAEC8;font-size:10px">SS determines <em>when</em> to order (via ROP), not how much</div>
 <div class="trace-formula-step">= ({target_cover_days} + {lt_mean:.1f}) × {avg_daily_units:.2f} − {current_soh:.0f}</div>
 <div class="trace-formula-step">= {cover_units:.1f} − {current_soh:.0f} = {order_calc:.1f} → ceil</div>
 <div class="trace-formula-answer">Order = {order_qty:.0f} units ✓</div>

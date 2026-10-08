@@ -22,8 +22,8 @@ from utils.formatting import (
 )
 
 _LAYOUT = dict(
-    font_family="sans-serif",
-    font_color="#1A1A2E",
+    font_family="Montserrat, sans-serif",
+    font_color="#003467",
     paper_bgcolor="rgba(0,0,0,0)",
     plot_bgcolor="rgba(0,0,0,0)",
     margin=dict(l=0, r=0, t=32, b=0),
@@ -37,7 +37,7 @@ _LAYOUT = dict(
     ),
 )
 
-_GRIDLINE = dict(color="#E5E7EB", width=1)
+_GRIDLINE = dict(color="#D6E4F0", width=1)
 
 
 # ── Inventory capital waterfall ────────────────────────────────────────────────
@@ -53,7 +53,7 @@ def inventory_waterfall(
     total = healthy + slow_moving + dead + near_expiry + stockout or 1
     categories = ["Healthy", "Slow moving (30–90d)", "Dead stock (90d+)", "Near expiry", "Stocked out"]
     values = [healthy, slow_moving, dead, near_expiry, stockout]
-    colors = [COLOR_PRIMARY, "#1D9E75", COLOR_AMBER, COLOR_RED, "#791F1F"]
+    colors = [COLOR_PRIMARY, "#1D9E75", COLOR_AMBER, COLOR_RED, "#C0392B"]
 
     fig = go.Figure()
     for cat, val, col in zip(categories, values, colors):
@@ -92,7 +92,7 @@ def dos_bar_chart(df: pd.DataFrame, top_n: int = 20) -> go.Figure:
     dos_col = "days_of_stock_p50" if "days_of_stock_p50" in df.columns else "days_of_stock"
     df[dos_col] = pd.to_numeric(df[dos_col], errors="coerce")
     df = df.dropna(subset=[dos_col]).nsmallest(top_n, dos_col).sort_values(dos_col)
-    colors = df["dos_status"].map(DOS_COLORS).fillna("#888780")
+    colors = df["dos_status"].map(DOS_COLORS).fillna("#6B8CAE")
 
     fig = go.Figure(go.Bar(
         x=df[dos_col],
@@ -126,12 +126,12 @@ _DONUT_LABELS: dict[str, str] = {
 
 # Distinct colour per severity tier — deliberately wider range than STATUS_COLORS
 _DONUT_COLORS: dict[str, str] = {
-    "negative":  "#7F1D1D",   # darkest red
-    "stockout":  "#991B1B",   # dark red
-    "zero":      "#991B1B",
-    "critical":  "#DC2626",   # bright red
+    "negative":  "#C0392B",   # darkest red
+    "stockout":  "#C0392B",   # dark red
+    "zero":      "#C0392B",
+    "critical":  "#E11D48",   # bright red
     "low":       "#D97706",   # amber
-    "adequate":  "#0F6E56",   # teal
+    "adequate":  "#0BB99F",   # teal
 }
 
 # Canonical ordering (worst → best) so segments render predictably
@@ -149,7 +149,7 @@ def status_donut(status_counts: dict) -> go.Figure:
 
     labels = [_DONUT_LABELS.get(k, k.title()) for k in ordered_keys]
     values = [status_counts[k] for k in ordered_keys]
-    colors = [_DONUT_COLORS.get(k, "#888780") for k in ordered_keys]
+    colors = [_DONUT_COLORS.get(k, "#6B8CAE") for k in ordered_keys]
 
     total = sum(values)
 
@@ -165,12 +165,12 @@ def status_donut(status_counts: dict) -> go.Figure:
 
     fig.add_annotation(
         text=(
-            f"<b style='font-size:22px;color:#111827'>{total:,}</b>"
-            f"<br><span style='font-size:11px;color:#9CA3AF'>products</span>"
+            f"<b style='font-size:22px;color:#003467'>{total:,}</b>"
+            f"<br><span style='font-size:11px;color:#9BAEC8'>products</span>"
         ),
         x=0.5, y=0.5,
         showarrow=False,
-        font=dict(family="sans-serif"),
+        font=dict(family="Montserrat, sans-serif"),
     )
 
     # _LAYOUT already contains a 'legend' key — override it without duplication
@@ -185,7 +185,7 @@ def status_donut(status_counts: dict) -> go.Figure:
             y=0.5,
             xanchor="left",
             x=1.03,
-            font=dict(size=11, color="#6B7280"),
+            font=dict(size=11, color="#6B8CAE"),
             itemsizing="constant",
             traceorder="normal",
         ),
@@ -332,10 +332,10 @@ def dead_stock_scatter(df: pd.DataFrame, color_col: str = "THERAPEUTIC_CLASS") -
 # ── Dead stock capital action bars ────────────────────────────────────────────
 
 _ACTION_COLORS = {
-    "Write off / Return":  "#7F1D1D",   # dark red
-    "Return to supplier":  "#C2410C",   # burnt orange
+    "Write off / Return":  "#C0392B",   # dark red
+    "Return to supplier":  "#D97706",   # burnt orange
     "Reduce next order":   "#D97706",   # amber
-    "Monitor":             "#9CA3AF",   # grey
+    "Monitor":             "#9BAEC8",   # grey
 }
 _ACTION_ORDER = ["Write off / Return", "Return to supplier", "Reduce next order", "Monitor"]
 
@@ -433,10 +433,10 @@ def depletion_timeline(df: pd.DataFrame, top_n: int = 20) -> go.Figure:
     ) * 1.15
 
     def _urgency_color(d: float) -> str:
-        if d <= 0: return "#991B1B"
-        if d < 7:  return "#991B1B"
+        if d <= 0: return "#C0392B"
+        if d < 7:  return "#C0392B"
         if d < 14: return "#D97706"
-        if d < 30: return "#F59E0B"
+        if d < 30: return "#D97706"
         return COLOR_PRIMARY
 
     bar_colors = [_urgency_color(float(d)) for d in plot_df[p50_col]]
@@ -449,7 +449,7 @@ def depletion_timeline(df: pd.DataFrame, top_n: int = 20) -> go.Figure:
             y=plot_df[name_col],
             x=plot_df[p90_col],
             orientation="h",
-            marker_color="rgba(209,213,219,0.4)",
+            marker_color="rgba(214,228,240,0.4)",
             name="High demand (P90)",
             hovertemplate="<b>%{y}</b><br>P90: %{x:.1f}d<extra></extra>",
         ))
@@ -465,7 +465,7 @@ def depletion_timeline(df: pd.DataFrame, top_n: int = 20) -> go.Figure:
     ))
 
     # Threshold vlines — only when within visible range
-    for thresh, color, label in [(7, "#991B1B", "7d critical"), (14, "#D97706", "14d low")]:
+    for thresh, color, label in [(7, "#C0392B", "7d critical"), (14, "#D97706", "14d low")]:
         if thresh <= _x_max:
             fig.add_vline(
                 x=thresh, line_dash="dash", line_color=color,
@@ -496,7 +496,7 @@ def abc_pareto(df: pd.DataFrame) -> go.Figure:
     class_colors = {"A": COLOR_RED, "B": COLOR_AMBER, "C": COLOR_PRIMARY}
     df = df.sort_values("TOTAL_DISPENSING_VALUE", ascending=False).head(40)
     df["cumulative_pct"] = df["TOTAL_DISPENSING_VALUE"].cumsum() / df["TOTAL_DISPENSING_VALUE"].sum() * 100
-    bar_colors = df["ABC_CLASS"].map(class_colors).fillna("#888780") if "ABC_CLASS" in df.columns else COLOR_PRIMARY
+    bar_colors = df["ABC_CLASS"].map(class_colors).fillna("#6B8CAE") if "ABC_CLASS" in df.columns else COLOR_PRIMARY
 
     fig = go.Figure()
     fig.add_trace(go.Bar(
@@ -511,7 +511,7 @@ def abc_pareto(df: pd.DataFrame) -> go.Figure:
         x=df["CANONICAL_NAME"],
         y=df["cumulative_pct"],
         name="Cumulative %",
-        line=dict(color="#1A1A2E", width=2),
+        line=dict(color="#003467", width=2),
         yaxis="y2",
     ))
     fig.add_hline(y=70, line_dash="dot", line_color=COLOR_RED,   yref="y2", annotation_text="A/B", annotation_position="right")
@@ -565,8 +565,8 @@ def stockout_risk_gantt(
         return go.Figure()
 
     def _color(d):
-        if d == 0:   return "#7F1D1D"
-        if d < 7:    return "#DC2626"
+        if d == 0:   return "#C0392B"
+        if d < 7:    return "#E11D48"
         if d < 30:   return "#D97706"
         return COLOR_PRIMARY
 
@@ -596,7 +596,7 @@ def stockout_risk_gantt(
     ))
 
     x_max = max(max(bar_vals) * 1.15, window_days)
-    for thresh, color, label in [(7, "#DC2626", "7d"), (30, "#D97706", "30d")]:
+    for thresh, color, label in [(7, "#E11D48", "7d"), (30, "#D97706", "30d")]:
         if thresh <= x_max:
             fig.add_vline(x=thresh, line_dash="dot", line_color=color, line_width=1.5)
             fig.add_annotation(
@@ -644,7 +644,7 @@ def stockout_class_risk(df: pd.DataFrame, top_n: int = 10) -> go.Figure:
         x=_agg["Monthly_units"],
         y=_agg["THERAPEUTIC_CLASS"],
         orientation="h",
-        marker_color="#991B1B",
+        marker_color="#C0392B",
         opacity=0.8,
         text=_agg["SKUs"].map(lambda n: f"{n} SKU{'s' if n != 1 else ''}"),
         textposition="outside",
@@ -728,8 +728,8 @@ def anomaly_trend_chart(
     fig.add_trace(go.Scatter(
         x=baseline_df["date"], y=baseline_df["qty"],
         fill="tozeroy", mode="lines",
-        line=dict(color="#9CA3AF", width=1),
-        fillcolor="rgba(156,163,175,0.15)",
+        line=dict(color="#9BAEC8", width=1),
+        fillcolor="rgba(155,174,200,0.15)",
         name="Baseline period",
         hovertemplate="%{x|%d %b}: %{y:.0f} units<extra>Baseline period</extra>",
     ))
@@ -753,13 +753,13 @@ def anomaly_trend_chart(
     if baseline_avg > 0:
         fig.add_shape(type="line",
             x0=x_min, x1=split, y0=baseline_avg, y1=baseline_avg,
-            line=dict(color="#9CA3AF", width=1, dash="dot"),
+            line=dict(color="#9BAEC8", width=1, dash="dot"),
         )
         fig.add_annotation(
             x=x_min, y=baseline_avg,
             text=f" {baseline_avg:.1f}/d (baseline)",
             showarrow=False, xanchor="left",
-            font=dict(size=9, color="#9CA3AF"),
+            font=dict(size=9, color="#9BAEC8"),
         )
 
     # ── Current rate reference line ──────────────────────────────────────────
@@ -779,16 +779,16 @@ def anomaly_trend_chart(
     if spike_start is not None:
         fig.add_vline(
             x=spike_start.timestamp() * 1000,
-            line=dict(color="#DC2626", width=1, dash="dash"),
+            line=dict(color="#E11D48", width=1, dash="dash"),
             annotation_text="spike",
             annotation_font_size=9,
-            annotation_font_color="#DC2626",
+            annotation_font_color="#E11D48",
         )
 
     # ── Split line ───────────────────────────────────────────────────────────
     fig.add_vline(
         x=split.timestamp() * 1000,
-        line=dict(color="#E5E7EB", width=1),
+        line=dict(color="#D6E4F0", width=1),
     )
 
     _layout = {**_LAYOUT, "margin": dict(l=0, r=0, t=4, b=0)}
@@ -801,7 +801,7 @@ def anomaly_trend_chart(
             tickformat="%d %b", tickfont=dict(size=9), nticks=6,
         ),
         yaxis=dict(
-            showgrid=True, gridcolor="#F3F4F6",
+            showgrid=True, gridcolor="#F0F5FA",
             showticklabels=True, tickfont=dict(size=9),
             rangemode="tozero",
         ),

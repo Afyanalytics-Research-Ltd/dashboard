@@ -6,7 +6,7 @@ import sys
 import os
 from pathlib import Path
 
-ROOT = Path(os.path.abspath("analytics_app/dashboards/demo/inventory_intelligence"))
+ROOT = Path(os.path.abspath(__file__)).parent / "inventory_intelligence"
 # dynamic_file_loader exec()s every dashboard inside one long-lived Streamlit
 # process, and each dashboard's own sys.path.insert(0, ...) call accumulates
 # in the shared sys.path list rather than resetting between page loads. Once
@@ -34,7 +34,6 @@ for _name in list(sys.modules):
 
 import pandas as pd
 import streamlit as st
-from streamlit_option_menu import option_menu
 
 # ── Shared imports ─────────────────────────────────────────────────────────────
 from intelligence import ai_client, order_intelligence
@@ -94,64 +93,50 @@ _ref_date = sql_ref_date(fac)
 # ── Sidebar ────────────────────────────────────────────────────────────────────
 
 with st.sidebar:
+    # ── Brand (matches facility_operations theme.render_sidebar) ─────────────
     logo_path = str(ROOT.parent / "logo" / "logo.png")
-    
-    if os.path.exists(logo_path):
-        # Set a specific width instead of filling the container
-        st.image(logo_path, width=150) 
-        st.markdown(
-            "<hr style='margin:8px 0 6px;border:none;border-top:1px solid #E5E7EB'>",
-            unsafe_allow_html=True,
-        )
+    logo_col = st.columns([1, 2, 1])
+    with logo_col[1]:
+        if os.path.exists(logo_path):
+            st.image(logo_path, use_container_width=True)
 
     st.markdown(
-        f"<div style='font-size:13px;color:#6B7280;padding:4px 0 12px'>"
-        f"{'● Live' if fac.is_live else '◷ Historical'} · Inventory Intelligence</div>",
+        '<div style="text-align:center;padding:10px 0 16px">'
+        '<div style="font-size:9px;font-weight:700;color:#8BAAC5;'
+        'text-transform:uppercase;letter-spacing:2px;margin-bottom:5px">'
+        'AFYA</div>'
+        '<div style="font-size:17px;font-weight:800;color:#003467;line-height:1.2">'
+        'Inventory Intelligence</div>'
+        f'<div style="font-size:11px;color:#6B8CAE;margin-top:6px">'
+        f'{"● Live" if fac.is_live else "◷ Historical"}</div>'
+        '</div>',
         unsafe_allow_html=True,
     )
 
-    page = option_menu(
-        menu_title=None,
-        options=[
-            "Today's Briefing",
-            "Order Workbench",
-            "Stockout Watch",
-            "Demand Insights",
-            "Dead Stock",
-            "Patient Risk",
-            "Compliance Log",
-        ],
-        icons=[
-            "clipboard2-pulse",
-            "cart-check",
-            "exclamation-triangle",
-            "graph-up",
-            "archive",
-            "person-heart",
-            "shield-check",
-        ],
-        default_index=0,
-        styles={
-            "container": {"padding": "0", "background-color": "transparent"},
-            "icon": {"color": "#0F6E56", "font-size": "13px"},
-            "nav-link": {
-                "font-size": "13px",
-                "font-weight": "500",
-                "color": "#374151",
-                "padding": "8px 12px",
-                "border-radius": "6px",
-            },
-            "nav-link-selected": {
-                "background-color": "#F0FAF6",
-                "color": "#0F6E56",
-                "font-weight": "700",
-            },
-        },
-    )
+    # Button nav (styled by .st-key-side_nav in utils/components.py) — unlike
+    # option_menu's iframe it inherits the page's Montserrat font.
+    _NAV = [
+        ("Today's Briefing", "assignment"),
+        ("Order Workbench",  "shopping_cart_checkout"),
+        ("Stockout Watch",   "warning"),
+        ("Demand Insights",  "monitoring"),
+        ("Dead Stock",       "inventory_2"),
+        ("Patient Risk",     "favorite"),
+        ("Compliance Log",   "verified_user"),
+    ]
+    st.session_state.setdefault("inv_page", _NAV[0][0])
+    with st.container(key="side_nav"):
+        for _label, _icon in _NAV:
+            _active = st.session_state["inv_page"] == _label
+            if st.button(_label, icon=f":material/{_icon}:", key=f"inv_nav_{_label}",
+                         type="primary" if _active else "secondary", width="stretch"):
+                st.session_state["inv_page"] = _label
+                st.rerun()
+    page = st.session_state["inv_page"]
 
     st.markdown(
-        "<div style='font-size:10px;color:#9CA3AF;margin-top:16px;padding-top:8px;"
-        "border-top:1px solid #E5E7EB'>Afyanalytics · Inventory Intelligence</div>",
+        "<div style='font-size:10px;color:#9BAEC8;margin-top:16px;padding-top:8px;"
+        "border-top:1px solid #D6E4F0'>Afyanalytics · Inventory Intelligence</div>",
         unsafe_allow_html=True,
     )
 
@@ -428,22 +413,22 @@ if page == "Today's Briefing":
     stat_strip([
         {"label": "Stocked out",     "value": fmt_int(_stockouts),
          "hint": "Immediate action" if _stockouts else "None", "hint_good": _stockouts == 0,
-         "accent_color": "#991B1B" if _stockouts else "#111827"},
+         "accent_color": "#C0392B" if _stockouts else "#003467"},
         {"label": "Critical  < 7d",  "value": fmt_int(_critical),
          "hint": "Order now" if _critical else "Clear",        "hint_good": _critical == 0,
-         "accent_color": "#DC2626" if _critical else "#111827"},
+         "accent_color": "#E11D48" if _critical else "#003467"},
         {"label": "Low  7–30d",      "value": fmt_int(_low),
          "hint": "Monitor" if _low else "Clear",               "hint_good": _low == 0,
-         "accent_color": "#D97706" if _low else "#111827"},
-        {"label": "Total products",    "value": fmt_int(_total),                                            "accent_color": "#111827"},
-        {"label": "90d dispensed (KES)","value": fmt_kes_millions(kpi.get("TOTAL_DISPENSING_VALUE_90D")),    "accent_color": "#111827"},
+         "accent_color": "#D97706" if _low else "#003467"},
+        {"label": "Total products",    "value": fmt_int(_total),                                            "accent_color": "#003467"},
+        {"label": "90d dispensed (KES)","value": fmt_kes_millions(kpi.get("TOTAL_DISPENSING_VALUE_90D")),    "accent_color": "#003467"},
         {"label": "Chronic patients",  "value": fmt_int(kpi.get("CHRONIC_PATIENTS_ACTIVE")),
-         "hint": "Active last 90d",                                                                          "accent_color": "#111827"},
+         "hint": "Active last 90d",                                                                          "accent_color": "#003467"},
     ])
 
     # ── Climate context banner (only when anomaly is significant) ────────────────
     if _climate_signal and abs(_climate_signal.anomaly_pct) >= 20:
-        _rain_color = "#065A82" if _climate_signal.anomaly_pct > 0 else "#374151"
+        _rain_color = "#0072CE" if _climate_signal.anomaly_pct > 0 else "#1E3A55"
         _rain_icon  = "🌧" if _climate_signal.anomaly_pct > 0 else "☀"
         _rain_dir   = "above" if _climate_signal.anomaly_pct > 0 else "below"
         _rain_note  = (
@@ -452,7 +437,7 @@ if page == "Today's Briefing":
         )
         st.markdown(
             f"""<div style="background:{_rain_color}12;border-left:3px solid {_rain_color};
-            padding:8px 14px;border-radius:4px;margin-bottom:14px;font-size:13px;color:#111827">
+            padding:8px 14px;border-radius:4px;margin-bottom:14px;font-size:13px;color:#003467">
             {_rain_icon} <b>Kisumu climate —</b> {_climate_signal.current_month_name}:
             {abs(_climate_signal.anomaly_pct):.0f}% {_rain_dir} seasonal average
             ({_climate_signal.current_month_mm}mm vs {_climate_signal.historical_avg_mm}mm historical).
@@ -471,9 +456,9 @@ if page == "Today's Briefing":
     ]
     if _actionable_summaries:
         _sev_styles = {
-            "CRITICAL": ("background:#FEE2E2;color:#991B1B;border:1px solid #FECACA", "AT PEAK"),
-            "HIGH":     ("background:#FEF3C7;color:#92400E;border:1px solid #FDE68A", "APPROACHING"),
-            "MEDIUM":   ("background:#EFF6FF;color:#1E40AF;border:1px solid #BFDBFE", "WATCH"),
+            "CRITICAL": ("background:#FFF1F3;color:#C0392B;border:1px solid #F5B7B1", "AT PEAK"),
+            "HIGH":     ("background:#FFFBEB;color:#D97706;border:1px solid #F0C580", "APPROACHING"),
+            "MEDIUM":   ("background:#EBF3FB;color:#0072CE;border:1px solid #B0C8E0", "WATCH"),
         }
         _chips_html = ""
         for _s in sorted(_actionable_summaries, key=lambda x: {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2}.get(x["severity"], 2)):
@@ -492,7 +477,7 @@ if page == "Today's Briefing":
             )
         st.markdown(
             f"<div style='margin-bottom:4px;font-size:11px;font-weight:700;"
-            f"color:#374151;text-transform:uppercase;letter-spacing:.06em'>"
+            f"color:#1E3A55;text-transform:uppercase;letter-spacing:.06em'>"
             f"Seasonal demand signals</div>"
             f"<div style='margin-bottom:14px'>{_chips_html}</div>",
             unsafe_allow_html=True,
@@ -555,16 +540,16 @@ if page == "Today's Briefing":
                     _n = _ctx["days_at_normal_rate"]
                     _spike_type = _ctx.get("spike_type", "SUSTAINED")
                     _type_styles = {
-                        "SUSTAINED": ("background:#FEE2E2;border-color:#FECACA;color:#991B1B", "● SUSTAINED"),
-                        "TRANSIENT": ("background:#FEF3C7;border-color:#FDE68A;color:#92400E", "◎ TRANSIENT"),
-                        "DECLINING": ("background:#EFF6FF;border-color:#BFDBFE;color:#1D4ED8", "↘ DECLINING"),
+                        "SUSTAINED": ("background:#FFF1F3;border-color:#F5B7B1;color:#C0392B", "● SUSTAINED"),
+                        "TRANSIENT": ("background:#FFFBEB;border-color:#F0C580;color:#D97706", "◎ TRANSIENT"),
+                        "DECLINING": ("background:#EBF3FB;border-color:#B0C8E0;color:#0072CE", "↘ DECLINING"),
                     }
                     _ts, _tl = _type_styles.get(_spike_type, _type_styles["SUSTAINED"])
                     _type_chip = (
                         f"<span style='display:inline-block;border:1px solid;border-radius:4px;"
                         f"padding:2px 8px;font-size:10px;font-weight:700;margin:0 4px 4px 0;{_ts}'>{_tl}</span>"
                     )
-                    _cs = "display:inline-block;background:#F3F4F6;border:1px solid #E5E7EB;border-radius:4px;padding:2px 8px;font-size:10px;font-weight:600;color:#374151;margin:0 4px 4px 0"
+                    _cs = "display:inline-block;background:#F0F5FA;border:1px solid #D6E4F0;border-radius:4px;padding:2px 8px;font-size:10px;font-weight:600;color:#1E3A55;margin:0 4px 4px 0"
                     _spike_txt = _ctx["spike_start"].strftime("Started %d %b") if _ctx["spike_start"] else "Onset: last 14d"
                     _stock_txt = (f"Stock: {_d}d at current rate vs {_n}d normal" if _d is not None and _n is not None else f"SOH: {_ctx['current_soh']:.0f} units")
                     _safe_txt  = f"Safe ADC: {_ctx['safe_order_adc']:.1f} u/day" if _ctx.get("safe_order_adc") else ""
@@ -601,7 +586,7 @@ if page == "Today's Briefing":
                 st.markdown("<div style='height:4px'></div>", unsafe_allow_html=True)
 
         st.markdown(
-            f"<div style='font-size:11px;color:#9CA3AF;margin-top:8px'>"
+            f"<div style='font-size:11px;color:#9BAEC8;margin-top:8px'>"
             f"Last run: {pd.Timestamp.now().strftime('%H:%M')} · Cached 1h</div>",
             unsafe_allow_html=True,
         )
@@ -706,7 +691,7 @@ if page == "Today's Briefing":
 
             if _n_urgent > 5:
                 st.markdown(
-                    f"<div style='font-size:12px;color:#6B7280;margin:4px 0 8px'>"
+                    f"<div style='font-size:12px;color:#6B8CAE;margin:4px 0 8px'>"
                     f"Showing top 5 of {_n_urgent} urgent items</div>",
                     unsafe_allow_html=True,
                 )
@@ -716,7 +701,7 @@ if page == "Today's Briefing":
     with st.sidebar:
         st.markdown("---")
         st.markdown(
-            "<div style='font-size:11px;font-weight:700;color:#374151;margin-bottom:6px'>"
+            "<div style='font-size:11px;font-weight:700;color:#1E3A55;margin-bottom:6px'>"
             "📬 Daily digest</div>",
             unsafe_allow_html=True,
         )
@@ -946,9 +931,9 @@ elif page == "Order Workbench":
 
     stat_strip([
         {"label": "Order now (<7d)",      "value": str(n_order_now),  "hint": "Immediate",
-         "hint_good": n_order_now == 0,   "accent_color": "#991B1B" if n_order_now else "#111827"},
+         "hint_good": n_order_now == 0,   "accent_color": "#C0392B" if n_order_now else "#003467"},
         {"label": "Order this week",      "value": str(n_order_week),
-         "accent_color": "#D97706" if n_order_week else "#111827"},
+         "accent_color": "#D97706" if n_order_week else "#003467"},
         {"label": "Total units to order", "value": fmt_int(total_qty)},
         {"label": "Service level target", "value": f"{int(service_level*100)}%"},
         {"label": "Lead time (used)",     "value": fmt_days(lead_time_override if lead_time_override > 0 else fac_lt_mean)},
@@ -1073,11 +1058,11 @@ elif page == "Order Workbench":
         if _brief_key in st.session_state:
             _b = st.session_state[_brief_key]
             st.markdown(
-                f'<div style="background:#F0FAF6;border:1px solid #C3E8D8;border-left:3px solid #0F6E56;'
+                f'<div style="background:#F0FBF8;border:1px solid #A7D9D4;border-left:3px solid #0BB99F;'
                 f'border-radius:0 8px 8px 0;padding:12px 16px;margin-top:4px;font-size:13px;'
-                f'line-height:1.65;color:#111827">'
+                f'line-height:1.65;color:#003467">'
                 f'<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;'
-                f'color:#0F6E56;margin-bottom:6px">{"✦ AI recommendation" if _b.is_ai else "Recommendation"}</div>'
+                f'color:#0BB99F;margin-bottom:6px">{"✦ AI recommendation" if _b.is_ai else "Recommendation"}</div>'
                 f'{_b.narrative}</div>',
                 unsafe_allow_html=True,
             )
@@ -1207,12 +1192,12 @@ elif page == "Stockout Watch":
     stat_strip([
         {"label": "Stocked out (SOH ≤ 0)", "value": fmt_int(zero_soh),
          "hint": "PPB risk",  "hint_good": zero_soh == 0,
-         "accent_color": "#991B1B" if zero_soh else "#111827"},
+         "accent_color": "#C0392B" if zero_soh else "#003467"},
         {"label": "Critical (<7d)",         "value": fmt_int(red_count),
          "hint": "Order now", "hint_good": red_count == 0,
-         "accent_color": "#DC2626" if red_count else "#111827"},
+         "accent_color": "#E11D48" if red_count else "#003467"},
         {"label": "Low stock (7–30d)",      "value": fmt_int(amber_count),
-         "accent_color": "#D97706" if amber_count else "#111827"},
+         "accent_color": "#D97706" if amber_count else "#003467"},
         {"label": "Average DOS (facility)", "value": fmt_days(avg_dos_val)},
         {"label": "Products assessed",      "value": fmt_int(len(df))},
     ])
@@ -1280,17 +1265,17 @@ elif page == "Stockout Watch":
 
             _dur_cols = st.columns(3)
             for _col, _label, _subset, _clr, _hint in [
-                (_dur_cols[0], "Acute (<7d out)",    _acute,   "#DC2626", "May have order in transit"),
+                (_dur_cols[0], "Acute (<7d out)",    _acute,   "#E11D48", "May have order in transit"),
                 (_dur_cols[1], "Serious (7–30d out)", _serious, "#D97706", "Order overdue"),
-                (_dur_cols[2], "Chronic (30d+ out)",  _chronic, "#7F1D1D", "Procurement process failure"),
+                (_dur_cols[2], "Chronic (30d+ out)",  _chronic, "#C0392B", "Procurement process failure"),
             ]:
                 _n = len(_subset)
                 _col.markdown(
                     f"""
-                    <div style="border:1px solid #E5E7EB;border-radius:8px;padding:16px;">
-                      <div style="font-size:11px;font-weight:600;color:#6B7280;text-transform:uppercase;">{_label}</div>
+                    <div style="border:1px solid #D6E4F0;border-radius:8px;padding:16px;">
+                      <div style="font-size:11px;font-weight:600;color:#6B8CAE;text-transform:uppercase;">{_label}</div>
                       <div style="font-size:32px;font-weight:700;color:{_clr};margin:4px 0 2px;">{_n}</div>
-                      <div style="font-size:11px;color:#9CA3AF;">{_hint}</div>
+                      <div style="font-size:11px;color:#9BAEC8;">{_hint}</div>
                     </div>
                     """,
                     unsafe_allow_html=True,
@@ -1615,9 +1600,9 @@ elif page == "Dead Stock":
     stat_strip([
         {"label": "Dead stock SKUs (90d+)", "value": fmt_int(len(dead_only)),
          "hint": "Capital at risk", "hint_good": len(dead_only) == 0,
-         "accent_color": "#991B1B" if len(dead_only) else "#111827"},
+         "accent_color": "#C0392B" if len(dead_only) else "#003467"},
         {"label": "Slow moving (30–90d)", "value": fmt_int(len(slow_only)),
-         "accent_color": "#D97706" if len(slow_only) else "#111827"},
+         "accent_color": "#D97706" if len(slow_only) else "#003467"},
         {"label": "Dead stock value",     "value": fmt_kes_millions(dead_value)},
         {"label": "Slow moving value",    "value": fmt_kes_millions(slow_value)},
         {"label": "Total idle capital",   "value": fmt_kes_millions(_total_idle_value),
@@ -1632,13 +1617,13 @@ elif page == "Dead Stock":
         "Demand dropped", "Over-ordered", "Dormant (>2yr idle)", "No history",
     ]
     _rc_colors = {
-        "Procurement gap":       "#0369A1",
-        "Never dispensed":       "#7F1D1D",
-        "Demand ceased":         "#991B1B",
-        "Demand dropped":        "#C2410C",
+        "Procurement gap":       "#0072CE",
+        "Never dispensed":       "#C0392B",
+        "Demand ceased":         "#C0392B",
+        "Demand dropped":        "#D97706",
         "Over-ordered":          "#D97706",
-        "Dormant (>2yr idle)":   "#6B21A8",
-        "No history":            "#9CA3AF",
+        "Dormant (>2yr idle)":   "#7F77DD",
+        "No history":            "#9BAEC8",
     }
     if not dead_df.empty and "ROOT_CAUSE" in dead_df.columns:
         section_header("Root cause breakdown")
@@ -1667,7 +1652,7 @@ elif page == "Dead Stock":
             _skus   = int(_rc_row["SKUs"])
             _val    = _rc_row["Value"]
             _months = _rc_row["Avg_months_to_clear"]
-            _clr    = _rc_colors.get(_cause, "#6B7280")
+            _clr    = _rc_colors.get(_cause, "#6B8CAE")
             _show_clear = (
                 _cause not in _NO_CLEAR_CAUSES
                 and _months is not None
@@ -1675,11 +1660,11 @@ elif page == "Dead Stock":
             )
             _col.markdown(
                 f"""
-                <div style="border:1px solid #E5E7EB;border-radius:8px;padding:14px;">
-                  <div style="font-size:10px;font-weight:600;color:#6B7280;text-transform:uppercase;letter-spacing:0.05em;">{_cause}</div>
+                <div style="border:1px solid #D6E4F0;border-radius:8px;padding:14px;">
+                  <div style="font-size:10px;font-weight:600;color:#6B8CAE;text-transform:uppercase;letter-spacing:0.05em;">{_cause}</div>
                   <div style="font-size:26px;font-weight:700;color:{_clr};margin:4px 0 2px;">{_skus}</div>
-                  <div style="font-size:11px;color:#374151;">SKUs · {fmt_kes_millions(_val)}</div>
-                  {"<div style='font-size:10px;color:#9CA3AF;margin-top:3px;'>Clears in " + (">3yr" if _months > 36 else "~" + str(round(_months, 1)) + " mo") + "</div>" if _show_clear else ""}
+                  <div style="font-size:11px;color:#1E3A55;">SKUs · {fmt_kes_millions(_val)}</div>
+                  {"<div style='font-size:10px;color:#9BAEC8;margin-top:3px;'>Clears in " + (">3yr" if _months > 36 else "~" + str(round(_months, 1)) + " mo") + "</div>" if _show_clear else ""}
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -1823,16 +1808,16 @@ elif page == "Patient Risk":
     stat_strip([
         {"label": "Drugs with patient exposure", "value": fmt_int(len(exposure_df)),
          "hint": "All risk tiers", "hint_good": len(exposure_df) == 0,
-         "accent_color": "#991B1B" if len(exposure_df) else "#111827"},
+         "accent_color": "#C0392B" if len(exposure_df) else "#003467"},
         {"label": "Patients affected (total)",   "value": fmt_int(_pint("TOTAL_PATIENTS_AT_RISK")),
          "hint": "Unique patients", "hint_good": _pint("TOTAL_PATIENTS_AT_RISK") == 0,
-         "accent_color": "#DC2626" if _pint("TOTAL_PATIENTS_AT_RISK") else "#111827"},
+         "accent_color": "#E11D48" if _pint("TOTAL_PATIENTS_AT_RISK") else "#003467"},
         {"label": "Chronic disease patients",    "value": fmt_int(_pint("CHRONIC_PATIENTS_AT_RISK")),
          "hint": "HTN, DM, epilepsy", "hint_good": _pint("CHRONIC_PATIENTS_AT_RISK") == 0,
-         "accent_color": "#D97706" if _pint("CHRONIC_PATIENTS_AT_RISK") else "#111827"},
+         "accent_color": "#D97706" if _pint("CHRONIC_PATIENTS_AT_RISK") else "#003467"},
         {"label": "Opioid therapy patients",     "value": fmt_int(_pint("OPIOID_PATIENTS_AT_RISK")),
          "hint": "Morphine, pethidine", "hint_good": _pint("OPIOID_PATIENTS_AT_RISK") == 0,
-         "accent_color": "#D97706" if _pint("OPIOID_PATIENTS_AT_RISK") else "#111827"},
+         "accent_color": "#D97706" if _pint("OPIOID_PATIENTS_AT_RISK") else "#003467"},
         {"label": "Total active patients (90d)", "value": fmt_int(_pint("TOTAL_ACTIVE_PATIENTS"))},
     ])
 
@@ -2117,8 +2102,8 @@ elif page == "Demand Insights":
         # Style: teal highlight for peak months, plain for non-peak
         def _style_cell(val):
             if val == "—":
-                return "color: #9CA3AF"
-            return "color: #0F6E56; font-weight: 600"
+                return "color: #9BAEC8"
+            return "color: #0BB99F; font-weight: 600"
 
         st.dataframe(
             _seasonal_outlook.style.map(_style_cell),
@@ -2211,14 +2196,14 @@ elif page == "Compliance Log":
     stat_strip([
         {"label": "Deficit dispense events",  "value": fmt_int(n_deficit_events),
          "hint": "Dispensed from zero/neg",   "hint_good": n_deficit_events == 0,
-         "accent_color": "#991B1B" if n_deficit_events else "#111827"},
+         "accent_color": "#C0392B" if n_deficit_events else "#003467"},
         {"label": "Drugs involved",           "value": fmt_int(n_deficit_drugs),
-         "accent_color": "#DC2626" if n_deficit_drugs else "#111827"},
+         "accent_color": "#E11D48" if n_deficit_drugs else "#003467"},
         {"label": "Pharmacists involved",     "value": fmt_int(n_deficit_users)},
         {"label": "Value dispensed at zero",  "value": fmt_kes(deficit_value)},
         {"label": "Products at negative SOH", "value": fmt_int(negative_soh),
          "hint": "PPB risk", "hint_good": negative_soh == 0,
-         "accent_color": "#991B1B" if negative_soh else "#111827"},
+         "accent_color": "#C0392B" if negative_soh else "#003467"},
     ])
 
     if n_deficit_events > 0:

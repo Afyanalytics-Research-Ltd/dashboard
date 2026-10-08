@@ -16,7 +16,16 @@ OPD->IPD Conversion: rpt_ortho_conversion · V2 only (Feb 2025+)
 
 import sys
 import os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# Shared Streamlit process (dynamic_file_loader): re-insert _root at the front
+# and drop any cached `dashboard*` modules that don't come from it.
+while _root in sys.path:
+    sys.path.remove(_root)
+sys.path.insert(0, _root)
+for _m in [m for m in list(sys.modules) if m == "dashboard" or m.startswith("dashboard.")]:
+    _paths = list(getattr(sys.modules[_m], "__path__", []) or []) + [getattr(sys.modules[_m], "__file__", None) or ""]
+    if not any(p.startswith(_root) for p in _paths):
+        del sys.modules[_m]
 
 import streamlit as st
 import pandas as pd

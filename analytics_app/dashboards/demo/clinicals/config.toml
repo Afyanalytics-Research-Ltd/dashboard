@@ -1,0 +1,6 @@
+[theme]
+base = "light"
+backgroundColor = "#F4F8FC"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#003467"
+font = "sans serif"  # Montserrat applied via CSS

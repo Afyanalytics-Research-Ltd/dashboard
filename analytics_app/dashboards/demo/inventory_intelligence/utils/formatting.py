@@ -9,18 +9,18 @@ from typing import Optional
 
 # ── Brand palette ─────────────────────────────────────────────────────────────
 
-COLOR_PRIMARY    = "#0F6E56"   # teal  — healthy / positive
-COLOR_AMBER      = "#854F0B"   # amber — warning
-COLOR_RED        = "#A32D2D"   # red   — critical / stockout
-COLOR_DEEP_RED   = "#791F1F"   # deep red — negative stock
-COLOR_NEUTRAL    = "#888780"   # grey  — unknown / inactive
-COLOR_BLUE       = "#0C447C"   # blue  — standard / informational
+COLOR_PRIMARY    = "#0BB99F"   # teal  — healthy / positive
+COLOR_AMBER      = "#D97706"   # amber — warning
+COLOR_RED        = "#C0392B"   # red   — critical / stockout
+COLOR_DEEP_RED   = "#C0392B"   # deep red — negative stock
+COLOR_NEUTRAL    = "#6B8CAE"   # grey  — unknown / inactive
+COLOR_BLUE       = "#0072CE"   # blue  — standard / informational
 
-COLOR_BG         = "#F5F6FA"
+COLOR_BG         = "#F4F8FC"
 COLOR_SURFACE    = "#FFFFFF"
-COLOR_BORDER     = "#E5E7EB"
-COLOR_TEXT       = "#1A1A2E"
-COLOR_TEXT_MUTED = "#6B7280"
+COLOR_BORDER     = "#D6E4F0"
+COLOR_TEXT       = "#003467"
+COLOR_TEXT_MUTED = "#6B8CAE"
 
 
 # ── Stock status ─────────────────────────────────────────────────────────────
@@ -28,9 +28,9 @@ COLOR_TEXT_MUTED = "#6B7280"
 STATUS_COLORS: dict[str, str] = {
     "adequate":  COLOR_PRIMARY,    # teal   — healthy
     "low":       "#D97706",        # amber  — watch
-    "critical":  "#DC2626",        # red    — order now
-    "zero":      "#991B1B",        # dark red — stocked out
-    "stockout":  "#991B1B",        # dark red — KPI-path alias for zero
+    "critical":  "#E11D48",        # red    — order now
+    "zero":      "#C0392B",        # dark red — stocked out
+    "stockout":  "#C0392B",        # dark red — KPI-path alias for zero
     "negative":  COLOR_DEEP_RED,   # deepest — negative SOH
 }
 

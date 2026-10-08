@@ -10,11 +10,10 @@ from types import SimpleNamespace
 import pandas as pd
 import streamlit as st
 
-ROOT = Path(os.path.abspath("analytics_app/dashboards/demo/revenue_intelligence"))
+ROOT = Path(os.path.abspath(__file__)).parent / "revenue_intelligence"
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from streamlit_option_menu import option_menu
 import views
 from queries import revenue as R, receivables as AR, leakage as L, analytics as A
 
@@ -73,30 +72,42 @@ ctx = SimpleNamespace(D=D, dm=dm, cur=cur, prior=prior, exp=exp, cutoff=cutoff, 
                       signals=D["signals"], actions=D["actions"])
 
 with st.sidebar:
+    # ── Brand (matches facility_operations theme.render_sidebar) ─────────────
     logo = str(ROOT.parent / "logo" / "logo.png")
-    if os.path.exists(logo):
-        st.image(logo, width=150)
+    logo_col = st.columns([1, 2, 1])
+    with logo_col[1]:
+        if os.path.exists(logo):
+            st.image(logo, use_container_width=True)
     st.markdown(
-        f"<div style='font-size:13px;font-weight:700;color:#0F6E56'>"
-        f"<span style='color:#0F6E56'>●</span> Revenue Intelligence</div>"
-        f"<div style='font-size:11px;color:#9CA3AF'>Revenue cycle · data through {A.mon_label(cutoff)}</div>"
-        "<hr style='margin:10px 0 6px;border:none;border-top:1px solid #E5E7EB'>",
+        '<div style="text-align:center;padding:10px 0 16px">'
+        '<div style="font-size:9px;font-weight:700;color:#8BAAC5;'
+        'text-transform:uppercase;letter-spacing:2px;margin-bottom:5px">'
+        'AFYA</div>'
+        '<div style="font-size:17px;font-weight:800;color:#003467;line-height:1.2">'
+        'Revenue Intelligence</div>'
+        '</div>',
         unsafe_allow_html=True)
-    page = option_menu(
-        menu_title=None,
-        options=["Executive Brief", "Revenue", "Receivables & Cash", "Revenue Leakage", "Action Center"],
-        icons=["speedometer2", "graph-up-arrow", "hourglass-split", "droplet-half", "lightning-charge"],
-        default_index=0,
-        styles={
-            "container": {"padding": "0", "background-color": "transparent"},
-            "icon": {"color": "#0F6E56", "font-size": "13px"},
-            "nav-link": {"font-size": "13px", "font-weight": "500", "color": "#374151",
-                         "padding": "8px 12px", "border-radius": "6px"},
-            "nav-link-selected": {"background-color": "#F0FAF6", "color": "#0F6E56", "font-weight": "700"},
-        })
+    # Button nav (styled by .st-key-side_nav in utils/components.py) — unlike
+    # option_menu's iframe it inherits the page's Montserrat font.
+    _NAV = [
+        ("Executive Brief",    "speed"),
+        ("Revenue",            "trending_up"),
+        ("Receivables & Cash", "hourglass_top"),
+        ("Revenue Leakage",    "water_drop"),
+        ("Action Center",      "bolt"),
+    ]
+    st.session_state.setdefault("rev_page", _NAV[0][0])
+    with st.container(key="side_nav"):
+        for _label, _icon in _NAV:
+            _active = st.session_state["rev_page"] == _label
+            if st.button(_label, icon=f":material/{_icon}:", key=f"rev_nav_{_label}",
+                         type="primary" if _active else "secondary", width="stretch"):
+                st.session_state["rev_page"] = _label
+                st.rerun()
+    page = st.session_state["rev_page"]
     if A.has_inflight_month(dm) is not None:
         st.markdown(
-            f"<div style='font-size:11px;color:#B45309;background:#FFFBEB;border:1px solid #FDE68A;"
+            f"<div style='font-size:11px;color:#D97706;background:#FFFBEB;border:1px solid #F0C580;"
             f"border-radius:6px;padding:7px 9px;margin-top:12px;line-height:1.4'>"
             f"⚠ {A.mon_label(A.has_inflight_month(dm))} is a partial month — headline figures use "
             f"{A.mon_label(cur['REV_MONTH'])}.</div>", unsafe_allow_html=True)

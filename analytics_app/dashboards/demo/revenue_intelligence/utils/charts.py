@@ -13,18 +13,18 @@ import plotly.graph_objects as go
 from utils.formatting import fmt_kes_millions
 
 # ── Palette ───────────────────────────────────────────────────────────────────
-TEAL   = "#0F6E56"
-BLUE   = "#0C447C"
-AMBER  = "#B45309"
-RED    = "#B42318"
-CRIT   = "#B42318"   # undispatched / our delay
-SERIOUS = "#B45309"  # dispatched-unpaid / insurer delay
-GREY   = "#9CA3AF"
-INK    = "#1A1A2E"
-GRID   = "#E5E7EB"
+TEAL   = "#0BB99F"
+BLUE   = "#0072CE"
+AMBER  = "#D97706"
+RED    = "#C0392B"
+CRIT   = "#C0392B"   # undispatched / our delay
+SERIOUS = "#D97706"  # dispatched-unpaid / insurer delay
+GREY   = "#9BAEC8"
+INK    = "#003467"
+GRID   = "#D6E4F0"
 
 _LAYOUT = dict(
-    font_family="sans-serif",
+    font_family="Montserrat, sans-serif",
     font_color=INK,
     paper_bgcolor="rgba(0,0,0,0)",
     plot_bgcolor="rgba(0,0,0,0)",
@@ -50,7 +50,7 @@ def revenue_trend(dm: pd.DataFrame, value_col="TOTAL_INVOICED", roll_col="ROLL_3
     # area fill under the solid (complete) portion
     fig.add_trace(go.Scatter(
         x=x, y=y, mode="lines", line=dict(color=TEAL, width=2.6, shape="spline", smoothing=0.6),
-        fill="tozeroy", fillcolor="rgba(15,110,86,0.10)",
+        fill="tozeroy", fillcolor="rgba(11,185,159,0.10)",
         name="Invoiced", hovertemplate="%{x}<br><b>%{customdata}</b><extra></extra>",
         customdata=[fmt_kes_millions(v) for v in y],
     ))
@@ -90,7 +90,7 @@ def driver_bars(dm: pd.DataFrame, n=8, height=260) -> go.Figure:
                          hovertemplate="%{x}<br>Intensity: KES %{y:.2f}M<extra></extra>"))
     fig.update_layout(**_LAYOUT, height=height, barmode="relative", showlegend=True,
                       xaxis=dict(showgrid=False, tickfont=dict(size=10)),
-                      yaxis=dict(gridcolor=GRID, zeroline=True, zerolinecolor="#C6CCC7",
+                      yaxis=dict(gridcolor=GRID, zeroline=True, zerolinecolor="#C5D8EC",
                                  ticksuffix="M", tickprefix="KES ", tickfont=dict(size=10)))
     return fig
 
@@ -213,7 +213,7 @@ def donut(names, values, colors, center_big="", center_small="", height=230) -> 
 # ── Channel mix (100% stacked over time) ──────────────────────────────────────
 
 _CHANNEL_COLORS = {"M-Pesa": TEAL, "PesaPal": "#1D9E75", "Card": BLUE,
-                   "Patient Account": "#6B7280", "Cheque": "#C084FC", "Cash": AMBER}
+                   "Patient Account": "#6B8CAE", "Cheque": "#7F77DD", "Cash": AMBER}
 
 
 def channel_mix(coll: pd.DataFrame, height=280) -> go.Figure:
@@ -245,7 +245,7 @@ def svc_shift(names, shifts, height=240) -> go.Figure:
                            textfont=dict(size=11),
                            hovertemplate="%{y}<br>Share shift: %{x:+.1f}pp<extra></extra>"))
     fig.update_layout(**_LAYOUT, height=height, showlegend=False,
-                      xaxis=dict(gridcolor=GRID, zeroline=True, zerolinecolor="#C6CCC7",
+                      xaxis=dict(gridcolor=GRID, zeroline=True, zerolinecolor="#C5D8EC",
                                  ticksuffix="pp", tickfont=dict(size=10)),
                       yaxis=dict(tickfont=dict(size=11)))
     return fig
@@ -273,8 +273,8 @@ def hbar(names, values, color=TEAL, height=260, value_fmt="kes") -> go.Figure:
 
 def aging_bar(dist: pd.DataFrame, height=230) -> go.Figure:
     """Undispatched AR by age bucket. dist has AGING_BUCKET, KES, SHARE (ordered)."""
-    ramp = {"0–30 days": "#1D9E75", "31–60 days": "#EDA100",
-            "61–90 days": "#B45309", "90+ days": "#B42318"}
+    ramp = {"0–30 days": "#1D9E75", "31–60 days": "#D97706",
+            "61–90 days": "#D97706", "90+ days": "#C0392B"}
     colors = [ramp.get(b, TEAL) for b in dist["AGING_BUCKET"]]
     fig = go.Figure(go.Bar(
         x=dist["AGING_BUCKET"], y=dist["KES"], marker_color=colors,
@@ -294,7 +294,7 @@ def theatre_funnel(booked, scheduled, completed, billed, height=240) -> go.Figur
     fig = go.Figure(go.Funnel(
         y=["Booked", "Scheduled", "Completed", "Billed"],
         x=[booked, scheduled, completed, billed],
-        marker=dict(color=[BLUE, "#1D9E75", TEAL, "#0A4B3A"]),
+        marker=dict(color=[BLUE, "#1D9E75", TEAL, "#117A65"]),
         textinfo="value+percent initial", textfont=dict(size=12),
         connector=dict(line=dict(color=GRID, width=1)),
     ))

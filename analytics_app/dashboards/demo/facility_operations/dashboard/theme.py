@@ -129,19 +129,34 @@ def apply_theme():
     st.markdown(_CSS, unsafe_allow_html=True)
 
 
+# dynamic_file_loader.py reads ?dashboard=/&page= query params, not URL
+# paths, so plain "/opd"-style hrefs are dead links (on the server they hit
+# the site root, not Streamlit). Every nav URL goes through nav_url().
+# DASHBOARD_ID must match the entry file name: demo/operations_intelligence.py
+# (unique across dashboards/*/ — the loader uses the first glob match).
+DASHBOARD_ID = "operations_intelligence"
+
+
+def nav_url(page_id: str | None) -> str:
+    """Loader-compatible URL: "overview" -> dashboard home, else ?page=<id>."""
+    if not page_id or page_id == "overview":
+        return f"?dashboard={DASHBOARD_ID}"
+    return f"?dashboard={DASHBOARD_ID}&page={page_id}"
+
+
 _NAV = [
     # ── Home ────────────────────────────────────────────────────────────────
-    ("overview",    "fa-solid fa-house",                  "Home",                   "/"),
-    # ── V2 Operational ──────────────────────────────────────────────────────
-    (None,          None,                                 "V2 · Operational",       None),
-    ("opd",         "fa-solid fa-user-clock",             "Patient Flow",           "/opd"),
-    ("dropoff",     "fa-solid fa-route",                  "Patient Drop-off",       "/dropoff"),
-    # ("capacity", "fa-solid fa-gauge-high", "Capacity Pressure", "/capacity"),  # DEFERRED — awaiting denominators + service-level detail
-    ("diagnostics", "fa-solid fa-microscope",             "Diagnostics",            "/diagnostics"),
-    ("pharmacy",    "fa-solid fa-pills",                  "Pharmacy",               "/pharmacy"),
-    ("admissions",  "fa-solid fa-bed-pulse",              "Admissions & Theatre",   "/admissions"),
-    ("physician",   "fa-solid fa-user-doctor",            "Physician Attribution",  "/physician"),
-    ("leakage",     "fa-solid fa-file-invoice-dollar",    "Ops Revenue",            "/leakage"),
+    ("overview",    "fa-solid fa-house",                  "Home",                   nav_url("overview")),
+    # ── Operational ─────────────────────────────────────────────────────────
+    (None,          None,                                 "Operational",            None),
+    ("opd",         "fa-solid fa-user-clock",             "Patient Flow",           nav_url("opd")),
+    ("dropoff",     "fa-solid fa-route",                  "Patient Drop-off",       nav_url("dropoff")),
+    # ("capacity", "fa-solid fa-gauge-high", "Capacity Pressure", nav_url("capacity")),  # DEFERRED — awaiting denominators + service-level detail
+    ("diagnostics", "fa-solid fa-microscope",             "Diagnostics",            nav_url("diagnostics")),
+    ("pharmacy",    "fa-solid fa-pills",                  "Pharmacy",               nav_url("pharmacy")),
+    ("admissions",  "fa-solid fa-bed-pulse",              "Admissions & Theatre",   nav_url("admissions")),
+    ("physician",   "fa-solid fa-user-doctor",            "Physician Attribution",  nav_url("physician")),
+    ("leakage",     "fa-solid fa-file-invoice-dollar",    "Ops Revenue",            nav_url("leakage")),
 ]
 
 
@@ -204,19 +219,22 @@ def render_sidebar(active: str = "overview", show_notify: bool = False):
                     f'border-top:1px solid #D6E4F0;padding-top:10px">{label}</div>'
                 )
                 continue
+            # Shared demo sidebar look (matches revenue/inventory nav):
+            # Montserrat 13px, teal #0BB99F icons, light-teal pill when active.
             is_active  = page_id == active
             is_disabled = href is None
-            icon_color  = "#fff" if is_active else ("#8BAAC5" if is_disabled else "#0072CE")
-            bg          = "background:#003467;" if is_active else ""
-            txt_color   = "#fff" if is_active else ("#8BAAC5" if is_disabled else "#1E3A55")
-            weight      = "800" if is_active else "600"
+            icon_color  = "#8BAAC5" if is_disabled else "#0BB99F"
+            bg          = "background:#F0FBF8;" if is_active else ""
+            txt_color   = "#0BB99F" if is_active else ("#8BAAC5" if is_disabled else "#1E3A55")
+            weight      = "700" if is_active else "500"
             opacity     = "opacity:0.45;" if is_disabled else ""
             cursor      = "cursor:default;" if (is_active or is_disabled) else "cursor:pointer;"
 
             inner = (
-                f'<i class="{icon}" style="width:18px;text-align:center;'
+                f'<i class="{icon}" style="width:16px;text-align:center;'
                 f'font-size:14px;color:{icon_color};flex-shrink:0"></i>'
-                f'<span style="font-size:13px;font-weight:{weight};color:{txt_color}">{label}</span>'
+                f'<span style="font-family:\'Montserrat\',sans-serif;font-size:13px;'
+                f'font-weight:{weight};color:{txt_color}">{label}</span>'
             )
             if is_disabled:
                 inner += (
@@ -225,8 +243,8 @@ def render_sidebar(active: str = "overview", show_notify: bool = False):
                 )
 
             row_style = (
-                f'display:flex;align-items:center;gap:12px;padding:10px 14px;'
-                f'border-radius:8px;text-decoration:none;{bg}{opacity}{cursor}'
+                f'display:flex;align-items:center;gap:10px;padding:8px 12px;'
+                f'border-radius:6px;text-decoration:none;{bg}{opacity}{cursor}'
             )
 
             if is_active or is_disabled:
@@ -240,21 +258,8 @@ def render_sidebar(active: str = "overview", show_notify: bool = False):
         items_html += '</div>'
         st.markdown(items_html, unsafe_allow_html=True)
 
-        # ── Data scope ───────────────────────────────────────────────────────
-        st.markdown('<div style="margin-top:8px"></div>', unsafe_allow_html=True)
-        st.divider()
-        st.markdown(
-            '<div class="sb-label">Data Scope</div>'
-            '<div style="font-size:10px;color:#6B8CAE;line-height:1.85;padding:2px 4px 0">'
-            '<b style="color:#003467">V1 · Jun 2022 – Jan 2025</b><br>'
-            '32 months &nbsp;·&nbsp; 35,000+ patients<br>'
-            '<b style="color:#0072CE">V2 · Feb 2025 – present</b><br>'
-            '14 months &nbsp;·&nbsp; operational'
-            '</div>',
-            unsafe_allow_html=True,
-        )
-
         # ── Abbreviations ────────────────────────────────────────────────────
+        st.markdown('<div style="margin-top:8px"></div>', unsafe_allow_html=True)
         st.divider()
         st.markdown(
             '<div class="sb-label">Abbreviations</div>'

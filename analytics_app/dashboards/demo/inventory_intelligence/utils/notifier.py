@@ -60,32 +60,32 @@ def _mark_sent_today(facility_slug: str) -> None:
 # ── HTML template ─────────────────────────────────────────────────────────────
 
 _SEV_COLORS = {
-    "CRITICAL": ("#FEE2E2", "#DC2626", "#991B1B"),
-    "HIGH":     ("#FEF3C7", "#D97706", "#92400E"),
-    "MEDIUM":   ("#F0FDF4", "#0F6E56", "#065F46"),
+    "CRITICAL": ("#FFF1F3", "#E11D48", "#C0392B"),
+    "HIGH":     ("#FFFBEB", "#D97706", "#D97706"),
+    "MEDIUM":   ("#F0FBF8", "#0BB99F", "#117A65"),
 }
 
 
 def _insight_block_html(row: "InsightRow") -> str:
     sev = str(getattr(row, "severity", "MEDIUM")).upper()
-    bg, border, text = _SEV_COLORS.get(sev, ("#F9FAFB", "#9CA3AF", "#374151"))
+    bg, border, text = _SEV_COLORS.get(sev, ("#F8FBFE", "#9BAEC8", "#1E3A55"))
     drug     = html.escape(str(getattr(row, "drug", "")))
     headline = html.escape(str(getattr(row, "headline", "")))
     action   = html.escape(str(getattr(row, "recommended_action", "")))
     facts    = [html.escape(f) for f in getattr(row, "supporting_facts", [])]
-    facts_li = "".join(f"<li style='margin:2px 0;color:#6B7280'>{f}</li>" for f in facts[:2])
+    facts_li = "".join(f"<li style='margin:2px 0;color:#6B8CAE'>{f}</li>" for f in facts[:2])
 
     return (
         f'<div style="border:1px solid {border};border-left:4px solid {border};'
         f'border-radius:0 8px 8px 0;padding:12px 16px;margin:8px 0;background:{bg}">'
         f'<div style="font-size:10px;font-weight:700;text-transform:uppercase;'
         f'letter-spacing:0.06em;color:{text};margin-bottom:4px">{sev}</div>'
-        f'<div style="font-weight:700;font-size:13px;color:#111827;margin-bottom:6px">'
+        f'<div style="font-weight:700;font-size:13px;color:#003467;margin-bottom:6px">'
         f'{headline}</div>'
         f'<ul style="margin:0 0 8px;padding-left:16px">{facts_li}</ul>'
         f'<span style="display:inline-block;font-size:10px;font-weight:700;'
-        f'padding:3px 10px;border-radius:4px;background:#F0FDF4;color:#166534;'
-        f'border:1px solid #86EFAC;text-transform:uppercase;letter-spacing:0.05em">'
+        f'padding:3px 10px;border-radius:4px;background:#F0FBF8;color:#117A65;'
+        f'border:1px solid #A7D9D4;text-transform:uppercase;letter-spacing:0.05em">'
         f'{action}</span>'
         f'</div>'
     )
@@ -93,9 +93,9 @@ def _insight_block_html(row: "InsightRow") -> str:
 
 _SEV_LABEL = {"CRITICAL": "AT PEAK", "HIGH": "APPROACHING", "MEDIUM": "WATCH"}
 _SEV_CHIP  = {
-    "CRITICAL": "background:#FEE2E2;color:#991B1B;border:1px solid #FECACA",
-    "HIGH":     "background:#FEF3C7;color:#92400E;border:1px solid #FDE68A",
-    "MEDIUM":   "background:#EFF6FF;color:#1E40AF;border:1px solid #BFDBFE",
+    "CRITICAL": "background:#FFF1F3;color:#C0392B;border:1px solid #F5B7B1",
+    "HIGH":     "background:#FFFBEB;color:#D97706;border:1px solid #F0C580",
+    "MEDIUM":   "background:#EBF3FB;color:#0072CE;border:1px solid #B0C8E0",
 }
 
 
@@ -122,7 +122,7 @@ def _seasonal_section_html(signals: list) -> str:
     return (
         f'<tr><td style="padding:14px 28px 0">'
         f'<div style="font-size:10px;font-weight:700;text-transform:uppercase;'
-        f'letter-spacing:0.07em;color:#9CA3AF;margin-bottom:6px">Seasonal demand signals</div>'
+        f'letter-spacing:0.07em;color:#9BAEC8;margin-bottom:6px">Seasonal demand signals</div>'
         f'<div>{chips}</div>'
         f'</td></tr>'
     )
@@ -142,7 +142,7 @@ def _build_html(
     insight_blocks = "".join(_insight_block_html(r) for r in insights[:3])
     if not insight_blocks:
         insight_blocks = (
-            '<p style="color:#6B7280;font-size:13px">'
+            '<p style="color:#6B8CAE;font-size:13px">'
             'No critical insights detected today. Stock levels are healthy.</p>'
         )
 
@@ -155,23 +155,23 @@ def _build_html(
     kpi_row = (
         f'<table style="width:100%;border-collapse:collapse;margin:12px 0">'
         f'<tr>'
-        f'<td style="text-align:center;padding:10px;border:1px solid #E5E7EB;border-radius:6px">'
-        f'<div style="font-size:22px;font-weight:700;color:{"#DC2626" if stockouts else "#111827"}">'
-        f'{stockouts}</div><div style="font-size:10px;color:#9CA3AF;text-transform:uppercase">'
+        f'<td style="text-align:center;padding:10px;border:1px solid #D6E4F0;border-radius:6px">'
+        f'<div style="font-size:22px;font-weight:700;color:{"#E11D48" if stockouts else "#003467"}">'
+        f'{stockouts}</div><div style="font-size:10px;color:#9BAEC8;text-transform:uppercase">'
         f'Stocked out</div></td>'
-        f'<td style="text-align:center;padding:10px;border:1px solid #E5E7EB;border-radius:6px">'
-        f'<div style="font-size:22px;font-weight:700;color:{"#D97706" if critical else "#111827"}">'
-        f'{critical}</div><div style="font-size:10px;color:#9CA3AF;text-transform:uppercase">'
+        f'<td style="text-align:center;padding:10px;border:1px solid #D6E4F0;border-radius:6px">'
+        f'<div style="font-size:22px;font-weight:700;color:{"#D97706" if critical else "#003467"}">'
+        f'{critical}</div><div style="font-size:10px;color:#9BAEC8;text-transform:uppercase">'
         f'Critical &lt;7d</div></td>'
-        f'<td style="text-align:center;padding:10px;border:1px solid #E5E7EB;border-radius:6px">'
-        f'<div style="font-size:22px;font-weight:700;color:#111827">{low}</div>'
-        f'<div style="font-size:10px;color:#9CA3AF;text-transform:uppercase">Low 7–30d</div></td>'
-        f'<td style="text-align:center;padding:10px;border:1px solid #E5E7EB;border-radius:6px">'
-        f'<div style="font-size:22px;font-weight:700;color:#111827">{order_count}</div>'
-        f'<div style="font-size:10px;color:#9CA3AF;text-transform:uppercase">Order now</div></td>'
-        f'<td style="text-align:center;padding:10px;border:1px solid #E5E7EB;border-radius:6px">'
-        f'<div style="font-size:22px;font-weight:700;color:#111827">{patient_risk_count}</div>'
-        f'<div style="font-size:10px;color:#9CA3AF;text-transform:uppercase">Patients at risk</div></td>'
+        f'<td style="text-align:center;padding:10px;border:1px solid #D6E4F0;border-radius:6px">'
+        f'<div style="font-size:22px;font-weight:700;color:#003467">{low}</div>'
+        f'<div style="font-size:10px;color:#9BAEC8;text-transform:uppercase">Low 7–30d</div></td>'
+        f'<td style="text-align:center;padding:10px;border:1px solid #D6E4F0;border-radius:6px">'
+        f'<div style="font-size:22px;font-weight:700;color:#003467">{order_count}</div>'
+        f'<div style="font-size:10px;color:#9BAEC8;text-transform:uppercase">Order now</div></td>'
+        f'<td style="text-align:center;padding:10px;border:1px solid #D6E4F0;border-radius:6px">'
+        f'<div style="font-size:22px;font-weight:700;color:#003467">{patient_risk_count}</div>'
+        f'<div style="font-size:10px;color:#9BAEC8;text-transform:uppercase">Patients at risk</div></td>'
         f'</tr></table>'
     )
 
@@ -181,7 +181,7 @@ def _build_html(
         clinical_section = (
             f'<tr><td style="padding:16px 28px 0">'
             f'<div style="font-size:10px;font-weight:700;text-transform:uppercase;'
-            f'letter-spacing:0.07em;color:#9CA3AF;margin-bottom:4px">'
+            f'letter-spacing:0.07em;color:#9BAEC8;margin-bottom:4px">'
             f'Clinical alerts</div>'
             f'{alert_blocks}'
             f'</td></tr>'
@@ -192,7 +192,7 @@ def _build_html(
     cta = (
         f'<div style="text-align:center;margin:20px 0">'
         f'<a href="{html.escape(dashboard_url)}" style="display:inline-block;'
-        f'background:#0F6E56;color:#FFFFFF;font-weight:700;font-size:13px;'
+        f'background:#0BB99F;color:#FFFFFF;font-weight:700;font-size:13px;'
         f'padding:12px 28px;border-radius:6px;text-decoration:none;'
         f'letter-spacing:0.03em">Open Full Dashboard →</a></div>'
     ) if dashboard_url else ""
@@ -204,20 +204,20 @@ def _build_html(
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Afya Inventory — Daily Digest</title>
 </head>
-<body style="margin:0;padding:0;background:#F3F4F6;font-family:'Helvetica Neue',Arial,sans-serif">
-  <table width="100%" cellpadding="0" cellspacing="0" bgcolor="#F3F4F6">
+<body style="margin:0;padding:0;background:#F0F5FA;font-family:Montserrat,'Helvetica Neue',Arial,sans-serif">
+  <table width="100%" cellpadding="0" cellspacing="0" bgcolor="#F0F5FA">
     <tr><td align="center" style="padding:32px 16px">
       <table width="600" cellpadding="0" cellspacing="0"
-             style="background:#FFFFFF;border-radius:12px;border:1px solid #E5E7EB;overflow:hidden">
+             style="background:#FFFFFF;border-radius:12px;border:1px solid #D6E4F0;overflow:hidden">
 
         <!-- Header -->
         <tr>
-          <td style="background:#0F6E56;padding:20px 28px">
+          <td style="background:#0BB99F;padding:20px 28px">
             <div style="font-size:11px;font-weight:700;text-transform:uppercase;
-                        letter-spacing:0.1em;color:#A7F3D0">Afya Inventory Intelligence</div>
+                        letter-spacing:0.1em;color:#A7D9D4">Afya Inventory Intelligence</div>
             <div style="font-size:20px;font-weight:800;color:#FFFFFF;margin:4px 0 2px">
               Daily Digest</div>
-            <div style="font-size:12px;color:#6EE7B7">
+            <div style="font-size:12px;color:#A7D9D4">
               {facility_name} &nbsp;·&nbsp; {digest_date.strftime('%A, %d %b %Y')}</div>
           </td>
         </tr>
@@ -225,7 +225,7 @@ def _build_html(
         <!-- KPI strip -->
         <tr><td style="padding:20px 28px 0">
           <div style="font-size:10px;font-weight:700;text-transform:uppercase;
-                      letter-spacing:0.07em;color:#9CA3AF;margin-bottom:6px">
+                      letter-spacing:0.07em;color:#9BAEC8;margin-bottom:6px">
             Today's snapshot</div>
           {kpi_row}
         </td></tr>
@@ -233,7 +233,7 @@ def _build_html(
         <!-- Insight cards -->
         <tr><td style="padding:16px 28px 0">
           <div style="font-size:10px;font-weight:700;text-transform:uppercase;
-                      letter-spacing:0.07em;color:#9CA3AF;margin-bottom:4px">
+                      letter-spacing:0.07em;color:#9BAEC8;margin-bottom:4px">
             Priority insights</div>
           {insight_blocks}
         </td></tr>
@@ -249,8 +249,8 @@ def _build_html(
 
         <!-- Footer -->
         <tr>
-          <td style="background:#F9FAFB;padding:14px 28px;border-top:1px solid #E5E7EB">
-            <div style="font-size:10px;color:#9CA3AF">
+          <td style="background:#F8FBFE;padding:14px 28px;border-top:1px solid #D6E4F0">
+            <div style="font-size:10px;color:#9BAEC8">
               Sent by Afya Inventory Intelligence · {digest_date.strftime('%d %b %Y')} ·
               Numbers pre-computed from facility dispensing data.
               Do not reply to this email.

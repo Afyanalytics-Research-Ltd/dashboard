@@ -17,44 +17,44 @@ from utils.formatting import fmt_kes, fmt_kes_millions, fmt_int, fmt_pct
 from queries import analytics as A
 
 # ── Severity palette (semantic, not the brand accent) ─────────────────────────
-_SEV = {"critical": "#B42318", "serious": "#B45309", "warning": "#B45309", "info": "#0C447C"}
-_SEV_BG = {"critical": "#FEE4E2", "serious": "#FEF0C7", "warning": "#FEF0C7", "info": "#EAF1FB"}
+_SEV = {"critical": "#C0392B", "serious": "#D97706", "warning": "#D97706", "info": "#0072CE"}
+_SEV_BG = {"critical": "#FFF1F3", "serious": "#F0C580", "warning": "#F0C580", "info": "#EBF3FB"}
 _SEV_LABEL = {"critical": "CRITICAL", "serious": "HIGH", "warning": "MEDIUM", "info": "WATCH"}
 
 _EXTRA_CSS = """
 <style>
 .callout{border-radius:0 8px 8px 0;padding:11px 15px;margin:6px 0 14px;font-size:13.5px;line-height:1.55}
 .callout .c-t{font-weight:700;margin-bottom:2px}
-.callout.info{background:#F0F6FC;border-left:4px solid #0C447C;color:#0f2540}
-.callout.warn{background:#FFFBEB;border-left:4px solid #B45309;color:#5b3c0a}
-.callout.crit{background:#FEF2F2;border-left:4px solid #B42318;color:#5a1512}
-.diagnosis{display:flex;gap:0;background:#fff;border:1px solid #E5E7EB;border-radius:10px;
+.callout.info{background:#F4F8FC;border-left:4px solid #0072CE;color:#003467}
+.callout.warn{background:#FFFBEB;border-left:4px solid #D97706;color:#D97706}
+.callout.crit{background:#FFF1F3;border-left:4px solid #C0392B;color:#C0392B}
+.diagnosis{display:flex;gap:0;background:#fff;border:1px solid #D6E4F0;border-radius:10px;
   overflow:hidden;margin:2px 0 18px}
-.diagnosis .d-cell{flex:1;padding:12px 16px;border-right:1px solid #EEF0F2}
+.diagnosis .d-cell{flex:1;padding:12px 16px;border-right:1px solid #EBF3FB}
 .diagnosis .d-cell:last-child{border-right:none}
-.diagnosis .d-k{font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#9CA3AF}
-.diagnosis .d-v{font-size:13.5px;font-weight:600;color:#111827;margin-top:3px;line-height:1.35}
-.diagnosis .d-v .accent{color:#B42318}
-.sig{display:flex;gap:11px;padding:11px 0;border-bottom:1px solid #F0F1F4}
+.diagnosis .d-k{font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#9BAEC8}
+.diagnosis .d-v{font-size:13.5px;font-weight:600;color:#003467;margin-top:3px;line-height:1.35}
+.diagnosis .d-v .accent{color:#C0392B}
+.sig{display:flex;gap:11px;padding:11px 0;border-bottom:1px solid #F0F5FA}
 .sig:last-child{border-bottom:none}
 .sig .bar{width:3px;border-radius:2px;flex:none}
-.sig .t{font-weight:700;font-size:13.5px;color:#111827}
-.sig .d{font-size:12.5px;color:#4b5563;margin-top:3px;line-height:1.45}
-.sig .m{font-size:11px;color:#9CA3AF;margin-top:4px;font-family:ui-monospace,Consolas,monospace}
+.sig .t{font-weight:700;font-size:13.5px;color:#003467}
+.sig .d{font-size:12.5px;color:#4A5568;margin-top:3px;line-height:1.45}
+.sig .m{font-size:11px;color:#9BAEC8;margin-top:4px;font-family:Montserrat,sans-serif}
 .pill{display:inline-block;font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;
   text-transform:uppercase;letter-spacing:.04em;vertical-align:middle}
-.work{display:flex;gap:14px;padding:14px 0;border-bottom:1px solid #F0F1F4}
+.work{display:flex;gap:14px;padding:14px 0;border-bottom:1px solid #F0F5FA}
 .work:last-child{border-bottom:none}
-.work .rk{width:26px;height:26px;border-radius:7px;background:#F3F4F6;display:grid;place-items:center;
-  font-weight:800;font-size:13px;flex:none;color:#374151}
-.work .amt{font-size:19px;font-weight:800;letter-spacing:-.02em;color:#111827;text-align:right;white-space:nowrap}
-.work .amt small{display:block;font-size:10px;font-weight:600;color:#9CA3AF;letter-spacing:.05em;text-transform:uppercase}
-.work .h{font-size:14px;font-weight:700;color:#111827}
-.work .act{font-size:12.5px;color:#4b5563;margin-top:5px;line-height:1.5}
-.work .meta{font-size:11px;color:#9CA3AF;margin-top:5px;font-family:ui-monospace,Consolas,monospace}
-.legend{display:flex;flex-wrap:wrap;gap:14px;margin-top:6px;font-size:12px;color:#4b5563}
+.work .rk{width:26px;height:26px;border-radius:7px;background:#F0F5FA;display:grid;place-items:center;
+  font-weight:800;font-size:13px;flex:none;color:#1E3A55}
+.work .amt{font-size:19px;font-weight:800;letter-spacing:-.02em;color:#003467;text-align:right;white-space:nowrap}
+.work .amt small{display:block;font-size:10px;font-weight:600;color:#9BAEC8;letter-spacing:.05em;text-transform:uppercase}
+.work .h{font-size:14px;font-weight:700;color:#003467}
+.work .act{font-size:12.5px;color:#4A5568;margin-top:5px;line-height:1.5}
+.work .meta{font-size:11px;color:#9BAEC8;margin-top:5px;font-family:Montserrat,sans-serif}
+.legend{display:flex;flex-wrap:wrap;gap:14px;margin-top:6px;font-size:12px;color:#4A5568}
 .legend i{width:11px;height:11px;border-radius:3px;display:inline-block;margin-right:5px;vertical-align:middle}
-.note{font-size:12px;color:#6B7280;line-height:1.5}
+.note{font-size:12px;color:#6B8CAE;line-height:1.5}
 /* equal-height KPI tiles — reserve consistent space per part so tiles align
    regardless of how many lines each label/value/delta wraps to */
 .kpi-tile{display:flex;flex-direction:column}
@@ -71,29 +71,29 @@ def data_notes_expander(ctx):
         cutoff = A.mon_label(ctx.cutoff)
         for t, d, col in [
             ("Dispatch collapse (Sep 2025 →)",
-             "0% dispatch for the last seven data months is a real operational failure, not a data gap.", "#B42318"),
+             "0% dispatch for the last seven data months is a real operational failure, not a data gap.", "#C0392B"),
             ("Collection rate is not shown as performance",
              "The payment feed is incomplete (~KES 64M gap) and most AR isn't due yet, so a same-month "
-             "collection rate would mislead. We show channel mix only.", "#B42318"),
+             "collection rate would mislead. We show channel mix only.", "#C0392B"),
             ("AR aging is anchored to the data cutoff",
              f"The reporting snapshot ages balances to today, but data ends {cutoff}; that ~{ctx.lag}-day lag "
-             f"would push everything into '90+'. We re-age at invoice level to {cutoff} for a true distribution.", "#B45309"),
+             f"would push everything into '90+'. We re-age at invoice level to {cutoff} for a true distribution.", "#D97706"),
             ("Exposure is counted once",
              "Open AR (stock) is separated from operational leakage (flow); the unknown-insurer balance is a "
-             "subset of AR, not an additional amount, so nothing is double-counted.", "#B45309"),
+             "subset of AR, not an additional amount, so nothing is double-counted.", "#D97706"),
             ("Theatre billing capture is uncertain",
              "The booking funnel and the leakage table disagree on completed-but-unbilled theatre because "
-             "visit-to-invoice linkage is incomplete. Treat the theatre figure as indicative.", "#B45309"),
+             "visit-to-invoice linkage is incomplete. Treat the theatre figure as indicative.", "#D97706"),
             ("Pharmacy Mar-2025 outlier excluded",
-             "A KES 21M Nutriflex data-entry error is removed from every pharmacy figure.", "#B45309"),
+             "A KES 21M Nutriflex data-entry error is removed from every pharmacy figure.", "#D97706"),
             ("Latest month is partial",
              f"The final month in the data is in-flight; headline figures use the last complete month "
-             f"({A.mon_label(ctx.cur['REV_MONTH'])}).", "#0C447C"),
+             f"({A.mon_label(ctx.cur['REV_MONTH'])}).", "#0072CE"),
             ("Excluded periods",
-             "The Apr–Aug 2024 pre-go-live ramp and the Oct-2025 anomaly are excluded from trends.", "#0C447C"),
+             "The Apr–Aug 2024 pre-go-live ramp and the Oct-2025 anomaly are excluded from trends.", "#0072CE"),
         ]:
             st.markdown(f"<div style='font-size:12px;margin-bottom:9px'><b style='color:{col}'>{t}</b><br>"
-                        f"<span style='color:#4b5563'>{d}</span></div>", unsafe_allow_html=True)
+                        f"<span style='color:#4A5568'>{d}</span></div>", unsafe_allow_html=True)
 
 
 def setup():
@@ -114,7 +114,7 @@ def pill(sev):
 
 def render_signals(signals):
     if not signals:
-        st.markdown("<div style='font-size:13px;color:#0F6E56;padding:8px 0'>✓ No active alerts.</div>",
+        st.markdown("<div style='font-size:13px;color:#0BB99F;padding:8px 0'>✓ No active alerts.</div>",
                     unsafe_allow_html=True)
         return
     for s in signals:
@@ -136,7 +136,7 @@ def _svc_shares(svc, month):
 def _pharm_line(pt):
     fig = go.Figure(go.Scatter(
         x=[A.mon_label(m) for m in pt["REV_MONTH"]], y=pt["LEAKAGE_KES"], mode="lines+markers",
-        line=dict(color="#B45309", width=2.4), fill="tozeroy", fillcolor="rgba(180,83,9,0.10)",
+        line=dict(color="#D97706", width=2.4), fill="tozeroy", fillcolor="rgba(217,119,6,0.10)",
         marker=dict(size=5), hovertemplate="%{x}<br>KES %{y:,.0f}<extra></extra>"))
     fig.update_layout(**C._LAYOUT, height=300, showlegend=False,
                       xaxis=dict(showgrid=False, tickfont=dict(size=9)),
@@ -169,23 +169,23 @@ def view_exec(ctx):
     kpi_row([
         {"label": f"Gross revenue · {A.mon_label(cur['REV_MONTH'])}", "value": fmt_kes_millions(cur["TOTAL_INVOICED"]),
          "delta": (fmt_pct(rev_mom) + " vs prior month") if rev_mom is not None else "",
-         "delta_good": (rev_mom or 0) >= 0, "accent_color": "#0F6E56"},
+         "delta_good": (rev_mom or 0) >= 0, "accent_color": "#0BB99F"},
         {"label": "Open insurer receivables", "value": fmt_kes_millions(exp.total_ar),
-         "delta": "the exposure", "delta_good": True, "accent_color": "#0C447C"},
+         "delta": "the exposure", "delta_good": True, "accent_color": "#0072CE"},
         {"label": "Recoverable by internal action", "value": fmt_kes_millions(exp.recoverable_internal),
          "delta": f"{exp.recoverable_internal / exp.total_exposure * 100:.0f}% of total exposure · no insurer needed",
-         "delta_good": True, "accent_color": "#0F6E56"},
+         "delta_good": True, "accent_color": "#0BB99F"},
         {"label": "Aged 90+ & undispatched", "value": fmt_kes_millions(ctx.ninety_plus),
-         "delta": "past most submission windows", "delta_good": False, "accent_color": "#B42318"},
+         "delta": "past most submission windows", "delta_good": False, "accent_color": "#C0392B"},
     ])
 
     left, right = st.columns([1.7, 1])
     with left:
         section_header("Revenue trend")
         st.plotly_chart(C.revenue_trend(ctx.dm), use_container_width=True, config={"displayModeBar": False})
-        st.markdown("<div class='legend'><span><i style='background:#0F6E56'></i>Invoiced</span>"
-                    "<span><i style='background:#1A1A2E'></i>3-mo average</span>"
-                    "<span><i style='background:#B45309;border-radius:50%'></i>In-flight (partial)</span></div>",
+        st.markdown("<div class='legend'><span><i style='background:#0BB99F'></i>Invoiced</span>"
+                    "<span><i style='background:#003467'></i>3-mo average</span>"
+                    "<span><i style='background:#D97706;border-radius:50%'></i>In-flight (partial)</span></div>",
                     unsafe_allow_html=True)
     with right:
         section_header("Payer mix")
@@ -223,18 +223,18 @@ def view_revenue(ctx):
     peak = complete.loc[complete["TOTAL_INVOICED"].idxmax()]
     kpi_row([
         {"label": f"Latest complete month ({A.mon_label(cur['REV_MONTH'])})", "value": fmt_kes_millions(cur["TOTAL_INVOICED"]),
-         "accent_color": "#0F6E56"},
-        {"label": "Invoices", "value": fmt_int(cur["INVOICE_COUNT"]), "accent_color": "#0C447C"},
-        {"label": "Avg invoice value", "value": fmt_kes(cur["AVG_INVOICE_AMOUNT"]), "accent_color": "#0C447C"},
+         "accent_color": "#0BB99F"},
+        {"label": "Invoices", "value": fmt_int(cur["INVOICE_COUNT"]), "accent_color": "#0072CE"},
+        {"label": "Avg invoice value", "value": fmt_kes(cur["AVG_INVOICE_AMOUNT"]), "accent_color": "#0072CE"},
         {"label": "Peak month", "value": fmt_kes_millions(peak["TOTAL_INVOICED"]),
-         "delta": A.mon_label(peak["REV_MONTH"]), "delta_good": True, "accent_color": "#0F6E56"},
+         "delta": A.mon_label(peak["REV_MONTH"]), "delta_good": True, "accent_color": "#0BB99F"},
     ])
 
     section_header("Monthly billing trend")
     st.plotly_chart(C.revenue_trend(dm, roll_col="ROLL_6M", height=320),
                     use_container_width=True, config={"displayModeBar": False})
-    st.markdown("<div class='legend'><span><i style='background:#0F6E56'></i>Invoiced</span>"
-                "<span><i style='background:#1A1A2E'></i>6-mo average</span></div>", unsafe_allow_html=True)
+    st.markdown("<div class='legend'><span><i style='background:#0BB99F'></i>Invoiced</span>"
+                "<span><i style='background:#003467'></i>6-mo average</span></div>", unsafe_allow_html=True)
 
     c1, c2 = st.columns(2)
     with c1:
@@ -286,22 +286,22 @@ def view_ar(ctx):
                 "The money is owed to us — and mostly held up by us. Dispatch stopped entirely in September 2025.")
 
     kpi_row([
-        {"label": "Total open AR", "value": fmt_kes_millions(exp.total_ar), "accent_color": "#0C447C"},
+        {"label": "Total open AR", "value": fmt_kes_millions(exp.total_ar), "accent_color": "#0072CE"},
         {"label": "Undispatched (our delay)", "value": fmt_kes_millions(exp.undispatched),
          "delta": f"{exp.undispatched / exp.total_ar * 100:.0f}% of AR · healthy < 40%",
-         "delta_good": False, "accent_color": "#B42318"},
+         "delta_good": False, "accent_color": "#C0392B"},
         {"label": "Aged 90+ & undispatched", "value": fmt_kes_millions(ctx.ninety_plus),
-         "delta": "submission-deadline risk", "delta_good": False, "accent_color": "#B42318"},
+         "delta": "submission-deadline risk", "delta_good": False, "accent_color": "#C0392B"},
         {"label": "Insurer sitting time", "value": f"~{ctx.dispatched_sitting_days:.0f}d",
-         "delta": "on dispatched, unpaid claims", "delta_good": False, "accent_color": "#B45309"},
+         "delta": "on dispatched, unpaid claims", "delta_good": False, "accent_color": "#D97706"},
     ])
 
     a1, a2 = st.columns([1.55, 1])
     with a1:
         section_header("Accountability by insurer — whose delay is it?")
         st.plotly_chart(C.two_clock(D["snap"], top=9), use_container_width=True, config={"displayModeBar": False})
-        st.markdown("<div class='legend'><span><i style='background:#B42318'></i>Undispatched — our delay</span>"
-                    "<span><i style='background:#B45309'></i>Dispatched, unpaid — insurer delay</span></div>",
+        st.markdown("<div class='legend'><span><i style='background:#C0392B'></i>Undispatched — our delay</span>"
+                    "<span><i style='background:#D97706'></i>Dispatched, unpaid — insurer delay</span></div>",
                     unsafe_allow_html=True)
     with a2:
         section_header("Dispatch rate — the collapse")
@@ -358,7 +358,7 @@ def view_ar(ctx):
         conc = D["conc"].copy(); conc["TOTAL_INVOICED"] = pd.to_numeric(conc["TOTAL_INVOICED"], errors="coerce")
         sha = conc[conc["PAYER_LABEL"].str.contains("SHA|Social Health", case=False, na=False)]
         sha_pct = sha["TOTAL_INVOICED"].sum() / conc["TOTAL_INVOICED"].sum() * 100 if not conc.empty else 0
-        st.plotly_chart(C.donut(["SHA", "Other insurers"], [sha_pct, 100 - sha_pct], ["#0F6E56", "#CBD5D1"],
+        st.plotly_chart(C.donut(["SHA", "Other insurers"], [sha_pct, 100 - sha_pct], ["#0BB99F", "#C5D8EC"],
                                 center_big=f"{sha_pct:.0f}%", center_small="SHA share", height=230),
                         use_container_width=True, config={"displayModeBar": False})
         st.markdown(f"<div class='note' style='text-align:center'>SHA is the single largest payer at {sha_pct:.0f}% of "
@@ -377,13 +377,13 @@ def view_leakage(ctx):
     uc_ct = int(pd.to_numeric(uc["EVENT_COUNT"].iloc[0])) if not uc.empty else 0
 
     kpi_row([
-        {"label": "Operational leakage (flow)", "value": fmt_kes_millions(exp.flow_total), "accent_color": "#B45309"},
+        {"label": "Operational leakage (flow)", "value": fmt_kes_millions(exp.flow_total), "accent_color": "#D97706"},
         {"label": "Pharmacy dispensed-unpaid", "value": fmt_kes_millions(exp.pharmacy_flow),
-         "delta": f"{pf['LEAKAGE_RATE_PCT']:.0f}% of prescriptions", "delta_good": False, "accent_color": "#B45309"},
+         "delta": f"{pf['LEAKAGE_RATE_PCT']:.0f}% of prescriptions", "delta_good": False, "accent_color": "#D97706"},
         {"label": "Theatre completed-unbilled", "value": fmt_kes_millions(exp.theatre_flow),
-         "delta": "capture contested", "delta_good": False, "accent_color": "#B45309"},
+         "delta": "capture contested", "delta_good": False, "accent_color": "#D97706"},
         {"label": "Unbilled consultations", "value": fmt_int(uc_ct) + " visits",
-         "delta": "no tariff — count only", "delta_good": False, "accent_color": "#0C447C"},
+         "delta": "no tariff — count only", "delta_good": False, "accent_color": "#0072CE"},
     ])
 
     outlier_kes = pd.to_numeric(D["outlier"]["OUTLIER_VALUE_KES"], errors="coerce").sum()
@@ -402,7 +402,7 @@ def view_leakage(ctx):
         section_header("Fulfillment")
         st.plotly_chart(C.donut(["Dispensed & paid", "Leakage (unpaid)", "Cancelled"],
                                 [pf["DISPENSED"], pf["LEAKAGE"], pf["CANCELLED"]],
-                                ["#0F6E56", "#B45309", "#9CA3AF"],
+                                ["#0BB99F", "#D97706", "#9BAEC8"],
                                 center_big=f"{pf['LEAKAGE_RATE_PCT']:.0f}%", center_small="leakage", height=230),
                         use_container_width=True, config={"displayModeBar": False})
 
@@ -459,13 +459,13 @@ def view_action(ctx):
     top3 = sum(a["kes"] for a in actions[:3])
     critical = sum(a["kes"] for a in actions if a["sev"] == "critical")
     kpi_row([
-        {"label": "Total identifiable opportunity", "value": fmt_kes_millions(total), "accent_color": "#0F6E56"},
+        {"label": "Total identifiable opportunity", "value": fmt_kes_millions(total), "accent_color": "#0BB99F"},
         {"label": "Recoverable by internal action", "value": fmt_kes_millions(exp.recoverable_internal),
-         "delta": "no insurer needed", "delta_good": True, "accent_color": "#0F6E56"},
+         "delta": "no insurer needed", "delta_good": True, "accent_color": "#0BB99F"},
         {"label": "Top 3 actions unlock", "value": fmt_kes_millions(top3),
-         "delta": f"{top3 / total * 100:.0f}% of the total", "delta_good": True, "accent_color": "#0C447C"},
+         "delta": f"{top3 / total * 100:.0f}% of the total", "delta_good": True, "accent_color": "#0072CE"},
         {"label": "Critical — act this week", "value": fmt_kes_millions(critical),
-         "delta": f"{sum(1 for a in actions if a['sev']=='critical')} items", "delta_good": False, "accent_color": "#B42318"},
+         "delta": f"{sum(1 for a in actions if a['sev']=='critical')} items", "delta_good": False, "accent_color": "#C0392B"},
     ])
 
     callout("info", "How this is ranked",
@@ -481,11 +481,11 @@ def view_action(ctx):
             f"<div class='rk'>{a['rank']}</div>"
             f"<div style='flex:1;min-width:0'>"
             f"<div class='h'>{a['title']} &nbsp;{pill(a['sev'])} "
-            f"<span class='pill' style='background:#F3F4F6;color:#374151'>{a['owner']}</span> "
-            f"<span class='pill' style='background:#EAF1FB;color:#0C447C'>Recoverable: {a['recover']}</span></div>"
+            f"<span class='pill' style='background:#F0F5FA;color:#1E3A55'>{a['owner']}</span> "
+            f"<span class='pill' style='background:#EBF3FB;color:#0072CE'>Recoverable: {a['recover']}</span></div>"
             f"<div class='act'>{a['action']}</div>"
             f"<div class='meta'>{a['vol']} · {a['age']} · concentration: {a['conc']}</div>"
-            f"<div style='height:6px;border-radius:3px;background:#F3F4F6;margin-top:8px;max-width:340px'>"
+            f"<div style='height:6px;border-radius:3px;background:#F0F5FA;margin-top:8px;max-width:340px'>"
             f"<div style='height:100%;width:{bar}%;border-radius:3px;background:{_SEV[a['sev']]}'></div></div>"
             f"</div>"
             f"<div class='amt'>{fmt_kes_millions(a['kes'])}<small>exposure</small></div></div>",
@@ -502,13 +502,13 @@ def view_action(ctx):
     with o2:
         section_header("The 90-day play")
         for badge, bcol, title, body in [
-            ("Week 1–2", "#B42318", "Restart dispatch",
+            ("Week 1–2", "#C0392B", "Restart dispatch",
              f"Clear the undispatched backlog oldest-first, SHA first. Unblocks {fmt_kes_millions(exp.attributed_undispatched)} and stops daily accrual of unrecoverable age."),
-            ("Week 2–4", "#B45309", "Fix the NULL-insurer defect",
+            ("Week 2–4", "#D97706", "Fix the NULL-insurer defect",
              f"Resolve the mid-2025 source mapping, back-attribute {fmt_kes_millions(exp.unknown)}, then dispatch."),
-            ("Month 2–3", "#0C447C", "Escalate aged insurer claims",
+            ("Month 2–3", "#0072CE", "Escalate aged insurer claims",
              f"Formal reconciliation on the {fmt_kes_millions(exp.dispatched)} dispatched-but-unpaid; recover what's live, write down what isn't."),
-            ("Ongoing", "#0F6E56", "Charge-capture at source",
+            ("Ongoing", "#0BB99F", "Charge-capture at source",
              f"Pharmacy dispensing + theatre billing controls to stop the {fmt_kes_millions(exp.flow_total)}/period flow leakage recurring."),
         ]:
             st.markdown(

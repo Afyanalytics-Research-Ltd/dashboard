@@ -1,26 +1,8 @@
 {
   "facility": "KSH",
-  "date": "30 Jun 2026",
-  "count": 6,
+  "date": "09 Oct 2026",
+  "count": 3,
   "notices": [
-    {
-      "level": "WATCH",
-      "title": "General Female \u2014 Ward Idle",
-      "metric": "BTR 3.14 \u00b7 BTI 11d",
-      "action": "Flag to ward manager \u2014 General Female below ward baseline"
-    },
-    {
-      "level": "WATCH",
-      "title": "Private Female \u2014 Ward Idle",
-      "metric": "BTR 1.00 \u00b7 BTI 41d",
-      "action": "Flag to ward manager \u2014 Private Female below ward baseline"
-    },
-    {
-      "level": "WATCH",
-      "title": "Private Wards \u2014 Revenue Drop",
-      "metric": "KES 72K (71.4% below avg)",
-      "action": "Flag to finance lead \u2014 71.4% below 3-month rolling avg"
-    },
     {
       "level": "CRITICAL",
       "title": "Staffing \u2014 Doctor Concentration",

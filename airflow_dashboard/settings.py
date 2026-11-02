@@ -253,9 +253,12 @@ REDASH_BASE_URL = os.getenv(
 # Sources per facility (see analytics_app/management/commands/provision_redash_facility.py).
 REDASH_ADMIN_API_KEY = os.getenv('REDASH_ADMIN_API_KEY', '').strip()
 
-AIRFLOW_BASE_URL = os.getenv('AIRFLOW_BASE_URL', 'http://localhost:8080').rstrip('/')
-AIRFLOW_USERNAME = os.getenv('AIRFLOW_USERNAME', 'airflow').strip()
-AIRFLOW_PASSWORD = os.getenv('AIRFLOW_PASSWORD', 'airflow').strip()
+AIRFLOW_BASE_URL = os.getenv('AIRFLOW_BASE_URL', 'https://datapipelines.afyaanalytics.com').rstrip('/')
+# Browser-facing Airflow URL for "open in Airflow" links (defaults to the base URL).
+AIRFLOW_PUBLIC_URL = os.getenv('AIRFLOW_PUBLIC_URL', 'https://datapipelines.afyaanalytics.com').rstrip('/')
+AIRFLOW_USERNAME = os.getenv('AIRFLOW_USERNAME', 'airflow').strip().strip('"')
+AIRFLOW_PASSWORD = os.getenv('AIRFLOW_PASSWORD', 'airflow').strip().strip('"')
+AIRFLOW_TIMEOUT = float(os.getenv('AIRFLOW_TIMEOUT', '30'))
 
 SNOWFLAKE_ACCOUNT = os.getenv('SNOWFLAKE_ACCOUNT', '').strip()
 SNOWFLAKE_USER = os.getenv('SNOWFLAKE_USER', '').strip()

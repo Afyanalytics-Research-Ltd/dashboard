@@ -167,7 +167,23 @@
            class="sidebar-submenu {% if sidebar_section == 'pipelines' %}open{% endif %}">
         <a href="{% url 'airflow:dashboard' %}"
            class="sidebar-subitem {% if request.path == '/pipelines/' %}active{% endif %}">
-          <i class="bi bi-diagram-3"></i> DAG Monitor
+          <i class="bi bi-speedometer2"></i> Overview
+        </a>
+        <a href="{% url 'airflow:dashboard' %}dags"
+           class="sidebar-subitem {% if '/pipelines/dags' in request.path %}active{% endif %}">
+          <i class="bi bi-diagram-3"></i> DAGs
+        </a>
+        <a href="{% url 'airflow:dashboard' %}runs"
+           class="sidebar-subitem {% if request.path == '/pipelines/runs' %}active{% endif %}">
+          <i class="bi bi-play-circle"></i> DAG Runs
+        </a>
+        <a href="{% url 'airflow:dashboard' %}connections"
+           class="sidebar-subitem {% if request.path == '/pipelines/connections' %}active{% endif %}">
+          <i class="bi bi-plug"></i> Admin
+        </a>
+        <a href="{% url 'airflow:dashboard' %}explorer"
+           class="sidebar-subitem {% if request.path == '/pipelines/explorer' %}active{% endif %}">
+          <i class="bi bi-terminal"></i> API Explorer
         </a>
       </div>
       {% endif %}

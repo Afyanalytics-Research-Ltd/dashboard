@@ -1,26 +1,38 @@
 """
 Airflow UI tests.
 
-All Airflow API calls are mocked so no live Airflow instance is required.
+All Airflow HTTP traffic is mocked at the ``requests.Session`` level, so no
+live Airflow instance is required.
 """
 
+import json
 from unittest.mock import MagicMock, patch
 
+import requests
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.test import Client as TestClient
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from core.models import AuditLog
+
+from .client import AirflowClient, AirflowError, encode_segment, reset_client
 from .models import DAGSummary
+from .routes import ROUTES, match_route
 
 User = get_user_model()
 
+AIRFLOW_SETTINGS = dict(
+    AIRFLOW_BASE_URL='http://airflow.test',
+    AIRFLOW_USERNAME='u',
+    AIRFLOW_PASSWORD='p',
+    CACHES={'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'}},
+)
+
 
 def make_user(username='testuser', password='testpass123', is_superuser=False):
-    user = User.objects.create_user(
-        username=username, password=password, email=f'{username}@test.com'
-    )
+    user = User.objects.create_user(username=username, password=password, email=f'{username}@test.com')
     if is_superuser:
         user.is_superuser = True
         user.is_staff = True
@@ -28,354 +40,395 @@ def make_user(username='testuser', password='testpass123', is_superuser=False):
     return user
 
 
-MOCK_DAGS = [
-    {
-        'dag_id': 'etl_pipeline_daily',
-        'description': 'Daily ETL pipeline',
-        'is_paused': False,
-        'is_active': True,
-        'latest_dag_run_start_date': None,
-        'next_dagrun': None,
-    },
-    {
-        'dag_id': 'reports_weekly',
-        'description': 'Weekly reports',
-        'is_paused': True,
-        'is_active': False,
-        'latest_dag_run_start_date': None,
-        'next_dagrun': None,
-    },
-]
+def fake_response(status=200, payload=None, content_type='application/json', text=None):
+    resp = MagicMock(spec=requests.Response)
+    resp.status_code = status
+    if text is not None:
+        resp.content = text.encode()
+    else:
+        resp.content = json.dumps(payload).encode() if payload is not None else b''
+    resp.headers = {'Content-Type': content_type}
+    resp.json.side_effect = lambda: json.loads(resp.content)
+    return resp
 
-MOCK_RUNS = [
-    {
-        'dag_run_id': 'manual__2026-01-01T00:00:00+00:00',
-        'dag_id': 'etl_pipeline_daily',
-        'state': 'success',
-        'start_date': '2026-01-01T00:00:00+00:00',
-        'end_date': '2026-01-01T01:00:00+00:00',
-        'execution_date': '2026-01-01T00:00:00+00:00',
-        'logical_date': '2026-01-01T00:00:00+00:00',
-        'run_type': 'manual',
-    },
-    {
-        'dag_run_id': 'manual__2026-01-02T00:00:00+00:00',
-        'dag_id': 'etl_pipeline_daily',
-        'state': 'failed',
-        'start_date': '2026-01-02T00:00:00+00:00',
-        'end_date': '2026-01-02T00:30:00+00:00',
-        'execution_date': '2026-01-02T00:00:00+00:00',
-        'logical_date': '2026-01-02T00:00:00+00:00',
-        'run_type': 'manual',
-    },
-]
 
-MOCK_TASKS = [
-    {
-        'task_id': 'extract_data',
-        'dag_id': 'etl_pipeline_daily',
-        'dag_run_id': 'manual__2026-01-01T00:00:00+00:00',
-        'state': 'success',
-        'start_date': '2026-01-01T00:01:00+00:00',
-        'end_date': '2026-01-01T00:10:00+00:00',
-        'duration': 540.0,
-        'try_number': 1,
-    },
-    {
-        'task_id': 'transform_data',
-        'dag_id': 'etl_pipeline_daily',
-        'dag_run_id': 'manual__2026-01-01T00:00:00+00:00',
-        'state': 'failed',
-        'start_date': '2026-01-01T00:11:00+00:00',
-        'end_date': '2026-01-01T00:12:00+00:00',
-        'duration': 60.0,
-        'try_number': 2,
-    },
-]
+TOKEN_RESPONSE = fake_response(201, {'access_token': 'jwt-1'})
+
+
+class AirflowTestCase(TestCase):
+    """Fresh client + empty token cache for every test."""
+
+    def setUp(self):
+        cache.clear()
+        reset_client()
+
+    def tearDown(self):
+        reset_client()
 
 
 # =============================================================================
-# MODEL TESTS
+# MODEL
 # =============================================================================
 
-class DAGSummaryModelTests(TestCase):
-    """Test DAGSummary model."""
+class DAGSummaryModelTest(TestCase):
 
-    def test_create_dag_summary(self):
-        s = DAGSummary.objects.create(
-            dag_id='my_dag',
-            total_runs=10, successful_runs=8, failed_runs=2,
-        )
-        self.assertEqual(DAGSummary.objects.count(), 1)
-        self.assertEqual(str(s), 'my_dag')
-
-    def test_success_rate_calculation(self):
-        s = DAGSummary(total_runs=10, successful_runs=7, failed_runs=3)
-        self.assertEqual(s.success_rate, 70.0)
+    def test_success_rate(self):
+        s = DAGSummary.objects.create(dag_id='d', total_runs=8, successful_runs=6)
+        self.assertEqual(s.success_rate, 75.0)
 
     def test_success_rate_zero_runs(self):
-        s = DAGSummary(total_runs=0, successful_runs=0, failed_runs=0)
-        self.assertEqual(s.success_rate, 0)
+        self.assertEqual(DAGSummary.objects.create(dag_id='d').success_rate, 0.0)
 
-    def test_success_rate_100_percent(self):
-        s = DAGSummary(total_runs=5, successful_runs=5, failed_runs=0)
-        self.assertEqual(s.success_rate, 100.0)
-
-    def test_dag_id_is_unique(self):
-        DAGSummary.objects.create(dag_id='unique_dag')
-        from django.db import IntegrityError
-        with self.assertRaises(IntegrityError):
-            DAGSummary.objects.create(dag_id='unique_dag')
-
-    def test_default_values(self):
-        s = DAGSummary.objects.create(dag_id='defaults_dag')
-        self.assertTrue(s.is_active)
-        self.assertFalse(s.is_paused)
-        self.assertEqual(s.total_runs, 0)
-        self.assertEqual(s.successful_runs, 0)
-        self.assertEqual(s.failed_runs, 0)
+    def test_str(self):
+        self.assertEqual(str(DAGSummary(dag_id='etl')), 'etl')
 
 
 # =============================================================================
-# SERVICE TESTS
+# ROUTE ALLOWLIST
 # =============================================================================
 
-class AirflowServiceTests(TestCase):
-    """Test AirflowService methods (all API calls mocked)."""
+class RouteAllowlistTest(TestCase):
 
-    @patch('airflow_ui.services._airflow_request')
-    def test_get_dags_returns_list(self, mock_req):
-        from airflow_ui.services import AirflowService
-        mock_req.return_value = {'dags': MOCK_DAGS}
-        dags = AirflowService.get_dags()
-        self.assertEqual(len(dags), 2)
-        mock_req.assert_called_once_with('GET', '/dags')
+    def test_covers_every_documented_endpoint(self):
+        self.assertEqual(sum(len(m) for m in ROUTES.values()), 106)
 
-    @patch('airflow_ui.services._airflow_request')
-    def test_get_dags_returns_empty_on_bad_payload(self, mock_req):
-        from airflow_ui.services import AirflowService
-        mock_req.return_value = {'error': 'Unauthorized'}
-        dags = AirflowService.get_dags()
-        self.assertEqual(dags, [])
+    def test_literal_route_beats_template(self):
+        self.assertEqual(match_route('/connections/test', 'POST'), ('/connections/test', True))
+        self.assertEqual(match_route('/backfills/dry_run', 'POST'), ('/backfills/dry_run', True))
 
-    @patch('airflow_ui.services._airflow_request')
-    def test_get_dag_runs_returns_list(self, mock_req):
-        from airflow_ui.services import AirflowService
-        mock_req.return_value = {'dag_runs': MOCK_RUNS}
-        runs = AirflowService.get_dag_runs('etl_pipeline_daily', limit=10)
-        self.assertEqual(len(runs), 2)
+    def test_templated_routes(self):
+        tpl, ok = match_route('/dags/a/dagRuns/x%2By/taskInstances/t/logs/1', 'GET')
+        self.assertTrue(ok)
+        self.assertTrue(tpl.endswith('/logs/{try_number}'))
+        self.assertEqual(match_route('/dags/~/dagRuns', 'GET'), ('/dags/{dag_id}/dagRuns', True))
 
-    @patch('airflow_ui.services._airflow_request')
-    def test_trigger_dag_sends_post(self, mock_req):
-        from airflow_ui.services import AirflowService
-        mock_req.return_value = {'dag_run_id': 'manual__xyz', 'state': 'queued'}
-        result = AirflowService.trigger_dag('etl_pipeline_daily')
-        self.assertIn('dag_run_id', result)
-        call_args = mock_req.call_args
-        self.assertEqual(call_args[0][0], 'POST')
-        self.assertIn('/etl_pipeline_daily/dagRuns', call_args[0][1])
+    def test_wrong_method(self):
+        self.assertEqual(match_route('/dags', 'PUT'), ('/dags', False))
 
-    @patch('airflow_ui.services._airflow_request')
-    def test_get_task_instances_returns_list(self, mock_req):
-        from airflow_ui.services import AirflowService
-        mock_req.return_value = {'task_instances': MOCK_TASKS}
-        tasks = AirflowService.get_task_instances('etl_pipeline_daily', 'manual__xyz')
-        self.assertEqual(len(tasks), 2)
+    def test_auth_routes_excluded(self):
+        self.assertEqual(match_route('/auth/login', 'GET'), (None, False))
+        self.assertEqual(match_route('/auth/token', 'POST'), (None, False))
 
-    @patch('airflow_ui.services.requests.post')
-    def test_get_airflow_token_parses_access_token(self, mock_post):
-        from airflow_ui.services import get_airflow_token
-        mock_response = MagicMock()
-        mock_response.json.return_value = {'access_token': 'tok-abc123'}
-        mock_response.raise_for_status = MagicMock()
-        mock_post.return_value = mock_response
-        token = get_airflow_token()
-        self.assertEqual(token, 'tok-abc123')
+    def test_unknown_route(self):
+        self.assertEqual(match_route('/nope', 'GET'), (None, False))
+
+    def test_encode_segment(self):
+        self.assertEqual(encode_segment('scheduled__2026-10-21T00:00:00+00:00'),
+                         'scheduled__2026-10-21T00%3A00%3A00%2B00%3A00')
+        self.assertEqual(encode_segment('~'), '~')
 
 
 # =============================================================================
-# VIEW TESTS — PIPELINE DASHBOARD
+# CLIENT
 # =============================================================================
 
-class PipelineViewTests(TestCase):
-    """Test PipelineDashboardView and related views."""
+@override_settings(**AIRFLOW_SETTINGS)
+class AirflowClientTest(AirflowTestCase):
+
+    def make(self):
+        return AirflowClient('http://airflow.test', 'u', 'p', max_retries=2)
+
+    def test_login_then_reuse_cached_token(self):
+        client = self.make()
+        with patch.object(client.session, 'post', return_value=TOKEN_RESPONSE) as post, \
+                patch.object(client.session, 'request', return_value=fake_response(200, {'dags': []})) as req:
+            client.get_json('/dags')
+            client.get_json('/dags')
+        post.assert_called_once()
+        self.assertEqual(post.call_args.kwargs['json'], {'username': 'u', 'password': 'p'})
+        self.assertEqual(req.call_count, 2)
+        self.assertEqual(req.call_args.kwargs['headers']['Authorization'], 'Bearer jwt-1')
+
+    def test_token_shared_between_client_instances(self):
+        a, b = self.make(), self.make()
+        with patch.object(a.session, 'post', return_value=TOKEN_RESPONSE):
+            a.token()
+        with patch.object(b.session, 'post') as post:
+            self.assertEqual(b.token(), 'jwt-1')
+        post.assert_not_called()
+
+    def test_relogin_once_on_expired_token(self):
+        client = self.make()
+        tokens = [fake_response(201, {'access_token': 'old'}), fake_response(201, {'access_token': 'new'})]
+        responses = [fake_response(403, {'detail': 'Invalid JWT token'}), fake_response(200, {'ok': 1})]
+        with patch.object(client.session, 'post', side_effect=tokens), \
+                patch.object(client.session, 'request', side_effect=responses) as req:
+            self.assertEqual(client.get_json('/dags'), {'ok': 1})
+        self.assertEqual(req.call_args.kwargs['headers']['Authorization'], 'Bearer new')
+
+    def test_permission_403_is_not_retried(self):
+        client = self.make()
+        with patch.object(client.session, 'post', return_value=TOKEN_RESPONSE) as post, \
+                patch.object(client.session, 'request', return_value=fake_response(403, {'detail': 'not exposing config'})):
+            resp = client.request('GET', '/config')
+        self.assertEqual(resp.status_code, 403)
+        post.assert_called_once()
+
+    def test_bad_credentials_raise(self):
+        client = self.make()
+        with patch.object(client.session, 'post', return_value=fake_response(401, {'detail': 'Invalid credentials'})):
+            with self.assertRaises(AirflowError) as ctx:
+                client.get_json('/dags')
+        self.assertEqual(ctx.exception.payload['upstream_status'], 401)
+
+    @patch('airflow_ui.client.time.sleep')
+    def test_get_retried_on_503(self, _sleep):
+        client = self.make()
+        with patch.object(client.session, 'post', return_value=TOKEN_RESPONSE), \
+                patch.object(client.session, 'request', side_effect=[fake_response(503), fake_response(200, {'x': 1})]) as req:
+            self.assertEqual(client.get_json('/dags'), {'x': 1})
+        self.assertEqual(req.call_count, 2)
+
+    @patch('airflow_ui.client.time.sleep')
+    def test_post_not_retried_on_network_error(self, _sleep):
+        client = self.make()
+        with patch.object(client.session, 'post', return_value=TOKEN_RESPONSE), \
+                patch.object(client.session, 'request', side_effect=requests.ConnectionError('boom')) as req:
+            with self.assertRaises(AirflowError):
+                client.request('POST', '/dags/x/dagRuns', json={})
+        req.assert_called_once()
+
+    def test_paginate_follows_offsets(self):
+        client = self.make()
+        pages = [
+            fake_response(200, {'dags': [{'dag_id': 'a'}, {'dag_id': 'b'}], 'total_entries': 3}),
+            fake_response(200, {'dags': [{'dag_id': 'c'}], 'total_entries': 3}),
+        ]
+        with patch.object(client.session, 'post', return_value=TOKEN_RESPONSE), \
+                patch.object(client.session, 'request', side_effect=pages) as req:
+            ids = [d['dag_id'] for d in client.paginate('/dags', 'dags', page_size=2)]
+        self.assertEqual(ids, ['a', 'b', 'c'])
+        self.assertEqual(req.call_args_list[1].kwargs['params']['offset'], 2)
+
+
+# =============================================================================
+# PROXY
+# =============================================================================
+
+@override_settings(**AIRFLOW_SETTINGS)
+class ProxyTest(AirflowTestCase):
 
     def setUp(self):
-        self.client_http = TestClient()
-        self.superuser = make_user('psuper', is_superuser=True)
-        self.regular_user = make_user('pregular')
+        super().setUp()
+        self.admin = make_user('admin', is_superuser=True)
+        self.client = TestClient()
+        self.client.force_login(self.admin)
 
-    @patch('airflow_ui.views.AirflowService.get_dags')
-    def test_superuser_can_access_pipeline_dashboard(self, mock_get_dags):
-        mock_get_dags.return_value = MOCK_DAGS
-        self.client_http.force_login(self.superuser)
-        resp = self.client_http.get(reverse('airflow:dashboard'))
+    def call(self, method, path, upstream, **kwargs):
+        with patch('requests.Session.post', return_value=TOKEN_RESPONSE), \
+                patch('requests.Session.request', return_value=upstream) as req:
+            resp = getattr(self.client, method)(f'/pipelines/api/v2/{path}', **kwargs)
+        return resp, req
+
+    def test_requires_login(self):
+        resp = TestClient().get('/pipelines/api/v2/dags')
+        self.assertEqual(resp.status_code, 401)
+
+    def test_requires_superuser(self):
+        c = TestClient()
+        c.force_login(make_user('plain'))
+        self.assertEqual(c.get('/pipelines/api/v2/dags').status_code, 403)
+
+    def test_get_passthrough_with_repeated_params(self):
+        resp, req = self.call('get', 'dags?tags=a&tags=b&limit=5', fake_response(200, {'dags': [], 'total_entries': 0}))
         self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, 'etl_pipeline_daily')
+        self.assertEqual(resp.json(), {'dags': [], 'total_entries': 0})
+        self.assertEqual(req.call_args.args[:2], ('GET', 'http://airflow.test/api/v2/dags'))
+        self.assertEqual(req.call_args.kwargs['params'], [('tags', 'a'), ('tags', 'b'), ('limit', '5')])
+        self.assertEqual(resp['Cache-Control'], 'no-store')
 
-    def test_regular_user_gets_403(self):
-        self.client_http.force_login(self.regular_user)
-        resp = self.client_http.get(reverse('airflow:dashboard'))
+    def test_run_id_reencoded(self):
+        _, req = self.call('get', 'dags/d/dagRuns/scheduled__2026-10-21T00%3A00%3A00%2B00%3A00', fake_response(200, {}))
+        self.assertEqual(req.call_args.args[1],
+                         'http://airflow.test/api/v2/dags/d/dagRuns/scheduled__2026-10-21T00%3A00%3A00%2B00%3A00')
+
+    def test_unknown_route_404(self):
+        resp, req = self.call('get', 'not/a/route', fake_response(200, {}))
+        self.assertEqual(resp.status_code, 404)
+        req.assert_not_called()
+
+    def test_auth_route_blocked(self):
+        resp, req = self.call('post', 'auth/token', fake_response(200, {}), data='{}', content_type='application/json')
+        self.assertEqual(resp.status_code, 404)
+        req.assert_not_called()
+
+    def test_method_not_allowed(self):
+        resp, req = self.call('put', 'dags', fake_response(200, {}), data='{}', content_type='application/json')
+        self.assertEqual(resp.status_code, 405)
+        req.assert_not_called()
+
+    def test_invalid_json_body(self):
+        resp, req = self.call('post', 'dags/d/dagRuns', fake_response(200, {}), data='{nope', content_type='application/json')
+        self.assertEqual(resp.status_code, 400)
+        req.assert_not_called()
+
+    def test_upstream_error_relayed(self):
+        resp, _ = self.call('get', 'dags/missing', fake_response(404, {'detail': 'DAG not found'}))
+        self.assertEqual(resp.status_code, 404)
+        self.assertEqual(resp.json()['detail'], 'DAG not found')
+
+    def test_trigger_forwards_body_and_audits(self):
+        body = {'logical_date': None, 'conf': {'k': 1}}
+        resp, req = self.call('post', 'dags/etl/dagRuns', fake_response(200, {'dag_run_id': 'r1', 'state': 'queued'}),
+                              data=json.dumps(body), content_type='application/json')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(json.loads(req.call_args.kwargs['data']), body)
+        log = AuditLog.objects.get(resource='airflow')
+        self.assertEqual(log.action, 'trigger')
+        self.assertEqual(log.user, self.admin)
+        self.assertIn('POST /api/v2/dags/etl/dagRuns -> 200', log.detail)
+
+    def test_delete_audited(self):
+        self.call('delete', 'variables/foo', fake_response(204))
+        self.assertEqual(AuditLog.objects.get(resource='airflow').action, 'delete')
+
+    def test_get_not_audited(self):
+        self.call('get', 'dags', fake_response(200, {}))
+        self.assertFalse(AuditLog.objects.filter(resource='airflow').exists())
+
+    def test_plain_text_logs(self):
+        resp, req = self.call('get', 'dags/d/dagRuns/r/taskInstances/t/logs/1', fake_response(200, text='line 1', content_type='text/plain'),
+                              HTTP_ACCEPT='text/plain')
+        self.assertEqual(resp.content, b'line 1')
+        self.assertEqual(req.call_args.kwargs['headers']['Accept'], 'text/plain')
+
+    def test_airflow_unreachable_502(self):
+        with patch('requests.Session.post', side_effect=requests.ConnectionError('down')):
+            resp = self.client.get('/pipelines/api/v2/dags')
+        self.assertEqual(resp.status_code, 502)
+        self.assertIn('Cannot reach Airflow', resp.json()['detail'])
+
+    def test_csrf_enforced_for_mutations(self):
+        c = TestClient(enforce_csrf_checks=True)
+        c.force_login(self.admin)
+        resp = c.post('/pipelines/api/v2/dags/d/dagRuns', data='{}', content_type='application/json')
         self.assertEqual(resp.status_code, 403)
 
-    def test_unauthenticated_redirects_to_login(self):
-        resp = self.client_http.get(reverse('airflow:dashboard'))
-        self.assertIn(resp.status_code, [302, 403])
+    def test_spec_is_trimmed_and_cached(self):
+        spec = {'paths': {'/api/v2/dags': {}, '/api/v2/auth/login': {}, '/ui/foo': {}}}
+        with patch('airflow_ui.proxy.requests.get', return_value=fake_response(200, spec)) as get:
+            first = self.client.get('/pipelines/api/spec/').json()
+            self.client.get('/pipelines/api/spec/')
+        self.assertEqual(list(first['paths']), ['/api/v2/dags'])
+        get.assert_called_once()
 
-    @patch('airflow_ui.views.AirflowService.get_dags')
-    def test_dashboard_shows_dag_count(self, mock_get_dags):
-        mock_get_dags.return_value = MOCK_DAGS
-        self.client_http.force_login(self.superuser)
-        resp = self.client_http.get(reverse('airflow:dashboard'))
-        self.assertEqual(resp.context['total_dags'], 2)
-        self.assertEqual(resp.context['active_dags'], 1)
 
-    @patch('airflow_ui.views.AirflowService.get_dags')
-    def test_search_filters_dags(self, mock_get_dags):
-        mock_get_dags.return_value = MOCK_DAGS
-        self.client_http.force_login(self.superuser)
-        resp = self.client_http.get(reverse('airflow:dashboard') + '?q=weekly')
+# =============================================================================
+# SPA SHELL
+# =============================================================================
+
+@override_settings(**AIRFLOW_SETTINGS, AIRFLOW_PUBLIC_URL='https://airflow.public')
+class AppViewTest(TestCase):
+
+    def setUp(self):
+        self.client = TestClient()
+
+    def test_superuser_gets_shell_with_config(self):
+        self.client.force_login(make_user('admin', is_superuser=True))
+        resp = self.client.get(reverse('airflow:dashboard'))
         self.assertEqual(resp.status_code, 200)
-        # 'weekly' matches 'reports_weekly'
-        page_obj = resp.context['page_obj']
-        dag_ids = [d['dag_id'] for d in page_obj]
-        self.assertIn('reports_weekly', dag_ids)
-        self.assertNotIn('etl_pipeline_daily', dag_ids)
-
-    @patch('airflow_ui.views.AirflowService.get_dags')
-    def test_sidebar_section_is_pipelines(self, mock_get_dags):
-        mock_get_dags.return_value = []
-        self.client_http.force_login(self.superuser)
-        resp = self.client_http.get(reverse('airflow:dashboard'))
+        self.assertTemplateUsed(resp, 'airflow/app.html')
         self.assertEqual(resp.context['sidebar_section'], 'pipelines')
+        cfg = resp.context['airflow_config']
+        self.assertEqual(cfg['api'], '/pipelines/api/v2/')
+        self.assertEqual(cfg['airflowUrl'], 'https://airflow.public')
+        self.assertContains(resp, 'id="af-config"')
+        self.assertNotContains(resp, 'AIRFLOW_PASSWORD')
 
-    @patch('airflow_ui.views.AirflowService.get_dags')
-    def test_airflow_api_error_shows_warning(self, mock_get_dags):
-        mock_get_dags.side_effect = Exception('Connection refused')
-        self.client_http.force_login(self.superuser)
-        resp = self.client_http.get(reverse('airflow:dashboard'))
-        self.assertEqual(resp.status_code, 200)
-        # Should still render with empty list, not crash
+    def test_deep_links_serve_shell(self):
+        self.client.force_login(make_user('admin', is_superuser=True))
+        for path in ['/pipelines/dags', '/pipelines/dags/etl/runs/manual__2026-01-01T00:00:00+00:00/tasks/t/3',
+                     '/pipelines/connections', '/pipelines/explorer']:
+            self.assertEqual(self.client.get(path).status_code, 200, path)
 
-    @patch('airflow_ui.views.AirflowService.get_dag_runs')
-    def test_dag_detail_view(self, mock_runs):
-        mock_runs.return_value = MOCK_RUNS
-        self.client_http.force_login(self.superuser)
-        resp = self.client_http.get(
-            reverse('airflow:dag_detail', kwargs={'dag_id': 'etl_pipeline_daily'})
-        )
-        self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.context['dag_id'], 'etl_pipeline_daily')
-        self.assertEqual(resp.context['total_runs'], 2)
+    def test_named_routes_still_reverse(self):
+        self.assertEqual(reverse('airflow:dag_detail', kwargs={'dag_id': 'etl'}), '/pipelines/dags/etl/')
+        self.assertEqual(reverse('airflow:dag_run_detail', kwargs={'dag_id': 'e', 'run_id': 'r'}), '/pipelines/dags/e/runs/r/')
 
-    @patch('airflow_ui.views.AirflowService.get_dag_runs')
-    def test_dag_detail_creates_audit_log(self, mock_runs):
-        mock_runs.return_value = []
-        self.client_http.force_login(self.superuser)
-        self.client_http.get(
-            reverse('airflow:dag_detail', kwargs={'dag_id': 'some_dag'})
-        )
-        self.assertTrue(
-            AuditLog.objects.filter(action='read', resource='dag').exists()
-        )
+    def test_regular_user_403(self):
+        self.client.force_login(make_user('plain'))
+        self.assertEqual(self.client.get('/pipelines/').status_code, 403)
 
-
-# =============================================================================
-# VIEW TESTS — TRIGGER
-# =============================================================================
-
-class TriggerDAGViewTests(TestCase):
-    """Test TriggerDAGView."""
-
-    def setUp(self):
-        self.client_http = TestClient()
-        self.superuser = make_user('tsuper', is_superuser=True)
-        self.regular_user = make_user('tregular')
-
-    @patch('airflow_ui.views.AirflowService.trigger_dag')
-    def test_trigger_post_creates_audit_log(self, mock_trigger):
-        mock_trigger.return_value = {'dag_run_id': 'manual__abc123', 'state': 'queued'}
-        self.client_http.force_login(self.superuser)
-        self.client_http.post(
-            reverse('airflow:trigger_dag', kwargs={'dag_id': 'etl_pipeline_daily'})
-        )
-        self.assertTrue(
-            AuditLog.objects.filter(action='trigger', resource='dag').exists()
-        )
-
-    @patch('airflow_ui.views.AirflowService.trigger_dag')
-    def test_trigger_post_redirects_to_dag_detail(self, mock_trigger):
-        mock_trigger.return_value = {'dag_run_id': 'manual__xyz', 'state': 'queued'}
-        self.client_http.force_login(self.superuser)
-        resp = self.client_http.post(
-            reverse('airflow:trigger_dag', kwargs={'dag_id': 'etl_pipeline_daily'})
-        )
-        self.assertRedirects(
-            resp,
-            reverse('airflow:dag_detail', kwargs={'dag_id': 'etl_pipeline_daily'}),
-            fetch_redirect_response=False,
-        )
-
-    @patch('airflow_ui.views.AirflowService.trigger_dag')
-    def test_trigger_api_error_shows_message(self, mock_trigger):
-        mock_trigger.return_value = {'error': 'DAG not found in Airflow'}
-        self.client_http.force_login(self.superuser)
-        resp = self.client_http.post(
-            reverse('airflow:trigger_dag', kwargs={'dag_id': 'bad_dag'})
-        )
-        # Should redirect without crashing
+    def test_anonymous_redirected(self):
+        resp = self.client.get('/pipelines/dags')
         self.assertEqual(resp.status_code, 302)
-
-    def test_trigger_requires_superuser(self):
-        self.client_http.force_login(self.regular_user)
-        resp = self.client_http.post(
-            reverse('airflow:trigger_dag', kwargs={'dag_id': 'etl_pipeline_daily'})
-        )
-        self.assertEqual(resp.status_code, 403)
+        self.assertIn('/auth/login/', resp['Location'])
 
 
 # =============================================================================
-# API TESTS
+# DRF API (/api/v1/pipelines/)
 # =============================================================================
 
-class AirflowAPITests(TestCase):
-    """Test Airflow DRF API endpoints."""
+@override_settings(**AIRFLOW_SETTINGS)
+class PipelinesAPITest(AirflowTestCase):
 
     def setUp(self):
-        self.client_http = TestClient()
-        self.superuser = make_user('asuper', is_superuser=True)
-        self.regular_user = make_user('aregular')
+        super().setUp()
+        self.admin = make_user('admin', is_superuser=True)
+        self.client = TestClient()
+        self.client.force_login(self.admin)
 
-    @patch('airflow_ui.api.AirflowService.get_dags')
-    def test_dag_list_api_requires_superuser(self, mock_dags):
-        mock_dags.return_value = MOCK_DAGS
-        self.client_http.force_login(self.regular_user)
-        resp = self.client_http.get('/api/v1/pipelines/dags/')
-        self.assertEqual(resp.status_code, 403)
+    @patch('airflow_ui.api.AirflowService.get_dags', return_value=[{'dag_id': 'a'}])
+    def test_dag_list(self, _):
+        resp = self.client.get('/api/v1/pipelines/dags/')
+        self.assertEqual(resp.json(), {'count': 1, 'dags': [{'dag_id': 'a'}]})
 
-    @patch('airflow_ui.api.AirflowService.get_dags')
-    def test_dag_list_api_superuser_gets_data(self, mock_dags):
-        mock_dags.return_value = MOCK_DAGS
-        self.client_http.force_login(self.superuser)
-        resp = self.client_http.get('/api/v1/pipelines/dags/')
-        self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.json()['count'], 2)
+    @patch('airflow_ui.api.AirflowService.get_dags', side_effect=AirflowError('down'))
+    def test_dag_list_error_is_502(self, _):
+        self.assertEqual(self.client.get('/api/v1/pipelines/dags/').status_code, 502)
 
-    def test_dag_list_api_requires_auth(self):
-        resp = self.client_http.get('/api/v1/pipelines/dags/')
-        self.assertEqual(resp.status_code, 403)
+    def test_non_superuser_forbidden(self):
+        c = TestClient()
+        c.force_login(make_user('plain'))
+        self.assertEqual(c.get('/api/v1/pipelines/dags/').status_code, 403)
 
-    @patch('airflow_ui.api.AirflowService.trigger_dag')
-    def test_trigger_api_superuser_succeeds(self, mock_trigger):
-        mock_trigger.return_value = {'dag_run_id': 'manual__api123', 'state': 'queued'}
-        self.client_http.force_login(self.superuser)
-        resp = self.client_http.post('/api/v1/pipelines/dags/my_dag/trigger/')
-        self.assertEqual(resp.status_code, 200)
+    @patch('airflow_ui.api.AirflowService.get_dag_runs')
+    def test_runs_serialize_airflow3_fields(self, get_runs):
+        get_runs.return_value = [{'dag_run_id': 'r', 'dag_id': 'd', 'state': 'success', 'note': None,
+                                  'run_after': '2026-01-01T00:00:00Z', 'duration': 1.5, 'conf': {'a': 1}}]
+        data = self.client.get('/api/v1/pipelines/dags/d/runs/?limit=500').json()
+        get_runs.assert_called_once_with('d', limit=100)
+        self.assertEqual(data['dag_runs'][0]['duration'], 1.5)
+        self.assertEqual(data['dag_runs'][0]['conf'], {'a': 1})
+        self.assertIsNone(data['dag_runs'][0]['note'])
+
+    def test_runs_bad_limit(self):
+        self.assertEqual(self.client.get('/api/v1/pipelines/dags/d/runs/?limit=x').status_code, 400)
+
+    def test_trigger_sends_conf_and_null_logical_date(self):
+        with patch('requests.Session.post', return_value=TOKEN_RESPONSE), \
+                patch('requests.Session.request', return_value=fake_response(200, {'dag_run_id': 'mine', 'state': 'queued'})) as req:
+            resp = self.client.post('/api/v1/pipelines/dags/etl/trigger/', {'conf': {'x': 1}, 'dag_run_id': 'mine'},
+                                    content_type='application/json')
         self.assertTrue(resp.json()['ok'])
+        body = req.call_args.kwargs['json']
+        self.assertIsNone(body['logical_date'])
+        self.assertEqual(body['conf'], {'x': 1})
+        self.assertEqual(body['dag_run_id'], 'mine')
+        self.assertTrue(AuditLog.objects.filter(action='trigger', resource_id='etl').exists())
 
-    def test_dag_summary_list(self):
-        DAGSummary.objects.create(dag_id='cached_dag', total_runs=5, successful_runs=4, failed_runs=1)
-        self.client_http.force_login(self.superuser)
-        resp = self.client_http.get('/api/v1/pipelines/summaries/')
-        self.assertEqual(resp.status_code, 200)
-        self.assertGreaterEqual(resp.json()['count'], 1)
+    def test_trigger_rejects_non_object_conf(self):
+        resp = self.client.post('/api/v1/pipelines/dags/etl/trigger/', {'conf': [1]}, content_type='application/json')
+        self.assertEqual(resp.status_code, 400)
+
+    def test_trigger_conflict_relayed(self):
+        with patch('requests.Session.post', return_value=TOKEN_RESPONSE), \
+                patch('requests.Session.request', return_value=fake_response(409, {'detail': 'exists'})):
+            resp = self.client.post('/api/v1/pipelines/dags/etl/trigger/', {}, content_type='application/json')
+        self.assertEqual(resp.status_code, 409)
+        self.assertFalse(resp.json()['ok'])
+
+    @patch('airflow_ui.api.AirflowService.get_dag_runs')
+    @patch('airflow_ui.api.AirflowService.get_dag_stats')
+    @patch('airflow_ui.api.AirflowService.get_dags')
+    def test_sync_populates_summaries(self, get_dags, get_stats, get_runs):
+        DAGSummary.objects.create(dag_id='gone')
+        get_dags.return_value = [{'dag_id': 'etl', 'is_paused': True, 'description': 'x'}]
+        get_stats.return_value = [{'dag_id': 'etl', 'stats': [{'state': 'success', 'count': 3}, {'state': 'failed', 'count': 1}]}]
+        get_runs.return_value = [{'dag_id': 'etl', 'state': 'failed', 'run_after': '2026-01-01T00:00:00Z'}]
+        resp = self.client.post('/api/v1/pipelines/summaries/sync/')
+        self.assertEqual(resp.json()['synced'], 1)
+        s = DAGSummary.objects.get(dag_id='etl')
+        self.assertEqual((s.total_runs, s.successful_runs, s.failed_runs, s.last_run_state), (4, 3, 1, 'failed'))
+        self.assertTrue(s.is_paused)
+        self.assertFalse(DAGSummary.objects.get(dag_id='gone').is_active)

@@ -59,7 +59,7 @@ export function diffView(oldText, newText, { context = 3 } = {}) {
 
 /**
  * openHistory({ queryId, current: () => ({query, name}), onRestore(revision) })
- * Revisions come from GET /redash/history/<id>/ (Studio backend).
+ * Revisions come from GET /studio/history/<id>/ (Studio backend, base URL in APP_UI.history).
  */
 export function openHistory({ queryId, current, onRestore }) {
   const listEl = h('div.rd-hist-list', skeleton(6));
@@ -99,7 +99,8 @@ export function openHistory({ queryId, current, onRestore }) {
       diffView(rev.query, cur.query));
   };
 
-  fetch(`/redash/history/${encodeURIComponent(queryId)}/`, { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+  const historyBase = window.APP_UI?.history || '/studio/history/';
+  fetch(`${historyBase}${encodeURIComponent(queryId)}/`, { credentials: 'same-origin', headers: { Accept: 'application/json' } })
     .then(async (r) => {
       const body = await r.json().catch(() => ({}));
       if (!r.ok) throw Object.assign(new Error(body.message || `History unavailable (${r.status})`), { status: r.status });

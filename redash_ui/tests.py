@@ -135,14 +135,14 @@ class ProxyTest(TestCase):
 
     def call(self, method, path, upstream, **kw):
         with patch('requests.Session.request', return_value=upstream) as req:
-            resp = getattr(self.client, method)(f'/redash/proxy/{path}', **kw)
+            resp = getattr(self.client, method)(f'/studio/proxy/{path}', **kw)
         return resp, req
 
     def test_auth_required(self):
-        self.assertEqual(TestClient().get('/redash/proxy/api/queries').status_code, 401)
+        self.assertEqual(TestClient().get('/studio/proxy/api/queries').status_code, 401)
         c = TestClient()
         c.force_login(make_user('plain'))
-        self.assertEqual(c.get('/redash/proxy/api/queries').status_code, 403)
+        self.assertEqual(c.get('/studio/proxy/api/queries').status_code, 403)
 
     def test_get_passthrough(self):
         resp, req = self.call('get', 'api/queries?page=2&tags=a&tags=b', fake(200, {'count': 0, 'results': []}))
@@ -187,14 +187,14 @@ class ProxyTest(TestCase):
 
     def test_unreachable_is_502(self):
         with patch('requests.Session.request', side_effect=requests.ConnectionError('down')), patch('redash_ui.client.time.sleep'):
-            resp = self.client.get('/redash/proxy/api/queries')
+            resp = self.client.get('/studio/proxy/api/queries')
         self.assertEqual(resp.status_code, 502)
         self.assertIn('Cannot reach Redash', resp.json()['message'])
 
     def test_csrf_enforced(self):
         c = TestClient(enforce_csrf_checks=True)
         c.force_login(self.admin)
-        self.assertEqual(c.post('/redash/proxy/api/queries', data='{}', content_type='application/json').status_code, 403)
+        self.assertEqual(c.post('/studio/proxy/api/queries', data='{}', content_type='application/json').status_code, 403)
 
     def test_audit_actions(self):
         self.call('post', 'api/dashboards', fake(200, {'id': 1}), data='{"name":"x"}', content_type='application/json')
@@ -214,7 +214,7 @@ class ProxyTest(TestCase):
         session = fake(200, {'user': {'id': 1}})
         for path in ('api/users/1/regenerate_api_key', 'api/users/1/disable'):
             with patch('requests.Session.request', return_value=session) as req:
-                resp = self.client.post(f'/redash/proxy/{path}', data='{}', content_type='application/json')
+                resp = self.client.post(f'/studio/proxy/{path}', data='{}', content_type='application/json')
             self.assertEqual(resp.status_code, 409, path)
             self.assertIn('owns the API key', resp.json()['message'])
             self.assertTrue(all(c.args[1].endswith('/api/session') for c in req.call_args_list))
@@ -243,7 +243,7 @@ class RevisionTest(TestCase):
 
     def save(self, path, sent, saved, status=200):
         with patch('requests.Session.request', return_value=fake(status, saved)):
-            return self.client.post(f'/redash/proxy/{path}', data=json.dumps(sent), content_type='application/json')
+            return self.client.post(f'/studio/proxy/{path}', data=json.dumps(sent), content_type='application/json')
 
     def test_create_and_save_recorded(self):
         self.save('api/queries', {'name': 'A', 'query': 'select 1', 'data_source_id': 1},
@@ -277,15 +277,15 @@ class RevisionTest(TestCase):
         QueryRevision.objects.create(query_id=3, version=1, name='n', query_text='a', user=self.admin)
         QueryRevision.objects.create(query_id=3, version=2, name='n', query_text='b', user=self.admin)
         QueryRevision.objects.create(query_id=4, version=1, name='other', query_text='z')
-        data = self.client.get('/redash/history/3/').json()
+        data = self.client.get('/studio/history/3/').json()
         self.assertEqual([r['query'] for r in data['revisions']], ['b', 'a'])
         self.assertEqual(data['revisions'][0]['user'], 'admin')
 
     def test_history_requires_superuser(self):
-        self.assertEqual(TestClient().get('/redash/history/3/').status_code, 401)
+        self.assertEqual(TestClient().get('/studio/history/3/').status_code, 401)
         c = TestClient()
         c.force_login(make_user('plain'))
-        self.assertEqual(c.get('/redash/history/3/').status_code, 403)
+        self.assertEqual(c.get('/studio/history/3/').status_code, 403)
 
 
 # =============================================================================
@@ -302,7 +302,8 @@ class StudioViewTest(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertTemplateUsed(resp, 'redash_ui/app.html')
         cfg = resp.context['studio_config']
-        self.assertEqual(cfg['api'], '/redash/proxy/')
+        self.assertEqual(cfg['api'], '/studio/proxy/')
+        self.assertEqual(cfg['history'], '/studio/history/')
         self.assertEqual(cfg['redashUrl'], 'https://redash.public')
         self.assertTrue(cfg['configured'])
         self.assertNotContains(resp, 'admin-key')
@@ -310,19 +311,19 @@ class StudioViewTest(TestCase):
     def test_deep_links(self):
         c = TestClient()
         c.force_login(make_user('admin', superuser=True))
-        for p in ('/redash/queries', '/redash/queries/12', '/redash/dashboards/start', '/redash/data-sources/new', '/redash/explorer'):
+        for p in ('/studio/queries', '/studio/queries/12', '/studio/dashboards/start', '/studio/data-sources/new', '/studio/explorer'):
             self.assertEqual(c.get(p).status_code, 200, p)
 
     @override_settings(REDASH_ADMIN_API_KEY='')
     def test_unconfigured_flag(self):
         c = TestClient()
         c.force_login(make_user('admin', superuser=True))
-        self.assertFalse(c.get('/redash/').context['studio_config']['configured'])
+        self.assertFalse(c.get('/studio/').context['studio_config']['configured'])
 
     def test_permissions(self):
-        resp = TestClient().get('/redash/queries')
+        resp = TestClient().get('/studio/queries')
         self.assertEqual(resp.status_code, 302)
         self.assertIn('/auth/login/', resp['Location'])
         c = TestClient()
         c.force_login(make_user('plain'))
-        self.assertEqual(c.get('/redash/').status_code, 403)
+        self.assertEqual(c.get('/studio/').status_code, 403)

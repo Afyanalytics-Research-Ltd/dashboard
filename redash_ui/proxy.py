@@ -1,8 +1,8 @@
 """
 Browser-facing proxy for the Redash API.
 
-The Analytics Studio single-page app calls ``/redash/proxy/<redash path>``
-(e.g. ``/redash/proxy/api/queries``). This view forwards to Redash with the
+The Analytics Studio single-page app calls ``/studio/proxy/<redash path>``
+(e.g. ``/studio/proxy/api/queries``). This view forwards to Redash with the
 server-side admin API key, so the key never reaches the browser.
 
 Guard rails:
@@ -88,7 +88,7 @@ def _record_revision(request: HttpRequest, upstream) -> None:
 
 
 def query_history(request: HttpRequest, query_id: int) -> JsonResponse:
-    """GET /redash/history/<query_id>/ — revisions recorded by Studio, newest first."""
+    """GET /studio/history/<query_id>/ — revisions recorded by Studio, newest first."""
     if not request.user.is_authenticated:
         return _error(401, 'Your session has expired. Please sign in again.')
     if not request.user.is_superuser:
@@ -121,7 +121,7 @@ def _would_lock_out(path: str, template: str, method: str) -> bool:
 
 
 def redash_proxy(request: HttpRequest, subpath: str) -> HttpResponse:
-    """Forward ``/redash/proxy/<subpath>`` to ``{REDASH_BASE_URL}/<subpath>``."""
+    """Forward ``/studio/proxy/<subpath>`` to ``{REDASH_BASE_URL}/<subpath>``."""
     if not request.user.is_authenticated:
         return _error(401, 'Your session has expired. Please sign in again.')
     if not request.user.is_superuser:

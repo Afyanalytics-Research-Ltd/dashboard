@@ -1,7 +1,7 @@
 """
 Analytics Studio (Redash) — HTML shell for the single-page app.
 
-Every URL under ``/redash/`` except ``/redash/proxy/`` serves the same shell;
+Every URL under ``/studio/`` except ``/studio/proxy/`` serves the same shell;
 the JS router picks the page. Restricted to superusers, like the proxy.
 """
 
@@ -30,6 +30,7 @@ class StudioAppView(SuperuserRequiredMixin, TemplateView):
             'studio_config': {
                 'root': reverse('redash_ui:home'),
                 'api': reverse('redash_ui:proxy_root'),
+                'history': reverse('redash_ui:query_history', kwargs={'query_id': 0}).rsplit('0/', 1)[0],
                 'redashUrl': public_url.rstrip('/'),
                 'user': self.request.user.get_username(),
                 'appName': 'Analytics Studio',

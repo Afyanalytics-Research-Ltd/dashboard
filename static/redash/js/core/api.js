@@ -1,4 +1,4 @@
-// Client for the Django proxy at /redash/proxy/ (which forwards to Redash with the admin key).
+// Client for the Django proxy at /studio/proxy/ (which forwards to Redash with the admin key).
 //
 //   await rd.get('/api/queries', { page: 1, page_size: 25, q: 'admissions' })
 //   const result = await runQuery({ query: 'select 1', data_source_id: 1 })  // polls the job
@@ -7,7 +7,7 @@
 // 3 success, 4 failure, 5 cancelled.
 
 const CONFIG = window.APP_UI || {};
-const BASE = (CONFIG.api || '/redash/proxy/').replace(/\/$/, '');
+const BASE = (CONFIG.api || '/studio/proxy/').replace(/\/$/, '');
 
 export const config = CONFIG;
 export const enc = (v) => encodeURIComponent(String(v));

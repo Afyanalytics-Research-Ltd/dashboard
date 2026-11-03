@@ -1,5 +1,5 @@
 """
-Analytics Studio URL patterns (mounted at ``/redash/``).
+Analytics Studio URL patterns (mounted at ``/studio/``).
 """
 
 from django.urls import path, re_path

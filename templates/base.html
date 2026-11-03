@@ -200,19 +200,19 @@
       <div id="submenuStudio"
            class="sidebar-submenu {% if sidebar_section == 'studio' %}open{% endif %}">
         <a href="{% url 'redash_ui:home' %}"
-           class="sidebar-subitem {% if request.path == '/redash/' %}active{% endif %}">
+           class="sidebar-subitem {% if request.path == '/studio/' %}active{% endif %}">
           <i class="bi bi-house"></i> Home
         </a>
         <a href="{% url 'redash_ui:home' %}queries"
-           class="sidebar-subitem {% if '/redash/queries' in request.path %}active{% endif %}">
+           class="sidebar-subitem {% if '/studio/queries' in request.path %}active{% endif %}">
           <i class="bi bi-code-square"></i> Queries
         </a>
         <a href="{% url 'redash_ui:home' %}dashboards"
-           class="sidebar-subitem {% if '/redash/dashboards' in request.path %}active{% endif %}">
+           class="sidebar-subitem {% if '/studio/dashboards' in request.path %}active{% endif %}">
           <i class="bi bi-grid-1x2"></i> Dashboards
         </a>
         <a href="{% url 'redash_ui:home' %}alerts"
-           class="sidebar-subitem {% if '/redash/alerts' in request.path %}active{% endif %}">
+           class="sidebar-subitem {% if '/studio/alerts' in request.path %}active{% endif %}">
           <i class="bi bi-bell"></i> Alerts
         </a>
       </div>

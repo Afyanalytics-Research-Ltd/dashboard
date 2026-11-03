@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Analytics Studio{% endblock %}
+{% block page_title %}Analytics Studio{% endblock %}
+
+{% block extra_css %}
+{{ block.super }}
+<link rel="stylesheet" href="{% static 'ui/css/ui.css' %}" />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css" />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/hint/show-hint.min.css" />
+<link rel="stylesheet" href="{% static 'redash/css/studio.css' %}" />
+<link rel="stylesheet" href="{% static 'redash/css/pages-queries.css' %}" />
+<link rel="stylesheet" href="{% static 'redash/css/pages-dashboards.css' %}" />
+<link rel="stylesheet" href="{% static 'redash/css/pages-admin.css' %}" />
+<link rel="stylesheet" href="{% static 'redash/css/pages-home.css' %}" />
+<link rel="modulepreload" href="{% static 'redash/js/app.js' %}" />
+{% endblock %}
+
+{% block breadcrumbs %}{% endblock %}
+
+{% block content %}
+{% csrf_token %}
+<div id="af-app">
+  <noscript>Analytics Studio needs JavaScript enabled.</noscript>
+</div>
+{{ studio_config|json_script:"rd-config" }}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  window.APP_UI = JSON.parse(document.getElementById('rd-config').textContent);
+</script>
+<script type="module" src="{% static 'redash/js/app.js' %}"></script>
+{% endblock %}

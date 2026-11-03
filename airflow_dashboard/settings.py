@@ -86,6 +86,7 @@ INSTALLED_APPS = [
     'catalog',
     'forecasting',
     'browser_automation',
+    'redash_ui',
 ]
 
 # ---------------------------------------------------------------------------
@@ -251,7 +252,12 @@ REDASH_BASE_URL = os.getenv(
 
 # Admin-user API key used server-side to provision Redash Groups/Data
 # Sources per facility (see analytics_app/management/commands/provision_redash_facility.py).
-REDASH_ADMIN_API_KEY = os.getenv('REDASH_ADMIN_API_KEY', '').strip()
+REDASH_ADMIN_API_KEY = os.getenv('REDASH_ADMIN_API_KEY', '').strip().strip('"')
+
+# Server-side Redash URL for the Analytics Studio proxy (redash_ui). Inside
+# docker this is usually http://redash-server:5000; defaults to the base URL.
+REDASH_API_URL = os.getenv('REDASH_API_URL', REDASH_BASE_URL).rstrip('/')
+REDASH_TIMEOUT = float(os.getenv('REDASH_TIMEOUT', '60'))
 
 AIRFLOW_BASE_URL = os.getenv('AIRFLOW_BASE_URL', 'https://datapipelines.afyaanalytics.com').rstrip('/')
 # Browser-facing Airflow URL for "open in Airflow" links (defaults to the base URL).

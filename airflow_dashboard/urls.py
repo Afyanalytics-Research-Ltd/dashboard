@@ -31,6 +31,7 @@ urlpatterns = [
     path('forecast/', include('forecasting.urls')),
     path('analytics/chat/', include('self_service.urls', namespace='self_service')),
     path('browser-automation/', include('browser_automation.urls', namespace='browserbase')),
+    path('redash/', include('redash_ui.urls', namespace='redash_ui')),
 
     # REST API v1
     path('api/v1/', include([

@@ -224,7 +224,7 @@ button.af-tag:hover, .af-tag.active { background: var(--af-primary-soft); color:
 
 .af-pager { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 14px; border-top: 1px solid var(--af-border); flex-wrap: wrap; }
 .af-pager-info { font-size: 12.5px; color: var(--af-muted); font-variant-numeric: tabular-nums; }
-.af-pager-controls { display: flex; align-items: center; gap: 4px; }
+.af-pager-controls { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 .af-pager-size { width: auto; margin-right: 8px; }
 .af-page-btn {
   min-width: 30px; height: 30px; padding: 0 8px; border-radius: 7px; border: 1px solid transparent; background: none;

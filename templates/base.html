@@ -188,6 +188,36 @@
       </div>
       {% endif %}
 
+      <!-- Analytics Studio: Redash (superuser only) -->
+      {% if request.user.is_superuser %}
+      <a href="#"
+         data-submenu-toggle="submenuStudio"
+         class="sidebar-item {% if sidebar_section == 'studio' %}active{% endif %}">
+        <i class="bi bi-bar-chart-line sidebar-item-icon"></i>
+        <span class="sidebar-item-label">Analytics Studio</span>
+        <i class="bi bi-chevron-right sidebar-chevron"></i>
+      </a>
+      <div id="submenuStudio"
+           class="sidebar-submenu {% if sidebar_section == 'studio' %}open{% endif %}">
+        <a href="{% url 'redash_ui:home' %}"
+           class="sidebar-subitem {% if request.path == '/redash/' %}active{% endif %}">
+          <i class="bi bi-house"></i> Home
+        </a>
+        <a href="{% url 'redash_ui:home' %}queries"
+           class="sidebar-subitem {% if '/redash/queries' in request.path %}active{% endif %}">
+          <i class="bi bi-code-square"></i> Queries
+        </a>
+        <a href="{% url 'redash_ui:home' %}dashboards"
+           class="sidebar-subitem {% if '/redash/dashboards' in request.path %}active{% endif %}">
+          <i class="bi bi-grid-1x2"></i> Dashboards
+        </a>
+        <a href="{% url 'redash_ui:home' %}alerts"
+           class="sidebar-subitem {% if '/redash/alerts' in request.path %}active{% endif %}">
+          <i class="bi bi-bell"></i> Alerts
+        </a>
+      </div>
+      {% endif %}
+
       <!-- Browser Automation (superuser only) -->
       {% if request.user.is_superuser %}
       <a href="#"

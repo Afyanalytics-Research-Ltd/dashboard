@@ -75,9 +75,13 @@ x-airflow-common:
     &airflow-common-env
     AIRFLOW__CORE__EXECUTOR: CeleryExecutor
     AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
-    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
-    AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql+psycopg2://airflow:airflow@postgres/airflow
-    AIRFLOW__CELERY__BROKER_URL: redis://:@redis:6379/0
+    # airflow-postgres / airflow-redis are aliases that exist only on this
+    # stack's own network. The bare names postgres/redis are ambiguous for
+    # airflow-apiserver, which also joins dashboard-net (for nginx), where
+    # Django's postgres and redis use the same names.
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-postgres/airflow
+    AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql+psycopg2://airflow:airflow@airflow-postgres/airflow
+    AIRFLOW__CELERY__BROKER_URL: redis://:@airflow-redis:6379/0
     AIRFLOW__CORE__FERNET_KEY: ${FERNET_KEY}
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
     AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
@@ -139,6 +143,9 @@ services:
       retries: 5
       start_period: 5s
     restart: always
+    networks:
+      default:
+        aliases: [airflow-postgres]
 
   redis:
     # Redis is limited to 7.2-bookworm due to licencing change
@@ -153,10 +160,19 @@ services:
       retries: 50
       start_period: 30s
     restart: always
+    networks:
+      default:
+        aliases: [airflow-redis]
 
   airflow-apiserver:
     <<: *airflow-common
     command: api-server
+    # dashboard-net so nginx (docker-compose.yaml) can proxy /airflow/ to
+    # airflow-apiserver:8080. Only the api-server joins it; see the note on
+    # airflow-postgres/airflow-redis above.
+    networks:
+      - default
+      - dashboard-net
     ports:
       # Host port overridable while another Airflow (e.g. the datapipelines
       # stack) still holds 8080.
@@ -375,3 +391,10 @@ volumes:
   # docker-compose.redash.yaml's volumes: section for why.
   postgres-db-volume:
     name: dashboard_postgres-db-volume
+
+networks:
+  # Created by docker-compose.yaml (the Django + nginx stack): start that
+  # one first, as for the other docker-compose.*.yaml stacks.
+  dashboard-net:
+    external: true
+    name: dashboard-net

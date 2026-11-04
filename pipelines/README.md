@@ -47,6 +47,12 @@ AIRFLOW_UID=1000          # `id -u` of the checkout's owner; airflow-init chowns
 AIRFLOW_HOST_PORT=8080    # 8081 while the old datapipelines stack still holds 8080
 ```
 
+`airflow-apiserver` also joins the external `dashboard-net` network so nginx can
+proxy `https://datahub.afyaanalytics.com/airflow/` to it. Start the main stack
+(`docker compose up -d`, which creates that network) before this one. Airflow
+reaches its own DB and broker as `airflow-postgres` / `airflow-redis`, never as
+`postgres` / `redis`: those names belong to Django's services on `dashboard-net`.
+
 ```bash
 docker compose -f docker-compose.airflow.yaml build
 docker compose -f docker-compose.airflow.yaml up -d

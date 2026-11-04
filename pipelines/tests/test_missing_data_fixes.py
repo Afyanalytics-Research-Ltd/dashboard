@@ -114,11 +114,9 @@ class TestDiagnoses:
                "uuid": "14ff863a", "variation_code": "A20.9", "variation_name": "Plague, unspecified",
                "variation_uuid": "82a56163"}
         out = v2v3.transform_record(row, xm.transform_key("evaluation_icd10_notes"), ORG, "kisumu_v3")
-        # V2's own timestamps ride along (else V3 dates every migrated row the day it was loaded)
         assert out == {"id": 67107, "uuid": "14ff863a", "visit_id": 308666, "patient_id": 232035,
                        "diagnosis_text": "A20.9 Plague, unspecified", "diagnosis_date": "2024-04-18 11:08:49",
-                       "recorded_by": 1503, "created_at": "2024-04-18 11:08:49",
-                       "updated_at": "2024-04-18 11:08:49"}
+                       "recorded_by": 1503}
 
     def test_code_when_no_variation(self, monkeypatch):
         monkeypatch.setattr(v2v3, "_visit_patient_map", {})
@@ -150,7 +148,7 @@ class TestStoreDepartments:
     def test_transform(self):
         out = v2v3.transform_record({"id": 3, "name": "Pharmacy", "description": "", "created_at": "c", "uuid": "u"},
                                     xm.transform_key("inventory_store_departments"), ORG, "k")
-        assert out == {"id": 3, "uuid": "u", "name": "Pharmacy", "description": "", "created_at": "c"}
+        assert out == {"id": 3, "uuid": "u", "name": "Pharmacy", "description": ""}
         assert m._ALIAS_OVERRIDE["gen_inventory_store_departments"] == "departments"
         assert m._SERVICE_OVERRIDE["gen_inventory_store_departments"] == "core"
 

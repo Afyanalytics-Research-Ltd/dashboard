@@ -14,9 +14,9 @@ run() {   # run <tag> <steps…>
 }
 [ -n "${SKIP_BASE:-}" ] || run base users user_profiles insurance patients patient_insurance visits wards admissions ward_stays discharges \
          inpatient_notes catalogue procedure_prices stores products suppliers
-run clinical vitals doctor_notes diagnoses & sleep 30   # staggered: four Snowflake key-pair logins at once were refused (JWT invalid)
-run orders investigations lab_results & sleep 30
-run pharmacy stock prescriptions & sleep 30
+run clinical vitals doctor_notes diagnoses &
+run orders investigations lab_results &
+run pharmacy stock prescriptions &
 run money payments payment_details invoices appointments &
 wait
 echo "$(date '+%F %T') all groups finished"

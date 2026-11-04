@@ -1,0 +1,5 @@
+# The only JSON committed in this repo's Airflow tree: the DAG mapping files.
+*.json
+!jsons/
+!jsons/*.json
+jsons/*.bak*

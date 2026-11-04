@@ -1,0 +1,52 @@
+# Airflow image for docker-compose.airflow.yaml: the stock image plus what the
+# pipeline DAGs need (pipelines/requirements.txt, Chrome + chromedriver for
+# the selenium scrapers). Ported from the datapipelines repo's Dockerfile.
+#
+# Build context is the repo root; Dockerfile.airflow.dockerignore limits it to
+# pipelines/requirements.txt so the pipeline state and secrets never reach it.
+ARG AIRFLOW_VERSION=3.3.0
+FROM apache/airflow:${AIRFLOW_VERSION}
+ARG AIRFLOW_VERSION
+
+USER root
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        wget unzip xvfb curl gnupg fonts-liberation fontconfig xdg-utils \
+        libxi6 libgconf-2-4 libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 \
+        libcups2 libxss1 libxrandr2 libasound2 libxtst6 libdrm2 libx11-6 \
+        libxcomposite1 libxcursor1 libxkbcommon0 libxrender1 libxext6 \
+        libcairo2 libgbm1 libgtk-3-0 libpango-1.0-0 libu2f-udev libvulkan1 \
+        libxdamage1 \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Chrome 114 + matching chromedriver 114 (the scraper DAGs pin this pair).
+RUN wget -q https://chromedriver.storage.googleapis.com/114.0.5735.90/chromedriver_linux64.zip -O /tmp/chromedriver.zip \
+    && unzip -q /tmp/chromedriver.zip -d /tmp \
+    && install /tmp/chromedriver /usr/local/bin/chromedriver \
+    && rm -rf /tmp/chromedriver /tmp/chromedriver.zip \
+    && wget -q https://mirror.cs.uchicago.edu/google-chrome/pool/main/g/google-chrome-stable/google-chrome-stable_114.0.5735.198-1_amd64.deb -O /tmp/chrome-114.deb \
+    && apt-get update && (apt-get install -y /tmp/chrome-114.deb || apt-get -f -y install) \
+    && apt-mark hold google-chrome-stable \
+    && rm -f /tmp/chrome-114.deb /etc/apt/sources.list.d/google-chrome.list \
+    && apt-get clean && rm -rf /var/lib/apt/lists/* \
+    && chromedriver --version && google-chrome-stable --version
+
+USER airflow
+
+# Pin apache-airflow itself so the pipelines' requirements can't move it.
+# requirements.txt was frozen against Airflow 3.1.7; its pins on these three
+# would downgrade below what Airflow 3.3's own packages need (asyncssh needs
+# cryptography>=48.0.1, google-api-core requests>=2.33, google-genai
+# google-auth>=2.48.1), so the image's versions are kept for them instead.
+# The file itself stays as synced from datapipelines.
+COPY pipelines/requirements.txt /requirements-pipelines.txt
+RUN sed -E '/^(cryptography|requests|google-auth)[[:space:]]*([=<>!~]|$)/d' /requirements-pipelines.txt > /tmp/req.txt \
+    && pip install --no-cache-dir "apache-airflow==${AIRFLOW_VERSION}" -r /tmp/req.txt \
+    && pip check
+
+# eventlet ships in the stock image but nothing uses it (Celery runs the prefork
+# pool). With trio installed (selenium pulls it in), merely importing eventlet
+# crashes on Python 3.13 - and sentry_sdk imports it to probe for monkey-
+# patching, so airflow_local_settings.py would take down every component:
+#   AttributeError: type object 'GreenSocket' has no attribute 'sendmsg'
+RUN pip uninstall -y eventlet && pip check && python -c "import sentry_sdk, trio, httpcore"

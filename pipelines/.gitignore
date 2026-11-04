@@ -1,0 +1,47 @@
+# Runtime files of the pipeline scripts (see scripts/sync_datapipelines.sh).
+# Unlike the datapipelines repo, migration state is NOT committed here: copy it
+# with `scripts/sync_datapipelines.sh --with-state` on each machine instead.
+
+# secrets
+.env
+.env.*
+*.p8
+*.pem
+*.pub
+service_account.json
+gdrive-sa.json
+config/*.json
+
+# migration / extraction state
+.migration_state/
+.page_progress/
+state/
+schema_cache/
+input/
+mapping/softdelete/
+.*.json
+.*.jsonl
+*.lock
+
+# data files: no JSON is committed from pipelines/ (only dags/jsons/*.json is,
+# see dags/.gitignore). tests/fixtures/*.json come from the sync script.
+*.json
+*.csv
+!mapping/v2_extraction_queue.csv
+*.jsonl
+*.pdf
+*.log
+*.BAK
+*.sql
+*.sql.gz
+
+# run outputs
+logs/
+output/*
+!output/org4_reload_20261015/
+downloads/
+downloaded/
+downloaded_files/
+failed_mapped_logs/
+v3_ready/
+.pytest_cache/

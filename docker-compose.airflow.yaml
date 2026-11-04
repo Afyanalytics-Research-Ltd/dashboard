@@ -24,9 +24,16 @@
 # The following variables are supported:
 #
 # AIRFLOW_IMAGE_NAME           - Docker image name used to run Airflow.
-#                                Default: apache/airflow:3.3.0
-# AIRFLOW_UID                  - User ID in Airflow containers
+#                                Default: dashboard-airflow:3.3.0-pipelines (built from Dockerfile.airflow)
+# AIRFLOW_UID                  - User ID in Airflow containers. Set it to the owner of this checkout
+#                                (`id -u`, e.g. 1000): airflow-init chowns everything mounted under
+#                                /opt/airflow - including pipelines/ - to this uid.
 #                                Default: 50000
+# AIRFLOW_HOST_PORT            - Host port for the api-server. Default: 8080
+# AIRFLOW_ENV_FILE             - Env file for the Airflow containers. Default: pipelines/.env
+#
+# DAGs live in dags/, the pipeline scripts they run in pipelines/ (both copied
+# from the datapipelines repo by scripts/sync_datapipelines.sh - see pipelines/README.md).
 # AIRFLOW_PROJ_DIR             - Base path to which all the files will be volumed.
 #                                Default: .
 # Those configurations are useful mostly in case of standalone testing/running Airflow in test/try-out mode
@@ -51,10 +58,19 @@ x-airflow-common:
   # In order to add custom dependencies or upgrade provider distributions you can use your extended image.
   # Comment the image line, place your Dockerfile in the directory where you placed the docker-compose.yaml
   # and uncomment the "build" line below, Then run `docker-compose build` to build the images.
-  image: ${AIRFLOW_IMAGE_NAME:-apache/airflow:3.3.0}
-  # build: .
+  # Stock Airflow + the pipeline DAGs' dependencies (Dockerfile.airflow).
+  image: ${AIRFLOW_IMAGE_NAME:-dashboard-airflow:3.3.0-pipelines}
+  build:
+    context: .
+    dockerfile: Dockerfile.airflow
+  # The pipelines' own .env (copied by scripts/sync_datapipelines.sh
+  # --with-state), NOT the Django .env: that one sets CELERY_BROKER_URL
+  # (which Celery lets override Airflow's broker) and Django's SNOWFLAKE_*
+  # (which would win over pipelines/.env, since the scripts load it with
+  # override=False).
   env_file:
-    - ${ENV_FILE_PATH:-.env}
+    - path: ${AIRFLOW_ENV_FILE:-pipelines/.env}
+      required: false
   environment:
     &airflow-common-env
     AIRFLOW__CORE__EXECUTOR: CeleryExecutor
@@ -64,8 +80,13 @@ x-airflow-common:
     AIRFLOW__CELERY__BROKER_URL: redis://:@redis:6379/0
     AIRFLOW__CORE__FERNET_KEY: ${FERNET_KEY}
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
-    AIRFLOW__CORE__LOAD_EXAMPLES: 'true'
-    AIRFLOW__CORE__EXECUTION_API_SERVER_URL: 'http://airflow-apiserver:8080/execution/'
+    AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+    AIRFLOW__API__INSTANCE_NAME: ${AIRFLOW__API__INSTANCE_NAME:-Afyanalytics Data Pipelines Platform}
+    # Where workers report task state. The path must start with the path of
+    # BASE_URL below (Airflow 3 serves everything, the Execution API included,
+    # under it): with the default .../airflow it's /airflow/execution/, and a
+    # bare /execution/ 404s, so tasks fail before they start.
+    AIRFLOW__CORE__EXECUTION_API_SERVER_URL: ${AIRFLOW__CORE__EXECUTION_API_SERVER_URL:-http://airflow-apiserver:8080/airflow/execution/}
     AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW__API_AUTH__JWT_SECRET:-airflow_jwt_secret}
     AIRFLOW__API_AUTH__JWT_ISSUER: ${AIRFLOW__API_AUTH__JWT_ISSUER:-airflow}
     # Tells Airflow it's mounted under /airflow so its own generated
@@ -82,7 +103,15 @@ x-airflow-common:
     _PIP_ADDITIONAL_REQUIREMENTS: ${_PIP_ADDITIONAL_REQUIREMENTS:-}
     # The following line can be used to set a custom config file, stored in the local config folder
     AIRFLOW_CONFIG: '/opt/airflow/config/airflow.cfg'
+    # Sentry for pipeline failures (config/airflow_local_settings.py); stays
+    # off with a warning until SENTRY_DSN is set.
+    AIRFLOW__SENTRY__SENTRY_ON: ${AIRFLOW__SENTRY__SENTRY_ON:-true}
+    SENTRY_DSN: ${SENTRY_DSN:-}
+    # Where the DAGs import the pipeline scripts from (dags/pipelines_common.py)
+    # and where those scripts keep their migration state.
+    PIPELINES_DIR: /opt/airflow/pipelines
   volumes:
+    - ${AIRFLOW_PROJ_DIR:-.}/pipelines:/opt/airflow/pipelines
     - ${AIRFLOW_PROJ_DIR:-.}/dags:/opt/airflow/dags
     - ${AIRFLOW_PROJ_DIR:-.}/logs:/opt/airflow/logs
     - ${AIRFLOW_PROJ_DIR:-.}/config:/opt/airflow/config
@@ -129,7 +158,9 @@ services:
     <<: *airflow-common
     command: api-server
     ports:
-      - "8080:8080"
+      # Host port overridable while another Airflow (e.g. the datapipelines
+      # stack) still holds 8080.
+      - "${AIRFLOW_HOST_PORT:-8080}:8080"
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://localhost:8080/api/v2/monitor/health"]
       interval: 30s

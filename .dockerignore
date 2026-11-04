@@ -11,6 +11,12 @@ venv/
 .ruff_cache/
 logs/
 *.log
+
+# Airflow pipelines (run by docker-compose.airflow.yaml, not the Django image):
+# hundreds of MB of migration state plus the pipelines' credentials.
+pipelines/
+dags/
+plugins/
 node_modules/
 .DS_Store
 Thumbs.db

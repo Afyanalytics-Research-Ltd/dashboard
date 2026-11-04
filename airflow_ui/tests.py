@@ -432,3 +432,102 @@ class PipelinesAPITest(AirflowTestCase):
         self.assertEqual((s.total_runs, s.successful_runs, s.failed_runs, s.last_run_state), (4, 3, 1, 'failed'))
         self.assertTrue(s.is_paused)
         self.assertFalse(DAGSummary.objects.get(dag_id='gone').is_active)
+
+
+# =============================================================================
+# BASE URL RESOLUTION (host vs Docker network, root vs /airflow path)
+# =============================================================================
+
+@override_settings(**AIRFLOW_SETTINGS)
+class BaseUrlResolutionTest(AirflowTestCase):
+    """The dashboard and datapipelines Airflow stacks serve the API under different paths."""
+
+    def test_switches_to_airflow_prefix_when_root_404s(self):
+        client = AirflowClient('http://localhost:8080', 'u', 'p')
+        posts = [fake_response(404, {'detail': 'Not Found'}), fake_response(201, {'access_token': 'jwt-p'})]
+        with patch.object(client.session, 'post', side_effect=posts) as post, \
+                patch.object(client.session, 'request', return_value=fake_response(200, {'dags': []})) as req:
+            client.get_json('/dags')
+        self.assertEqual([c.args[0] for c in post.call_args_list],
+                         ['http://localhost:8080/auth/token', 'http://localhost:8080/airflow/auth/token'])
+        self.assertEqual(client.base_url, 'http://localhost:8080/airflow')
+        self.assertEqual(req.call_args.args[1], 'http://localhost:8080/airflow/api/v2/dags')
+
+    def test_drops_airflow_prefix_when_server_is_at_root(self):
+        client = AirflowClient('http://localhost:8080/airflow/', 'u', 'p')
+        posts = [fake_response(405, {'detail': 'Method Not Allowed'}), fake_response(201, {'access_token': 'jwt-r'})]
+        with patch.object(client.session, 'post', side_effect=posts):
+            self.assertEqual(client.token(), 'jwt-r')
+        self.assertEqual(client.base_url, 'http://localhost:8080')
+
+    def test_both_layouts_missing_reports_login_failure(self):
+        client = AirflowClient('http://localhost:8080', 'u', 'p')
+        with patch.object(client.session, 'post', return_value=fake_response(404, {'detail': 'Not Found'})):
+            with self.assertRaises(AirflowError) as ctx:
+                client.token()
+        self.assertIn('login failed (404)', str(ctx.exception))
+        self.assertEqual(client.base_url, 'http://localhost:8080')
+
+    def test_bad_credentials_do_not_trigger_path_probing(self):
+        client = AirflowClient('http://localhost:8080', 'u', 'wrong')
+        with patch.object(client.session, 'post', return_value=fake_response(401, {'detail': 'Invalid'})) as post:
+            with self.assertRaises(AirflowError):
+                client.token()
+        post.assert_called_once()
+
+    def test_custom_path_has_no_alternate(self):
+        client = AirflowClient('https://example.org/pipelines', 'u', 'p')
+        with patch.object(client.session, 'post', return_value=fake_response(404, {})) as post:
+            with self.assertRaises(AirflowError):
+                client.token()
+        post.assert_called_once()
+
+    def test_unresolvable_docker_hostname_explains_the_fix(self):
+        client = AirflowClient('http://airflow-apiserver:8080', 'u', 'p')
+        err = requests.ConnectionError("Max retries exceeded (Caused by NameResolutionError(\"Failed to resolve "
+                                       "'airflow-apiserver' ([Errno -2] Name or service not known)\"))")
+        with patch.object(client.session, 'post', side_effect=err), \
+                patch.dict('os.environ', {'AIRFLOW_HOST_PORT': '8081'}):
+            with self.assertRaises(AirflowError) as ctx:
+                client.token()
+        msg = str(ctx.exception)
+        self.assertIn('Cannot reach Airflow at http://airflow-apiserver:8080', msg)
+        self.assertIn('only resolve inside Airflow', msg)
+        self.assertIn('AIRFLOW_BASE_URL', msg)
+        self.assertIn('http://localhost:8080', msg)
+        self.assertIn('AIRFLOW_HOST_PORT=8081', msg)
+
+    def test_other_connection_errors_have_no_docker_hint(self):
+        client = AirflowClient('http://localhost:8080', 'u', 'p')
+        with patch.object(client.session, 'post', side_effect=requests.ConnectionError('Connection refused')):
+            with self.assertRaises(AirflowError) as ctx:
+                client.token()
+        self.assertNotIn('Docker', str(ctx.exception))
+
+    def test_api_spec_falls_back_to_airflow_prefix_without_login(self):
+        admin = make_user('specadmin', is_superuser=True)
+        web = TestClient()
+        web.force_login(admin)
+        spec = fake_response(200, {'paths': {'/api/v2/dags': {'get': {}}, '/api/v2/auth/token': {}, '/ui/x': {}}})
+        with override_settings(AIRFLOW_BASE_URL='http://localhost:8080'), \
+                patch('requests.Session.post') as post, \
+                patch('airflow_ui.proxy.requests.get', side_effect=[fake_response(404, {}), spec]) as get:
+            resp = web.get('/pipelines/api/spec/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual([c.args[0] for c in get.call_args_list],
+                         ['http://localhost:8080/openapi.json', 'http://localhost:8080/airflow/openapi.json'])
+        self.assertEqual(list(resp.json()['paths']), ['/api/v2/dags'])
+        post.assert_not_called()   # the spec is public; it must not depend on credentials
+
+    def test_api_spec_reports_unreachable_airflow_as_502(self):
+        admin = make_user('specadmin2', is_superuser=True)
+        web = TestClient()
+        web.force_login(admin)
+        with patch('airflow_ui.proxy.requests.get', side_effect=requests.ConnectionError('Name or service not known')):
+            resp = web.get('/pipelines/api/spec/')
+        self.assertEqual(resp.status_code, 502)
+
+    def test_candidate_bases(self):
+        self.assertEqual(AirflowClient('http://h:8080', 'u', 'p').candidate_bases(), ['http://h:8080', 'http://h:8080/airflow'])
+        self.assertEqual(AirflowClient('http://h:8080/airflow', 'u', 'p').candidate_bases(), ['http://h:8080/airflow', 'http://h:8080'])
+        self.assertEqual(AirflowClient('https://x.org/pipes', 'u', 'p').candidate_bases(), ['https://x.org/pipes'])

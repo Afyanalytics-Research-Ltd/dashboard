@@ -125,7 +125,14 @@ def api_spec(request: HttpRequest) -> HttpResponse:
     spec = cache.get(SPEC_CACHE_KEY)
     if spec is None:
         try:
-            resp = requests.get(f'{settings.AIRFLOW_BASE_URL.rstrip("/")}/openapi.json', timeout=30)
+            # The spec needs no auth.  Try the configured layout, then the other
+            # one (root vs /airflow), so it works on either Airflow stack.
+            client = get_client()
+            resp = None
+            for base in client.candidate_bases():
+                resp = requests.get(f'{base}/openapi.json', timeout=30)
+                if resp.status_code != 404:
+                    break
             resp.raise_for_status()
             spec = resp.json()
         except (requests.RequestException, ValueError) as exc:

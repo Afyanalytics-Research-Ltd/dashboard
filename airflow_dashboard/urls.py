@@ -33,6 +33,11 @@ urlpatterns = [
     path('browser-automation/', include('browser_automation.urls', namespace='browserbase')),
     # Analytics Studio (Redash UI). Not /redash/: nginx proxies that path to Redash itself.
     path('studio/', include('redash_ui.urls', namespace='redash_ui')),
+    # Warehouse Studio: Snowflake worksheets, cost center and the cost/performance optimizer.
+    path('warehouse-studio/', include('warehouse_studio.urls', namespace='warehouse_studio')),
+    path('models/', include('wandb_ui.urls', namespace='wandb_ui')),
+    # Automation Studio (n8n UI). Not /n8n/: nginx proxies that path to n8n itself.
+    path('automations/', include('n8n_studio.urls', namespace='n8n_studio')),
 
     # REST API v1
     path('api/v1/', include([

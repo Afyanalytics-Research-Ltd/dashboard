@@ -87,6 +87,9 @@ INSTALLED_APPS = [
     'forecasting',
     'browser_automation',
     'redash_ui',
+    'warehouse_studio',
+    'wandb_ui',
+    'n8n_studio',
 ]
 
 # ---------------------------------------------------------------------------
@@ -258,6 +261,26 @@ REDASH_ADMIN_API_KEY = os.getenv('REDASH_ADMIN_API_KEY', '').strip().strip('"')
 # docker this is usually http://redash-server:5000; defaults to the base URL.
 REDASH_API_URL = os.getenv('REDASH_API_URL', REDASH_BASE_URL).rstrip('/')
 REDASH_TIMEOUT = float(os.getenv('REDASH_TIMEOUT', '60'))
+
+# Model Studio (wandb_ui) -> self-hosted W&B Server (docker-compose.wandb.yaml).
+# WANDB_BASE_URL is server-side (inside docker: http://wandb-local:8080);
+# WANDB_HOST_URL is the URL W&B advertises to SDK clients and in file links.
+WANDB_BASE_URL = os.getenv('WANDB_BASE_URL', 'http://localhost:8090').rstrip('/')
+WANDB_HOST_URL = os.getenv('WANDB_HOST_URL', WANDB_BASE_URL).rstrip('/')
+WANDB_API_KEY = os.getenv('WANDB_API_KEY', '').strip().strip('"')
+WANDB_TIMEOUT = float(os.getenv('WANDB_TIMEOUT', '60'))
+
+# Automation Studio (n8n_studio) -> n8n public API (docker-compose.n8n.yaml).
+# N8N_API_URL is server-side (inside docker: http://n8n-container:5678, plus the
+# N8N_PATH prefix if n8n runs under one). N8N_API_KEY comes from n8n -> Settings ->
+# n8n API. N8N_STUDIO_EMAIL/PASSWORD (optional) enable manual runs + live node catalog.
+N8N_API_URL = os.getenv('N8N_API_URL', 'http://localhost:5679').rstrip('/')
+N8N_API_KEY = os.getenv('N8N_API_KEY', '').strip().strip('"')
+N8N_PUBLIC_URL = os.getenv('N8N_PUBLIC_URL', os.getenv('N8N_EDITOR_BASE_URL', N8N_API_URL)).rstrip('/')
+N8N_WEBHOOK_URL = os.getenv('N8N_WEBHOOK_URL', N8N_PUBLIC_URL).rstrip('/')
+N8N_TIMEOUT = float(os.getenv('N8N_TIMEOUT', '60'))
+N8N_STUDIO_EMAIL = os.getenv('N8N_STUDIO_EMAIL', '').strip()
+N8N_STUDIO_PASSWORD = os.getenv('N8N_STUDIO_PASSWORD', '').strip().strip('"')
 
 AIRFLOW_BASE_URL = os.getenv('AIRFLOW_BASE_URL', 'https://datapipelines.afyaanalytics.com').rstrip('/')
 # Browser-facing Airflow URL for "open in Airflow" links (defaults to the base URL).

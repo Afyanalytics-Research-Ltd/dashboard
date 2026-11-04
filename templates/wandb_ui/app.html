@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Model Studio{% endblock %}
+{% block page_title %}Model Studio{% endblock %}
+
+{% block extra_css %}
+{{ block.super }}
+<link rel="stylesheet" href="{% static 'ui/css/ui.css' %}" />
+<link rel="stylesheet" href="{% static 'models/css/models.css' %}" />
+<link rel="stylesheet" href="{% static 'models/css/pages-projects.css' %}" />
+<link rel="stylesheet" href="{% static 'models/css/pages-runs.css' %}" />
+<link rel="stylesheet" href="{% static 'models/css/pages-artifacts.css' %}" />
+<link rel="stylesheet" href="{% static 'models/css/pages-admin.css' %}" />
+<link rel="modulepreload" href="{% static 'models/js/app.js' %}" />
+{% endblock %}
+
+{% block breadcrumbs %}{% endblock %}
+
+{% block content %}
+{% csrf_token %}
+<div id="af-app">
+  <noscript>Model Studio needs JavaScript enabled.</noscript>
+</div>
+{{ models_config|json_script:"ms-config" }}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  window.APP_UI = JSON.parse(document.getElementById('ms-config').textContent);
+</script>
+<script type="module" src="{% static 'models/js/app.js' %}"></script>
+{% endblock %}

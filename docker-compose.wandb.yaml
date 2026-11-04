@@ -1,0 +1,48 @@
+name: dashboard-wandb
+
+# Self-hosted Weights & Biases Server, used by Model Studio (/models/).
+#
+#   docker compose -f docker-compose.wandb.yaml up -d
+#
+# Everything (MySQL, object storage, the app) runs in the one wandb/local
+# container; data lives in the wandb-data volume. Model Studio talks to it
+# server-side over dashboard-net (http://wandb-local:8080), so it does not
+# need to be reachable from the internet. Training jobs that log runs need
+# to reach WANDB_HOST_URL.
+#
+# .env:
+#   WANDB_HOST_URL   URL the server advertises to SDK clients
+#                    (local: http://localhost:8090; online: its own
+#                    subdomain - W&B Server cannot live under a path prefix)
+#   WANDB_LICENSE    license from https://deploy.wandb.ai (free personal tier);
+#                    without one the server runs with single-user limits
+#   WANDB_API_KEY    API key of the W&B admin user (Profile -> API keys),
+#                    used by Model Studio's proxy
+
+services:
+  wandb-local:
+    image: wandb/local:0.86.0
+    container_name: wandb-local
+    restart: always
+    environment:
+      HOST: ${WANDB_HOST_URL:-http://localhost:8090}
+      LICENSE: ${WANDB_LICENSE:-}
+    volumes:
+      - wandb-data:/vol
+    ports:
+      # Loopback only: reach it via nginx or an SSH tunnel, never directly.
+      - "127.0.0.1:8090:8080"
+    # Hard cap so W&B is the one OOM-killed if memory runs out, never the
+    # other stacks sharing this host (Airflow, Redash, Django...).
+    mem_limit: 3500m
+    networks:
+      - dashboard-net
+
+volumes:
+  wandb-data:
+    name: dashboard_wandb-data
+
+networks:
+  dashboard-net:
+    external: true
+    name: dashboard-net

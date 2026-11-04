@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Automation Studio{% endblock %}
+{% block page_title %}Automation Studio{% endblock %}
+
+{% block extra_css %}
+{{ block.super }}
+<link rel="stylesheet" href="{% static 'ui/css/ui.css' %}" />
+<link rel="stylesheet" href="{% static 'n8n_studio/css/studio.css' %}" />
+<link rel="stylesheet" href="{% static 'n8n_studio/css/editor.css' %}" />
+<link rel="stylesheet" href="{% static 'n8n_studio/css/pages.css' %}" />
+<link rel="modulepreload" href="{% static 'n8n_studio/js/app.js' %}" />
+{% endblock %}
+
+{% block breadcrumbs %}{% endblock %}
+
+{% block content %}
+{% csrf_token %}
+<div id="af-app" class="n8s-app">
+  <noscript>Automation Studio needs JavaScript enabled.</noscript>
+</div>
+{{ studio_config|json_script:"n8s-config" }}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  window.APP_UI = JSON.parse(document.getElementById('n8s-config').textContent);
+</script>
+<script type="module" src="{% static 'n8n_studio/js/app.js' %}"></script>
+{% endblock %}

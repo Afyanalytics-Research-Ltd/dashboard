@@ -150,3 +150,4 @@ openpyxl>=3.1          # .xlsx / .xlsm reading
 xlsxwriter>=3.2         # .xlsx writing for export_table
 Markdown>=3.6           # renders the model's Markdown answers
 bleach>=6.1             # sanitises that Markdown output — required, not optional
+graphql-core==3.2.5     # parses GraphQL for the Model Studio (W&B) proxy allowlist

@@ -13,11 +13,12 @@ to Airflow.
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit, urlunsplit
 
 import requests
 from django.conf import settings
@@ -29,6 +30,7 @@ TOKEN_CACHE_KEY = 'airflow_ui:jwt'
 TOKEN_TTL_SECONDS = 23 * 60 * 60          # Airflow issues 24h tokens
 IDEMPOTENT_METHODS = {'GET', 'HEAD', 'OPTIONS', 'PUT', 'DELETE'}
 RETRY_STATUSES = {502, 503, 504}
+AIRFLOW_PATH_PREFIX = '/airflow'
 
 
 class AirflowError(Exception):
@@ -91,16 +93,51 @@ class AirflowClient:
     def _cache_key(self) -> str:
         return f'{TOKEN_CACHE_KEY}:{self.base_url}:{self.username}'
 
-    def login(self) -> str:
-        """Fetch a fresh JWT and store it in the shared cache."""
+    def _alternate_base(self) -> str | None:
+        """The same server with the other common path layout.
+
+        Airflow is served either at the root (``http://host:8080``) or under a
+        ``base_url`` path (``http://host:8080/airflow``, as the dashboard's own
+        stack is).  When ``/auth/token`` 404s/405s on one layout, the other is
+        tried, so one AIRFLOW_BASE_URL keeps working across a stack cutover.
+        """
+        parts = urlsplit(self.base_url)
+        path = parts.path.rstrip('/')
+        if path.endswith(AIRFLOW_PATH_PREFIX):
+            new_path = path[: -len(AIRFLOW_PATH_PREFIX)]
+        elif not path:
+            new_path = AIRFLOW_PATH_PREFIX
+        else:
+            return None
+        return urlunsplit((parts.scheme, parts.netloc, new_path, '', '')).rstrip('/')
+
+    def candidate_bases(self) -> list[str]:
+        """The configured base URL first, then the alternate path layout (if any)."""
+        alt = self._alternate_base()
+        return [self.base_url] + ([alt] if alt else [])
+
+    def _post_token(self, base: str) -> requests.Response:
         try:
-            resp = self.session.post(
-                f'{self.base_url}/auth/token',
+            return self.session.post(
+                f'{base}/auth/token',
                 json={'username': self.username, 'password': self.password},
                 timeout=self.timeout,
             )
         except requests.RequestException as exc:
-            raise AirflowError(f'Cannot reach Airflow at {self.base_url}: {exc}') from exc
+            raise AirflowError(_unreachable_message(base, exc)) from exc
+
+    def login(self) -> str:
+        """Fetch a fresh JWT and store it in the shared cache."""
+        resp = self._post_token(self.base_url)
+        if resp.status_code in (404, 405):
+            alt = self._alternate_base()
+            if alt:
+                alt_resp = self._post_token(alt)
+                if alt_resp.status_code in (200, 201):
+                    logger.warning('Airflow is served at %s, not %s — using it (update AIRFLOW_BASE_URL to silence this).',
+                                   alt, self.base_url)
+                    self.base_url = alt
+                    resp = alt_resp
 
         if resp.status_code not in (200, 201):
             raise AirflowError(
@@ -148,7 +185,6 @@ class AirflowClient:
         exhausted retries raise :class:`AirflowError`.
         """
         method = method.upper()
-        url = f'{self.api_root}{path}'
         headers = {'Accept': accept}
         if json is not None or data is not None:
             headers['Content-Type'] = 'application/json'
@@ -157,6 +193,8 @@ class AirflowClient:
         attempt = 0
         while True:
             headers['Authorization'] = f'Bearer {self.token()}'
+            # Built after token(): logging in may have resolved the served path (root vs /airflow).
+            url = f'{self.api_root}{path}'
             try:
                 resp = self.session.request(
                     method, url, params=params, json=json, data=data,
@@ -224,6 +262,21 @@ class AirflowClient:
             offset += len(items)
             if not items or offset >= page.get('total_entries', 0):
                 return
+
+
+def _unreachable_message(base: str, exc: Exception) -> str:
+    """Connection error text, with a fix for the classic host-vs-Docker-network mix-up."""
+    msg = f'Cannot reach Airflow at {base}: {exc}'
+    text = str(exc)
+    if 'NameResolutionError' in text or 'Name or service not known' in text or 'nodename nor servname' in text \
+            or 'Temporary failure in name resolution' in text:
+        host = urlsplit(base).hostname or base
+        msg += (f'. The host "{host}" does not resolve from this Django process. Container names such as '
+                f'"airflow-apiserver" only resolve inside Airflow\'s own Docker network — when Django runs on the '
+                f'host (manage.py runserver), set AIRFLOW_BASE_URL to the api-server\'s published host port, e.g. '
+                f'http://localhost:8080 (this repo\'s docker-compose.airflow.yaml publishes '
+                f'AIRFLOW_HOST_PORT={os.getenv("AIRFLOW_HOST_PORT", "").strip() or 8080}), and restart Django.')
+    return msg
 
 
 def _payload(resp: AirflowResponse) -> Any:

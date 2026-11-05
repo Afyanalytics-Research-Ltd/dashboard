@@ -145,6 +145,8 @@ def _setup_modules(p: dict, facility: str):
         "fail_on_waiting": Param(False, type="boolean", title="Fail on waiting tables",
                                  description="Mark tables whose records are only held back (parents/users "
                                              "not yet in V3) as failed instead of skipped."),
+        "run_tag": Param("", type="string", title="LAP run tag",
+                         description="Set by LAP to scope the migration state directory per run (e.g. lap5_abc123). Leave empty for manual runs."),
     },
     on_success_callback=lap_callback,
     on_failure_callback=lap_callback,

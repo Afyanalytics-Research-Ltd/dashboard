@@ -345,7 +345,6 @@ def int_env(name: str, default: int) -> int:
 def lap_callback(context) -> None:
     """POST to LAP when a DAG run finishes. Fire-and-forget — never raises, never fails the DAG."""
     import json
-    import urllib.error
     import urllib.request
     from airflow.models import Variable
     url = Variable.get("LAP_CALLBACK_URL", default_var="")

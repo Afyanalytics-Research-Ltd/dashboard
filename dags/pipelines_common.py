@@ -346,24 +346,25 @@ def lap_callback(context) -> None:
     """POST to LAP when a DAG run finishes. Fire-and-forget — never raises, never fails the DAG."""
     import json
     import urllib.request
-    from airflow.models import Variable
-    url = Variable.get("LAP_CALLBACK_URL", default_var="")
-    if not url:
-        return
-    dag_run = context.get("dag_run")
-    if dag_run is None:
-        return
-    payload = json.dumps({
-        "dag_id": dag_run.dag_id,
-        "run_id": dag_run.run_id,
-        "state": dag_run.state,
-    }).encode()
-    secret = os.getenv("LAP_CALLBACK_SECRET", "")
-    req = urllib.request.Request(
-        url, data=payload, method="POST",
-        headers={"Content-Type": "application/json", "X-LAP-Secret": secret},
-    )
+    url = ""
     try:
+        from airflow.models import Variable
+        url = Variable.get("LAP_CALLBACK_URL", default_var="")
+        if not url:
+            return
+        dag_run = context.get("dag_run")
+        if dag_run is None:
+            return
+        payload = json.dumps({
+            "dag_id": dag_run.dag_id,
+            "run_id": dag_run.run_id,
+            "state": dag_run.state,
+        }).encode()
+        secret = os.getenv("LAP_CALLBACK_SECRET", "")
+        req = urllib.request.Request(
+            url, data=payload, method="POST",
+            headers={"Content-Type": "application/json", "X-LAP-Secret": secret},
+        )
         with urllib.request.urlopen(req, timeout=10):
             pass
     except Exception as exc:

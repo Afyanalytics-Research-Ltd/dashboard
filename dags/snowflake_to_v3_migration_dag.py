@@ -92,6 +92,7 @@ PARALLEL_TABLES = int_env("V3_MIGRATION_PARALLEL_TABLES", 4)
 def _setup_modules(p: dict, facility: str):
     os.environ["RECORD_WORKERS"] = str(int(p["record_workers"]))
     os.environ["V3_POST_THROTTLE"] = str(float(p.get("post_throttle") or 0))
+    os.environ["LAP_RUN_TAG"] = str(p.get("run_tag") or "")
     use_pipelines_dir([facility])
     import snowflake_to_v3_migration as s2v3
     import v2_to_v3_api_migration as v2v3

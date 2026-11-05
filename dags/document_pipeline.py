@@ -312,10 +312,9 @@ CSV_FIELDS = [
 # LAZY SETTINGS (see "NOTE ON AIRFLOW VARIABLES" in the module docstring)
 # ==========================================================================
 def get_api_key() -> str:
-    key = os.getenv("VA_API_KEY")
-    if not key:
-        raise RuntimeError("VA_API_KEY environment variable is required.")
-    return key
+    # Airflow Variable first, then the environment -- the same lookup as the
+    # Drive folder ids, and where siaya_gdrive_landingai_extract reads it.
+    return _airflow_var("VA_API_KEY")
 
 
 def landing_headers() -> Dict[str, str]:

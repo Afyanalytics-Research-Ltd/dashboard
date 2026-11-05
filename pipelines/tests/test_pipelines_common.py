@@ -17,6 +17,8 @@ from tests.helpers import load_dag_module
 
 pc = load_dag_module("pipelines_common")
 
+LAP_URL = "https://afyapi.test/api/airflow/dag-callback"
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -34,18 +36,19 @@ def _make_context(dag_id: str, run_id: str, state: str) -> dict:
 # lap_callback — no-ops
 # ---------------------------------------------------------------------------
 
-def test_lap_callback_does_nothing_when_url_not_set(monkeypatch):
-    """No LAP_CALLBACK_URL → function returns without making any network call."""
-    monkeypatch.delenv("LAP_CALLBACK_URL", raising=False)
+def test_lap_callback_does_nothing_when_url_not_set():
+    """No LAP_CALLBACK_URL variable → function returns without making any network call."""
     ctx = _make_context("gdrive_landingai_extract", "lap_docs1_abc_step1", "success")
-    with patch("urllib.request.urlopen") as mock_open:
+    with patch("airflow.models.Variable.get", return_value=""), \
+         patch("urllib.request.urlopen") as mock_open:
         pc.lap_callback(ctx)
     mock_open.assert_not_called()
 
 
 def test_lap_callback_does_nothing_when_dag_run_missing():
     """Missing dag_run in context → early return, no crash."""
-    with patch("urllib.request.urlopen") as mock_open:
+    with patch("airflow.models.Variable.get", return_value=""), \
+         patch("urllib.request.urlopen") as mock_open:
         pc.lap_callback({})
     mock_open.assert_not_called()
 
@@ -55,7 +58,6 @@ def test_lap_callback_does_nothing_when_dag_run_missing():
 # ---------------------------------------------------------------------------
 
 def test_lap_callback_posts_correct_payload(monkeypatch):
-    monkeypatch.setenv("LAP_CALLBACK_URL", "https://afyapi.test/api/airflow/dag-callback")
     monkeypatch.setenv("LAP_CALLBACK_SECRET", "my-secret")
     ctx = _make_context("docs_to_events_raw", "lap_docs5_xyz_step2", "success")
 
@@ -65,7 +67,8 @@ def test_lap_callback_posts_correct_payload(monkeypatch):
         captured.append(req)
         return MagicMock(__enter__=lambda s: s, __exit__=MagicMock(return_value=False))
 
-    with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+    with patch("airflow.models.Variable.get", return_value=LAP_URL), \
+         patch("urllib.request.urlopen", side_effect=fake_urlopen):
         pc.lap_callback(ctx)
 
     assert len(captured) == 1
@@ -77,7 +80,6 @@ def test_lap_callback_posts_correct_payload(monkeypatch):
 
 
 def test_lap_callback_posts_failed_state(monkeypatch):
-    monkeypatch.setenv("LAP_CALLBACK_URL", "https://afyapi.test/api/airflow/dag-callback")
     monkeypatch.delenv("LAP_CALLBACK_SECRET", raising=False)
     ctx = _make_context("snowflake_flatten_clean", "lap_docs3_def_step3", "failed")
 
@@ -87,7 +89,8 @@ def test_lap_callback_posts_failed_state(monkeypatch):
         captured.append(req)
         return MagicMock(__enter__=lambda s: s, __exit__=MagicMock(return_value=False))
 
-    with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+    with patch("airflow.models.Variable.get", return_value=LAP_URL), \
+         patch("urllib.request.urlopen", side_effect=fake_urlopen):
         pc.lap_callback(ctx)
 
     body = json.loads(captured[0].data.decode())
@@ -98,33 +101,33 @@ def test_lap_callback_posts_failed_state(monkeypatch):
 # lap_callback — fire-and-forget: never raises
 # ---------------------------------------------------------------------------
 
-def test_lap_callback_swallows_network_error_and_logs_warning(monkeypatch, caplog):
+def test_lap_callback_swallows_network_error_and_logs_warning(caplog):
     """Network failure must not raise AND must emit a WARNING with the URL and cause so Airflow logs are actionable."""
-    monkeypatch.setenv("LAP_CALLBACK_URL", "https://afyapi.test/api/airflow/dag-callback")
     ctx = _make_context("gdrive_landingai_extract", "lap_docs1_abc_step1", "success")
 
     import logging
     with caplog.at_level(logging.WARNING):
-        with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("connection refused")):
+        with patch("airflow.models.Variable.get", return_value=LAP_URL), \
+             patch("urllib.request.urlopen", side_effect=urllib.error.URLError("connection refused")):
             pc.lap_callback(ctx)  # must not raise
 
     assert any("afyapi.test" in r.message for r in caplog.records), "warning must include the URL"
     assert any("connection refused" in r.message for r in caplog.records), "warning must include the cause"
 
 
-def test_lap_callback_swallows_http_error(monkeypatch):
-    monkeypatch.setenv("LAP_CALLBACK_URL", "https://afyapi.test/api/airflow/dag-callback")
+def test_lap_callback_swallows_http_error():
     ctx = _make_context("gdrive_landingai_extract", "lap_docs1_abc_step1", "success")
 
-    with patch("urllib.request.urlopen", side_effect=urllib.error.HTTPError(
-        "url", 401, "Unauthorized", {}, None
-    )):
+    with patch("airflow.models.Variable.get", return_value=LAP_URL), \
+         patch("urllib.request.urlopen", side_effect=urllib.error.HTTPError(
+             "url", 401, "Unauthorized", {}, None
+         )):
         pc.lap_callback(ctx)  # must not raise
 
 
-def test_lap_callback_swallows_timeout(monkeypatch):
-    monkeypatch.setenv("LAP_CALLBACK_URL", "https://afyapi.test/api/airflow/dag-callback")
+def test_lap_callback_swallows_timeout():
     ctx = _make_context("gdrive_landingai_extract", "lap_docs1_abc_step1", "success")
 
-    with patch("urllib.request.urlopen", side_effect=TimeoutError("timed out")):
+    with patch("airflow.models.Variable.get", return_value=LAP_URL), \
+         patch("urllib.request.urlopen", side_effect=TimeoutError("timed out")):
         pc.lap_callback(ctx)  # must not raise

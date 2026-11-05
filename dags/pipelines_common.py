@@ -347,7 +347,8 @@ def lap_callback(context) -> None:
     import json
     import urllib.error
     import urllib.request
-    url = os.getenv("LAP_CALLBACK_URL", "")
+    from airflow.models import Variable
+    url = Variable.get("LAP_CALLBACK_URL", default_var="")
     if not url:
         return
     dag_run = context.get("dag_run")

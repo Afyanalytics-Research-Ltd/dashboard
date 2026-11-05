@@ -166,6 +166,7 @@ DECLARE
     run_at        TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP();
     n_ok INTEGER DEFAULT 0; n_review INTEGER DEFAULT 0; n_failed INTEGER DEFAULT 0;
     n_reused INTEGER DEFAULT 0; n_published INTEGER DEFAULT 0; n_proposed INTEGER DEFAULT 0;
+    discovery_error STRING DEFAULT NULL;
     src_cte STRING; stmt STRING; notes STRING; status STRING; reused BOOLEAN;
     altered TIMESTAMP_LTZ; created DATE; n_want INTEGER; n_found INTEGER; n_have INTEGER;
     rows_read INTEGER; rows_superseded INTEGER; rows_deleted INTEGER; records INTEGER;
@@ -178,7 +179,12 @@ DECLARE
         WHERE STATUS = 'active'
         ORDER BY SOURCE;
 BEGIN
-    CALL HOSPITALS.ANALYTICS.AFYA_DISCOVER_PATIENT_DATASETS();
+    BEGIN   -- a discovery failure must never stop the count refresh
+        CALL HOSPITALS.ANALYTICS.AFYA_DISCOVER_PATIENT_DATASETS();
+    EXCEPTION
+        WHEN OTHER THEN
+            discovery_error := LEFT(REGEXP_REPLACE(SQLERRM, '''[^'']*''', '''<value>'''), 300);
+    END;
     SELECT COUNT(*) INTO :n_proposed FROM HOSPITALS.ANALYTICS.AFYA_PATIENT_COUNT_SOURCES WHERE STATUS = 'proposed';
 
     FOR s IN sources DO
@@ -398,7 +404,8 @@ BEGIN
 
     RETURN 'Run ' || run_id || ': ' || n_ok || ' ok, ' || n_review || ' to review, ' || n_failed || ' failed, '
         || n_reused || ' reused; ' || n_proposed || ' proposed dataset(s) awaiting approval; '
-        || IFF(PUBLISH_RESULTS, n_published || ' published', 'dry run, dashboard not updated');
+        || IFF(PUBLISH_RESULTS, n_published || ' published', 'dry run, dashboard not updated')
+        || IFF(discovery_error IS NULL, '', '; discovery failed: ' || discovery_error);
 END;
 $$;
 

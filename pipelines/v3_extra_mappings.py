@@ -480,7 +480,11 @@ MAPPINGS: dict[str, dict] = {
         "fk": {"procedure_id": "procedures", "subtest_id": "procedures"},
         "critical": ["procedure_id"],
         "null_if_unresolved": ["subtest_id"],
-        "inject": {"appear_bold": ("const", 0)},
+        # V2 leaves sort_order null and shows a template's tests in V2 id order; the load posts rows in
+        # parallel, so V3 ids (V3's tie-break) come out shuffled and KSH saw Haemogram / UECs / Urine
+        # Routine in mixed-up order (2026-11-05). The V2 id is the V2 order, and a test added to a V2
+        # template later (a delta load) still lands after the existing ones. A V2 sort_order, when set, wins.
+        "inject": {"appear_bold": ("const", 0), "sort_order": ("copy", "id")},
     },
     "evaluation_age_groups": {
         "namespace": r"Ignite\Evaluation\Entities\AgeGroups",

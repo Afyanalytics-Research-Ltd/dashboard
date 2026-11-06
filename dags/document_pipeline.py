@@ -211,6 +211,7 @@ from pipelines_common import lap_callback  # noqa: E402
 
 try:  # keep the --inspect CLI usable without Airflow installed
     import pendulum
+    from airflow.exceptions import AirflowFailException
     try:
         from airflow.sdk import Param, Variable, dag, get_current_context, task
     except ImportError:  # Airflow 2.x
@@ -913,9 +914,11 @@ def config_from_params(params: Optional[Dict[str, Any]]) -> PipelineConfig:
 
     _schema_path = p.get("schema_path", SCHEMA_PATH)
     if not p.get("schema") and _schema_path and not _resolve_path(str(_schema_path)).is_file():
-        _fallback = "dags/jsons/siaya_outpatient_schema.json"
-        log.warning("schema: file not found: %s — using default schema %s", _schema_path, _fallback)
-        _schema_path = _fallback
+        _exc = AirflowFailException if AIRFLOW_AVAILABLE else ValueError
+        raise _exc(
+            f"schema: file not found: {_schema_path}. "
+            f"Upload the facility schema JSON to the Airflow server at that path before running step 1."
+        )
 
     cfg = PipelineConfig(
         schema=load_json_param(p.get("schema"), _schema_path, "schema"),

@@ -5,29 +5,74 @@ from __future__ import annotations
 import argparse
 import logging
 from graphlib import TopologicalSorter
+from typing import Mapping
 
-from .config import load_configs
+from .config import DomainConfig, load_configs
 from .context import IngestResult
 from .hooks import Hooks
-from .registry import discover_domains, get_ingestor_cls
+from .registry import load_ingestor_cls
+
+log = logging.getLogger("ingestion")
 
 
-def run_all(config_path: str, only: list[str] | None = None, hooks: Hooks | None = None) -> list[IngestResult]:
-    discover_domains()
+def _selected_domains(
+    configs: Mapping[str, DomainConfig],
+    only: list[str] | None,
+) -> set[str]:
+    if not only:
+        return set(configs)
+
+    selected = set(only)
+    unknown = selected - set(configs)
+    if unknown:
+        raise ValueError(f"Unknown domain(s): {sorted(unknown)}. Known: {sorted(configs)}")
+
+    pending = list(selected)
+    while pending:
+        name = pending.pop()
+        for dependency in configs[name].depends_on:
+            if dependency not in selected:
+                selected.add(dependency)
+                pending.append(dependency)
+    return selected
+
+
+def run_all(
+    config_path: str,
+    only: list[str] | None = None,
+    hooks: Hooks | None = None,
+) -> list[IngestResult]:
     configs = load_configs(config_path)
-    graph = {n: set(c.depends_on) for n, c in configs.items()}
+    selected = _selected_domains(configs, only)
+    graph = {n: c.depends_on for n, c in configs.items()}
     results: dict[str, IngestResult] = {}
 
     for name in TopologicalSorter(graph).static_order():
+        if name not in selected:
+            continue
         cfg = configs[name]
-        if not cfg.enabled or (only and name not in only):
+        if not cfg.enabled:
+            results[name] = IngestResult(name, "-", "skipped", error="domain is disabled")
             continue
-        blocked = [d for d in cfg.depends_on if d in results and results[d].status != "success"]
+        blocked = [
+            dependency
+            for dependency in cfg.depends_on
+            if dependency not in results or results[dependency].status != "success"
+        ]
         if blocked:
-            results[name] = IngestResult(name, "-", "skipped", error=f"upstream failed: {blocked}")
+            results[name] = IngestResult(
+                name,
+                "-",
+                "skipped",
+                error=f"upstream unavailable: {blocked}",
+            )
             continue
-        ingestor = get_ingestor_cls(cfg.ingestor)(cfg, hooks=hooks)
-        results[name] = ingestor.run()
+        try:
+            ingestor = load_ingestor_cls(cfg.ingestor)(cfg, hooks=hooks)
+            results[name] = ingestor.run()
+        except Exception as exc:
+            log.exception("%s failed", name)
+            results[name] = IngestResult(name, "-", "failed", error=str(exc))
     return list(results.values())
 
 

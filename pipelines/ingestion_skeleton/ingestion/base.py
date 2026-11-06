@@ -1,7 +1,7 @@
 """The ingestion contract. Every domain runs the same template:
 
     watermark -> extract -> drift check -> validate -> land(raw)
-      -> map -> cast -> nulls -> dedupe -> land(staged) -> commit watermark -> reconcile
+      -> map -> cast -> nulls -> dedupe -> land(staged) -> reconcile -> commit watermark
 
 Domains override extract() (and optionally validate()); everything else is shared.
 Watermark is committed only after a successful load (at-least-once semantics),
@@ -77,11 +77,11 @@ class BaseIngestor(ABC):
             self.sink.write(cfg.tiers["staged"], cfg.name, ctx.batch_id, df)
             ctx.counts["loaded"] = len(df)
 
+            self.hooks.reconcile(ctx)
+
             if cfg.watermark_column and len(df):
                 ctx.watermark_out = str(df[cfg.watermark_column].max())
                 self.watermarks.set(cfg.name, ctx.watermark_out)
-
-            self.hooks.reconcile(ctx)
             log.info("%s ok run=%s counts=%s", cfg.name, ctx.run_id, ctx.counts)
             return IngestResult(cfg.name, ctx.run_id, "success", ctx.counts, ctx.watermark_out)
         except Exception as exc:  # isolate: one domain's failure must not kill the others

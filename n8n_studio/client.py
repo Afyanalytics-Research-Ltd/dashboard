@@ -166,6 +166,13 @@ class N8nSession:
             raise N8nError(f'n8n login for {self.email} failed ({resp.status_code}). '
                            'Check N8N_STUDIO_EMAIL / N8N_STUDIO_PASSWORD (MFA users cannot be used).',
                            status_code=502, code='login_failed')
+        # Behind HTTPS (N8N_PROTOCOL=https, production and staging) n8n marks its
+        # n8n-auth cookie Secure. This session talks to n8n server-to-server over the
+        # internal http://n8n-container URL, where requests silently withholds Secure
+        # cookies, so every call after login was a 401 (live catalog, manual runs).
+        if self.base_url.startswith('http://'):
+            for cookie in self.session.cookies:
+                cookie.secure = False
         self._logged_in = True
 
     def request(self, method: str, path: str, **kwargs) -> N8nResponse:

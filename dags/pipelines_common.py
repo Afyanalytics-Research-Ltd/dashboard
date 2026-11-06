@@ -360,7 +360,8 @@ def lap_callback(context) -> None:
             "run_id": dag_run.run_id,
             "state": dag_run.state,
         }).encode()
-        secret = os.getenv("LAP_CALLBACK_SECRET", "")
+        # env first, else Airflow Variable LAP_CALLBACK_SECRET
+        secret = (os.getenv("LAP_CALLBACK_SECRET") or "").strip() or _variable("LAP_CALLBACK_SECRET") or ""
         req = urllib.request.Request(
             url, data=payload, method="POST",
             headers={"Content-Type": "application/json", "X-LAP-Secret": secret},

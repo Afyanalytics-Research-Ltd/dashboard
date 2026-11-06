@@ -149,7 +149,9 @@ def use_state_dir(facility: str | None) -> Path:
     loading any state (the loaders read these paths at call time)."""
     global PROGRESS_FILE, RECORD_PROGRESS_FILE, ID_MAP_FILE, VISIT_PATIENT_FILE, \
         VISIT_ADMISSION_FILE, DONE_FILE, _record_progress_mtime, _id_map_mtime
-    d = STATE_ROOT / facility if facility else Path(__file__).resolve().parent
+    run_tag = os.getenv("LAP_RUN_TAG", "").strip()
+    base = STATE_ROOT / facility if facility else Path(__file__).resolve().parent
+    d = base / run_tag if run_tag else base
     d.mkdir(parents=True, exist_ok=True)
     PROGRESS_FILE        = d / ".migration_progress.json"
     RECORD_PROGRESS_FILE = d / ".migration_record_progress.json"

@@ -74,8 +74,8 @@ from airflow.sdk import Param, dag, get_current_context, task
 from airflow.task.trigger_rule import TriggerRule
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # for pipelines_common
-from pipelines_common import (clean_list, facility_keys, int_env, old_system_history_tables,
-                              use_pipelines_dir)
+from pipelines_common import (clean_list, facility_keys, int_env, lap_callback,
+                              old_system_history_tables, use_pipelines_dir)
 
 log = logging.getLogger(__name__)
 
@@ -92,6 +92,7 @@ PARALLEL_TABLES = int_env("V3_MIGRATION_PARALLEL_TABLES", 4)
 def _setup_modules(p: dict, facility: str):
     os.environ["RECORD_WORKERS"] = str(int(p["record_workers"]))
     os.environ["V3_POST_THROTTLE"] = str(float(p.get("post_throttle") or 0))
+    os.environ["LAP_RUN_TAG"] = str(p.get("run_tag") or "")
     use_pipelines_dir([facility])
     import snowflake_to_v3_migration as s2v3
     import v2_to_v3_api_migration as v2v3
@@ -144,7 +145,11 @@ def _setup_modules(p: dict, facility: str):
         "fail_on_waiting": Param(False, type="boolean", title="Fail on waiting tables",
                                  description="Mark tables whose records are only held back (parents/users "
                                              "not yet in V3) as failed instead of skipped."),
+        "run_tag": Param("", type="string", title="LAP run tag",
+                         description="Set by LAP to scope the migration state directory per run (e.g. lap5_abc123). Leave empty for manual runs."),
     },
+    on_success_callback=lap_callback,
+    on_failure_callback=lap_callback,
 )
 def snowflake_to_v3_migration():
 

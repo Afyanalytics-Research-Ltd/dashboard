@@ -764,4 +764,4 @@ with DAG(
         trigger_rule=TriggerRule.ALL_DONE,
     )
 
-    t_ensure >> t_prepare >> t_extract >> t_copy >> t_report
+    t_ensure >> t_prepare >> t_extract >> t_copy >> t_report

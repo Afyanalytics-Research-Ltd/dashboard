@@ -340,3 +340,33 @@ def int_env(name: str, default: int) -> int:
         return max(1, int(str(value).strip().strip("'\""))) if value is not None else default
     except ValueError:
         return default
+
+
+def lap_callback(context) -> None:
+    """POST to LAP when a DAG run finishes. Fire-and-forget — never raises, never fails the DAG."""
+    import json
+    import urllib.request
+    url = ""
+    try:
+        from airflow.models import Variable
+        url = Variable.get("LAP_CALLBACK_URL", default_var="")
+        if not url:
+            return
+        dag_run = context.get("dag_run")
+        if dag_run is None:
+            return
+        payload = json.dumps({
+            "dag_id": dag_run.dag_id,
+            "run_id": dag_run.run_id,
+            "state": dag_run.state,
+        }).encode()
+        # env first, else Airflow Variable LAP_CALLBACK_SECRET
+        secret = (os.getenv("LAP_CALLBACK_SECRET") or "").strip() or _variable("LAP_CALLBACK_SECRET") or ""
+        req = urllib.request.Request(
+            url, data=payload, method="POST",
+            headers={"Content-Type": "application/json", "X-LAP-Secret": secret},
+        )
+        with urllib.request.urlopen(req, timeout=10):
+            pass
+    except Exception as exc:
+        logging.getLogger(__name__).warning("LAP callback to %s failed: %s", url, exc, exc_info=True)

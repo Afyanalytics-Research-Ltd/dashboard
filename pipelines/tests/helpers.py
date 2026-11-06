@@ -20,7 +20,7 @@ from pathlib import Path
 from types import ModuleType
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-DAGS_DIR = REPO_ROOT / "dags"
+DAGS_DIR = REPO_ROOT.parent / "dags"
 
 _MODULE_NAMESPACE = "dags_under_test"
 

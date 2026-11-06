@@ -31,6 +31,11 @@ services:
     volumes:
       - web-static:/www/static
       - letsencrypt:/etc/letsencrypt # Mount LetsEncrypt certificates
+    environment:
+      # Public hostname + Let's Encrypt email; set DOMAIN in this server's .env
+      # (staging: datapipelines.afyaanalytics.ai). See nginx/entrypoint.sh.
+      DOMAIN: ${DOMAIN:-datahub.afyaanalytics.com}
+      CERTBOT_EMAIL: ${CERTBOT_EMAIL:-lutherlunyamwi@gmail.com}
     depends_on:
       - web
     networks:
@@ -42,7 +47,7 @@ services:
     volumes:
       - letsencrypt:/etc/letsencrypt
       - web-static:/static/
-    command: certonly --non-interactive --agree-tos --nginx -m "lutherlunyamwi@gmail.com" -d "datahub.afyaanalytics.com"
+    command: certonly --non-interactive --agree-tos --nginx -m "${CERTBOT_EMAIL:-lutherlunyamwi@gmail.com}" -d "${DOMAIN:-datahub.afyaanalytics.com}"
     networks:
       - dashboard-net
 

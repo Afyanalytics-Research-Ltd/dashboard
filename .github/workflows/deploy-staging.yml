@@ -1,0 +1,107 @@
+# Deploy to STAGING (52.202.130.113, https://datapipelines.afyaanalytics.ai)
+# on every push to the `staging` branch. Same mechanism as deploy.yml
+# (production / main): scripts/deploy.sh runs ON the server, detached, and
+# this job streams its log and fails if the deploy or health check fails.
+#
+# Typical flow: merge a feature into `staging`, check it on
+# https://datapipelines.afyaanalytics.ai, then open staging -> main for prod.
+#
+# Repository secrets (Settings -> Secrets and variables -> Actions):
+#   STAGING_SSH_KEY      private key allowed to SSH in as STAGING_USER (dedicated deploy key)
+#   STAGING_HOST         52.202.130.113
+#   STAGING_USER         ubuntu
+#   STAGING_KNOWN_HOSTS  the server's host key line(s), from `ssh-keyscan 52.202.130.113`
+# The staging server's ~/dashboard checkout must be on the `staging` branch and
+# its .env must set DOMAIN=datapipelines.afyaanalytics.ai.
+name: Deploy to staging
+
+on:
+  push:
+    branches: [staging]
+  workflow_dispatch:
+    inputs:
+      full:
+        description: "Rebuild web even if no web files changed"
+        type: boolean
+        default: false
+
+# never two deploys at once; a newer merge waits for the running one
+concurrency:
+  group: staging-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    environment: staging
+    steps:
+      - name: Set up SSH
+        env:
+          SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.STAGING_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          cat > ~/.ssh/config <<EOF
+          Host staging
+            HostName ${{ secrets.STAGING_HOST }}
+            User ${{ secrets.STAGING_USER }}
+            IdentityFile ~/.ssh/deploy_key
+            IdentitiesOnly yes
+            StrictHostKeyChecking yes
+            ConnectTimeout 20
+            ServerAliveInterval 30
+          EOF
+          ssh staging 'echo "connected to $(hostname)"'
+
+      - name: Start deploy on the server
+        env:
+          FULL: ${{ inputs.full && '1' || '0' }}
+          RUN: ${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          # Run the deploy script from the commit being deployed (not the
+          # server's older checkout), detached, writing its exit code at the end.
+          # setsid -f: own session, so closing this SSH connection can't touch it.
+          ssh -n staging "set -e; mkdir -p ~/deploy-logs; cd ~/dashboard
+                    git fetch -q origin staging
+                    git show ${GITHUB_SHA}:scripts/deploy.sh > ~/deploy-logs/deploy-$RUN.sh
+                    chmod +x ~/deploy-logs/deploy-$RUN.sh
+                    setsid -f bash -c 'BRANCH=staging FULL=$FULL ~/deploy-logs/deploy-$RUN.sh; echo \$? > ~/deploy-logs/$RUN.exit' \
+                      > ~/deploy-logs/$RUN.log 2>&1 < /dev/null
+                    echo started"
+
+      - name: Follow deploy log
+        env:
+          RUN: ${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          # Each poll prints the complete log lines added since the last one,
+          # then "@@<lines> <exit code or ->".
+          shown=0
+          for i in $(seq 1 420); do            # up to 70 min, every 10 s
+            # exit code read BEFORE counting lines, so a finished run's last lines are never missed
+            out=$(ssh -n staging "e=\$(cat ~/deploy-logs/$RUN.exit 2>/dev/null || echo -); f=~/deploy-logs/$RUN.log
+                               t=\$(wc -l < \$f 2>/dev/null || echo 0)
+                               [ \$t -gt $shown ] && sed -n \"$((shown + 1)),\${t}p\" \$f
+                               echo \"@@\$t \$e\"" || true)
+            meta=$(printf '%s\n' "$out" | tail -n 1)
+            printf '%s\n' "$out" | sed '$d' | grep -v '^$' || true
+            case "$meta" in
+              @@*) shown=$(echo "$meta" | cut -d' ' -f1 | tr -d @); code=$(echo "$meta" | cut -d' ' -f2) ;;
+              *)   code=- ;;                    # SSH hiccup: try again next round
+            esac
+            if [ "$code" != - ]; then
+              echo "deploy exited with $code"
+              [ "$code" = 0 ] && exit 0
+              [ "$code" = 75 ] && echo "::error::another deploy was already running on the server"
+              exit 1
+            fi
+            sleep 10
+          done
+          echo "::error::deploy still running after 70 min — check ~/deploy-logs/$RUN.log on the server"
+          exit 1

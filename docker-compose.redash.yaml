@@ -14,6 +14,10 @@ x-redash-common:
     # links/asset paths match the nginx location block instead of assuming
     # root - see nginx/sites-enabled/django_project's /redash/ block.
     REDASH_ROOT_URL_PATH_PREFIX: /redash
+  volumes:
+    # Patched Snowflake runner adding key-pair auth (stock 10.1 is
+    # password-only, which Snowflake MFA enforcement rejects).
+    - ./redash/query_runner/snowflake.py:/app/redash/query_runner/snowflake.py:ro
   depends_on:
     &redash-common-depends-on
     redash-postgres:

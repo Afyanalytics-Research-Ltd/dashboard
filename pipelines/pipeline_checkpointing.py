@@ -11,6 +11,7 @@ operations passed to ``retry_call`` must be idempotent or retry-safe.
 """
 from __future__ import annotations
 
+import glob
 import hashlib
 import json
 import os
@@ -27,6 +28,11 @@ from typing import Callable, TypeVar
 T = TypeVar("T")
 _PATH_LOCKS: dict[str, threading.RLock] = {}
 _PATH_LOCKS_GUARD = threading.Lock()
+# Temp files older than this are leftovers from a writer killed mid-write
+# (a live writer replaces its temp file within milliseconds).
+STALE_TMP_SECONDS = 3600
+_SWEPT_PATHS: set[str] = set()
+_SWEPT_GUARD = threading.Lock()
 
 try:
     import fcntl
@@ -42,6 +48,51 @@ def _component(value: str) -> str:
     return f"{slug}-{digest}"
 
 
+class CorruptCheckpointError(RuntimeError, ValueError):
+    """A checkpoint file exists but is not valid JSON.
+
+    Subclasses ValueError so existing ``except ValueError`` handlers behave as
+    they did with the bare ``json.JSONDecodeError`` this replaces.
+    """
+
+
+def load_json(path: str | Path, default=None):
+    """Load a JSON checkpoint, or ``default`` when it does not exist.
+
+    An empty or malformed file raises ``CorruptCheckpointError`` naming the
+    file, rather than a bare JSONDecodeError, so the operator knows which
+    state file to inspect or delete.
+    """
+    path = Path(path)
+    if not path.exists():
+        return default
+    text = path.read_text(encoding="utf-8")
+    try:
+        return json.loads(text)
+    except ValueError as exc:
+        problem = "file is empty" if not text.strip() else str(exc)
+        raise CorruptCheckpointError(
+            f"Cannot safely resume from {path}: {problem} — inspect it, or delete it "
+            f"to rebuild that state from scratch"
+        ) from exc
+
+
+def _sweep_stale_tmp(path: Path) -> None:
+    """Remove temp files a killed writer left beside ``path`` (once per process)."""
+    key = str(path)
+    with _SWEPT_GUARD:
+        if key in _SWEPT_PATHS:
+            return
+        _SWEPT_PATHS.add(key)
+    cutoff = time.time() - STALE_TMP_SECONDS
+    for tmp in path.parent.glob(f".{glob.escape(path.name)}.*.tmp"):
+        try:
+            if tmp.stat().st_mtime < cutoff:
+                tmp.unlink()
+        except OSError:
+            pass  # another process removed or replaced it first
+
+
 def atomic_write_json(path: str | Path, data) -> None:
     """Durably replace a JSON file without exposing a partial checkpoint."""
     atomic_write_text(path, json.dumps(data, default=str))
@@ -51,6 +102,7 @@ def atomic_write_text(path: str | Path, text: str) -> None:
     """Durably replace a text file without exposing a partial checkpoint."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
+    _sweep_stale_tmp(path)
     fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
     tmp = Path(tmp_name)
     try:
@@ -91,7 +143,7 @@ def update_json_file(path: str | Path, update: Callable[[object], object], *, de
     """Lock, load, update, and durably replace a JSON file as one transaction."""
     path = Path(path)
     with _file_lock(path):
-        data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else default
+        data = load_json(path, default)
         result = update(data)
         atomic_write_json(path, result)
         return result
@@ -118,8 +170,7 @@ class CheckpointStore:
 
     @staticmethod
     def load_path(path: str | Path, default=None):
-        path = Path(path)
-        return json.loads(path.read_text(encoding="utf-8")) if path.exists() else default
+        return load_json(path, default)
 
     def save(self, kind: str, key: str, data) -> None:
         self.save_path(self.path_for(kind, key), data)
@@ -234,6 +285,7 @@ def retry_call(
 
     ``retry_if`` is mandatory so callers decide which failures are transient.
     ``attempts`` includes the initial call; terminal exceptions are re-raised.
+    No single wait exceeds ``max_delay``, jitter included.
     """
     if attempts < 1:
         raise ValueError("attempts must be at least one")
@@ -249,7 +301,8 @@ def retry_call(
         except Exception as exc:
             if attempt == attempts or not retry_if(exc):
                 raise
-            wait = max(0.0, delay * (1 + jitter * (2 * random_value() - 1)))
+            # jitter first, then clamp, so max_delay is a hard ceiling
+            wait = min(max_delay, max(0.0, delay * (1 + jitter * (2 * random_value() - 1))))
             if on_retry is not None:
                 on_retry(attempt, exc, wait)
             sleep(wait)

@@ -187,3 +187,55 @@ def test_retry_call_propagates_non_retryable_and_exhausted_errors():
         retry_call(unavailable, attempts=2, retry_if=lambda exc: isinstance(exc, TimeoutError),
                    sleep=lambda _: None)
     assert attempts == 2
+
+
+def test_empty_or_corrupt_checkpoint_names_the_file(tmp_path):
+    from pipeline_checkpointing import CorruptCheckpointError
+
+    path = tmp_path / "state.json"
+    path.write_text("")
+    with pytest.raises(CorruptCheckpointError, match="state.json: file is empty"):
+        update_json_file(path, lambda state: state, default={})
+    path.write_text("{truncated")
+    with pytest.raises(ValueError, match="Cannot safely resume from .*state.json"):
+        CheckpointStore.load_path(path)
+    assert path.read_text() == "{truncated"
+
+
+def test_stale_temp_files_from_killed_writers_are_swept(tmp_path):
+    import os
+    import time
+
+    import pipeline_checkpointing as pc
+
+    target = tmp_path / "state.json"
+    stale = tmp_path / ".state.json.abc123.tmp"
+    fresh = tmp_path / ".state.json.def456.tmp"     # could be a live writer's
+    other = tmp_path / ".other.json.ghi789.tmp"
+    for tmp in (stale, fresh, other):
+        tmp.write_text("partial")
+    old = time.time() - pc.STALE_TMP_SECONDS - 60
+    os.utime(stale, (old, old))
+    os.utime(other, (old, old))
+
+    pc.atomic_write_json(target, {"ok": True})
+
+    assert not stale.exists()
+    assert fresh.exists() and other.exists()
+    assert pc.load_json(target) == {"ok": True}
+
+
+def test_retry_wait_never_exceeds_max_delay_with_jitter():
+    waits = []
+    calls = 0
+
+    def operation():
+        nonlocal calls
+        calls += 1
+        if calls < 5:
+            raise TimeoutError()
+        return "ok"
+
+    retry_call(operation, attempts=5, retry_if=lambda exc: isinstance(exc, TimeoutError),
+               base_delay=1, max_delay=4, jitter=0.5, sleep=waits.append, random_value=lambda: 1.0)
+    assert waits == [1.5, 3.0, 4.0, 4.0]

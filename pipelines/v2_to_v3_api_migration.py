@@ -70,7 +70,7 @@ import requests
 import requests.adapters
 from dotenv import load_dotenv
 from requests.exceptions import ConnectionError, HTTPError, ReadTimeout, Timeout
-from pipeline_checkpointing import atomic_write_text
+from pipeline_checkpointing import atomic_write_text, load_json
 
 def _json_default(o):
     """Types the encoders don't know. Snowflake NUMBER columns with a scale
@@ -3361,7 +3361,7 @@ def _mark_done(run_id: str, job_key: str) -> None:
     with _progress_lock, _file_lock(PROGRESS_FILE):
         _completed_jobs.add(job_key)
         if PROGRESS_FILE.exists():
-            data = json.loads(PROGRESS_FILE.read_text())
+            data = load_json(PROGRESS_FILE)
             if not isinstance(data, dict):
                 raise ValueError(f"{PROGRESS_FILE} must contain a JSON object")
             if data.get("run_id") == run_id:
@@ -3406,7 +3406,7 @@ def _mark_permanently_done(job_key: str) -> None:
         _permanently_done.add(job_key)
         # union with what other processes (parallel Airflow tasks) marked done
         if DONE_FILE.exists():
-            data = json.loads(DONE_FILE.read_text())
+            data = load_json(DONE_FILE)
             if not isinstance(data, dict) or not isinstance(data.get("done", []), list):
                 raise ValueError(f"{DONE_FILE} has an invalid completed-job state")
             _permanently_done.update(data.get("done", []))

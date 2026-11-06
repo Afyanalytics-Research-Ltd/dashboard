@@ -136,6 +136,27 @@ class ClientTest(TestCase):
         urls = [c[0][1] for c in req.call_args_list]
         self.assertEqual(urls.count('http://n8n.test/rest/login'), 2)
 
+    def test_session_cookie_usable_over_internal_http(self):
+        # n8n behind HTTPS sets a Secure auth cookie; over the internal http URL
+        # requests would drop it and every call after login would be a 401.
+        def login_sets_secure_cookie(session):
+            def fake_login(*args, **kwargs):
+                session.cookies.set('n8n-auth', 'tok', domain='n8n.test', path='/', secure=True)
+                return fake(200, {})
+            return fake_login
+
+        s = N8nSession('http://n8n.test', 'a@b.c', 'pw')
+        with patch.object(s.session, 'request', side_effect=login_sets_secure_cookie(s.session)):
+            s.login()
+        self.assertEqual([c.secure for c in s.session.cookies], [False])
+        req = requests.Request('GET', 'http://n8n.test/types/nodes.json')
+        self.assertIn('n8n-auth=tok', s.session.prepare_request(req).headers.get('Cookie', ''))
+
+        tls = N8nSession('https://n8n.test', 'a@b.c', 'pw')
+        with patch.object(tls.session, 'request', side_effect=login_sets_secure_cookie(tls.session)):
+            tls.login()
+        self.assertEqual([c.secure for c in tls.session.cookies], [True])  # untouched over https
+
     def test_session_requires_configuration(self):
         with self.assertRaises(N8nError) as ctx:
             N8nSession('http://n8n.test', '', '').login()

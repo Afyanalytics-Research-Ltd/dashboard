@@ -52,6 +52,15 @@ CORS_ALLOWED_ORIGINS = [
     'https://8fa2-105-164-5-177.ngrok-free.app'
 ]
 
+# The public hostname this deployment is served on (production:
+# datahub.afyaanalytics.com, staging: datapipelines.afyaanalytics.ai). Set
+# DOMAIN in the server's .env — the same value nginx and scripts/deploy.sh use.
+SITE_DOMAIN = os.getenv('DOMAIN', '').strip().lower()
+if SITE_DOMAIN and SITE_DOMAIN not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append(SITE_DOMAIN)
+    CSRF_TRUSTED_ORIGINS.append(f'https://{SITE_DOMAIN}')
+    CORS_ALLOWED_ORIGINS.append(f'https://{SITE_DOMAIN}')
+
 # Or for dev, just allow everything:
 # CORS_ALLOW_ALL_ORIGINS = True
 # ---------------------------------------------------------------------------
@@ -539,7 +548,7 @@ CSRF_COOKIE_SECURE = not DEBUG
 # ---------------------------------------------------------------------------
 # Reverse proxy trust (nginx terminates TLS; Django itself is only ever
 # reached over plain HTTP inside the docker network — see
-# nginx/sites-enabled/django_project, which sets X-Forwarded-Proto on
+# nginx/templates/django_project.template, which sets X-Forwarded-Proto on
 # every proxied location). Without this, request.is_secure() is always
 # False behind the proxy, which breaks secure-cookie logic above and any
 # https:// URL Django generates for itself (e.g. redirects).

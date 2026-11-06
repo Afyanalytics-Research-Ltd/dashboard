@@ -1,5 +1,11 @@
 # =============================================================================
-# Afya DataHub — production nginx reverse proxy
+# Afya DataHub — nginx reverse proxy (production and staging)
+#
+# TEMPLATE: rendered at container start by nginx/entrypoint.sh, which
+# substitutes ONLY ${DOMAIN}, ${SSL_CERT} and ${SSL_KEY} (envsubst with an
+# explicit list, so nginx's own $variables below are left alone). DOMAIN comes
+# from the server's .env: datahub.afyaanalytics.com (production, the default)
+# or datapipelines.afyaanalytics.ai (staging).
 #
 # Every proxied service lives on the same docker-compose network
 # (dashboard-net), so upstream targets below are container/service names,
@@ -34,7 +40,7 @@ map $http_upgrade $connection_upgrade {
 server {
     listen 80;
     listen [::]:80;
-    server_name datahub.afyaanalytics.com;
+    server_name ${DOMAIN};
 
     location /.well-known/acme-challenge/ {
         root /var/www/certbot;
@@ -50,12 +56,12 @@ server {
     listen 443 ssl;
     listen [::]:443 ssl;
     # http2 on;
-    server_name datahub.afyaanalytics.com;
+    server_name ${DOMAIN};
     charset utf-8;
     client_max_body_size 100M;
 
-    ssl_certificate     /etc/letsencrypt/live/datahub.afyaanalytics.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/datahub.afyaanalytics.com/privkey.pem;
+    ssl_certificate     ${SSL_CERT};
+    ssl_certificate_key ${SSL_KEY};
     ssl_protocols       TLSv1.2 TLSv1.3;
     ssl_ciphers         HIGH:!aNULL:!MD5;
     ssl_prefer_server_ciphers on;
@@ -162,7 +168,7 @@ server {
 
     # -------------------------------------------------------------------
     # Airflow webserver — pipeline monitoring UI.
-    # NOTE: set AIRFLOW__WEBSERVER__BASE_URL=https://datahub.afyaanalytics.com/airflow
+    # NOTE: set AIRFLOW__WEBSERVER__BASE_URL=https://${DOMAIN}/airflow
     # on the airflow-apiserver service so Airflow's own generated links
     # (task logs, graph view redirects, etc.) match this prefix.
     # -------------------------------------------------------------------

@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
-# scripts/deploy.sh — production deploy. Runs ON the server (started by
-# .github/workflows/deploy.yml after a merge to main, or by hand:
-#   ~/dashboard/scripts/deploy.sh            deploy whatever main has that we don't
-#   FULL=1 ~/dashboard/scripts/deploy.sh     also rebuild web even if nothing changed)
+# scripts/deploy.sh — deploy this checkout's branch. Runs ON the server.
+#   production (datahub.afyaanalytics.com):      branch main,    .github/workflows/deploy.yml
+#   staging    (datapipelines.afyaanalytics.ai): branch staging, .github/workflows/deploy-staging.yml
+# Started by those workflows after a push/merge, or by hand:
+#   ~/dashboard/scripts/deploy.sh                  deploy whatever BRANCH (default main) has that we don't
+#   BRANCH=staging ~/dashboard/scripts/deploy.sh   on the staging server
+#   FULL=1 ~/dashboard/scripts/deploy.sh           also rebuild web even if nothing changed
+# The health check uses DOMAIN from the environment, else DOMAIN= in this
+# server's .env, else datahub.afyaanalytics.com.
 #
 # It only touches what the new commits affect:
 #   web image code / Dockerfile / requirements   → rebuild + recreate `web`
@@ -20,8 +25,11 @@ set -euo pipefail
 
 REPO_DIR="${REPO_DIR:-$HOME/dashboard}"
 BRANCH="${BRANCH:-main}"
-DOMAIN="${DOMAIN:-datahub.afyaanalytics.com}"
 cd "$REPO_DIR"
+if [ -z "${DOMAIN:-}" ] && [ -f .env ]; then
+  DOMAIN=$(sed -n 's/^DOMAIN=//p' .env | tail -n 1 | tr -d "\"' \r")
+fi
+DOMAIN="${DOMAIN:-datahub.afyaanalytics.com}"
 
 log() { echo "== $(date -u +%H:%M:%S) $*"; }
 

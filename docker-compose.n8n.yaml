@@ -1,5 +1,5 @@
 # n8n (workflow automation), reverse-proxied at /n8n/ in prod - see the
-# nginx location block in nginx/sites-enabled/django_project.
+# nginx location block in nginx/templates/django_project.template.
 #
 # Every URL/host setting below is env-driven with a localhost fallback (same
 # ${VAR:-default} pattern docker-compose.airflow.yaml uses), so:

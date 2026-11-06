@@ -24,7 +24,10 @@ the source: every row, every field, every link.
 Each side's account / URLs / org come from AFYA_<KEY>_* (v3_to_v3_client).
 State (id maps, held rows, dead letters, reports) lives in
 .migration_state/v3v3_<source>_to_<target>/, one file per model, so models
-can run in parallel processes.
+can run in parallel processes. `V3V3_STATE_DIR`, `V3V3_CHECKPOINT_SECONDS`,
+and `V3V3_MAX_ERROR_STREAK` configure state storage and recovery behavior;
+the matching CLI options can override these for one invocation. `State.for_pipeline`
+provides the same namespaced JSON/JSONL storage interface for other pipelines.
 """
 from __future__ import annotations
 
@@ -44,17 +47,18 @@ from zoneinfo import ZoneInfo
 
 import v3_to_v3_links as L
 from v3_to_v3_client import SERVICES, GatewayError, V3Client
+from pipeline_checkpointing import CheckpointStore, atomic_write_json
 
 log = logging.getLogger("v3_to_v3")
 
 STATE_ROOT = Path(os.getenv("V3V3_STATE_DIR") or Path(__file__).resolve().parent / ".migration_state")
-CHECKPOINT_SECONDS = 30     # id map / deferred links flushed to disk at least this often
+CHECKPOINT_SECONDS = float(os.getenv("V3V3_CHECKPOINT_SECONDS") or 30)
 READ_WORKERS = int(os.getenv("V3V3_READ_WORKERS") or 8)   # parallel page reads per table
 # a model stops (state saved, rest left for the re-run) after this many POSTs
 # in a row fail at the transport / 5xx level, or when its first this-many
 # rows are all rejected — the target is down or the schema is wrong, and
 # posting the rest would only fill the dead letters
-MAX_ERROR_STREAK = 50
+MAX_ERROR_STREAK = int(os.getenv("V3V3_MAX_ERROR_STREAK") or 50)
 _UNKNOWN_COL = re.compile(r"Unknown column '(?:[\w]+\.)?(\w+)'")
 _UUID_KEY = "__uuid__"      # deferred links: the row's uuid, so relink needn't re-read the source
 _NOT_NULL = re.compile(r"Column '(\w+)' cannot be null")
@@ -94,54 +98,71 @@ TIMESTAMPS: set[str] = set()       # (all fields are compared and patched now)
 # ─── state ──────────────────────────────────────────────────────────────────
 
 def _fname(model: str) -> str:
-    return model.replace("/", "__")
+    return re.sub(r"[^A-Za-z0-9_.-]+", "_", model.replace("/", "__")).strip("._") or "default"
+
+
+def _state_component(value: str) -> str:
+    if value in (".", "..") or "\x00" in value:
+        raise ValueError(f"invalid state namespace component: {value!r}")
+    return re.sub(r"[^A-Za-z0-9_.-]+", "_", value).strip("._") or "default"
 
 
 def _atomic_write(path: Path, data) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + f".{os.getpid()}.{threading.get_ident()}.tmp")
-    tmp.write_text(json.dumps(data, default=str))
-    os.replace(tmp, path)
+    atomic_write_json(path, data)
 
 
 class State:
-    """Per-pair state, one file per model and kind — a model's files are only
-    written by the process copying that model; others just read them."""
+    """Namespaced JSON/JSONL state, one file per item and kind.
 
-    def __init__(self, source: str, target: str, root: Path = STATE_ROOT):
-        self.dir = root / f"v3v3_{source}_to_{target}"
+    The default namespace preserves this migration's existing layout. Other
+    pipelines can use ``for_pipeline`` to isolate their state by run identifier.
+    """
+
+    def __init__(self, source: str, target: str, root: Path = STATE_ROOT, *,
+                 pipeline: str = "v3v3", run_id: str | None = None):
+        if pipeline == "v3v3" and run_id is None:
+            self.dir = Path(root) / f"v3v3_{_state_component(source)}_to_{_state_component(target)}"
+            self.store = CheckpointStore(self.dir)
+        else:
+            self.store = CheckpointStore.for_pipeline(root, pipeline, run_id or f"{source}_to_{target}")
+            self.dir = self.store.root
         self._maps: dict[str, dict[str, int]] = {}
         self._lock = threading.Lock()
 
+    @classmethod
+    def for_pipeline(cls, pipeline: str, run_id: str, root: Path = STATE_ROOT) -> "State":
+        """Create an isolated state namespace for any pipeline and run."""
+        return cls("", "", root=root, pipeline=pipeline, run_id=run_id)
+
     def _path(self, kind: str, model: str, ext: str = "json") -> Path:
-        return self.dir / kind / f"{_fname(model)}.{ext}"
+        if not re.fullmatch(r"[A-Za-z0-9]+", ext):
+            raise ValueError(f"invalid state file extension: {ext!r}")
+        return self.dir / _state_component(kind) / f"{_fname(model)}.{ext}"
 
     def id_map(self, model: str, reload: bool = False) -> dict[str, int]:
         with self._lock:
             if reload or model not in self._maps:
                 p = self._path("id_map", model)
-                self._maps[model] = json.loads(p.read_text()) if p.exists() else {}
+                self._maps[model] = self.store.load_path(p, {})
             return self._maps[model]
 
     def save_map(self, model: str) -> None:
         with self._lock:
             snapshot = dict(self._maps.get(model, {}))   # POST threads keep adding while it's written
-        _atomic_write(self._path("id_map", model), snapshot)
+        self.store.save_path(self._path("id_map", model), snapshot)
 
     def load(self, kind: str, model: str, default):
-        p = self._path(kind, model)
-        return json.loads(p.read_text()) if p.exists() else default
+        return self.store.load_path(self._path(kind, model), default)
 
     def save(self, kind: str, model: str, data) -> None:
-        _atomic_write(self._path(kind, model), data)
+        self.store.save_path(self._path(kind, model), data)
 
     def dead_letter(self, model: str, row: dict, error: str) -> None:
         p = self._path("dead_letters", model, "jsonl")
-        p.parent.mkdir(parents=True, exist_ok=True)
         safe = {k: v for k, v in row.items() if k not in ("password", "remember_token", "api_token")}
-        with self._lock, p.open("a") as f:
-            f.write(json.dumps({"at": time.strftime("%Y-%m-%d %H:%M:%S"), "error": error[:2000], "row": safe},
-                               default=str) + "\n")
+        with self._lock:
+            self.store.append_jsonl_path(
+                p, {"at": time.strftime("%Y-%m-%d %H:%M:%S"), "error": error[:2000], "row": safe})
 
 
 def load_v2_map(source: str, root: Path = STATE_ROOT) -> dict[str, dict[str, int]]:
@@ -509,7 +530,8 @@ def preflight(client: V3Client, services=SERVICES) -> None:
 
 class Copier:
     def __init__(self, src: V3Client, dst: V3Client, state: State, plan: dict, *, workers: int = 4,
-                 record_limit: int = 0, read_workers: int = READ_WORKERS, v2_map: dict | None = None):
+                 record_limit: int = 0, read_workers: int = READ_WORKERS, v2_map: dict | None = None,
+                 checkpoint_seconds: float = CHECKPOINT_SECONDS, max_error_streak: int = MAX_ERROR_STREAK):
         self.src, self.dst, self.state, self.plan = src, dst, state, plan
         self.v2_map = v2_map or {}
         self.unrepaired: dict[str, int] = {}          # "model.col" → V2 ids the map lacked (copied as null)
@@ -518,6 +540,12 @@ class Copier:
         self.workers = max(1, workers)
         self.read_workers = max(1, read_workers)
         self.record_limit = record_limit
+        if checkpoint_seconds <= 0:
+            raise ValueError("checkpoint_seconds must be greater than zero")
+        if max_error_streak <= 0:
+            raise ValueError("max_error_streak must be greater than zero")
+        self.checkpoint_seconds = checkpoint_seconds
+        self.max_error_streak = max_error_streak
         self.map_only = False      # True: rebuild id maps from the target by uuid, post nothing (read-only audit)
         self._dropped_cols: dict[str, set[str]] = {}
         self._src_id_sets: dict[str, set[str]] = {}
@@ -762,7 +790,7 @@ class Copier:
         """Read the source org's rows (pages in parallel), translate, and POST
         the new ones with `workers` in flight; a row already on the target
         (by uuid) is only mapped. The id map and deferred links are flushed at
-        least every CHECKPOINT_SECONDS and always on the way out, so a crash
+        least every ``checkpoint_seconds`` and always on the way out, so a crash
         or abort loses nothing the re-run can't find on the target by uuid."""
         x = self.models[model]
         if x["kind"] == "reference":
@@ -780,8 +808,10 @@ class Copier:
         last_save = time.time()
 
         def save():
-            self.state.save_map(model)
+            # POST callbacks mutate both structures under this lock; save one
+            # consistent snapshot while they are paused.
             with pool.lock:
+                self.state.save_map(model)
                 snapshot = dict(deferred_all)
             self.state.save("deferred", model, snapshot)
 
@@ -857,7 +887,7 @@ class Copier:
                     continue
                 new += 1
                 pool.submit(row, payload, deferred, done)
-                if time.time() - last_save > CHECKPOINT_SECONDS:
+                if time.time() - last_save > self.checkpoint_seconds:
                     save()
                     last_save = time.time()
                     log.info("%s: %s (%.0f rows/s)", model, counts, counts["read"] / (last_save - t0))
@@ -933,6 +963,7 @@ class Copier:
 
         pool = self._post_pool(model)
         posting = 0
+        last_save = time.time()
         try:
             for row in self.source_rows(model):
                 if pool.aborted:
@@ -953,9 +984,14 @@ class Copier:
                 posting += 1
                 payload, _, _ = self.translate(model, row)
                 pool.submit(row, payload, None, done)
+                if time.time() - last_save > self.checkpoint_seconds:
+                    with pool.lock:
+                        self.state.save_map(model)
+                    last_save = time.time()
         finally:
             pool.close()
-            self.state.save_map(model)
+            with pool.lock:
+                self.state.save_map(model)
         counts["status"] = "failed" if counts["failed"] or pool.aborted else "done"
         self.state.save("report", model, counts)
         log.info("%s (reference): %s", model, counts)
@@ -1028,8 +1064,8 @@ class _PostPool:
     """`workers` POSTs in flight for one model, at most 4×workers queued (so a
     big table streams instead of piling up in memory). Each result goes to the
     caller's `done(row, payload, extra, new_id, err)` under `lock`. Stops
-    taking work (`aborted` says why) after MAX_ERROR_STREAK transport / 5xx
-    failures in a row, or when the first MAX_ERROR_STREAK rows all fail."""
+    taking work (`aborted` says why) after the configured systemic error
+    streak, or when the first configured number of rows all fail."""
 
     def __init__(self, copier: Copier, model: str):
         self.copier, self.model = copier, model
@@ -1069,17 +1105,21 @@ class _PostPool:
                     self._ok += 1
                     self._streak = 0
                 if not self.aborted:
-                    if self._streak or (self._bad >= MAX_ERROR_STREAK and not self._ok):
+                    if self._streak or (self._bad >= self.copier.max_error_streak and not self._ok):
                         msg, meaning = describe_error(err)
-                    if self._streak >= MAX_ERROR_STREAK:
+                    if self._streak >= self.copier.max_error_streak:
                         self.aborted = (f"{self._streak} POSTs in a row failed — {meaning}. Last answer: {msg}. "
                                         f"Stopped so the rest isn't dead-lettered; nothing is lost — re-run once "
                                         f"the target is back")
-                    elif self._bad >= MAX_ERROR_STREAK and not self._ok:
+                    elif self._bad >= self.copier.max_error_streak and not self._ok:
                         self.aborted = (f"the first {self._bad} rows were all rejected — {meaning}. V3 said: {msg}. "
                                         f"Stopped: posting the rest would fail the same way")
                     if self.aborted:
                         log.error("%s: %s — stopping this model", self.model, self.aborted)
+        except Exception as e:
+            with self.lock:
+                self.aborted = f"worker could not persist its result: {type(e).__name__}: {e}"
+            log.exception("%s: worker failed while recording a POST result", self.model)
         finally:
             self._slots.release()
 
@@ -1463,6 +1503,16 @@ def main(argv=None) -> int:
     ap.add_argument("--record-limit", type=int, default=0)
     ap.add_argument("--workers", type=int, default=16, help="POSTs in flight per model")
     ap.add_argument("--read-workers", type=int, default=READ_WORKERS, help="page reads in flight per table")
+    ap.add_argument("--checkpoint-seconds", type=float, default=CHECKPOINT_SECONDS,
+                    help="flush progress at least this often (default: V3V3_CHECKPOINT_SECONDS or 30)")
+    ap.add_argument("--max-error-streak", type=int, default=MAX_ERROR_STREAK,
+                    help="stop a model after this many systemic POST failures (default: V3V3_MAX_ERROR_STREAK or 50)")
+    ap.add_argument("--state-dir", type=Path, default=STATE_ROOT,
+                    help="root directory for pipeline state (default: V3V3_STATE_DIR or pipelines/.migration_state)")
+    ap.add_argument("--state-pipeline", default="v3v3",
+                    help="state namespace for this pipeline (default preserves the existing v3v3 state layout)")
+    ap.add_argument("--state-run-id", default=None,
+                    help="state namespace for this run; defaults to <source>_to_<target>")
     ap.add_argument("--parallel-models", type=int, default=1,
                     help="models of the same tier run at once (tiers still run in order)")
     ap.add_argument("--refresh-plan", action="store_true")
@@ -1472,10 +1522,10 @@ def main(argv=None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s · %(levelname)-7s · %(message)s", datefmt="%H:%M:%S")
 
     src, dst = clients(a.source, a.target)
-    state = State(a.source, a.target)
+    state = State(a.source, a.target, root=a.state_dir, pipeline=a.state_pipeline, run_id=a.state_run_id)
     if a.command == "plan":
         plan = load_or_build_plan(src, state, a.models, a.exclude, refresh=True)
-        audit = audit_links(src, plan, sample=a.audit_sample, v2_map=load_v2_map(a.source))
+        audit = audit_links(src, plan, sample=a.audit_sample, v2_map=load_v2_map(a.source, root=a.state_dir))
         state.save("audit", "all", audit)
         problems = print_plan(plan, audit)
         return 1 if problems else 0
@@ -1484,8 +1534,9 @@ def main(argv=None) -> int:
         preflight(dst)                 # a refused account stops here, before a row is posted
     plan = load_or_build_plan(src, state, a.models, a.exclude, refresh=a.refresh_plan)
     copier = Copier(src, dst, state, plan, workers=a.workers, record_limit=a.record_limit,
-                    v2_map=load_v2_map(a.source),
-                    read_workers=a.read_workers)
+                    v2_map=load_v2_map(a.source, root=a.state_dir),
+                    read_workers=a.read_workers, checkpoint_seconds=a.checkpoint_seconds,
+                    max_error_streak=a.max_error_streak)
     todo = sorted((m for m, x in plan["models"].items() if x["selected"] and (a.tier is None or x["tier"] == a.tier)),
                   key=lambda m: (plan["models"][m]["tier"], m))
 

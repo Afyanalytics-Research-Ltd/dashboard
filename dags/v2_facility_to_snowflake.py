@@ -83,6 +83,7 @@ def _job_label(job: dict) -> str:
         "retries": 2,
         "retry_delay": timedelta(minutes=2),
         "retry_exponential_backoff": True,
+        "max_retry_delay": timedelta(minutes=30),
     },
     params={
         "facilities": Param(["kisumu_v3"], type="array",
@@ -167,6 +168,10 @@ def v2_facility_to_snowflake():
         map_index_template="{{ map_label }}",
         max_active_tis_per_dagrun=int_env("V2_LOADER_PARALLEL_TABLES", int_env("PIPELINE_WORKERS", 8)),
         execution_timeout=timedelta(hours=6),
+        retries=3,
+        retry_delay=timedelta(minutes=2),
+        retry_exponential_backoff=True,
+        max_retry_delay=timedelta(minutes=30),
     )
     def extract_load(job: dict) -> dict:
         ctx = get_current_context()
@@ -186,7 +191,8 @@ def v2_facility_to_snowflake():
         return {"facility": job["facility"], "table": job["table"],
                 "rows": result["row_count"], "status": "loaded", "s3_key": result["s3_key"]}
 
-    @task(trigger_rule=TriggerRule.ALL_DONE)
+    @task(trigger_rule=TriggerRule.ALL_DONE, retries=2, retry_delay=timedelta(minutes=2),
+          retry_exponential_backoff=True, max_retry_delay=timedelta(minutes=30))
     def finalize(plan_out: dict, results) -> dict:
         use_pipelines_dir(plan_out["facilities"])
         import facility_to_snowflake_fast_resume as loader

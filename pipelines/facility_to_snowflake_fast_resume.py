@@ -78,6 +78,7 @@ import requests.adapters
 import snowflake.connector
 from dotenv import load_dotenv
 from requests.exceptions import ConnectionError, HTTPError, Timeout
+from pipeline_checkpointing import atomic_write_json, update_json_file
 
 # Optional: orjson is ~3× faster than stdlib json for encoding rows.
 try:
@@ -149,18 +150,25 @@ def _get_inflect():
 def load_watermarks() -> dict:
     if WATERMARK_FILE.exists():
         try:
-            return json.loads(WATERMARK_FILE.read_text())
+            watermarks = json.loads(WATERMARK_FILE.read_text())
+            if not isinstance(watermarks, dict):
+                raise ValueError("watermark state must be a JSON object")
+            return watermarks
         except Exception as e:
-            log.warning("Could not parse %s: %s — starting fresh", WATERMARK_FILE, e)
+            raise RuntimeError(f"Cannot safely resume from {WATERMARK_FILE}: {e}") from e
     return {}
 
 def get_watermark(facility: str, default: str = "1970-01-01T00:00:00Z") -> str:
     return load_watermarks().get(facility, default)
 
 def set_watermark(facility: str, ts_iso: str) -> None:
-    wm = load_watermarks()
-    wm[facility] = ts_iso
-    WATERMARK_FILE.write_text(json.dumps(wm, indent=2, sort_keys=True))
+    def update(watermarks):
+        if not isinstance(watermarks, dict):
+            raise ValueError(f"{WATERMARK_FILE} must contain a JSON object")
+        watermarks[facility] = ts_iso
+        return watermarks
+
+    update_json_file(WATERMARK_FILE, update, default={})
     log.info("Watermark for %s set → %s", facility, ts_iso)
 
 # ─── PROGRESS / RESUME ───────────────────────────────────────────────────
@@ -170,35 +178,51 @@ _progress_lock = threading.Lock()
 def _load_progress() -> dict:
     if PROGRESS_FILE.exists():
         try:
-            return json.loads(PROGRESS_FILE.read_text())
+            progress = json.loads(PROGRESS_FILE.read_text())
+            if not isinstance(progress, dict):
+                raise ValueError("progress state must be a JSON object")
+            return progress
         except Exception as e:
-            log.warning("Could not parse %s: %s — ignoring", PROGRESS_FILE, e)
+            raise RuntimeError(f"Cannot safely resume from {PROGRESS_FILE}: {e}") from e
     return {}
 
 def _save_progress(data: dict) -> None:
-    PROGRESS_FILE.write_text(json.dumps(data, indent=2, sort_keys=True))
+    atomic_write_json(PROGRESS_FILE, data)
 
 def _job_key(job: dict) -> str:
     return f"{job['module'].lower()}|{job['table'].lower()}"
 
 def _mark_done(facility: str, run_id: str, job: dict, s3_key: str | None) -> None:
     """Record that (facility, module, table) has finished — survives a kill."""
-    with _progress_lock:
-        prog = _load_progress()
+    def update(prog):
+        if not isinstance(prog, dict):
+            raise ValueError(f"{PROGRESS_FILE} must contain a JSON object")
         bucket = prog.setdefault(facility, {"run_id": run_id, "completed": {}})
+        if not isinstance(bucket, dict):
+            raise ValueError(f"{PROGRESS_FILE} has an invalid state for {facility}")
         if bucket.get("run_id") != run_id:
             bucket["run_id"] = run_id   # rolling resume across multiple invocations
-        bucket["completed"][_job_key(job)] = {
+        completed = bucket.setdefault("completed", {})
+        if not isinstance(completed, dict):
+            raise ValueError(f"{PROGRESS_FILE} has invalid completed jobs for {facility}")
+        completed[_job_key(job)] = {
             "s3_key": s3_key,
             "at": datetime.now(timezone.utc).isoformat(),
         }
-        _save_progress(prog)
+        return prog
+
+    with _progress_lock:
+        update_json_file(PROGRESS_FILE, update, default={})
 
 def _clear_progress(facility: str) -> None:
-    with _progress_lock:
-        prog = _load_progress()
+    def update(prog):
+        if not isinstance(prog, dict):
+            raise ValueError(f"{PROGRESS_FILE} must contain a JSON object")
         prog.pop(facility, None)
-        _save_progress(prog)
+        return prog
+
+    with _progress_lock:
+        update_json_file(PROGRESS_FILE, update, default={})
 
 def _completed_keys(facility: str) -> set[str]:
     return set(_load_progress().get(facility, {}).get("completed", {}).keys())
@@ -929,17 +953,18 @@ def _page_state_paths(job: dict) -> tuple[Path, Path]:
 
 
 def _load_page_state(path: Path) -> dict:
-    try:
-        return json.loads(path.read_text())
-    except (OSError, ValueError):
+    if not path.exists():
         return {}
-
+    try:
+        state = json.loads(path.read_text())
+        if not isinstance(state, dict):
+            raise ValueError("page state must be a JSON object")
+        return state
+    except (OSError, ValueError) as e:
+        raise RuntimeError(f"Cannot safely resume page extraction from {path}: {e}") from e
 
 def _save_page_state(path: Path, state: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(state, indent=1, sort_keys=True))
-    tmp.replace(path)   # atomic: a kill mid-write can't leave a truncated state file
+    atomic_write_json(path, state)
 
 
 def _spool_write(spool: Path, page: int, rows: list) -> None:

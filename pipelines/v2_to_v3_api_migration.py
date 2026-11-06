@@ -70,6 +70,7 @@ import requests
 import requests.adapters
 from dotenv import load_dotenv
 from requests.exceptions import ConnectionError, HTTPError, ReadTimeout, Timeout
+from pipeline_checkpointing import atomic_write_text, load_json
 
 def _json_default(o):
     """Types the encoders don't know. Snowflake NUMBER columns with a scale
@@ -3346,16 +3347,30 @@ def _load_progress(run_id: str) -> set[str]:
     if PROGRESS_FILE.exists():
         try:
             data = json.loads(PROGRESS_FILE.read_text())
+            if not isinstance(data, dict):
+                raise ValueError("progress state must be a JSON object")
             if data.get("run_id") == run_id:
-                return set(data.get("completed", []))
-        except Exception:
-            pass
+                completed = data.get("completed", [])
+                if not isinstance(completed, list) or not all(isinstance(k, str) for k in completed):
+                    raise ValueError("progress state must contain a list of completed job keys")
+                return set(completed)
+        except (OSError, ValueError, TypeError) as e:
+            raise RuntimeError(f"Cannot safely resume: {PROGRESS_FILE} is unreadable: {e}") from e
     return set()
 
 
 def _mark_done(run_id: str, job_key: str) -> None:
-    with _progress_lock:
+    with _progress_lock, _file_lock(PROGRESS_FILE):
         _completed_jobs.add(job_key)
+        if PROGRESS_FILE.exists():
+            data = load_json(PROGRESS_FILE)
+            if not isinstance(data, dict):
+                raise ValueError(f"{PROGRESS_FILE} must contain a JSON object")
+            if data.get("run_id") == run_id:
+                disk_completed = data.get("completed", [])
+                if not isinstance(disk_completed, list) or not all(isinstance(k, str) for k in disk_completed):
+                    raise ValueError(f"{PROGRESS_FILE} contains invalid completed job keys")
+                _completed_jobs.update(disk_completed)
         _atomic_write(PROGRESS_FILE, json.dumps(
             {"run_id": run_id, "completed": sorted(_completed_jobs)},
             indent=2,
@@ -3376,6 +3391,8 @@ def _load_permanently_done() -> None:
     if DONE_FILE.exists():
         try:
             data = json.loads(DONE_FILE.read_text())
+            if not isinstance(data, dict) or not isinstance(data.get("done", []), list):
+                raise ValueError("completed-job state must contain a 'done' list")
             _permanently_done = set(data.get("done", []))
             if _permanently_done:
                 log.info(
@@ -3383,18 +3400,18 @@ def _load_permanently_done() -> None:
                     len(_permanently_done), DONE_FILE.name,
                 )
         except Exception as e:
-            log.warning("Could not load %s: %s", DONE_FILE.name, e)
-            _permanently_done = set()
+            raise RuntimeError(f"Cannot safely resume: {DONE_FILE} is unreadable: {e}") from e
 
 
 def _mark_permanently_done(job_key: str) -> None:
     with _done_lock, _file_lock(DONE_FILE):
         _permanently_done.add(job_key)
         # union with what other processes (parallel Airflow tasks) marked done
-        try:
-            _permanently_done.update(json.loads(DONE_FILE.read_text()).get("done", []))
-        except (OSError, ValueError):
-            pass
+        if DONE_FILE.exists():
+            data = load_json(DONE_FILE)
+            if not isinstance(data, dict) or not isinstance(data.get("done", []), list):
+                raise ValueError(f"{DONE_FILE} has an invalid completed-job state")
+            _permanently_done.update(data.get("done", []))
         _atomic_write(DONE_FILE, json.dumps({"done": sorted(_permanently_done)}, indent=2))
 
 
@@ -3487,9 +3504,7 @@ def _atomic_write(path: Path, text: str) -> tuple:
     """Write via a temp file + rename, so a run killed mid-write can't leave
     a truncated file (which the loaders would treat as empty). Returns the
     new version's _file_sig."""
-    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
-    tmp.write_text(text)
-    os.replace(tmp, path)
+    atomic_write_text(path, text)
     return _file_sig(path)
 
 
@@ -3515,8 +3530,11 @@ def _flush_record_progress() -> None:
             try:
                 for k, ids in json.loads(RECORD_PROGRESS_FILE.read_text()).items():
                     _inserted_ids.setdefault(k, set()).update(ids)
-            except (OSError, ValueError) as e:
-                log.warning("Could not merge %s before writing: %s", RECORD_PROGRESS_FILE.name, e)
+            except (OSError, ValueError, TypeError) as e:
+                raise RuntimeError(
+                    f"Cannot safely checkpoint records: {RECORD_PROGRESS_FILE} changed on disk "
+                    f"but could not be merged: {e}"
+                ) from e
         _record_progress_mtime = _atomic_write(RECORD_PROGRESS_FILE, json.dumps(
             {k: sorted(v, key=str) for k, v in _inserted_ids.items()},
             indent=2,

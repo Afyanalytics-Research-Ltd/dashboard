@@ -130,6 +130,21 @@ def _run(src, dst, tmp_path, **kw):
     return state, plan, copier, order, results
 
 
+def test_state_namespace_is_configurable_and_preserves_legacy_layout(tmp_path):
+    state = vv.State.for_pipeline("billing/import", "daily/2026-11-05", root=tmp_path)
+    state.save("checkpoint", "customers/table", {"cursor": "page-4"})
+    assert state.dir == vv.CheckpointStore.for_pipeline(tmp_path, "billing/import", "daily/2026-11-05").root
+    assert state.load("checkpoint", "customers/table", {}) == {"cursor": "page-4"}
+    assert vv.State("src", "dst", root=tmp_path).dir == tmp_path / "v3v3_src_to_dst"
+    assert vv.State("src", "dst", root=tmp_path)._path("id_map", "core/departments").name == \
+        "core__departments.json"
+
+
+def test_state_namespace_rejects_path_traversal(tmp_path):
+    state = vv.State.for_pipeline("../outside", "../../run", root=tmp_path)
+    assert state.dir.is_relative_to(tmp_path)
+
+
 def test_plan_orders_parents_first_and_skips_the_org_itself():
     src, _ = _pair()
     plan = vv.build_plan(src)

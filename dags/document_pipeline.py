@@ -340,11 +340,46 @@ def _airflow_var(name: str) -> str:
     return value
 
 
-def get_source_folder_id() -> str:
+def _airflow_var_optional(name: str) -> Optional[str]:
+    """Like _airflow_var but returns None instead of raising when not found."""
+    if AIRFLOW_AVAILABLE:
+        try:
+            return Variable.get(name, default_var=None)
+        except Exception:
+            pass
+    return os.getenv(name) or None
+
+
+def _cfg_facility(cfg: "PipelineConfig") -> str:
+    """Derive the facility key from the Snowflake schema name (e.g. 'SIAYA_DOCS' → 'siaya')."""
+    return cfg.snowflake_schema.upper().removesuffix("_DOCS").lower() if cfg.snowflake_schema else ""
+
+
+def get_source_folder_id(facility: str = '') -> str:
+    if facility:
+        var = f"GDRIVE_SOURCE_FOLDER_ID_{facility.upper()}"
+        value = _airflow_var_optional(var)
+        if not value:
+            _exc = AirflowFailException if AIRFLOW_AVAILABLE else RuntimeError
+            raise _exc(
+                f"Airflow Variable {var} not set. "
+                f"Create it in Airflow Admin > Variables before running facility '{facility}'."
+            )
+        return value
     return _airflow_var("GDRIVE_SOURCE_FOLDER_ID")
 
 
-def get_dest_folder_id() -> str:
+def get_dest_folder_id(facility: str = '') -> str:
+    if facility:
+        var = f"GDRIVE_DEST_FOLDER_ID_{facility.upper()}"
+        value = _airflow_var_optional(var)
+        if not value:
+            _exc = AirflowFailException if AIRFLOW_AVAILABLE else RuntimeError
+            raise _exc(
+                f"Airflow Variable {var} not set. "
+                f"Create it in Airflow Admin > Variables before running facility '{facility}'."
+            )
+        return value
     return _airflow_var("GDRIVE_DEST_FOLDER_ID")
 
 
@@ -912,6 +947,13 @@ def config_from_params(params: Optional[Dict[str, Any]]) -> PipelineConfig:
     def _int(name: str, minimum: int = 0) -> int:
         return max(minimum, int(p.get(name, getattr(d, name))))
 
+    _facility = p.get("snowflake_schema", "").upper().removesuffix("_DOCS").lower()
+    _markers_from_var = None
+    if _facility and not p.get("record_start_markers"):
+        _raw = _airflow_var_optional(f"RECORD_START_MARKERS_{_facility.upper()}")
+        if _raw:
+            _markers_from_var = [m.strip() for m in _raw.split(",") if m.strip()] or None
+
     _schema_path = p.get("schema_path", SCHEMA_PATH)
     if not p.get("schema") and _schema_path and not _resolve_path(str(_schema_path)).is_file():
         _exc = AirflowFailException if AIRFLOW_AVAILABLE else ValueError
@@ -942,7 +984,7 @@ def config_from_params(params: Optional[Dict[str, Any]]) -> PipelineConfig:
         boundary_workers=_int("boundary_workers", 1),
         record_workers=_int("record_workers", 1),
         max_retries=_int("max_retries", 1),
-        record_start_markers=_as_list(p.get("record_start_markers")) or d.record_start_markers,
+        record_start_markers=_as_list(p.get("record_start_markers")) or _markers_from_var or d.record_start_markers,
         record_start_min_matches=_int("record_start_min_matches", 1),
         max_pages_per_record=_int("max_pages_per_record", 1),
         boundary_only_when_ambiguous=_as_bool(
@@ -1471,7 +1513,7 @@ def select_files(service, cfg: PipelineConfig) -> List[Dict[str, Any]]:
             for fid in cfg.file_ids
         ]
     else:
-        files = list_source_files(service, cfg.source_folder_id or get_source_folder_id())
+        files = list_source_files(service, cfg.source_folder_id or get_source_folder_id(_cfg_facility(cfg)))
     if cfg.name_contains:
         needle = cfg.name_contains.lower()
         files = [f for f in files if needle in f["name"].lower()]
@@ -1938,11 +1980,11 @@ def dag_params() -> Dict[str, Any]:
         # -- which files ---------------------------------------------------
         "source_folder_id": Param(
             "", type=["null", "string"], title="Source Drive folder", section="Files",
-            description="Empty = the GDRIVE_SOURCE_FOLDER_ID Variable.",
+            description="Empty = GDRIVE_SOURCE_FOLDER_ID_{SCHEMA} Airflow Variable (required, no global fallback).",
         ),
         "dest_folder_id": Param(
             "", type=["null", "string"], title="Done Drive folder", section="Files",
-            description="Empty = the GDRIVE_DEST_FOLDER_ID Variable.",
+            description="Empty = GDRIVE_DEST_FOLDER_ID_{SCHEMA} Airflow Variable (required, no global fallback).",
         ),
         "file_ids": Param(
             [], type=["null", "array"], items={"type": "string"}, title="Only these Drive file ids",
@@ -2057,7 +2099,7 @@ if AIRFLOW_AVAILABLE:
             # Each file task rebuilds the config rather than pulling the
             # schemas through XCom once per file.
             cfg = config_from_params(get_current_context()["params"])
-            dest = (cfg.dest_folder_id or get_dest_folder_id()) if cfg.move_processed else None
+            dest = (cfg.dest_folder_id or get_dest_folder_id(_cfg_facility(cfg))) if cfg.move_processed else None
             return process_one_file(get_drive_service(), file_meta, dest, cfg)
 
         @task

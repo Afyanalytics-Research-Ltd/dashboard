@@ -18,6 +18,7 @@ dag = load_dag_module("docs_to_events_raw")
 FACILITY = "siaya"
 SRC = "HOSPITALS.SIAYA_DOCS.EXTRACTED_FORMS"
 DST = "HOSPITALS.SIAYA_RAW.EVENTS_RAW"
+STORE_UUID = "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"
 
 
 # ---------------------------------------------------------------------------
@@ -73,15 +74,15 @@ def test_require_facility_passes_for_valid_key():
 # ---------------------------------------------------------------------------
 
 def test_check_null_names_returns_zero_and_no_warning(caplog):
-    cur = FakeCursor(fetchone_map={"PATIENT_NAME IS NULL": (0,)})
+    cur = FakeCursor(fetchone_map={"patient_name::STRING IS NULL": (0,)})
     with caplog.at_level("WARNING"):
         result = dag.check_null_names(cur, SRC)
     assert result == 0
-    assert "PATIENT_NAME" not in caplog.text
+    assert "row(s)" not in caplog.text
 
 
 def test_check_null_names_logs_warning_when_nulls_present(caplog):
-    cur = FakeCursor(fetchone_map={"PATIENT_NAME IS NULL": (3,)})
+    cur = FakeCursor(fetchone_map={"patient_name::STRING IS NULL": (3,)})
     with caplog.at_level("WARNING"):
         result = dag.check_null_names(cur, SRC)
     assert result == 3
@@ -130,7 +131,7 @@ def test_run_validate_raises_when_table_does_not_exist():
 
 
 def test_run_validate_returns_count():
-    cur = FakeCursor(fetchone_map={"PATIENT_NAME IS NULL": (0,), "COUNT(*)": (10,)})
+    cur = FakeCursor(fetchone_map={"patient_name::STRING IS NULL": (0,), "COUNT(*)": (10,)})
     assert dag.run_validate(cur, SRC, FACILITY) == 10
 
 
@@ -149,7 +150,8 @@ def test_run_validate_calls_check_null_names(monkeypatch):
 def test_run_write_returns_counts():
     cur = FakeCursor(rowcount=7)
     result = dag.run_write(cur, SRC, DST, FACILITY)
-    assert result == {"deleted": 7, "patients": 7, "visits": 7, "vitals": 7, "doctor_notes": 7}
+    assert result == {"deleted": 7, "patients": 7, "visits": 7, "vitals": 7, "doctor_notes": 7,
+                      "inv_products": 0, "inv_stock_movements": 0}
 
 
 def test_run_write_delete_before_inserts():
@@ -166,7 +168,7 @@ def test_run_write_delete_before_inserts():
 
 
 def test_run_write_rolls_back_on_failure():
-    cur = FakeCursor(fail_on="NURSES_TRIAGE_NOTES")  # unique to visit INSERT
+    cur = FakeCursor(fail_on="nurses_triage_notes")  # unique to visit INSERT
     with pytest.raises(RuntimeError):
         dag.run_write(cur, SRC, DST, FACILITY)
     assert "ROLLBACK" in cur.executed
@@ -179,7 +181,7 @@ def test_run_write_delete_filters_by_file_id():
     delete_sql = cur.executed[1]   # executed[0] = BEGIN
     assert "payload:file_id::STRING" in delete_sql
     assert "module_source" not in delete_sql
-    assert "source_table IN ('patients', 'visits', 'vitals', 'doctor_notes')" in delete_sql
+    assert "source_table IN ('patients', 'visits', 'vitals', 'doctor_notes', 'inv_products', 'inv_stock_movements')" in delete_sql
 
 
 def test_run_write_patient_payload_fields():
@@ -190,9 +192,10 @@ def test_run_write_patient_payload_fields():
                   "'age'", "'gender'", "'phone'", "'address'"):
         assert field in patient_sql, f"Missing field {field} in patient INSERT"
     assert "RECORD_KEY" in patient_sql
-    assert "PATIENT_NAME" in patient_sql
-    assert "COALESCE(CAMP_FILE_NUMBER, PATIENT_ID_FILE_NO)" in patient_sql
-    assert "TRY_CAST(SPLIT_PART(AGE" in patient_sql
+    assert "EXTRACTION:patient_name::STRING" in patient_sql
+    assert "COALESCE(EXTRACTION:camp_file_number::STRING, EXTRACTION:patient_id_file_no::STRING)" in patient_sql
+    assert "TRY_CAST(SPLIT_PART(EXTRACTION:age::STRING" in patient_sql
+    assert "TRY_TO_DATE" in patient_sql
 
 
 def test_run_write_visit_payload_fields():
@@ -203,7 +206,8 @@ def test_run_write_visit_payload_fields():
         assert field in visit_sql, f"Missing field {field} in visit INSERT"
     assert "RECORD_KEY || '_v'" in visit_sql
     assert "RECORD_KEY" in visit_sql
-    assert "COALESCE(NURSES_TRIAGE_NOTES, HISTORY_OF_PRESENT_ILLNESS, DOCTORS_NOTES)" in visit_sql
+    assert "COALESCE(EXTRACTION:nurses_triage_notes::STRING, EXTRACTION:history_of_present_illness::STRING, EXTRACTION:doctors_notes::STRING)" in visit_sql
+    assert "TRY_TO_DATE" in visit_sql
 
 
 def test_run_write_vitals_payload_fields():
@@ -216,7 +220,7 @@ def test_run_write_vitals_payload_fields():
         assert field in vitals_sql, f"Missing field {field} in vitals INSERT"
     assert "TRY_CAST" in vitals_sql
     assert "SPLIT_PART" in vitals_sql
-    assert "BLOOD_PRESSURE" in vitals_sql
+    assert "EXTRACTION:blood_pressure::STRING" in vitals_sql
     assert "RECORD_KEY || '_vitals'" in vitals_sql
     assert "RECORD_KEY || '_v'" in vitals_sql
 
@@ -239,6 +243,8 @@ def test_run_write_delete_covers_vitals_and_doctor_notes():
     delete_sql = cur.executed[1]
     assert "'vitals'" in delete_sql
     assert "'doctor_notes'" in delete_sql
+    assert "'inv_products'" in delete_sql
+    assert "'inv_stock_movements'" in delete_sql
 
 
 def test_run_write_delete_does_not_filter_module_source():
@@ -249,7 +255,7 @@ def test_run_write_delete_does_not_filter_module_source():
 
 
 def test_run_write_rollback_on_vitals_insert_failure():
-    cur = FakeCursor(fail_on="BODY_MASS_INDEX")
+    cur = FakeCursor(fail_on="body_mass_index")
     with pytest.raises(RuntimeError):
         dag.run_write(cur, SRC, DST, FACILITY)
     assert "ROLLBACK" in cur.executed
@@ -349,18 +355,24 @@ def test_run_write_evaluation_inserts_use_patient_evaluation_service():
 # ---------------------------------------------------------------------------
 
 class FakeVerifyCursor(FakeCursor):
-    """Returns configurable per-source_table counts from the two verify GROUP BY queries."""
+    """Returns configurable per-source_table counts from the three verify GROUP BY queries."""
 
     def __init__(self, patient_count: int = 5, visit_count: int = 5,
-                 vitals_count: int = 5, doctor_notes_count: int = 5):
+                 vitals_count: int = 5, doctor_notes_count: int = 5,
+                 inv_products_count: int = 0, inv_stock_movements_count: int = 0):
         super().__init__()
+        # Support run_verify()'s NULL check: 0 nulls out of patient_count total → check passes
+        self._fetchone_map = {"COUNT_IF": (0, patient_count)}
         self._reception = [("patients", patient_count), ("visits", visit_count)]
         self._evaluation = [("vitals", vitals_count), ("doctor_notes", doctor_notes_count)]
+        self._inventory = [("inv_products", inv_products_count), ("inv_stock_movements", inv_stock_movements_count)]
 
     def fetchall(self):
         last_sql = self.executed[-1] if self.executed else ""
         if "patient-evaluation-service" in last_sql:
             return [(r[0], r[1]) for r in self._evaluation if r[1] > 0]
+        if "inventory-service" in last_sql:
+            return [(r[0], r[1]) for r in self._inventory if r[1] > 0]
         return [(r[0], r[1]) for r in self._reception if r[1] > 0]
 
 
@@ -401,7 +413,7 @@ def test_run_verify_sql_filters_by_facility_and_module_source():
     cur = FakeVerifyCursor()
     dag.run_verify(cur, DST, FACILITY)
     reception_sql = cur.executed[0]
-    evaluation_sql = cur.executed[1]
+    evaluation_sql = cur.executed[2]   # executed[1] is the NULL check fetchone query
     assert f"facility_id = '{FACILITY}'" in reception_sql
     assert "module_source = 'reception-service'" in reception_sql
     assert "source_table IN ('patients', 'visits')" in reception_sql
@@ -420,3 +432,139 @@ def test_dag_id():
 
 def test_module_source_is_reception_service():
     assert dag.MODULE_SOURCE == "reception-service"
+
+
+# ---------------------------------------------------------------------------
+# run_write — stock-taking (inv_products + inv_stock_movements)
+# ---------------------------------------------------------------------------
+
+def test_run_write_default_store_absent_skips_stock_inserts():
+    cur = FakeCursor()
+    result = dag.run_write(cur, SRC, DST, FACILITY)
+    assert cur.executed[6] == "COMMIT"
+    assert result["inv_products"] == 0
+    assert result["inv_stock_movements"] == 0
+    assert not any("inv_products" in s or "inv_stock_movements" in s
+                   for s in cur.executed[2:6])
+
+
+def test_run_write_default_store_present_includes_stock_inserts():
+    cur = FakeCursor(rowcount=3)
+    result = dag.run_write(cur, SRC, DST, FACILITY, STORE_UUID)
+    # BEGIN, DELETE, patient, visit, vitals, dn, inv_products, inv_stock_movements, COMMIT
+    assert cur.executed[8] == "COMMIT"
+    assert result["inv_products"] == 3
+    assert result["inv_stock_movements"] == 3
+
+
+def test_run_write_inv_products_fields():
+    cur = FakeCursor()
+    dag.run_write(cur, SRC, DST, FACILITY, STORE_UUID)
+    inv_products_sql = cur.executed[6]
+    assert "'inv_products'" in inv_products_sql
+    assert "LATERAL FLATTEN" in inv_products_sql
+    assert "RECORD_KEY || '_p_'" in inv_products_sql
+    assert "'id'" in inv_products_sql
+    assert "'file_id'" in inv_products_sql
+    assert "'generic_name'" in inv_products_sql
+    assert "item_name" in inv_products_sql
+    assert "'inventory-service'" in inv_products_sql
+
+
+def test_run_write_inv_stock_movements_fields():
+    cur = FakeCursor()
+    dag.run_write(cur, SRC, DST, FACILITY, STORE_UUID)
+    inv_sm_sql = cur.executed[7]
+    assert "'inv_stock_movements'" in inv_sm_sql
+    assert "LATERAL FLATTEN" in inv_sm_sql
+    assert "RECORD_KEY || '_sm_'" in inv_sm_sql
+    assert "'product_id'" in inv_sm_sql
+    assert "'from_store_id'" in inv_sm_sql
+    assert STORE_UUID in inv_sm_sql
+    assert "'quantity'" in inv_sm_sql
+    assert "'batch_no'" in inv_sm_sql
+    assert "'expiry_date'" in inv_sm_sql
+    assert "'opening_stock'" in inv_sm_sql
+    assert "'inventory-service'" in inv_sm_sql
+
+
+def test_run_write_rollback_on_inv_products_insert_failure():
+    cur = FakeCursor(fail_on="item_name")  # unique to inv_products INSERT
+    with pytest.raises(RuntimeError):
+        dag.run_write(cur, SRC, DST, FACILITY, STORE_UUID)
+    assert "ROLLBACK" in cur.executed
+    assert "COMMIT" not in cur.executed
+
+
+def test_run_write_rollback_on_inv_stock_movements_insert_failure():
+    cur = FakeCursor(fail_on="from_store_id")  # unique to inv_stock_movements INSERT
+    with pytest.raises(RuntimeError):
+        dag.run_write(cur, SRC, DST, FACILITY, STORE_UUID)
+    assert "ROLLBACK" in cur.executed
+    assert "COMMIT" not in cur.executed
+
+
+# ---------------------------------------------------------------------------
+# run_verify — inventory counts
+# ---------------------------------------------------------------------------
+
+def test_run_verify_returns_inventory_counts():
+    cur = FakeVerifyCursor(inv_products_count=4, inv_stock_movements_count=4)
+    result = dag.run_verify(cur, DST, FACILITY)
+    assert result.get("inv_products") == 4
+    assert result.get("inv_stock_movements") == 4
+
+
+def test_run_verify_zero_inventory_not_in_result():
+    cur = FakeVerifyCursor()  # inv counts default to 0
+    result = dag.run_verify(cur, DST, FACILITY)
+    assert "inv_products" not in result
+    assert "inv_stock_movements" not in result
+
+
+def test_run_verify_sql_includes_inventory_query():
+    cur = FakeVerifyCursor()
+    dag.run_verify(cur, DST, FACILITY)
+    inventory_sql = cur.executed[3]   # executed[0]=reception, [1]=null check, [2]=evaluation, [3]=inventory
+    assert "inventory-service" in inventory_sql
+    assert "inv_products" in inventory_sql
+    assert "inv_stock_movements" in inventory_sql
+    assert f"facility_id = '{FACILITY}'" in inventory_sql
+
+
+# ---------------------------------------------------------------------------
+# FP-5 — UUID validation for default_store
+# ---------------------------------------------------------------------------
+
+def test_run_write_uuid_validation_rejects_invalid_default_store():
+    cur = FakeCursor()
+    with pytest.raises(AirflowFailException, match="must be a UUID"):
+        dag.run_write(cur, SRC, DST, FACILITY, 'not-a-uuid')
+
+
+def test_run_write_uuid_validation_accepts_valid_uuid():
+    cur = FakeCursor(rowcount=3)
+    result = dag.run_write(cur, SRC, DST, FACILITY, STORE_UUID)
+    assert result["inv_products"] == 3
+
+
+def test_run_write_uuid_validation_skips_when_empty():
+    cur = FakeCursor()
+    result = dag.run_write(cur, SRC, DST, FACILITY, '')
+    assert result["inv_products"] == 0  # empty default_store skips inventory, no UUID error
+
+
+# ---------------------------------------------------------------------------
+# run_verify — zero-tolerance NULL check
+# ---------------------------------------------------------------------------
+
+def test_run_verify_raises_when_all_patient_names_null():
+    class AllNullNamesCursor(FakeVerifyCursor):
+        def fetchone(self):
+            if self.executed and "COUNT_IF" in self.executed[-1]:
+                return (5, 5)  # 5 nulls out of 5 total — all NULL
+            return super().fetchone()
+
+    cur = AllNullNamesCursor(patient_count=5)
+    with pytest.raises(AirflowFailException, match="patient_name"):
+        dag.run_verify(cur, DST, FACILITY)

@@ -1760,6 +1760,7 @@ def run_one_table(facility: str, table: str, *, dry_run: bool) -> dict:
     — "error" is a crash (worth a retry), "failed" means records were
     dead-lettered (a retry would only repeat them)."""
     org_cfg, available_models = _start(facility)
+    org_cfg["default_store"] = os.getenv("AFYA_DEFAULT_STORE", "")
     runnable, unmapped, no_insert = _select_entries(facility, [table], None, available_models)
     if not runnable:
         why = ((unmapped[0].get("skipped") or "no NAMESPACE_MAP entry") if unmapped else

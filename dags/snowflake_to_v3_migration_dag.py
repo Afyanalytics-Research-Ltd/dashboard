@@ -93,6 +93,7 @@ def _setup_modules(p: dict, facility: str):
     os.environ["RECORD_WORKERS"] = str(int(p["record_workers"]))
     os.environ["V3_POST_THROTTLE"] = str(float(p.get("post_throttle") or 0))
     os.environ["LAP_RUN_TAG"] = str(p.get("run_tag") or "")
+    os.environ["AFYA_DEFAULT_STORE"] = str(p.get("default_store") or "")
     use_pipelines_dir([facility])
     import snowflake_to_v3_migration as s2v3
     import v2_to_v3_api_migration as v2v3
@@ -147,6 +148,9 @@ def _setup_modules(p: dict, facility: str):
                                              "not yet in V3) as failed instead of skipped."),
         "run_tag": Param("", type="string", title="LAP run tag",
                          description="Set by LAP to scope the migration state directory per run (e.g. lap5_abc123). Leave empty for manual runs."),
+        "default_store": Param("", type="string", title="Default store UUID",
+                               description="UUID of the facility's default store for inv_stock_movements.from_store_id. "
+                                           "Read from Airflow Variable DEFAULT_STORE_{FACILITY} when empty."),
     },
     on_success_callback=lap_callback,
     on_failure_callback=lap_callback,

@@ -344,3 +344,58 @@ def test_registry_is_safe_under_parallel_pages(registry):
     assert errors == []
     data = json.loads(registry.read_text())
     assert sum(len(v) for v in data["id_to_uuid"].values()) == 200 and len(data["alias_to_table"]) == 200
+
+
+# ── 409 cross-org collision ───────────────────────────────────────────────
+# Multi-facility support allows new facilities to run step 4. Their patient_no
+# values can collide with records already in V3 from other organizations,
+# returning a 409 "belongs to another organization". Previously impossible
+# since only Siaya ran and its data was pre-seeded. Treatment: skip (not
+# dead-letter) — consistent with 422 same-org duplicate handling.
+
+class _Resp409:
+    """Fake 409 response with the cross-org collision message."""
+    status_code = 409
+    ok = False
+    text = '{"message": "A matching record (patient_no) already belongs to another organization; it was not changed."}'
+
+    def json(self):
+        return {"message": "A matching record (patient_no) already belongs to another organization; it was not changed."}
+
+    def raise_for_status(self):
+        raise Exception("409 Conflict")
+
+
+class _Resp409Unknown:
+    """Fake 409 with an unrecognised message shape."""
+    status_code = 409
+    ok = False
+    text = '{"message": "Some other conflict"}'
+
+    def json(self):
+        return {"message": "Some other conflict"}
+
+    def raise_for_status(self):
+        raise Exception("409 unknown")
+
+
+def _call_post(monkeypatch, resp):
+    monkeypatch.setattr(v2v3, "_gateway_post", lambda *a, **k: resp)
+    return v2v3._post_to_v3_batch(
+        r"App\Models\Patient",
+        {"organization_id": 1},
+        {"id": "p-1", "first_name": "Test"},
+        service_override="reception",
+        alias_override="patient",
+    )
+
+
+def test_409_cross_org_collision_is_skipped_not_dead_lettered(monkeypatch):
+    # Must return None (skipped) without raising RecordDeadLettered or any exception.
+    result = _call_post(monkeypatch, _Resp409())
+    assert result is None
+
+
+def test_409_unknown_shape_still_raises(monkeypatch):
+    with pytest.raises(Exception, match="409"):
+        _call_post(monkeypatch, _Resp409Unknown())

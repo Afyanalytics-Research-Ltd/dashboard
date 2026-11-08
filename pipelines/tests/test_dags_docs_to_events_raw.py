@@ -566,5 +566,13 @@ def test_run_verify_raises_when_all_patient_names_null():
             return super().fetchone()
 
     cur = AllNullNamesCursor(patient_count=5)
-    with pytest.raises(AirflowFailException, match="patient_name"):
+    with pytest.raises(AirflowFailException, match="last_name"):
         dag.run_verify(cur, DST, FACILITY)
+
+
+def test_run_verify_null_check_queries_last_name_not_patient_name():
+    cur = FakeVerifyCursor()
+    dag.run_verify(cur, DST, FACILITY)
+    null_check_sql = cur.executed[1]   # executed[0]=reception fetchone wait — actually the COUNT_IF query
+    assert "last_name" in null_check_sql
+    assert "patient_name" not in null_check_sql

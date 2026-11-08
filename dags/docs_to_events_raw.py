@@ -336,13 +336,13 @@ def run_verify(cur, dst: str, facility: str) -> dict:
             f"check Snowflake session isolation or transaction commit."
         )
     null_name_row = cur.execute(f"""
-        SELECT COUNT_IF(payload:patient_name::STRING IS NULL), COUNT(*)
+        SELECT COUNT_IF(payload:last_name::STRING IS NULL), COUNT(*)
         FROM {dst}
         WHERE facility_id = '{facility}' AND source_table = 'patients'
     """).fetchone()
     if null_name_row and null_name_row[1] > 0 and null_name_row[0] == null_name_row[1]:
         raise AirflowFailException(
-            f"All {null_name_row[1]} patient row(s) have NULL patient_name — "
+            f"All {null_name_row[1]} patient row(s) have NULL last_name — "
             f"schema property names do not match run_write() field paths. "
             f"Check that the facility schema JSON uses 'patient_name' as the property name."
         )

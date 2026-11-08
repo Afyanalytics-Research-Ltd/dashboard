@@ -335,10 +335,13 @@ def run_verify(cur, dst: str, facility: str) -> dict:
             f"The INSERT reported success but rows are not visible — "
             f"check Snowflake session isolation or transaction commit."
         )
+    _src = f"HOSPITALS.{facility.upper()}_DOCS.EXTRACTED_FORMS"
     null_name_row = cur.execute(f"""
         SELECT COUNT_IF(payload:last_name::STRING IS NULL), COUNT(*)
         FROM {dst}
-        WHERE facility_id = '{facility}' AND source_table = 'patients'
+        WHERE facility_id = '{facility}'
+          AND source_table = 'patients'
+          AND payload:file_id::STRING IN (SELECT FILE_ID FROM {_src})
     """).fetchone()
     if null_name_row and null_name_row[1] > 0 and null_name_row[0] == null_name_row[1]:
         raise AirflowFailException(

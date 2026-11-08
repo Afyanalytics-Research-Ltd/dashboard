@@ -576,3 +576,5 @@ def test_run_verify_null_check_queries_last_name_not_patient_name():
     null_check_sql = cur.executed[1]   # executed[0]=reception fetchone wait — actually the COUNT_IF query
     assert "last_name" in null_check_sql
     assert "patient_name" not in null_check_sql
+    assert "SELECT FILE_ID FROM" in null_check_sql, "NULL check must be scoped to current run's files"
+    assert "SIAYA_DOCS.EXTRACTED_FORMS" in null_check_sql

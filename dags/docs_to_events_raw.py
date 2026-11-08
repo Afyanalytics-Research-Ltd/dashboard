@@ -67,16 +67,21 @@ def run_setup(cur, facility: str, dst: str) -> None:
 
 
 def check_null_names(cur, src: str) -> int:
-    """Return count of rows with NULL PATIENT_NAME and log a warning if any.
+    """Return count of rows with NULL patient_name and log a warning if any.
 
     NULL names → v3_passthrough holds the patient back (first_name required);
     the visit is also held back until its patient_id resolves.
     """
-    row = cur.execute(f"SELECT COUNT(*) FROM {src} WHERE EXTRACTION:patient_name::STRING IS NULL").fetchone()
+    try:
+        row = cur.execute(f"SELECT COUNT(*) FROM {src} WHERE EXTRACTION:patient_name::STRING IS NULL").fetchone()
+    except Exception as exc:
+        # EXTRACTION column absent means step 1 wrote no VARIANT data — warn, don't block validate
+        log.warning("check_null_names could not query %s (EXTRACTION column may be absent): %s", src, exc)
+        return 0
     count = int(row[0]) if row else 0
     if count:
         log.warning(
-            "%d row(s) in %s have NULL PATIENT_NAME. Those patient records will be "
+            "%d row(s) in %s have NULL patient_name. Those patient records will be "
             "held back by v3_passthrough (first_name NOT NULL). Their visit rows will "
             "also be held back until the patient lands in V3.",
             count, src,
@@ -257,12 +262,16 @@ def run_write(cur, src: str, dst: str, facility: str, default_store: str = '') -
         LATERAL FLATTEN(input => EXTRACTION:stock_items) f
         WHERE EXTRACTION:stock_items IS NOT NULL
     """
+    _step = "BEGIN"
     cur.execute("BEGIN")
     try:
+        _step = "DELETE stale rows"
         cur.execute(delete_sql)
         deleted = cur.rowcount
+        _step = "INSERT patients"
         cur.execute(patient_insert_sql)
         patients = cur.rowcount
+        _step = "INSERT visits"
         cur.execute(visit_insert_sql)
         visits = cur.rowcount
         if patients == 0 or visits == 0:
@@ -271,19 +280,25 @@ def run_write(cur, src: str, dst: str, facility: str, default_store: str = '') -
                 f"{src} had rows but none transferred — check column mapping between "
                 f"EXTRACTED_FORMS and {dst}."
             )
+        _step = "INSERT vitals"
         cur.execute(vitals_insert_sql)
         vitals = cur.rowcount
+        _step = "INSERT doctor_notes"
         cur.execute(doctor_notes_insert_sql)
         doctor_notes = cur.rowcount
         inv_products = inv_stock_movements = 0
         if default_store:
+            _step = "INSERT inv_products"
             cur.execute(inv_products_insert_sql)
             inv_products = cur.rowcount
+            _step = "INSERT inv_stock_movements"
             cur.execute(inv_stock_movements_insert_sql)
             inv_stock_movements = cur.rowcount
+        _step = "COMMIT"
         cur.execute("COMMIT")
-    except Exception:
+    except Exception as exc:
         cur.execute("ROLLBACK")
+        log.error("run_write rolled back at step '%s': %s", _step, exc)
         raise
     log.info(
         "Deleted %d stale row(s); inserted %d patient + %d visit + %d vital + %d doctor_note"

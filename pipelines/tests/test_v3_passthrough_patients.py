@@ -70,3 +70,25 @@ def test_record_without_source_id_is_held_back():
     key = _spec("patients")
     assert pt.transform({"id": None, "last_name": "Jayden Okalo"}, key, {}) is None
     assert pt.transform({"last_name": "Jayden Okalo"}, key, {}) is None
+
+
+_STORE_UUID = "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11"
+
+
+def test_stock_movement_from_store_filled_from_org_cfg():
+    key = _spec("inv_stock_movements")
+    out = pt.transform({"id": "1", "from_store_id": None}, key, {"default_store": _STORE_UUID})
+    assert out["from_store_id"] == _STORE_UUID
+
+
+def test_stock_movement_from_store_not_overwritten():
+    existing = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+    key = _spec("inv_stock_movements")
+    out = pt.transform({"id": "2", "from_store_id": existing}, key, {"default_store": _STORE_UUID})
+    assert out["from_store_id"] == existing
+
+
+def test_stock_movement_no_default_store_leaves_none():
+    key = _spec("inv_stock_movements")
+    out = pt.transform({"id": "3", "from_store_id": None}, key, {})
+    assert out["from_store_id"] is None

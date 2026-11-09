@@ -430,6 +430,8 @@ def transform(record: dict, transform_key: str, org_cfg: dict) -> dict | None:
         out[spec["facility_col"]] = org_cfg.get("facility_id")
     if spec["table"] == "visits" and out.get("clinic") in (None, ""):
         out["clinic"] = org_cfg.get("facility_id")    # V3 check-in sets it to the facility; the frontend requires it
+    if spec["table"] == "inv_stock_movements" and not out.get("from_store_id"):
+        out["from_store_id"] = org_cfg.get("default_store") or None
     return out
 
 

@@ -4,7 +4,8 @@
 
 USE ROLE DATAANALYSTS;
 
--- Sources. STATUS: proposed (found by discovery, awaiting approval) | active | rejected (never proposed again).
+-- Sources. STATUS: active | rejected. 'proposed' rows came from the retired in-database discovery and are
+-- ignored; discovery is now patient_discovery (Python), and people add approved sources here by hand.
 CREATE TABLE HOSPITALS.ANALYTICS.AFYA_PATIENT_COUNT_SOURCES (
     SOURCE           STRING NOT NULL,   -- name shown on the dashboard
     SOURCE_OBJECT    STRING NOT NULL,   -- DATABASE.SCHEMA.OBJECT
@@ -73,77 +74,6 @@ INSERT INTO HOSPITALS.ANALYTICS.AFYA_PATIENT_COUNT_SOURCES
     ('SPH V1 feed',                            'HOSPITALS.ORTHOPEDIC_CLEAN.ORTHO_ORDERS',                         'PATIENT_ID',           NULL, NULL,         NULL,         NULL,           'rejected'),
     ('SPH V2 feed',                            'HOSPITALS.ORTHOPEDIC_CLEAN_V2.ORTHO_VISITS',                      'PATIENT_ID',           NULL, NULL,         NULL,         NULL,           'rejected');
 
--- Finds the most visit-like table, with a patient identifier, in each *_CLEAN schema that has no source yet,
--- profiles it with one aggregate scan, and adds it as 'proposed' with the columns it inferred.
-CREATE PROCEDURE HOSPITALS.ANALYTICS.AFYA_DISCOVER_PATIENT_DATASETS()
-RETURNS STRING
-LANGUAGE SQL
-EXECUTE AS OWNER
-AS
-$$
-DECLARE
-    n_proposed INTEGER DEFAULT 0;
-    candidates CURSOR FOR
-        WITH tabs AS (
-            SELECT c.TABLE_SCHEMA AS sch, c.TABLE_NAME AS tbl, MAX(t.ROW_COUNT) AS n_rows,
-                   MIN_BY(c.COLUMN_NAME, CASE c.COLUMN_NAME WHEN 'UNIQUE_PATIENT_ID' THEN 1 WHEN 'COMPOSITE_PATIENT_ID' THEN 2
-                          WHEN 'PATIENT_ID' THEN 3 WHEN 'PATIENT' THEN 4 WHEN 'PATIENT_ID_HASH' THEN 5 WHEN 'REGID' THEN 6 END) AS uk,
-                   MIN_BY(c.COLUMN_NAME, CASE c.COLUMN_NAME WHEN 'VISIT_ID' THEN 1 WHEN 'ENCOUNTER_ID' THEN 2
-                          WHEN 'PRESCID' THEN 3 WHEN 'APTID' THEN 4 WHEN 'ID' THEN 5 END) AS rk,
-                   MIN_BY(c.COLUMN_NAME, CASE c.COLUMN_NAME WHEN 'DELETED_AT' THEN 1 WHEN 'IS_DELETED' THEN 2 END) AS dc,
-                   MIN_BY(c.COLUMN_NAME, CASE c.COLUMN_NAME WHEN 'UPDATED_AT' THEN 1 END) AS vc,
-                   MIN_BY(c.COLUMN_NAME, CASE c.COLUMN_NAME WHEN '_INGESTED_AT' THEN 1 WHEN 'INGESTED_AT' THEN 2
-                          WHEN '_RAW_INGESTED_AT' THEN 3 WHEN 'INGESTION_DATE' THEN 4 WHEN '_LOADED_AT' THEN 5 END) AS rc
-            FROM HOSPITALS.INFORMATION_SCHEMA.COLUMNS c
-            JOIN HOSPITALS.INFORMATION_SCHEMA.TABLES t ON t.TABLE_SCHEMA = c.TABLE_SCHEMA AND t.TABLE_NAME = c.TABLE_NAME
-            WHERE ENDSWITH(c.TABLE_SCHEMA, '_CLEAN')
-            GROUP BY 1, 2)
-        SELECT sch, tbl, uk, rk, dc, vc, rc
-        FROM tabs
-        WHERE uk IS NOT NULL
-          AND sch NOT IN (SELECT SPLIT_PART(SOURCE_OBJECT, '.', 2) FROM HOSPITALS.ANALYTICS.AFYA_PATIENT_COUNT_SOURCES)
-        QUALIFY ROW_NUMBER() OVER (PARTITION BY sch ORDER BY
-            CASE WHEN REGEXP_LIKE(tbl, '(.*_)?(VISITS?|ENCOUNTERS?|ATTENDANCES?|OUTPATIENTS?)') THEN 3
-                 WHEN CONTAINS(tbl, 'VISIT') OR CONTAINS(tbl, 'ENCOUNTER') THEN 2
-                 WHEN CONTAINS(tbl, 'PATIENT') THEN 1 ELSE 0 END DESC,
-            n_rows DESC NULLS LAST, tbl) = 1;
-BEGIN
-    FOR c IN candidates DO
-        LET obj STRING := 'HOSPITALS.' || c.sch || '.' || c.tbl;
-        LET uk STRING := c.uk;
-        LET rk STRING := c.rk;
-        LET dc STRING := c.dc;
-        LET vc STRING := c.vc;
-        LET rc STRING := c.rc;
-        LET rows_n INTEGER := 0; LET upd_n INTEGER := 0; LET no_upd INTEGER := 0; LET key_n INTEGER := 0;
-        LET profile VARIANT := NULL;
-        BEGIN
-            LET stmt STRING := 'SELECT COUNT(*), COUNT(DISTINCT ' || uk || '), COUNT_IF(' || uk || ' IS NULL), '
-                            || IFF(rk IS NULL, '0', 'COUNT(DISTINCT ' || rk || ')') || ' FROM ' || obj;
-            LET rs RESULTSET := (EXECUTE IMMEDIATE :stmt);
-            LET c1 CURSOR FOR rs;
-            OPEN c1;
-            FETCH c1 INTO rows_n, upd_n, no_upd, key_n;
-            CLOSE c1;
-            -- versions are only deduplicated on a key that is (near) unique per record
-            IF (rk IS NULL OR key_n < 0.99 * rows_n AND vc IS NULL) THEN
-                rk := NULL;
-            END IF;
-            profile := OBJECT_CONSTRUCT('rows', rows_n, 'distinct_upd_key', upd_n, 'rows_without_upd_key', no_upd,
-                                        'distinct_record_key', key_n, 'discovered_at', CURRENT_TIMESTAMP());
-        EXCEPTION
-            WHEN OTHER THEN
-                profile := OBJECT_CONSTRUCT('error', LEFT(REGEXP_REPLACE(SQLERRM, '''[^'']*''', '''<value>'''), 300));
-        END;
-        INSERT INTO HOSPITALS.ANALYTICS.AFYA_PATIENT_COUNT_SOURCES
-            (SOURCE, SOURCE_OBJECT, UPD_KEY, RECORD_KEY, DELETED_COLUMN, VERSION_COLUMN, RECEIVED_COLUMN, STATUS, PROFILE)
-        SELECT :obj, :obj, :uk, :rk, :dc, IFF(:rk IS NULL, NULL, :vc), :rc, 'proposed', :profile;
-        n_proposed := n_proposed + 1;
-    END FOR;
-    RETURN n_proposed || ' dataset(s) proposed';
-END;
-$$;
-
 -- Discovers, then counts every active source into AFYA_PATIENT_COUNT_RUNS and checks the result. With
 -- PUBLISH_RESULTS, updates AFYA_PATIENT_COUNTS and the receipts in one transaction: 'ok' sources are published,
 -- 'review' sources only with ACCEPT_REVIEW, failed sources keep their previous figures.
@@ -179,12 +109,6 @@ DECLARE
         WHERE STATUS = 'active'
         ORDER BY SOURCE;
 BEGIN
-    BEGIN   -- a discovery failure must never stop the count refresh
-        CALL HOSPITALS.ANALYTICS.AFYA_DISCOVER_PATIENT_DATASETS();
-    EXCEPTION
-        WHEN OTHER THEN
-            discovery_error := LEFT(REGEXP_REPLACE(SQLERRM, '''[^'']*''', '''<value>'''), 300);
-    END;
     SELECT COUNT(*) INTO :n_proposed FROM HOSPITALS.ANALYTICS.AFYA_PATIENT_COUNT_SOURCES WHERE STATUS = 'proposed';
 
     FOR s IN sources DO

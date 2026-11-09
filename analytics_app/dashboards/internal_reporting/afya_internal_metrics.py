@@ -1,4 +1,4 @@
-"""Afyanalytics internal metrics dashboard: Overview and Patient counts tabs."""
+"""Afyanalytics internal metrics dashboard: Overview, Patient counts and Discovery tabs."""
 
 import os
 import sys
@@ -19,7 +19,7 @@ if _HERE not in sys.path:
 for _m in [m for m in sys.modules if m == "afya_metrics" or m.startswith("afya_metrics.")]:
     del sys.modules[_m]
 
-from afya_metrics import data as D, overview, patients, theme as T, update
+from afya_metrics import data as D, discovery, overview, patients, theme as T, update
 
 T.inject_css()
 
@@ -31,11 +31,12 @@ except Exception as exc:
 
 try:
     pc_rows, pc_updated = D.read_patient_counts()
+    pc_receipts = D.read_receipts()
     pc_error = None
 except Exception as exc:
-    pc_rows, pc_updated, pc_error = [], None, exc
-unique_patients = sum(r["UNIQUE_PATIENTS"] for r in pc_rows) if pc_rows else None
-patient_records = sum(r["PATIENTS"] for r in pc_rows) if pc_rows else None
+    pc_rows, pc_updated, pc_receipts, pc_error = [], None, [], exc
+upds = sum(r["UPDS"] for r in pc_rows) if pc_rows else None
+patient_records = sum(r["PATIENT_RECORDS"] for r in pc_rows) if pc_rows else None
 
 weeks = [(r["PERIOD"], r["WEEK_ENDING"]) for r in reversed(rows)]
 goto = st.session_state.pop("x_goto_week", None)
@@ -59,7 +60,7 @@ def _unavailable(exc):
            f'({exc.__class__.__name__}).</div>')
 
 
-tab_overview, tab_patients = st.tabs(["Overview", "Patient counts"])
+tab_overview, tab_patients, tab_discovery = st.tabs(["Overview", "Patient counts", "Discovery"])
 with tab_overview:
     if load_error is not None:
         _unavailable(load_error)
@@ -67,14 +68,15 @@ with tab_overview:
         T.html('<div class="x-empty"><b>No figures recorded yet</b>Use Update to add the first week.</div>')
     else:
         with st.container(key="x_ctx"):
-            c_strip, c_week = st.columns([5, 1.35], vertical_alignment="center", gap="medium")
-            sel = c_week.selectbox("Week", weeks, key="x_week", label_visibility="collapsed",
-                                   format_func=lambda k: f"Week ending {k[1]:%d %b %Y}")
+            c_week, c_strip = st.columns([1.3, 3], vertical_alignment="bottom", gap="medium")
+            sel = c_week.selectbox("Week ending", weeks, key="x_week", format_func=lambda k: f"{k[1]:%d %b %Y}")
             with c_strip:
                 overview.strip(sel[0], sel[1])
-        overview.render(rows, sel[0], sel[1], unique_patients, patient_records)
+        overview.render(rows, sel[0], sel[1], upds, patient_records)
 with tab_patients:
     if pc_error is not None:
         _unavailable(pc_error)
     else:
-        patients.render(pc_rows, pc_updated)
+        patients.render(pc_rows, pc_updated, pc_receipts)
+with tab_discovery:
+    discovery.render()

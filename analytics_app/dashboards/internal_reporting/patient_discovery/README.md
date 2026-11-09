@@ -1,8 +1,25 @@
 # patient_discovery
 
 Finds warehouse objects that could become patient-count sources, and says why the rest can't. It's separate from
-the counting procedure (`AFYA_REFRESH_PATIENT_COUNTS`), which it never calls or changes. Nothing is activated
-automatically: a person adds approved sources to `AFYA_PATIENT_COUNT_SOURCES`.
+the counting procedure (`AFYA_REFRESH_PATIENT_COUNTS`), which it never calls or changes.
+
+People answer its questions on the dashboard's **Discovery** tab. Once every answer a source needs is in (what its
+identifier means, and that its facility is in scope), the source is registered in `AFYA_PATIENT_COUNT_SOURCES` at
+once. Registration is insert-only, with provenance, and never changes or removes existing rows. The source is counted
+from the next refresh.
+
+## Where things are stored
+
+All three tables are in `HOSPITALS.ANALYTICS`:
+
+| Table | What |
+|---|---|
+| `AFYA_PATIENT_DISCOVERY_QUESTIONS` | the current question pack; every `plan` run replaces it |
+| `AFYA_PATIENT_DISCOVERY_STATEMENTS` | every answer, append-only, with who, when and on what basis |
+| `AFYA_PATIENT_COUNT_SOURCES` | the counting registry; discovery only inserts rows that aren't there yet |
+
+Discovery writes only through `model/store.py`, whose guard allows writes to the two discovery tables and the
+insert-if-absent into the registry, and nothing else.
 
 ## The rule it enforces
 
@@ -26,8 +43,10 @@ event classes, decisions D2/D3/D6/D7 in `config.py`).
 | `model/planner.py` | measures the missing evidence within limits |
 | `model/snowflake.py` | Snowflake access: metadata always; source data only for an approved profile run |
 | `model/statements.py`, `model/statements.json` | statements from the registry, `config.py` and people |
-| `model/questions.py` | the question pack and the recording of answers |
+| `model/questions.py` | the question pack, what each answer would do, and which sources are due for registration |
+| `model/store.py` | the discovery tables, the write guard and the registry insert |
 | `run.py` | the command line |
+| `../afya_metrics/discovery.py` | the dashboard's Discovery tab |
 | `classify.py`, `profile_sql.py`, `config.py` | shared naming, normalisation and decisions |
 
 ## Running
@@ -47,16 +66,19 @@ python -m patient_discovery.run profile --env C:/dev/afya/dashboard/.env --cache
 ```
 
 ```bash
-python -m patient_discovery.run answer --by "Your Name"
+python -m patient_discovery.run answer --by "Your Name" --env C:/dev/afya/dashboard/.env
 ```
 
 1. **`plan`** is metadata only. It writes `discovery_output/plan.json` (the next measurements with their exact SQL)
-   and `discovery_output/questions.json` (the question pack). Drop `--cached-catalogue` to re-read the catalogue
+   and `discovery_output/questions.json` (the question pack), and publishes the pack to
+   `AFYA_PATIENT_DISCOVERY_QUESTIONS` for the Discovery tab. Drop `--cached-catalogue` to re-read the catalogue
    and lineage, which takes about 11 minutes.
 2. **`compile`** EXPLAINs every measurement kind and the planned SQL. It reads no table data.
 3. **`profile`** reads source data, aggregates only. It needs explicit approval and stays within the given schemas,
    budget and statement cap. Observations are cached in `discovery_output/observations.json`.
-4. **`answer`** records the filled-in questions as statements, with who, when and on what basis.
+4. **`answer`** records the answers filled in to `questions.json`, with who, when and on what basis. It is the
+   command-line alternative to the Discovery tab. With `--env`, answers go to `AFYA_PATIENT_DISCOVERY_STATEMENTS`
+   and due sources are registered, as on the dashboard; without it, they are appended to `model/statements.json`.
 
 Safety:
 - **Session:** role DATAANALYSTS without secondary roles, a 300 s statement timeout, and a query tag.
@@ -71,15 +93,20 @@ Safety:
 
 ## Answering questions
 
-`questions.json` groups everything that needs a person, so each fact is asked once:
+Normally on the Discovery tab: enter your name, pick an answer, and record it. Each identifier question shows what
+answering "Individual patients" would do for every table, and the original evidence sits under "Technical details".
+A question closes once it is answered, or once every table it covers has been set aside as not a patient source.
+
+The pack (on the tab, or in `questions.json` for the command line) groups everything that needs a person, so each
+fact is asked once:
 - **`meaning`**: one question per facility and identifier column. It lists the member objects and the evidence for
   each. Set `answer` to `person`, `household`, `insurance_member`, `file`, `visit` or `other`. You can prune
   `members`, or set `column` where no candidate exists.
 - **`scope`**: is the facility onboarded? Answer `yes` or `no`.
 - **Other codes**: answer `not_a_source` to stop asking about those objects.
 
-`answer` appends namespace, facility and not-a-source statements to `model/statements.json`. The next run uses them,
-and the derivation rules carry each meaning to new versions, views and copies without asking again.
+Answers become namespace, facility and not-a-source statements. The next run uses them, and the derivation rules
+carry each meaning to new versions, views and copies without asking again.
 
 ## Tests
 
@@ -100,7 +127,7 @@ cd patient_counts_regression && python -I test_counting_reference.py
      the older case catalogues run through the model.
    - `test_operations.py`: the question pack, answers, privacy, cache, failures and the SQL guard.
    - `test_rules.py`: shared naming and normalisation.
-2. **Mutation gate:** re-introduces 24 known flaws; each one must fail the suite.
+2. **Mutation gate:** re-introduces 31 known flaws; each one must fail the suite. It takes about 20 minutes.
 3. **Counting regression:** 24 characterisation tests of the refresh's counting semantics.
 
 ## Known limitations

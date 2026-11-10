@@ -280,3 +280,4 @@ ml_platform/retrain_status.json
 .cubestore/
 config/airflow.cfg
 logs/current_notices_*.json
+*.pub

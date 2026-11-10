@@ -21,6 +21,8 @@ BORDER = "#DCE4ED"
 DIVIDE = "#E8EEF4"
 TRACK = "#E6ECF2"
 SOFT = "#B7CADB"
+REC = "#245C9C"   # Patient Records
+UPD = "#0A9A84"   # UPDs
 PAGE = "#E9EEF5"
 ON_NAVY = "#A8C3DE"
 FONT = "Montserrat, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
@@ -47,6 +49,9 @@ html, body, .stApp, button, input, label, p, li, td, th,
 .st-key-x_head {{ background:{NAVY}; border-radius:14px; padding:18px 28px;
                  box-shadow:0 2px 10px rgba(0,30,64,.18); position:relative; }}
 [data-testid="stLayoutWrapper"]:has(> .st-key-x_head) {{ position:sticky; top:12px; z-index:999; }}
+.st-key-x_head [data-testid="stColumn"]:has(.st-key-x_update) {{ flex:0 0 118px; min-width:118px; }}
+.st-key-x_head [data-testid="stColumn"]:has(.x-brand) {{ flex:1 1 0; min-width:0; }}
+.st-key-x_update button p {{ white-space:nowrap; }}
 .st-key-x_head::before {{ content:""; position:absolute; z-index:-1; left:-4px; right:-4px;
                          top:-12px; height:calc(100% + 14px); background:{PAGE}; }}
 .x-brand {{ display:flex; align-items:center; gap:16px; }}
@@ -58,8 +63,11 @@ html, body, .stApp, button, input, label, p, li, td, th,
 /* week picker and Update button */
 [data-testid="stMain"] [data-baseweb="select"] > div:first-child {{
     background:#fff !important; border:1px solid {BORDER} !important; border-radius:8px !important;
-    min-height:36px !important; box-shadow:{SHADOW} !important;
+    min-height:36px !important; box-shadow:none !important;
 }}
+/* filter labels read the same on both tabs */
+.st-key-x_ctx label p {{ color:{LABEL} !important; font-size:11px !important; font-weight:700 !important;
+    text-transform:uppercase; letter-spacing:.08em; }}
 [data-testid="stMain"] [data-baseweb="select"] div {{ color:{NAVY} !important; font-weight:600 !important; font-size:12.5px !important; }}
 [data-testid="stMain"] [data-baseweb="select"] svg {{ color:{MUTED} !important; }}
 .st-key-x_update button {{
@@ -72,6 +80,33 @@ html, body, .stApp, button, input, label, p, li, td, th,
 .st-key-x_update button:hover {{ background:#E8F1FA !important; }}
 .st-key-x_update button:focus:not(:active) {{ border:none !important; box-shadow:0 0 0 3px rgba(11,185,159,.30) !important; }}
 
+/* Patient counts tab: period filter, chart card, measure markers */
+.st-key-pc_filter {{ margin:6px 0 14px; }}
+.st-key-pc_filter label p {{ color:{LABEL} !important; font-size:11px !important; font-weight:700 !important;
+    text-transform:uppercase; letter-spacing:.08em; }}
+.st-key-pc_period button {{ background:#fff !important; border:1px solid {BORDER} !important; min-height:36px !important;
+    box-shadow:none !important; }}
+.st-key-pc_period button p {{ color:{MUTED} !important; font-size:12.5px !important; font-weight:600 !important; }}
+.st-key-pc_period button[kind="segmented_controlActive"] {{ background:{NAVY} !important; border-color:{NAVY} !important; }}
+.st-key-pc_period button[kind="segmented_controlActive"] p {{ color:#fff !important; }}
+.st-key-pc_custom [data-baseweb="input"] {{ background:#fff !important; border:1px solid {BORDER} !important;
+    border-radius:8px !important; }}
+.st-key-pc_custom input {{ background:#fff !important; color:{NAVY} !important; -webkit-text-fill-color:{NAVY} !important;
+    font-weight:600 !important; font-size:12.5px !important; }}
+.x-asof {{ display:flex; align-items:center; justify-content:flex-end; min-height:36px; font-size:12.5px;
+    color:{MUTED}; }}
+.x-asof b {{ margin-left:4px; }}
+.st-key-pc_filter [data-testid="stMarkdownContainer"]:has(.x-asof) {{ margin-bottom:0; }}
+.x-asof b {{ color:{NAVY}; font-weight:700; }}
+.x-grid.two {{ grid-template-columns:repeat(2,minmax(0,1fr)); }}
+.x-mk {{ display:inline-block; width:8px; height:8px; border-radius:2px; margin-right:7px; vertical-align:1px; }}
+.st-key-pc_chart {{ background:#fff; border:1px solid {BORDER}; border-radius:12px; padding:18px 22px 8px;
+    box-shadow:{SHADOW}; margin-bottom:14px; gap:0; }}
+.x-chart-hd {{ display:flex; align-items:baseline; justify-content:space-between; gap:12px; }}
+.x-chart-t {{ font-size:14px; font-weight:700; color:{NAVY}; }}
+.x-sub {{ font-size:12px; color:{MUTED}; margin-top:3px; }}
+.x-note {{ font-size:12px; color:{MUTED}; margin:8px 2px 0; }}
+
 /* tabs */
 [data-testid="stTabs"] {{ margin-top:12px; }}
 [data-testid="stTabs"] [data-baseweb="tab-list"] {{ gap:26px; border-bottom:1px solid {BORDER}; }}
@@ -83,19 +118,22 @@ html, body, .stApp, button, input, label, p, li, td, th,
 
 /* quarter strip */
 .x-strip {{ display:flex; align-items:center; gap:14px; font-size:12.5px; color:{MUTED}; min-height:36px; }}
-.st-key-x_ctx {{ margin:2px 0 8px; }}
+.st-key-x_ctx {{ margin:6px 0 14px; }}
+.st-key-x_ctx .x-strip {{ justify-content:flex-end; }}
+.st-key-x_ctx .x-qbar {{ flex:0 0 140px; }}
 .x-ctx {{ margin:8px 0 14px; }}
 .x-strip b {{ color:{NAVY}; font-weight:700; }}
 .x-qbar {{ flex:1; height:3px; background:{TRACK}; border-radius:2px; overflow:hidden; }}
-.x-qbar i {{ display:block; height:100%; background:{NAVY}; border-radius:2px; }}
+.x-qbar i {{ display:block; height:100%; background:{SOFT}; border-radius:2px; }}
 
 /* panels; cell heights share what's left after ~390px of fixed chrome */
 .x-panel {{ background:#fff; border:1px solid {BORDER}; border-radius:12px; box-shadow:{SHADOW};
-           overflow:hidden; margin-bottom:12px; }}
+           overflow:hidden; margin-bottom:14px; }}
 .x-panel-hd {{ display:flex; justify-content:space-between; align-items:baseline; gap:12px;
-              padding:10px 24px 9px; border-bottom:1px solid {DIVIDE}; background:#F6F9FC; }}
-.x-panel-t {{ font-size:10.5px; font-weight:700; color:{NAVY}; text-transform:uppercase; letter-spacing:.1em; }}
-.x-panel-h {{ font-size:11.5px; color:{MUTED}; }}
+              padding:14px 24px 12px; border-bottom:1px solid {DIVIDE}; }}
+.x-panel-t {{ font-size:14px; font-weight:700; color:{NAVY}; white-space:nowrap; }}
+.x-panel-h {{ font-size:12px; color:{MUTED}; text-align:right; }}
+.x-acr {{ text-transform:none; }}   /* keeps acronyms like UPDs readable inside uppercase labels */
 .x-cells {{ display:grid; gap:1px; background:{DIVIDE}; }}
 .x-cell {{ background:#fff; padding:18px 24px 16px; min-width:0; display:flex; flex-direction:column;
           min-height:max(112px, min(280px, calc((100vh - 390px) * .70))); }}
@@ -118,7 +156,7 @@ html, body, .stApp, button, input, label, p, li, td, th,
 .x-st {{ font-size:11.5px; font-weight:700; }}
 
 /* target cell: centred stack of ring, value, target and status */
-.x-cell.target {{ align-items:center; text-align:center; }}
+.x-cell.target {{ align-items:center; text-align:center; min-height:0; padding-bottom:18px; }}
 .x-cell.target .x-lbl {{ align-self:stretch; }}
 .x-ringrow {{ display:flex; flex-direction:column; align-items:center; gap:12px; margin:auto 0; padding-top:10px; }}
 .x-ring {{ position:relative; flex-shrink:0; width:var(--sz); height:var(--sz); }}
@@ -171,6 +209,76 @@ html, body, .stApp, button, input, label, p, li, td, th,
 .x-empty {{ background:#fff; border:1px dashed {BORDER}; border-radius:12px; padding:64px 24px;
            text-align:center; color:{MUTED}; font-size:14px; margin-top:24px; }}
 .x-empty b {{ display:block; color:{NAVY}; font-size:18px; margin-bottom:6px; }}
+/* Discovery tab */
+.st-key-disc_top {{ margin:8px 0 6px; }}
+.st-key-disc_top label p {{ color:{LABEL} !important; font-size:11px !important; font-weight:700 !important;
+    text-transform:uppercase; letter-spacing:.08em; }}
+.st-key-disc_top input {{ background:#fff !important; color:{NAVY} !important; font-size:13px !important; }}
+.st-key-disc_top [data-baseweb="input"] {{ border:1px solid {BORDER} !important; border-radius:8px !important;
+    background:#fff !important; }}
+.x-disc-stats {{ display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; }}
+.x-disc-stat {{ background:#fff; border:1px solid {BORDER}; border-radius:12px; padding:14px 18px;
+    box-shadow:{SHADOW}; display:flex; flex-direction:column; gap:6px; min-width:0; }}
+.x-disc-stat b {{ font-size:26px; font-weight:700; color:{NAVY}; line-height:1.1; font-variant-numeric:tabular-nums; }}
+.x-disc-stat.hot {{ box-shadow:inset 0 3px 0 {AMBER}, {SHADOW}; }}
+.x-disc-stat.hot b {{ color:{AMBER}; }}
+.x-disc-when {{ font-size:13.5px; font-weight:600; color:{NAVY}; line-height:1.35; }}
+.x-disc-notes {{ display:flex; flex-direction:column; gap:4px; font-size:12.5px; color:{MUTED}; margin:2px 2px 6px; }}
+.x-disc-notes b {{ color:{INK}; font-weight:700; margin-right:6px; }}
+.x-disc-none {{ background:#fff; border:1px dashed {BORDER}; border-radius:12px; padding:36px 24px; text-align:center;
+    color:{MUTED}; font-size:13.5px; margin:10px 0; }}
+.x-disc-none b {{ display:block; color:{NAVY}; font-size:16px; margin-bottom:4px; }}
+.x-disc-sec {{ display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; margin:18px 2px 8px;
+    padding-bottom:8px; border-bottom:1px solid {BORDER}; }}
+.x-disc-sec > span:first-child {{ font-size:15px; font-weight:700; color:{NAVY}; }}
+.x-disc-sec-h {{ font-size:12.5px; color:{MUTED}; }}
+[class*="st-key-disc_Q-"] {{ background:#fff; border-color:{BORDER} !important; border-radius:12px !important;
+    box-shadow:{SHADOW}; padding:20px 24px !important; gap:12px !important; margin-bottom:6px; }}
+[class*="st-key-disc_Q-"] label p {{ color:{LABEL} !important; font-size:11px !important; font-weight:700 !important;
+    text-transform:uppercase; letter-spacing:.08em; }}
+[class*="st-key-disc_Q-"] [role="radiogroup"] label p {{ color:{INK} !important; font-size:13px !important;
+    font-weight:500 !important; text-transform:none; letter-spacing:0; }}
+[class*="st-key-disc_Q-"] [role="radiogroup"] {{ gap:6px 20px; }}
+[class*="st-key-disc_Q-"] [data-baseweb="input"] {{ border:1px solid {BORDER} !important; border-radius:8px !important;
+    background:#fff !important; }}
+[class*="st-key-disc_Q-"] input {{ background:#fff !important; color:{INK} !important; font-size:13px !important; }}
+[class*="st-key-disc_Q-"] [data-testid="stExpander"] details {{ border:1px solid {DIVIDE} !important;
+    border-radius:8px !important; }}
+[class*="st-key-disc_Q-"] [data-testid="stExpander"] summary p {{ font-size:12.5px !important; font-weight:600 !important;
+    color:{MUTED} !important; }}
+[class*="st-key-disc_Q-"] [data-testid="stBaseButton-primary"] {{ background:{NAVY} !important; border-color:{NAVY} !important;
+    border-radius:8px !important; min-height:38px; }}
+[class*="st-key-disc_Q-"] [data-testid="stBaseButton-primary"]:disabled {{ background:#C9D4E0 !important;
+    border-color:#C9D4E0 !important; }}
+.x-disc-tags {{ display:flex; flex-wrap:wrap; gap:8px; align-items:center; }}
+.x-disc-fac {{ font-size:11px; font-weight:700; letter-spacing:.04em; color:{NAVY}; background:#E8EFF7;
+    border-radius:999px; padding:3px 10px; }}
+.x-disc-kind {{ font-size:11px; font-weight:600; color:{LABEL}; text-transform:uppercase; letter-spacing:.08em; }}
+.x-disc-title {{ font-size:17px; font-weight:700; color:{NAVY}; line-height:1.3; margin-top:8px; overflow-wrap:anywhere; }}
+.x-disc-plain {{ font-size:13.5px; color:{MUTED}; margin-top:4px; line-height:1.5; }}
+.x-disc-tables {{ display:flex; flex-wrap:wrap; gap:6px; margin:10px 0 8px; }}
+.x-disc-plain:last-child {{ margin-bottom:8px; }}
+.x-disc-tables span, .x-disc-tbl {{ font-size:12px; font-weight:600; color:{INK}; background:#F3F6FA;
+    border:1px solid {DIVIDE}; border-radius:6px; padding:2px 8px; overflow-wrap:anywhere; }}
+.x-disc-out {{ margin:12px 0 8px; border:1px solid {DIVIDE}; border-radius:10px; background:#FAFCFE; padding:12px 16px;
+    display:flex; flex-direction:column; gap:8px; }}
+.x-disc-out-hd {{ font-size:11px; font-weight:700; color:{LABEL}; text-transform:uppercase; letter-spacing:.08em; }}
+.x-disc-out-row {{ display:flex; flex-wrap:wrap; align-items:center; gap:8px 10px; font-size:13px; }}
+.x-disc-out-what {{ color:{MUTED}; }}
+.x-disc-needs {{ font-size:12.5px; color:{AMBER}; }}
+.x-disc-needs b {{ font-weight:700; }}
+.x-disc-chip {{ font-size:11px; font-weight:700; border-radius:999px; padding:2px 9px; white-space:nowrap; }}
+.x-disc-chip.ok {{ color:{TEAL_D}; background:#E3F5F1; }}
+.x-disc-chip.done {{ color:{NAVY}; background:#E8EFF7; }}
+.x-disc-chip.warn {{ color:{AMBER}; background:#FBF0E1; }}
+.x-disc-chip.open {{ color:{MUTED}; background:#EEF2F6; }}
+.x-disc-tech {{ font-size:12.5px; color:{MUTED}; }}
+.x-disc-tech-q {{ color:{INK}; margin:0 0 6px; }}
+.x-disc-tech ul + .x-disc-tech-q {{ margin-top:12px; }}
+.x-disc-tech ul {{ margin:0 0 0 16px; padding:0; display:flex; flex-direction:column; gap:6px; }}
+.x-disc-tech li div {{ margin-top:2px; overflow-wrap:anywhere; }}
+.x-disc-tech code {{ font-size:12px; color:{NAVY}; background:#F3F6FA; padding:1px 5px; border-radius:4px; }}
+@media (max-width:900px) {{ .x-disc-stats {{ grid-template-columns:repeat(2,minmax(0,1fr)); }} }}
 
 /* update dialog */
 .x-sec {{ font-size:11px; font-weight:700; color:{LABEL}; text-transform:uppercase; letter-spacing:.08em;
@@ -198,12 +306,20 @@ html, body, .stApp, button, input, label, p, li, td, th,
 }}
 @media (max-width:1100px) {{
     .x-cells {{ grid-template-columns:repeat(2,minmax(0,1fr)) !important; }}
+    .x-cells > .x-cell.target:first-child:nth-last-child(odd) {{ grid-column:1 / -1; }}
     .x-cell.wide {{ flex-direction:column; align-items:stretch; gap:14px; }}
 }}
 @media (max-width:640px) {{
     [data-testid="stMainBlockContainer"] {{ padding:1.4rem 1rem 2rem; }}
     .x-cells, .x-grid {{ grid-template-columns:1fr !important; }}
     .x-strip .x-qbar {{ display:none; }}
+    .st-key-x_ctx .x-strip {{ justify-content:flex-start; }}
+    .st-key-x_ctx [data-testid="stHorizontalBlock"] {{ row-gap:8px; }}
+    [data-testid="stLayoutWrapper"]:has(> .st-key-x_head) {{ position:static; }}
+    .st-key-x_head [data-testid="stColumn"]:has(.x-brand),
+    .st-key-x_head [data-testid="stColumn"]:has(.st-key-x_update) {{ flex:1 1 100%; }}
+    .x-org {{ font-size:9px; letter-spacing:1.2px; white-space:nowrap; }}
+    .st-key-x_update {{ margin-top:10px; }}
 }}
 """
 
@@ -237,10 +353,12 @@ def ring(pct, colour, size=76, stroke=7):
     r = (size - stroke) / 2
     c = 2 * 3.14159265 * r
     dash = c * min(max(pct, 0), 100) / 100
+    # no arc at 0%: a round line cap would otherwise draw a dot that reads as progress
+    arc = (f'<circle cx="{size/2}" cy="{size/2}" r="{r}" fill="none" stroke="{colour}" stroke-width="{stroke}" '
+           f'stroke-linecap="round" stroke-dasharray="{dash:.1f} {c:.1f}"/>') if dash > 0.5 else ""
     return (f'<div class="x-ring" style="--sz:{size}px"><svg width="100%" height="100%" viewBox="0 0 {size} {size}">'
             f'<circle cx="{size/2}" cy="{size/2}" r="{r}" fill="none" stroke="{TRACK}" stroke-width="{stroke}"/>'
-            f'<circle cx="{size/2}" cy="{size/2}" r="{r}" fill="none" stroke="{colour}" stroke-width="{stroke}" '
-            f'stroke-linecap="round" stroke-dasharray="{dash:.1f} {c:.1f}"/></svg><b>{pct:.0f}%</b></div>')
+            f'{arc}</svg><b>{pct:.0f}%</b></div>')
 
 
 def ring_cell(label, value, ring_html, change="", sub="", status=""):

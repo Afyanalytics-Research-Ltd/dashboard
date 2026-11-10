@@ -1,6 +1,5 @@
-"""Update dialog: weekly figures (new week, new quarter, or correction) and patient counts."""
+"""Update dialog: weekly figures (new week, new quarter, or correction)."""
 
-import pandas as pd
 import streamlit as st
 
 from . import data as D
@@ -133,39 +132,6 @@ def _weekly(rows, patient_records):
             st.rerun()
 
 
-def _patients():
-    rows, _ = D.read_patient_counts()
-    st.caption("Edit counts in place, add a source in the empty last row, or select rows to delete them.")
-    edited = st.data_editor(
-        pd.DataFrame(rows, columns=["SOURCE", "PATIENTS", "UNIQUE_PATIENTS"]),
-        num_rows="dynamic", hide_index=True, width="stretch", key="up_patients",
-        column_config={
-            "SOURCE": st.column_config.TextColumn("Source", required=True, width="large"),
-            "PATIENTS": st.column_config.NumberColumn("Patients", min_value=0, step=1, format="localized"),
-            "UNIQUE_PATIENTS": st.column_config.NumberColumn("Unique patients", min_value=0, step=1,
-                                                             format="localized"),
-        })
-
-    after = {}
-    for rec in edited.to_dict("records"):
-        src = str(rec.get("SOURCE") or "").strip()
-        if src and src.lower() != "nan":
-            after[src] = {"SOURCE": src, "PATIENTS": D._num(rec.get("PATIENTS")),
-                          "UNIQUE_PATIENTS": D._num(rec.get("UNIQUE_PATIENTS"))}
-    before = {r["SOURCE"]: r for r in rows}
-    upserts = [r for k, r in after.items() if before.get(k) != r]
-    deletes = [k for k in before if k not in after]
-
-    bad = [r["SOURCE"] for r in after.values() if r["UNIQUE_PATIENTS"] > r["PATIENTS"]]
-    if bad:
-        st.error("Unique patients can't exceed patients: " + ", ".join(bad))
-    changes = len(upserts) + len(deletes)
-    if st.button(f"Save {changes} change{'s' if changes != 1 else ''}" if changes else "No changes",
-                 type="primary", disabled=bool(bad) or not changes, width="stretch", key="up_pc_save"):
-        if _saved(D.save_patient_counts, upserts, deletes):
-            st.rerun()
-
-
 def _saved(fn, *args):
     try:
         fn(*args)
@@ -177,8 +143,4 @@ def _saved(fn, *args):
 
 @st.dialog("Update", width="large")
 def open_dialog(rows, patient_records=None):
-    t1, t2 = st.tabs(["Weekly figures", "Patient counts"])
-    with t1:
-        _weekly(rows, patient_records)
-    with t2:
-        _patients()
+    _weekly(rows, patient_records)

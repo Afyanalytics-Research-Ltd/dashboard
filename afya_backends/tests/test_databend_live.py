@@ -166,6 +166,11 @@ def test_information_schema_and_show(conn):
     cols = q(conn, f"""SELECT COLUMN_NAME, DATA_TYPE FROM HOSPITALS.INFORMATION_SCHEMA.COLUMNS
                        WHERE TABLE_SCHEMA = '{s}' AND TABLE_NAME = 'X' ORDER BY ORDINAL_POSITION""").fetchall()
     assert cols == [("ID", "NUMBER"), ("AMOUNT", "NUMBER"), ("S", "TEXT"), ("TS", "TIMESTAMP_NTZ"), ("V", "VARIANT")]
+    # Snowflake fills precision/scale for every NUMBER (v3_to_snowflake_sync builds NUMBER(p,s) from them)
+    ps = q(conn, f"""SELECT COLUMN_NAME, NUMERIC_PRECISION, NUMERIC_SCALE FROM HOSPITALS.INFORMATION_SCHEMA.COLUMNS
+                     WHERE TABLE_SCHEMA = '{s}' AND TABLE_NAME = 'X' AND DATA_TYPE = 'NUMBER'
+                     ORDER BY ORDINAL_POSITION""").fetchall()
+    assert ps == [("ID", 38, 0), ("AMOUNT", 10, 2)]
     tables = q(conn, f"SELECT table_name, table_type FROM information_schema.tables WHERE table_schema = '{s}'").fetchall()
     assert tables == [("X", "BASE TABLE")]
     dcur = conn.cursor(type("DictCursor", (), {}))

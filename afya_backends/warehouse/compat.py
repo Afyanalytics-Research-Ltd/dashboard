@@ -55,8 +55,14 @@ SELECT {cat} AS "TABLE_CATALOG", c.database AS "TABLE_SCHEMA", c."table" AS "TAB
        NULLIF(c.default_expression, '') AS "COLUMN_DEFAULT", c.is_nullable AS "IS_NULLABLE",
        {_SF_TYPE} AS "DATA_TYPE",
        CASE WHEN {_SF_TYPE} = 'TEXT' THEN 16777216 END AS "CHARACTER_MAXIMUM_LENGTH",
-       CASE WHEN {_SF_TYPE} = 'NUMBER' THEN 38 END AS "NUMERIC_PRECISION",
-       CASE WHEN {_SF_TYPE} = 'NUMBER' AND UPPER(c.data_type) NOT LIKE 'DECIMAL%' THEN 0 END AS "NUMERIC_SCALE",
+       -- Snowflake always fills both for NUMBER (callers build NUMBER(p,s)
+       -- from them): DECIMAL(p, s) -> p, s; integer types -> 38, 0.
+       CASE WHEN UPPER(c.data_type) LIKE 'DECIMAL%'
+                 THEN TRY_CAST(REGEXP_SUBSTR(c.data_type, '[0-9]+', 1, 1) AS INT)
+            WHEN {_SF_TYPE} = 'NUMBER' THEN 38 END AS "NUMERIC_PRECISION",
+       CASE WHEN UPPER(c.data_type) LIKE 'DECIMAL%'
+                 THEN COALESCE(TRY_CAST(REGEXP_SUBSTR(c.data_type, '[0-9]+', 1, 2) AS INT), 0)
+            WHEN {_SF_TYPE} = 'NUMBER' THEN 0 END AS "NUMERIC_SCALE",
        NULLIF(c.comment, '') AS "COMMENT", c.type AS "DATABEND_TYPE"
 FROM system.columns c
 WHERE c.database NOT IN {_EXCLUDED}''',

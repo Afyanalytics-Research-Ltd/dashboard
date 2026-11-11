@@ -16,7 +16,7 @@ import os
 from ai_foundation.contracts import OperationalBriefing, PrioritisedProblem
 from ai_foundation.registry import CARD_REGISTRY
 
-_GROQ_MODEL = "llama-3.3-70b-versatile"
+_GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")  # llama-3.3-70b-versatile was retired by Groq
 _CLAUDE_MODEL = "claude-sonnet-4-6"
 
 _SYSTEM_PROMPT = """\

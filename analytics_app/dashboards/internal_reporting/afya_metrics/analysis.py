@@ -12,7 +12,7 @@ RUN_RATE_WINDOW = 4
 
 # (key, label, value column, target column, format)
 TARGETS = [
-    ("upds",       "Unique patient datasets", "UPDS_PROCESSED",        "UPDS_TARGET",        "num"),
+    ("upds",       "UPDs",                    "UPDS_PROCESSED",        "UPDS_TARGET",        "num"),
     ("revenue",    "Revenue booked",          "REVENUE_BOOKED",        "REVENUE_TARGET",     "usd"),
     ("mou",        "County MoUs",             "MOU_SIGNED",            "MOU_TOTAL_COUNTIES", "num"),
     ("facilities", "Facilities on HMIS",      "FACILITIES_PRIVATE",    "FACILITIES_TARGET",  "num"),

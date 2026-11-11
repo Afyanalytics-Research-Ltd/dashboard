@@ -1,6 +1,8 @@
 """
 LLM provider abstraction.
-Priority order: Groq (free tier) → Grok (xAI) → Claude (Anthropic) → None (rule-based fallback)
+Priority order: Groq (free tier) → Grok (xAI) → Claude (Anthropic) → None (rule-based fallback),
+unless the platform LLM switch (System Settings → LLM provider) is on Ollama:
+then the local model answers (afya_backends.llm).
 """
 from __future__ import annotations
 import os
@@ -28,7 +30,13 @@ def _secret(key: str) -> Optional[str]:
 
 
 def get_provider() -> str:
-    """Returns 'groq', 'grok', 'claude', or 'none'."""
+    """Returns 'ollama', 'groq', 'grok', 'claude', or 'none'."""
+    try:
+        from afya_backends import llm as afya_llm
+        if afya_llm.is_ollama():
+            return "ollama"
+    except ImportError:  # standalone Streamlit copy without the platform library
+        pass
     if _secret("GROQ_API_KEY"):
         return "groq"
     if _secret("XAI_API_KEY"):
@@ -54,6 +62,8 @@ def complete(
     _last_error = None
     provider = get_provider()
     try:
+        if provider == "ollama":
+            return _ollama(user_prompt, system_prompt, max_tokens)
         if provider == "groq":
             return _groq(user_prompt, system_prompt, max_tokens)
         if provider == "grok":
@@ -68,6 +78,13 @@ def complete(
 def last_error() -> Optional[str]:
     """Return the last API error, or None if the last call succeeded."""
     return _last_error
+
+
+def _ollama(user_prompt: str, system_prompt: str, max_tokens: int) -> str:
+    from afya_backends import llm as afya_llm
+    msgs = [{"role": "user", "content": user_prompt}]
+    return afya_llm.chat(msgs, system=system_prompt or None, max_tokens=max_tokens,
+                         temperature=0.3, purpose="insights").strip()
 
 
 def _groq(user_prompt: str, system_prompt: str, max_tokens: int) -> str:

@@ -66,6 +66,7 @@ from typing import Any
 import requests
 import requests.adapters
 import snowflake.connector
+from afya_backends import warehouse as afya_warehouse
 from dotenv import load_dotenv
 from requests.exceptions import ConnectionError, HTTPError, Timeout
 
@@ -473,7 +474,7 @@ class SnowflakeClient:
         else:
             raise RuntimeError("Set SNOWFLAKE_PRIVATE_KEY_PATH or SNOWFLAKE_PASSWORD")
 
-        self._conn = snowflake.connector.connect(**kwargs)
+        self._conn = afya_warehouse.connect(**kwargs)
 
     def close(self):
         if self._conn:

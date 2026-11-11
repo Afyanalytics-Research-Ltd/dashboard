@@ -108,7 +108,19 @@ if not log.handlers:
 
 # ─── CONFIG ──────────────────────────────────────────────────────────────
 
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama").strip().lower()
+def _platform_provider() -> str:
+    """The platform LLM switch (System Settings → LLM provider, mirrored to
+    the Airflow Variable afya_llm_provider) decides: hosted API → Anthropic,
+    Ollama → the local model.  Without the platform library (standalone
+    copy), the old LLM_PROVIDER env var still works."""
+    try:
+        from afya_backends import llm as afya_llm
+        return "ollama" if afya_llm.is_ollama() else "anthropic"
+    except ImportError:
+        return os.getenv("LLM_PROVIDER", "ollama").strip().lower()
+
+
+LLM_PROVIDER = _platform_provider()
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1")
 ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-5")
 

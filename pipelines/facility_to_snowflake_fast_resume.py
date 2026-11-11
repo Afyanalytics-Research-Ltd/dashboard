@@ -76,6 +76,7 @@ import pandas as pd
 import requests
 import requests.adapters
 import snowflake.connector
+from afya_backends import warehouse as afya_warehouse
 from dotenv import load_dotenv
 from requests.exceptions import ConnectionError, HTTPError, Timeout
 from pipeline_checkpointing import atomic_write_json, update_json_file
@@ -128,8 +129,14 @@ SF_SHARED_SCHEMA = "SHARED"
 SF_STAGE         = f"{SF_DB}.{SF_SHARED_SCHEMA}.FACILITY_RAW_STAGE"
 SF_FILE_FORMAT   = f"{SF_DB}.{SF_SHARED_SCHEMA}.JSON_FF"
 
-WATERMARK_FILE = Path(__file__).resolve().parent / ".watermarks.json"
-PROGRESS_FILE  = Path(__file__).resolve().parent / ".progress.json"
+# Per-warehouse: on Databend these become .watermarks.databend.json /
+# .progress.databend.json (afya_backends.toggles.state_path), so a Databend
+# load backfills from the API while Snowflake's progress stays untouched.
+# Resolved at import, which happens inside the task after the run's
+# warehouse choice is applied.
+from afya_backends import toggles as _afya_toggles
+WATERMARK_FILE = _afya_toggles.state_path(Path(__file__).resolve().parent / ".watermarks.json")
+PROGRESS_FILE  = _afya_toggles.state_path(Path(__file__).resolve().parent / ".progress.json")
 
 DEFAULT_PIPELINE_WORKERS = int(os.getenv("PIPELINE_WORKERS", "8"))
 DEFAULT_PAGE_WORKERS     = int(os.getenv("PAGE_WORKERS", "4"))
@@ -239,7 +246,7 @@ class SnowflakeClient:
         with open(os.getenv("SNOWFLAKE_PRIVATE_KEY_PATH").strip(), "rb") as key:
             key.read()  # presence check; the connector reads the path itself
 
-        self._conn = snowflake.connector.connect(
+        self._conn = afya_warehouse.connect(
             user=os.getenv("SNOWFLAKE_USER").strip(),
             account=os.getenv("SNOWFLAKE_ACCOUNT").strip(),
             warehouse=os.getenv("SNOWFLAKE_WAREHOUSE").strip(),
@@ -891,7 +898,7 @@ def _s3_client():
 # extraction window never reuses another's pages), and is removed once the
 # table is fully loaded.
 
-PAGE_STATE_DIR = Path(__file__).resolve().parent / ".page_progress"
+PAGE_STATE_DIR = _afya_toggles.state_path(Path(__file__).resolve().parent / ".page_progress")
 CHUNK_PAGES    = int(os.getenv("CHUNK_PAGES", "50"))
 MAX_PAGES      = 10000
 

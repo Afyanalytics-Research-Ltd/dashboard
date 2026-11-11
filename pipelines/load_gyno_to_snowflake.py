@@ -26,7 +26,7 @@ import sys
 
 import pandas as pd
 import pymysql
-from snowflake.connector.pandas_tools import write_pandas
+from afya_backends.warehouse import write_pandas
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s · %(levelname)-7s · %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger("gyno_load")

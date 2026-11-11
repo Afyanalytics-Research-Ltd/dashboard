@@ -1,4 +1,4 @@
-"""Snowflake storage: HOSPITALS.ANALYTICS.AFYA_WEEKLY_METRICS and AFYA_PATIENT_COUNTS."""
+"""Snowflake storage: HOSPITALS.ANALYTICS.AFYA_WEEKLY_METRICS, AFYA_PATIENT_COUNTS and AFYA_PATIENT_RECORD_RECEIPTS."""
 
 import os
 import sys
@@ -9,7 +9,9 @@ import streamlit as st
 SF_DATABASE = os.environ.get("AFYA_METRICS_SF_DATABASE", "HOSPITALS").strip()
 SF_SCHEMA = os.environ.get("AFYA_METRICS_SF_SCHEMA", "ANALYTICS").strip()
 SF_FQN = f"{SF_DATABASE}.{SF_SCHEMA}.AFYA_WEEKLY_METRICS"
+# Published by the AFYA_REFRESH_PATIENT_COUNTS procedure (snowflake_patient_counts.sql); read-only here.
 PC_FQN = f"{SF_DATABASE}.{SF_SCHEMA}.AFYA_PATIENT_COUNTS"
+RC_FQN = f"{SF_DATABASE}.{SF_SCHEMA}.AFYA_PATIENT_RECORD_RECEIPTS"
 SF_TTL = int(os.environ.get("AFYA_METRICS_TTL", "600"))
 
 DASH_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -125,17 +127,18 @@ def upsert(row):
 
 @st.cache_data(ttl=SF_TTL, show_spinner=False)
 def read_patient_counts():
-    """Sources, largest first, and the last-updated date."""
-    recs = _fetch(f"SELECT * FROM {PC_FQN} ORDER BY PATIENTS DESC")
-    rows = [{"SOURCE": str(r["SOURCE"]).strip(), "PATIENTS": _num(r["PATIENTS"]),
-             "UNIQUE_PATIENTS": _num(r["UNIQUE_PATIENTS"])} for r in recs]
-    return rows, _updated(recs)
+    """Sources, largest first, and the date of the latest count."""
+    recs = _fetch(f"SELECT SOURCE, PATIENT_RECORDS, UPDS, COUNTED_AT FROM {PC_FQN} ORDER BY PATIENT_RECORDS DESC")
+    rows = [{"SOURCE": str(r["SOURCE"]).strip(), "PATIENT_RECORDS": _num(r["PATIENT_RECORDS"]),
+             "UPDS": _num(r["UPDS"]), "COUNTED_AT": _date(r["COUNTED_AT"])} for r in recs]
+    stamps = [r["COUNTED_AT"] for r in rows if r["COUNTED_AT"]]
+    return rows, max(stamps) if stamps else None
 
 
-def save_patient_counts(upserts, deletes=()):
-    stmts = [(f"DELETE FROM {PC_FQN} WHERE SOURCE = %s", (src,))
-             for src in list(deletes) + [r["SOURCE"] for r in upserts]]
-    stmts += [(f"INSERT INTO {PC_FQN} (SOURCE, PATIENTS, UNIQUE_PATIENTS) VALUES (%s, %s, %s)",
-               (r["SOURCE"], r["PATIENTS"], r["UNIQUE_PATIENTS"])) for r in upserts]
-    _write(stmts)
-    read_patient_counts.clear()
+@st.cache_data(ttl=SF_TTL, show_spinner=False)
+def read_receipts():
+    """What arrived per source and received date (None = undated)."""
+    recs = _fetch(f"SELECT SOURCE, RECEIVED_DATE, SUM(RECORDS_ADDED) AS RECORDS, SUM(UPDS_ADDED) AS UPDS "
+                  f"FROM {RC_FQN} GROUP BY 1, 2 ORDER BY 2 NULLS FIRST")
+    return [{"SOURCE": str(r["SOURCE"]).strip(), "DATE": _date(r["RECEIVED_DATE"]), "RECORDS": _num(r["RECORDS"]),
+             "UPDS": _num(r["UPDS"])} for r in recs]

@@ -190,14 +190,21 @@ def main():
 
     skip = SKIP_CUBES | set(args.skip)
 
-    if not args.openai_key:
-        sys.exit("ERROR: --openai-key or OPENAI_API_KEY is required")
+    try:
+        from afya_backends import llm as afya_llm
+    except ImportError:
+        afya_llm = None
+    if not args.openai_key and not (afya_llm and afya_llm.is_ollama()):
+        sys.exit("ERROR: --openai-key or OPENAI_API_KEY is required (or set AFYA_LLM_PROVIDER=ollama)")
 
     print(f"Fetching Cube meta from {args.cube_url} ...")
     cubes = fetch_meta(args.cube_url, args.cube_token)
     print(f"Found {len(cubes)} cubes.")
 
-    client = OpenAI(api_key=args.openai_key)
+    # OpenAI, or the local Ollama model when the platform LLM switch says so.
+    client = afya_llm.openai_client(api_key=args.openai_key) if afya_llm else OpenAI(api_key=args.openai_key)
+    if afya_llm:
+        args.model = afya_llm.model(args.model)
     metrics = []
     seen_ids: set[str] = set()
 

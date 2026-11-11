@@ -15,7 +15,7 @@ from airflow.utils.trigger_rule import TriggerRule
 from airflow.operators.python import PythonOperator
 from airflow.providers.amazon.aws.hooks.s3 import S3Hook
 from airflow.hooks.base import BaseHook
-from airflow.providers.snowflake.hooks.snowflake import SnowflakeHook
+from afya_backends.warehouse.airflow_hook import WarehouseHook as SnowflakeHook
 from typing import List, Dict, Any
 import hashlib
 import uuid

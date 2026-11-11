@@ -59,6 +59,7 @@ from pathlib import Path
 
 import requests
 import snowflake.connector
+from afya_backends import warehouse as afya_warehouse
 from dotenv import load_dotenv
 from requests.exceptions import ChunkedEncodingError, ConnectionError, Timeout
 
@@ -130,7 +131,7 @@ MODELS: list[dict] = [
 # ── Snowflake client (key-pair auth required for COPY INTO) ─────────────
 class SnowflakeClient:
     def __init__(self, schema_: str | None = None):
-        self._conn = snowflake.connector.connect(
+        self._conn = afya_warehouse.connect(
             user=os.getenv("SNOWFLAKE_USER").strip(),
             account=os.getenv("SNOWFLAKE_ACCOUNT").strip(),
             warehouse=os.getenv("SNOWFLAKE_WAREHOUSE").strip(),
@@ -178,8 +179,16 @@ def _table_fqn(table: str) -> str:
     return f"{SF_DB}.{SF_RAW_SCHEMA}.{table.upper()}"
 
 
-def _wm_key(table: str) -> str:
+def _wm_key_base(table: str) -> str:
     return f"orthopedic_v2__{DAG_ID}__{table}"
+
+
+def _wm_key(table: str) -> str:
+    # Per-warehouse watermark: on Databend the key gets a __databend
+    # suffix, so a Databend run backfills from the API while the
+    # Snowflake watermark stays where Snowflake left it.
+    from afya_backends import toggles
+    return toggles.state_key(_wm_key_base(table))
 
 
 # ── Gateway auth ─────────────────────────────────────────────────────────

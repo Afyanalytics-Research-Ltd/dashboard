@@ -114,7 +114,33 @@ x-airflow-common:
     # Where the DAGs import the pipeline scripts from (dags/pipelines_common.py)
     # and where those scripts keep their migration state.
     PIPELINES_DIR: /opt/airflow/pipelines
+    # afya_backends (Snowflake<->Databend + API-keys<->Ollama switches) is
+    # mounted at /opt/airflow/afya_backends, where the relative symlinks
+    # dags/afya_backends and pipelines/afya_backends (-> ../afya_backends)
+    # resolve; every connect() decides the warehouse at run time from the
+    # DAG run's warehouse_backend param, else the Airflow Variable
+    # afya_warehouse_backend (written by the dashboard's System Settings
+    # switch), else WAREHOUSE_BACKEND below.
+    WAREHOUSE_BACKEND: ${WAREHOUSE_BACKEND:-snowflake}
+    LLM_PROVIDER_DEFAULT: ${LLM_PROVIDER_DEFAULT:-api}
+    # The worker joins dashboard-net (below), where the Databend container
+    # answers as "databend".  Credentials come from the repo-root .env that
+    # docker compose interpolates.
+    DATABEND_HTTP_URL: ${AIRFLOW_DATABEND_HTTP_URL:-http://databend:8000}
+    DATABEND_USER: ${DATABEND_USER:-databend}
+    DATABEND_PASSWORD: ${DATABEND_PASSWORD:-}
+    # Ollama runs on the Docker host; host.docker.internal is mapped to the
+    # host gateway in extra_hosts below.  The ollama systemd service listens
+    # on 127.0.0.1 only by default, so either make it listen on all
+    # interfaces (sudo systemctl edit ollama ->
+    # Environment="OLLAMA_HOST=0.0.0.0:11434") or run
+    # docker-compose.ollama-relay.yaml and set
+    # AIRFLOW_OLLAMA_HOST=http://host.docker.internal:11435.
+    OLLAMA_HOST: ${AIRFLOW_OLLAMA_HOST:-http://host.docker.internal:11434}
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
   volumes:
+    - ${AIRFLOW_PROJ_DIR:-.}/afya_backends:/opt/airflow/afya_backends:ro
     - ${AIRFLOW_PROJ_DIR:-.}/pipelines:/opt/airflow/pipelines
     - ${AIRFLOW_PROJ_DIR:-.}/dags:/opt/airflow/dags
     - ${AIRFLOW_PROJ_DIR:-.}/logs:/opt/airflow/logs
@@ -237,6 +263,12 @@ services:
       # Required to handle warm shutdown of the celery workers properly
       # See https://airflow.apache.org/docs/docker-stack/entrypoint.html#signal-propagation
       DUMB_INIT_SETSID: "0"
+    # dashboard-net so tasks reach the Databend warehouse container
+    # ("databend"). Safe for the same reason as the api-server: this stack
+    # addresses its own postgres/redis as airflow-postgres/airflow-redis.
+    networks:
+      - default
+      - dashboard-net
     restart: always
     depends_on:
       <<: *airflow-common-depends-on

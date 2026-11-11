@@ -89,6 +89,7 @@ _VARIABLE_KEYS = (
     "IGNITE_SHEET_ID", "IGNITE_SHEET_WORKSHEET", "GOOGLE_SA_JSON", "GOOGLE_SA_JSON_PATH",
     "SNOWFLAKE_USER", "SNOWFLAKE_ACCOUNT", "SNOWFLAKE_WAREHOUSE", "SNOWFLAKE_DATABASE",
     "SNOWFLAKE_SCHEMA", "SNOWFLAKE_PRIVATE_KEY_PATH",
+    "DATABEND_HTTP_URL", "DATABEND_USER", "DATABEND_PASSWORD",
     "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_REGION",
     "AFYA_USERNAME", "AFYA_PASSWORD", "CORE_APP_ID", "CORE_APP_SECRET",
     "MODEL_GATEWAY_MIGRATION_KEY",
@@ -251,10 +252,20 @@ def _key_fingerprint(path: str) -> str:
 
 
 def log_snowflake_identity() -> None:
-    """Log which user/account/key a task will connect with, so a 'JWT token
-    is invalid' can be checked against `DESC USER` (RSA_PUBLIC_KEY_FP)."""
+    """Log which warehouse (and, for Snowflake, which user/account/key) a
+    task will connect with, so a 'JWT token is invalid' can be checked
+    against `DESC USER` (RSA_PUBLIC_KEY_FP)."""
     import logging
     logger = logging.getLogger(__name__)
+    try:
+        from afya_backends import toggles
+        backend = toggles.warehouse_backend()
+    except ImportError:
+        backend = "snowflake"
+    if backend == "databend":
+        logger.info("Warehouse: Databend at %s (Snowflake SQL is translated); local progress files "
+                    "use their .databend variants", os.getenv("DATABEND_HTTP_URL", "http://databend:8000"))
+        return
     path = (os.getenv("SNOWFLAKE_PRIVATE_KEY_PATH") or "").strip()
     try:
         fp = _key_fingerprint(path) if path else "-"

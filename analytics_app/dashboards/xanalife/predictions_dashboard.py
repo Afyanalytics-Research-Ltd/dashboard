@@ -22,6 +22,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import snowflake.connector
+from afya_backends import warehouse as afya_warehouse
 import streamlit as st
 from plotly.subplots import make_subplots
 from sklearn.cluster import KMeans
@@ -58,7 +59,7 @@ class SnowflakeClient:
     def __init__(self):
         with open(os.getenv("SNOWFLAKE_PRIVATE_KEY_PATH").strip(), "rb") as key:
             key.read()
-        self.conn = snowflake.connector.connect(
+        self.conn = afya_warehouse.connect(
             user=os.getenv("SNOWFLAKE_USER").strip(),
             account=os.getenv("SNOWFLAKE_ACCOUNT").strip(),
             warehouse=os.getenv("SNOWFLAKE_WAREHOUSE").strip(),

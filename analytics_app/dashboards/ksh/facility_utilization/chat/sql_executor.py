@@ -132,6 +132,10 @@ def _build_sql_prompt(question: str, schema_summary: str) -> str:
 # ─── LLM call ─────────────────────────────────────────────────────────────────
 
 def _call_llm(system_prompt: str) -> str:
+    from afya_backends import llm as afya_llm
+    if afya_llm.is_ollama():  # System Settings → LLM provider = Ollama
+        return afya_llm.chat([{"role": "user", "content": system_prompt}], max_tokens=512,
+                             temperature=0.0, purpose="sql")
     groq_key = os.getenv("GROQ_API", "")
     if not groq_key:
         raise RuntimeError("GROQ_API key not configured")

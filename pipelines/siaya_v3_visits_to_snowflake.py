@@ -68,6 +68,7 @@ from typing import Any
 import requests
 import requests.adapters
 import snowflake.connector
+from afya_backends import warehouse as afya_warehouse
 from dotenv import load_dotenv
 from requests.exceptions import ConnectionError, HTTPError, Timeout
 
@@ -443,7 +444,7 @@ def _snowflake_connect():
         kwargs["password"] = pwd
     else:
         raise RuntimeError("Set SNOWFLAKE_PRIVATE_KEY_PATH or SNOWFLAKE_PASSWORD in .env")
-    return snowflake.connector.connect(**kwargs)
+    return afya_warehouse.connect(**kwargs)
 
 
 def upsert_rows(rows: list[dict]) -> None:

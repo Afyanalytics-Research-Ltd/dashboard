@@ -17,7 +17,7 @@ import logging
 from django.utils import timezone
 
 from . import retrieval
-from .nodes import _openai, _recent_history, _context_hint
+from .nodes import _openai, _recent_history, _context_hint, _model
 from .state import AgentState
 
 logger = logging.getLogger(__name__)
@@ -147,7 +147,7 @@ def plan_intent(state: AgentState) -> dict:
     )
 
     response = _openai().chat.completions.create(
-        model="gpt-4o-mini",
+        model=_model("gpt-4o-mini"),
         messages=[
             {"role": "system", "content": prompt},
             *_recent_history(state),

@@ -43,8 +43,9 @@ from pathlib import Path
 import pandas as pd
 import pymssql
 import snowflake.connector
+from afya_backends import warehouse as afya_warehouse
 from dotenv import load_dotenv
-from snowflake.connector.pandas_tools import write_pandas
+from afya_backends.warehouse import write_pandas
 
 load_dotenv()
 
@@ -76,7 +77,7 @@ def _mssql_connect() -> pymssql.Connection:
 
 
 def _snowflake_connect() -> snowflake.connector.SnowflakeConnection:
-    return snowflake.connector.connect(
+    return afya_warehouse.connect(
         user=os.getenv("SNOWFLAKE_USER").strip(),
         account=os.getenv("SNOWFLAKE_ACCOUNT").strip(),
         warehouse=os.getenv("SNOWFLAKE_WAREHOUSE").strip(),

@@ -104,6 +104,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import snowflake.connector
+from afya_backends import warehouse as afya_warehouse
 from dotenv import load_dotenv
 
 # Run as a script this module is __main__; v3_passthrough's
@@ -185,7 +186,7 @@ def use_state_dir(facility: str) -> Path:
 # ─── SNOWFLAKE ───────────────────────────────────────────────────────────────
 
 def _snowflake_connect():
-    return snowflake.connector.connect(
+    return afya_warehouse.connect(
         user=os.getenv("SNOWFLAKE_USER").strip(),
         account=os.getenv("SNOWFLAKE_ACCOUNT").strip(),
         warehouse=os.getenv("SNOWFLAKE_WAREHOUSE").strip(),
@@ -1760,6 +1761,7 @@ def run_one_table(facility: str, table: str, *, dry_run: bool) -> dict:
     — "error" is a crash (worth a retry), "failed" means records were
     dead-lettered (a retry would only repeat them)."""
     org_cfg, available_models = _start(facility)
+    org_cfg["default_store"] = os.getenv("AFYA_DEFAULT_STORE", "")
     runnable, unmapped, no_insert = _select_entries(facility, [table], None, available_models)
     if not runnable:
         why = ((unmapped[0].get("skipped") or "no NAMESPACE_MAP entry") if unmapped else

@@ -144,7 +144,7 @@ def generate_missing_metrics(user) -> dict:
              "failed": [cube_name, ...]}.
     """
     from catalog.generate_metrics import SKIP_CUBES, build_cube_query, generate_metric
-    from .nodes import _openai
+    from .nodes import _model, _openai
 
     meta = cube_client.fetch_meta()
     cubes = meta.get("cubes", [])
@@ -162,7 +162,7 @@ def generate_missing_metrics(user) -> dict:
             skipped.append(name)
             continue
 
-        llm = generate_metric(client, cube, "gpt-4o-mini")
+        llm = generate_metric(client, cube, _model("gpt-4o-mini"))
         if llm is None:
             failed.append(name)
             continue
@@ -205,8 +205,7 @@ def rebuild_embeddings() -> dict:
     entries, matching the existing button-triggered sync pattern used
     elsewhere in this app (no task queue available).
     """
-    from openai import OpenAI
-
+    from afya_backends import llm as afya_llm
     from catalog.build_embeddings import DEFAULT_GLOSSARY, DEFAULT_OUTPUT, collect_entries, embed_all
 
     meta = cube_client.fetch_meta()
@@ -218,16 +217,19 @@ def rebuild_embeddings() -> dict:
 
     entries = collect_entries(cubes, metrics, glossary_terms)
 
+    # The active LLM provider's embedding model; each provider keeps its own
+    # index file (vector sizes differ), see afya_backends.llm.
     api_key = getattr(settings, "OPENAI_API_KEY", None) or os.getenv("OPENAI_API_KEY")
-    client = OpenAI(api_key=api_key)
-    vectors = embed_all(client, entries)
+    client = afya_llm.openai_client(api_key=api_key)
+    vectors = embed_all(client, entries, model=afya_llm.embedding_model())
+    output = afya_llm.embeddings_index_path(DEFAULT_OUTPUT)
 
     ids = np.array([e["id"] for e in entries], dtype=object)
     sources = np.array([e["source"] for e in entries], dtype=object)
     metadata_json = json.dumps([e["metadata"] for e in entries])
 
     np.savez_compressed(
-        DEFAULT_OUTPUT,
+        output,
         vectors=vectors,
         ids=ids,
         sources=sources,
@@ -236,7 +238,7 @@ def rebuild_embeddings() -> dict:
 
     counts = {src: sum(1 for e in entries if e["source"] == src)
               for src in ("metric", "measure", "dimension", "glossary")}
-    logger.info("rebuild_embeddings: %s -> %s", counts, DEFAULT_OUTPUT)
+    logger.info("rebuild_embeddings: %s -> %s", counts, output)
     return counts
 
 

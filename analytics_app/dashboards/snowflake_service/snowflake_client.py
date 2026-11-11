@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 
 import snowflake.connector
+from afya_backends import warehouse as afya_warehouse
 from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).parent.parent.parent.parent / ".env")
@@ -32,7 +33,7 @@ class SnowflakeClient:
         self.conn = self._connect()
 
     def _connect(self):
-        return snowflake.connector.connect(
+        return afya_warehouse.connect(
             user=os.getenv("SNOWFLAKE_USER").strip(),
             account=os.getenv("SNOWFLAKE_ACCOUNT").strip(),
             warehouse=os.getenv("SNOWFLAKE_WAREHOUSE").strip(),

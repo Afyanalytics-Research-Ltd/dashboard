@@ -60,6 +60,7 @@ import boto3
 import requests
 import requests.adapters
 import snowflake.connector
+from afya_backends import warehouse as afya_warehouse
 from dotenv import load_dotenv
 from requests.exceptions import ConnectionError, HTTPError, Timeout
 
@@ -190,7 +191,7 @@ class SnowflakeClient:
             kwargs["password"] = pw
         else:
             raise RuntimeError("Set SNOWFLAKE_PRIVATE_KEY_PATH or SNOWFLAKE_PASSWORD in .env")
-        self._conn = snowflake.connector.connect(**kwargs)
+        self._conn = afya_warehouse.connect(**kwargs)
         self._lock = threading.Lock()
 
     def close(self) -> None:

@@ -10,6 +10,7 @@ import gspread
 
 # snowflake deps
 import snowflake.connector
+from afya_backends import warehouse as afya_warehouse
 from cryptography.hazmat.primitives import serialization
 
 
@@ -33,7 +34,7 @@ class SnowflakeClient:
             encryption_algorithm=serialization.NoEncryption()
         )
 
-        self.conn = snowflake.connector.connect(
+        self.conn = afya_warehouse.connect(
             user=os.getenv("SNOWFLAKE_USER").strip(),
             account=os.getenv("SNOWFLAKE_ACCOUNT").strip(),
             warehouse=os.getenv("SNOWFLAKE_WAREHOUSE").strip(),

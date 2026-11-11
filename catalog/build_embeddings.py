@@ -167,12 +167,20 @@ def collect_entries(cubes: list[dict], metrics: list[dict], glossary_terms: list
 
 # ── embed + write ──────────────────────────────────────────────────────────────
 
-def embed_all(client: OpenAI, entries: list[dict]) -> np.ndarray:
+def embed_all(client: OpenAI, entries: list[dict], model: str | None = None) -> np.ndarray:
+    """``model`` defaults to the active LLM provider's embedding model
+    (afya_backends.llm: OpenAI text-embedding-3-small, or OLLAMA_EMBED_MODEL)."""
+    if model is None:
+        try:
+            from afya_backends import llm
+            model = llm.embedding_model()
+        except ImportError:
+            model = EMBEDDING_MODEL
     vectors: list[list[float]] = []
     for i in range(0, len(entries), BATCH_SIZE):
         batch = entries[i:i + BATCH_SIZE]
         print(f"  embedding {i + 1}-{i + len(batch)} of {len(entries)} ...", flush=True)
-        resp = client.embeddings.create(model=EMBEDDING_MODEL, input=[e["text"] for e in batch])
+        resp = client.embeddings.create(model=model, input=[e["text"] for e in batch])
         vectors.extend(d.embedding for d in resp.data)
         time.sleep(0.1)  # stay comfortably inside rate limits
     arr = np.array(vectors, dtype=np.float32)
@@ -191,8 +199,15 @@ def main():
     parser.add_argument("--output",     default=DEFAULT_OUTPUT)
     args = parser.parse_args()
 
-    if not args.openai_key:
-        sys.exit("ERROR: --openai-key or OPENAI_API_KEY is required")
+    try:
+        from afya_backends import llm as afya_llm
+    except ImportError:
+        afya_llm = None
+    use_ollama = bool(afya_llm and afya_llm.is_ollama())
+    if not args.openai_key and not use_ollama:
+        sys.exit("ERROR: --openai-key or OPENAI_API_KEY is required (or set AFYA_LLM_PROVIDER=ollama)")
+    if afya_llm and args.output == DEFAULT_OUTPUT:
+        args.output = afya_llm.embeddings_index_path(DEFAULT_OUTPUT)
 
     print(f"Fetching Cube meta from {args.cube_url} ...")
     cubes = fetch_meta(args.cube_url, args.cube_token)
@@ -209,7 +224,7 @@ def main():
     n_metrics    = sum(1 for e in entries if e["source"] == "metric")
     n_glossary   = sum(1 for e in entries if e["source"] == "glossary")
 
-    client = OpenAI(api_key=args.openai_key)
+    client = afya_llm.openai_client(api_key=args.openai_key) if afya_llm else OpenAI(api_key=args.openai_key)
     vectors = embed_all(client, entries)
 
     ids = np.array([e["id"] for e in entries], dtype=object)

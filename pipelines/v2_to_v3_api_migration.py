@@ -3145,6 +3145,25 @@ def _post_to_v3_batch(
                 gw_wait = min(gw_wait * backoff_factor, 300)
                 continue
 
+            if r.status_code == 409:
+                # Cross-org unique-key collision: a record with this patient_no (or
+                # equivalent unique field) already belongs to a different organization.
+                # Unresolvable by retrying — skip with a warning so the rest of the
+                # table continues. First exposed by multi-facility support: new
+                # facilities can have patient_no values that collide with records
+                # already seeded from other orgs in the same V3 instance.
+                try:
+                    _msg_409 = (r.json() or {}).get("message", "") if r.text else ""
+                except Exception:
+                    _msg_409 = ""
+                if "belongs to another organization" in _msg_409:
+                    log.warning(
+                        "  V3 409 id=%-6s cross-org conflict — skipping (not dead-lettered): %s",
+                        record.get("id", "?"), _msg_409,
+                    )
+                    return
+                # Unknown 409 shape — fall through to raise_for_status() below.
+
             if r.status_code == 422:
                 # Validation / schema error on this one record — dead-letter and move on.
                 # Do NOT raise: a single bad record must not kill the entire job.

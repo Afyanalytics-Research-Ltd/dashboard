@@ -30,6 +30,7 @@ from typing import Any
 
 import pandas as pd
 import snowflake.connector
+from afya_backends import warehouse as afya_warehouse
 from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).resolve().parent / ".env", override=False)
@@ -101,7 +102,7 @@ def _snowflake_connect():
         kwargs["password"] = pwd
     else:
         raise RuntimeError("Set SNOWFLAKE_PRIVATE_KEY_PATH or SNOWFLAKE_PASSWORD in .env")
-    return snowflake.connector.connect(**kwargs)
+    return afya_warehouse.connect(**kwargs)
 
 
 def validate_clinicians_workload() -> int:

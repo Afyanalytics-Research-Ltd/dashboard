@@ -30,13 +30,14 @@ def _target_cell(t, unit="target"):
                        sub=f"of <b>{fmt(t.target, t.kind, compact=True)}</b> {unit}", status=status)
 
 
-def _upds_cell(t, unique_patients):
-    """UPDs = unique patients from Patient counts (a snapshot, so no weekly change or status)."""
-    if unique_patients is None:
-        return T.ring_cell(t.label, "—", T.ring(0, T.NAVY), sub="Patient counts unavailable")
-    p = pct(unique_patients, t.target)
-    return T.ring_cell(t.label, fmt(unique_patients), T.ring(p, T.NAVY),
-                       sub=f"of <b>{fmt(t.target, compact=True)}</b> target")
+def _upds_cell(t, upds):
+    """UPDs summed across sources from Patient counts (a snapshot, so no weekly change or status)."""
+    label = f'<i class="x-mk" style="background:{T.UPD}"></i><span class="x-acr">{t.label}</span>'
+    if upds is None:
+        return T.ring_cell(label, "—", T.ring(0, T.NAVY), sub="Patient counts unavailable")
+    p = pct(upds, t.target)
+    return T.ring_cell(label, fmt(upds), T.ring(p, T.NAVY),
+                       sub=f"of <b>{fmt(t.target, compact=True)}</b> target · per source")
 
 
 def _data_cell(series, patient_records):
@@ -47,7 +48,7 @@ def _data_cell(series, patient_records):
         return T.cell("Data processed", fmt(proc), change=_change(d), bar=T.bar(0, T.NAVY),
                       left="Patient counts unavailable", wide=True)
     return T.cell("Data processed", fmt(proc), change=_change(d),
-                  bar=T.bar(pct(proc, patient_records), T.NAVY),
+                  bar=T.bar(pct(proc, patient_records), T.REC),
                   left=f"<b>{pct(proc, patient_records):.0f}%</b> of {fmt(patient_records, compact=True)} patient records",
                   right=f"{fmt(max(patient_records - proc, 0), compact=True)} backlog", wide=True)
 
@@ -63,13 +64,14 @@ def _team_cell(series):
                   right=f'<i class="dot" style="background:{T.SOFT}"></i><b>{co}</b> consultants', wide=True)
 
 
-def render(rows, period, week, unique_patients, patient_records):
+def render(rows, period, week, upds, patient_records):
     series = [r for r in rows if r["PERIOD"] == period and r["WEEK_ENDING"] <= week]
     trk = {t.key: t for t in A.tracks(series, A.clock_for(period, week))}
-    hint = "▲ ▼ change vs previous week" if len(series) > 1 else ""
+    hint = "▲ ▼ change vs previous week" if len(series) > 1 else "Status shows once the quarter has two recorded weeks"
 
     T.panel(f"{period} targets", hint, [
-        _upds_cell(trk["upds"], unique_patients), _target_cell(trk["revenue"]),
+        _upds_cell(trk["upds"], upds), _target_cell(trk["revenue"]),
         _target_cell(trk["mou"], "counties"), _target_cell(trk["facilities"]), _target_cell(trk["associates"]),
     ])
     T.panel("Delivery & team", "", [_data_cell(series, patient_records), _team_cell(series)])
+

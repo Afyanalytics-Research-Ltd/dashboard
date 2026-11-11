@@ -1,6 +1,7 @@
 import os
 import streamlit as st
 import snowflake.connector
+from afya_backends import warehouse as afya_warehouse
 import pandas as pd
 from dotenv import load_dotenv, find_dotenv
 from cryptography.hazmat.primitives import serialization
@@ -36,7 +37,7 @@ def _connect() -> snowflake.connector.SnowflakeConnection:
         kwargs["private_key"] = _load_private_key(private_key_path)
     else:
         kwargs["password"] = os.getenv("SNOWFLAKE_PASSWORD", "").strip()
-    return snowflake.connector.connect(**kwargs)
+    return afya_warehouse.connect(**kwargs)
 
 
 def _query(sql: str) -> pd.DataFrame:

@@ -70,6 +70,30 @@
   /* Add / edit modal */
   .modal-header { background: var(--afya-cool-blue); color: #fff; }
   .modal-header .btn-close { filter: invert(1); }
+
+  /* Platform backend switches */
+  .backend-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+  .backend-panel { border: 1px solid var(--afya-border); border-radius: 12px; padding: 18px 20px; background: #fff; }
+  .backend-panel h3 { font-size: 15px; font-weight: 700; margin: 0 0 2px; color: var(--afya-text); }
+  .backend-panel .sub { font-size: 12px; color: var(--afya-muted); margin-bottom: 14px; }
+  .seg { display: flex; border: 1px solid var(--afya-border); border-radius: 10px; overflow: hidden; }
+  .seg button {
+    flex: 1; border: 0; background: #fff; padding: 12px 10px; font-size: 13px; font-weight: 600;
+    color: var(--afya-muted); display: flex; flex-direction: column; align-items: center; gap: 4px;
+    transition: background .15s, color .15s; cursor: pointer;
+  }
+  .seg button + button { border-left: 1px solid var(--afya-border); }
+  .seg button:hover:not(.active):not(:disabled) { background: var(--afya-bg); color: var(--afya-text); }
+  .seg button.active { background: var(--afya-cool-blue); color: #fff; cursor: default; }
+  .seg button:disabled { opacity: .6; cursor: wait; }
+  .seg .health { font-size: 11px; font-weight: 500; display: flex; align-items: center; gap: 5px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: #cbd5e1; }
+  .dot.ok { background: #16a34a; } .dot.bad { background: #dc2626; } .dot.wait { background: #f59e0b; }
+  .backend-meta { font-size: 12px; color: var(--afya-muted); margin-top: 10px; line-height: 1.6; }
+  .backend-meta code { font-size: 11px; }
+  .switch-steps { list-style: none; padding: 0; margin: 12px 0 0; font-size: 12px; }
+  .switch-steps li { display: flex; gap: 8px; align-items: flex-start; padding: 3px 0; }
+  .switch-steps li i { margin-top: 1px; }
 </style>
 {% endblock %}
 
@@ -85,6 +109,83 @@
     <button class="btn btn-afya-primary" data-bs-toggle="modal" data-bs-target="#addSettingModal">
       <i class="bi bi-plus-lg me-2"></i>Add Setting
     </button>
+  </div>
+</div>
+
+<!-- Platform backends -->
+<div class="card mb-4" id="backendsCard">
+  <div class="card-header d-flex align-items-center justify-content-between">
+    <span><i class="bi bi-hdd-network me-2"></i>Platform backends</span>
+    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="refreshBackends(true)" id="backendRefresh">
+      <i class="bi bi-arrow-clockwise me-1"></i>Check health
+    </button>
+  </div>
+  <div class="card-body">
+    <div class="backend-grid">
+      <div class="backend-panel">
+        <h3><i class="bi bi-database me-1"></i>Data warehouse</h3>
+        <div class="sub">Where every pipeline writes and every dashboard, agent and Redash report reads.</div>
+        <div class="seg" role="radiogroup" aria-label="Data warehouse">
+          <button type="button" data-switch="warehouse_backend" data-value="snowflake"
+                  class="{% if warehouse_backend == 'snowflake' %}active{% endif %}"
+                  aria-pressed="{% if warehouse_backend == 'snowflake' %}true{% else %}false{% endif %}">
+            <span><i class="bi bi-snow me-1"></i>Snowflake</span>
+            <span class="health"><span class="dot" data-check="snowflake"></span><span data-check-text="snowflake">checking…</span></span>
+          </button>
+          <button type="button" data-switch="warehouse_backend" data-value="databend"
+                  class="{% if warehouse_backend == 'databend' %}active{% endif %}"
+                  aria-pressed="{% if warehouse_backend == 'databend' %}true{% else %}false{% endif %}">
+            <span><i class="bi bi-boxes me-1"></i>Databend</span>
+            <span class="health"><span class="dot" data-check="databend"></span><span data-check-text="databend">checking…</span></span>
+          </button>
+        </div>
+        <div class="backend-meta" id="warehouseMeta">
+          Airflow DAG runs can override this per run with the <code>warehouse_backend</code> trigger param.
+          <span id="redashMeta"></span>
+        </div>
+      </div>
+      <div class="backend-panel">
+        <h3><i class="bi bi-cpu me-1"></i>LLM provider</h3>
+        <div class="sub">Which models the AI chat, agents, insights and extraction pipelines call.</div>
+        <div class="seg" role="radiogroup" aria-label="LLM provider">
+          <button type="button" data-switch="llm_provider" data-value="api"
+                  class="{% if llm_provider == 'api' %}active{% endif %}"
+                  aria-pressed="{% if llm_provider == 'api' %}true{% else %}false{% endif %}">
+            <span><i class="bi bi-key me-1"></i>API keys</span>
+            <span class="health"><span class="dot" data-check="llm_api"></span><span data-check-text="llm_api">checking…</span></span>
+          </button>
+          <button type="button" data-switch="llm_provider" data-value="ollama"
+                  class="{% if llm_provider == 'ollama' %}active{% endif %}"
+                  aria-pressed="{% if llm_provider == 'ollama' %}true{% else %}false{% endif %}">
+            <span><i class="bi bi-pc-display me-1"></i>Ollama (local)</span>
+            <span class="health"><span class="dot" data-check="ollama"></span><span data-check-text="ollama">checking…</span></span>
+          </button>
+        </div>
+        <div class="backend-meta">Local model: <code>{{ ollama_model }}</code>. Hosted keys are used in their existing order (Groq → xAI → Anthropic → OpenAI).</div>
+      </div>
+    </div>
+    <div id="switchProgress" class="d-none mt-3">
+      <div class="fw-semibold" style="font-size:13px;" id="switchProgressTitle"></div>
+      <ul class="switch-steps" id="switchSteps"></ul>
+    </div>
+    <div class="backend-meta mt-2" id="airflowSync"></div>
+  </div>
+</div>
+
+<!-- Confirm switch -->
+<div class="modal fade" id="switchConfirmModal" tabindex="-1" aria-labelledby="switchConfirmLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="switchConfirmLabel"><i class="bi bi-arrow-left-right me-2"></i><span id="switchConfirmTitle"></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body" id="switchConfirmBody" style="font-size:14px;"></div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-afya-primary" id="switchConfirmBtn">Switch</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -218,6 +319,153 @@
 
 
 {% block extra_js %}
+<script>
+  // ── Platform backend switches ───────────────────────────────────────────
+  (function () {
+    const STATUS_URL = "{% url 'core:backend-status' %}";
+    const SWITCH_URL = "{% url 'core:backend-switch' %}";
+    const CSRF = '{{ csrf_token }}';
+    const LABELS = {
+      warehouse_backend: {title: 'data warehouse', snowflake: 'Snowflake', databend: 'Databend'},
+      llm_provider: {title: 'LLM provider', api: 'hosted API keys', ollama: 'Ollama (local)'},
+    };
+    const EFFECTS = {
+      warehouse_backend: {
+        databend: 'Pipelines will load into <b>Databend</b> from their next run (a first run backfills '
+          + 'from the source APIs), and dashboards, agents and Redash reports will read Databend. '
+          + 'Snowflake data and pipeline progress are left untouched, so switching back resumes exactly where Snowflake stopped.',
+        snowflake: 'Pipelines, dashboards, agents and Redash reports go back to <b>Snowflake</b>, resuming from '
+          + 'Snowflake\'s own progress. Databend keeps its data.',
+      },
+      llm_provider: {
+        ollama: 'AI chat, agents, insights and extraction pipelines will call the <b>local Ollama model</b> '
+          + '(no API spend, slower, smaller model).',
+        api: 'AI features go back to the <b>hosted APIs</b> using the configured keys.',
+      },
+    };
+    let pending = null, pollTimer = null;
+
+    function setDot(name, check) {
+      const dot = document.querySelector('[data-check="' + name + '"]');
+      const txt = document.querySelector('[data-check-text="' + name + '"]');
+      if (!dot || !txt) return;
+      dot.className = 'dot ' + (check ? (check.ok ? 'ok' : 'bad') : 'wait');
+      txt.textContent = check ? (check.ok ? 'reachable' : 'unavailable') : 'checking…';
+      dot.parentElement.title = check ? String(check.detail || '') : '';
+    }
+
+    function setActive(sw, value) {
+      document.querySelectorAll('[data-switch="' + sw + '"]').forEach(function (b) {
+        const on = b.dataset.value === value;
+        b.classList.toggle('active', on);
+        b.setAttribute('aria-pressed', on ? 'true' : 'false');
+      });
+    }
+
+    function renderProgress(p) {
+      const box = document.getElementById('switchProgress');
+      if (!p || !p.steps) { return; }
+      box.classList.remove('d-none');
+      const lbl = LABELS[p.switch] || {title: p.switch};
+      document.getElementById('switchProgressTitle').textContent =
+        (p.done ? 'Switched ' : 'Switching ') + lbl.title + ' to ' + (lbl[p.value] || p.value) + (p.done ? '' : '…');
+      const ul = document.getElementById('switchSteps');
+      ul.innerHTML = '';
+      p.steps.forEach(function (s) {
+        const li = document.createElement('li');
+        const icon = s.ok ? 'bi-check-circle-fill text-success' : 'bi-exclamation-triangle-fill text-danger';
+        li.innerHTML = '<i class="bi ' + icon + '"></i><span><b></b> — <span></span></span>';
+        li.querySelector('b').textContent = s.name;
+        li.querySelector('span span').textContent = s.detail || '';
+        ul.appendChild(li);
+      });
+      if (!p.done) {
+        const li = document.createElement('li');
+        li.innerHTML = '<span class="spinner-border spinner-border-sm text-secondary"></span><span>working…</span>';
+        ul.appendChild(li);
+      }
+    }
+
+    window.refreshBackends = function (deep) {
+      if (deep) ['snowflake', 'databend', 'ollama', 'llm_api'].forEach(function (n) { setDot(n, null); });
+      return fetch(STATUS_URL + '?deep=' + (deep ? '1' : '0'), {credentials: 'same-origin'})
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          setActive('warehouse_backend', d.warehouse_backend);
+          setActive('llm_provider', d.llm_provider);
+          if (d.checks) Object.keys(d.checks).forEach(function (k) { setDot(k, d.checks[k]); });
+          if (d.redash) {
+            document.getElementById('redashMeta').textContent = d.redash.twins
+              ? ' Redash: ' + d.redash.twins + ' Databend twin data source(s); saved queries point at ' + d.redash.pointing_at + '.'
+              : '';
+          }
+          const af = document.getElementById('airflowSync');
+          if (d.checks && d.checks.airflow) {
+            af.innerHTML = d.checks.airflow.ok
+              ? (d.airflow_in_sync ? '<i class="bi bi-check2 text-success"></i> Airflow Variables match these switches.'
+                 : '<i class="bi bi-exclamation-circle text-warning"></i> Airflow Variables differ from these switches. '
+                   + '<a href="#" id="resyncAirflow">Push to Airflow</a>')
+              : '<i class="bi bi-exclamation-circle text-warning"></i> Airflow not reachable — pipelines keep their last setting until it is. ';
+            const rs = document.getElementById('resyncAirflow');
+            if (rs) rs.onclick = function (e) { e.preventDefault(); resync(); };
+          }
+          if (d.progress) renderProgress(d.progress);
+          return d;
+        });
+    };
+
+    function resync() {
+      const body = new FormData(); body.append('csrfmiddlewaretoken', CSRF);
+      fetch(STATUS_URL, {method: 'POST', body: body, credentials: 'same-origin'})
+        .then(function () { AfyaToast.show('Pushed both switches to Airflow.', 'success'); refreshBackends(true); });
+    }
+
+    function poll() {
+      clearTimeout(pollTimer);
+      fetch(STATUS_URL + '?deep=0', {credentials: 'same-origin'}).then(function (r) { return r.json(); })
+        .then(function (d) {
+          renderProgress(d.progress);
+          if (d.progress && !d.progress.done) { pollTimer = setTimeout(poll, 1500); }
+          else { document.querySelectorAll('.seg button').forEach(function (b) { b.disabled = false; });
+                 refreshBackends(true); }
+        });
+    }
+
+    document.querySelectorAll('.seg button').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        if (btn.classList.contains('active')) return;
+        pending = {switch: btn.dataset.switch, value: btn.dataset.value};
+        const lbl = LABELS[pending.switch];
+        document.getElementById('switchConfirmTitle').textContent = 'Switch ' + lbl.title + ' to ' + lbl[pending.value] + '?';
+        document.getElementById('switchConfirmBody').innerHTML = EFFECTS[pending.switch][pending.value];
+        new bootstrap.Modal(document.getElementById('switchConfirmModal')).show();
+      });
+    });
+
+    document.getElementById('switchConfirmBtn').addEventListener('click', function () {
+      if (!pending) return;
+      const body = new FormData();
+      body.append('switch', pending.switch); body.append('value', pending.value);
+      body.append('csrfmiddlewaretoken', CSRF);
+      bootstrap.Modal.getInstance(document.getElementById('switchConfirmModal')).hide();
+      document.querySelectorAll('.seg button').forEach(function (b) { b.disabled = true; });
+      fetch(SWITCH_URL, {method: 'POST', body: body, credentials: 'same-origin'})
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          if (!d.ok) { AfyaToast.show(d.error || 'Switch failed.', 'danger');
+                       document.querySelectorAll('.seg button').forEach(function (b) { b.disabled = false; }); return; }
+          setActive(d.switch, d.value);
+          AfyaToast.show(LABELS[d.switch].title.charAt(0).toUpperCase() + LABELS[d.switch].title.slice(1)
+                         + ' switched to ' + LABELS[d.switch][d.value] + '.', 'success');
+          poll();
+        })
+        .catch(function () { AfyaToast.show('Network error — the switch may not have been saved.', 'danger');
+                             document.querySelectorAll('.seg button').forEach(function (b) { b.disabled = false; }); });
+    });
+
+    refreshBackends(true);
+  })();
+</script>
 <script>
   // Filter settings by key
   document.getElementById('settingsSearch').addEventListener('input', function () {

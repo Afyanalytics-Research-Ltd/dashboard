@@ -87,6 +87,7 @@ import pandas as pd
 import requests
 import requests.adapters
 import snowflake.connector
+from afya_backends import warehouse as afya_warehouse
 from dotenv import load_dotenv
 from requests.exceptions import ConnectionError, Timeout
 
@@ -238,7 +239,7 @@ class SnowflakeClient:
                 f"check SNOWFLAKE_PRIVATE_KEY_PATH in your .env."
             )
         try:
-            self._conn = snowflake.connector.connect(
+            self._conn = afya_warehouse.connect(
                 user=required["SNOWFLAKE_USER"].strip(),
                 account=required["SNOWFLAKE_ACCOUNT"].strip(),
                 warehouse=required["SNOWFLAKE_WAREHOUSE"].strip(),

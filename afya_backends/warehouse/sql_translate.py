@@ -876,9 +876,34 @@ def _rewrite_union_ordinal_order(tree: exp.Expression) -> exp.Expression:
     return outer
 
 
+def _rename_target_alias(tree: exp.Expression) -> None:
+    """UPDATE/DELETE <table> t ...: same databend-query quirk as MERGE (a
+    quoted target alias is lower-cased internally, then its columns -
+    including unqualified SET targets - can't be resolved: "Can not find
+    column X in table t").  Rename the alias to lower-case afya_tgt and
+    rewrite every reference."""
+    if not isinstance(tree, (exp.Update, exp.Delete)):
+        return
+    target = tree.this
+    alias = target.args.get("alias") if isinstance(target, exp.Table) else None
+    if alias is None or alias.this is None:
+        return
+    old = alias.this.name
+    alias.set("this", exp.Identifier(this="afya_tgt", quoted=True))
+    for col in tree.find_all(exp.Column):
+        tbl = col.args.get("table")
+        if tbl is not None and (tbl.name == old or (not tbl.args.get("quoted") and tbl.name.upper() == old.upper())):
+            col.set("table", exp.Identifier(this="afya_tgt", quoted=True))
+    if isinstance(tree, exp.Update):
+        for eq in tree.expressions:
+            if isinstance(eq, exp.EQ) and isinstance(eq.this, exp.Column) and eq.this.table:
+                eq.set("this", exp.Column(this=eq.this.this))
+
+
 def _rewrite_merge_set(tree: exp.Expression) -> None:
     """MERGE ... UPDATE SET t.col = ... -> SET col = ... (Databend rejects
     a qualifier on the assignment target; Snowflake accepts both)."""
+    _rename_target_alias(tree)
     if not isinstance(tree, exp.Merge):
         return
     # databend-query 1.2.881 lower-cases a quoted MERGE target alias

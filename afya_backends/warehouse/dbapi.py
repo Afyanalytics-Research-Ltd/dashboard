@@ -824,6 +824,12 @@ class Connection:
         return sql
 
     def _run_sql(self, sql: str, cursor: "Cursor") -> _Result:
+        res = self._run_sql_raw(sql, cursor)
+        if _MERGE_RE.match(sql):
+            return _merge_result_to_snowflake(sql, res)
+        return res
+
+    def _run_sql_raw(self, sql: str, cursor: "Cursor") -> _Result:
         if tr.HASH_STAR_MARKER in sql:
             sql = self._expand_hash_star(sql)
         if not self._autocommit:
@@ -974,6 +980,36 @@ def _s3_connection_clause() -> str:
                           250002, "08000")
     esc = lambda s: s.replace("'", "''")
     return f"CONNECTION = (ACCESS_KEY_ID = '{esc(key)}', SECRET_ACCESS_KEY = '{esc(secret)}', REGION = '{esc(region)}')"
+
+
+_MERGE_RE = re.compile(r"^\s*MERGE\b", re.I)
+
+
+def _merge_result_to_snowflake(sql: str, res: _Result) -> _Result:
+    """Snowflake's MERGE returns one count column per action kind in the
+    statement, in the order inserted, updated, deleted.  Databend omits a
+    column when (it decides) that action can't happen - e.g. only "number
+    of rows inserted" when the target is empty - which breaks callers doing
+    ``inserted, updated = result[0]``.  Rebuild the Snowflake shape."""
+    upper = re.sub(r"'(?:[^']|'')*'", "''", sql.upper())
+    kinds = []
+    if re.search(r"\bTHEN\s+INSERT\b", upper):
+        kinds.append("inserted")
+    if re.search(r"\bTHEN\s+UPDATE\b", upper):
+        kinds.append("updated")
+    if re.search(r"\bTHEN\s+DELETE\b", upper):
+        kinds.append("deleted")
+    got = {}
+    for i, c in enumerate(res.columns):
+        m = re.search(r"rows (inserted|updated|deleted)", c, re.I)
+        if m and res.rows:
+            got[m.group(1).lower()] = res.rows[0][i]
+    out = _Result()
+    out.query_id, out.session, out.stats, out.affect = res.query_id, res.session, res.stats, res.affect
+    out.columns = [f"number of rows {k}" for k in kinds]
+    out.types = [_ColType("UInt64") for _ in kinds]
+    out.rows = [[str(got.get(k, 0) or 0) for k in kinds]]
+    return out
 
 
 _SF_COPY_COLUMNS = ["file", "status", "rows_parsed", "rows_loaded", "error_limit", "errors_seen",

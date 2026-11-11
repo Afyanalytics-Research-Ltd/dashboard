@@ -123,6 +123,35 @@ def test_merge_with_alias_and_result_counts(conn):
     assert q(conn, "SELECT id, name FROM T ORDER BY id").fetchall() == [(1, "A"), (2, "B")]
 
 
+def test_v3_sync_shapes_merge_into_empty_and_aliased_update(conn):
+    """The exact statement shapes pipelines/v3_to_snowflake_sync.py sends."""
+    q(conn, "CREATE TABLE T (_TENANT_ID NUMBER, _KEY STRING, NAME STRING, _ROW_HASH STRING, "
+            "_IS_DELETED BOOLEAN, _DELETED_AT TIMESTAMP_NTZ, _LAST_LOADED_AT TIMESTAMP_NTZ)")
+    q(conn, "CREATE TEMPORARY TABLE STG (_SKEY STRING, _SHASH STRING, NAME STRING)")
+    q(conn, "INSERT INTO STG VALUES ('a', 'h1', 'A'), ('b', 'h2', 'B')")
+    merge = """MERGE INTO T t USING (SELECT _SKEY, _SHASH, NAME FROM STG) s
+               ON t._TENANT_ID = %(t)s AND t._KEY = s._SKEY
+               WHEN MATCHED AND (t._ROW_HASH IS DISTINCT FROM s._SHASH OR t._IS_DELETED) THEN UPDATE SET
+                   NAME = s.NAME, _ROW_HASH = s._SHASH, _IS_DELETED = FALSE, _DELETED_AT = NULL, _LAST_LOADED_AT = SYSDATE()
+               WHEN NOT MATCHED THEN INSERT (NAME, _TENANT_ID, _KEY, _ROW_HASH, _IS_DELETED, _LAST_LOADED_AT)
+               VALUES (s.NAME, %(t)s, s._SKEY, s._SHASH, FALSE, SYSDATE())"""
+    res = q(conn, merge, {"t": 7}).fetchall()
+    inserted, updated = res[0]           # empty target: still two columns
+    assert (inserted, updated) == (2, 0)
+    q(conn, "UPDATE STG SET _SHASH = 'h9' WHERE _SKEY = 'a'")
+    assert q(conn, merge, {"t": 7}).fetchall()[0] == (0, 1)
+    flagged = q(conn, """UPDATE T t SET _IS_DELETED = TRUE, _DELETED_AT = SYSDATE(), _LAST_LOADED_AT = SYSDATE()
+                         WHERE t._TENANT_ID = %(t)s AND NOT t._IS_DELETED
+                           AND NOT EXISTS (SELECT 1 FROM STG s WHERE s._SKEY = t._KEY AND s._SKEY = 'a')""",
+                {"t": 7}).fetchall()
+    assert flagged[0][0] == 1
+    (live, gone), = q(conn, """SELECT (SELECT COUNT(*) FROM T WHERE _TENANT_ID = %(t)s AND NOT _IS_DELETED),
+                                      (SELECT COUNT(*) FROM T t WHERE t._TENANT_ID = %(t)s AND NOT t._IS_DELETED
+                                         AND NOT EXISTS (SELECT 1 FROM STG s WHERE s._SKEY = t._KEY))""",
+                      {"t": 7}).fetchall()
+    assert (live, gone) == (1, 0)
+
+
 def test_delete_using_and_update_from(conn):
     q(conn, "CREATE TABLE T (id INT, name VARCHAR)")
     q(conn, "INSERT INTO T VALUES (1, 'a'), (2, 'b'), (3, 'c')")

@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pandas as pd
 import snowflake.connector
+from afya_backends import warehouse as afya_warehouse
 import streamlit as st
 from dotenv import load_dotenv
 
@@ -40,7 +41,7 @@ def _key_path() -> str:
 
 @st.cache_resource(show_spinner=False)
 def _get_connection() -> "snowflake.connector.SnowflakeConnection":
-    return snowflake.connector.connect(
+    return afya_warehouse.connect(
         account=os.getenv("SNOWFLAKE_ACCOUNT", "").strip(),
         user=os.getenv("SNOWFLAKE_USER", "").strip(),
         warehouse=os.getenv("SNOWFLAKE_WAREHOUSE", "").strip(),

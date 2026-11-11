@@ -66,9 +66,11 @@ def chat_api(request):
         if not message:
             return JsonResponse({"error": "Empty message"}, status=400)
 
+        from afya_backends import llm as afya_llm
+        use_ollama    = afya_llm.is_ollama()   # System Settings → LLM provider
         groq_key      = os.getenv("GROQ_API", "")
         anthropic_key = os.getenv("ANTHROPIC_API", "")
-        if not groq_key and not anthropic_key:
+        if not use_ollama and not groq_key and not anthropic_key:
             return JsonResponse({"reply": "No LLM API key configured — set GROQ_API or ANTHROPIC_API in .env"})
 
         notices_data = _load_notices()
@@ -93,7 +95,14 @@ def chat_api(request):
             msgs.append({"role": "assistant", "content": "Status: "})
 
         with httpx.Client() as client:
-            if anthropic_key:
+            if use_ollama:
+                # Local model: the prefilled "Status: " assistant turn can't be
+                # continued, so drop it and add the prefix afterwards (as for Groq).
+                ollama_msgs = msgs[:-1] if has_sql_data else msgs
+                reply = afya_llm.chat(ollama_msgs, max_tokens=512, temperature=0.1, purpose="chat")
+                if has_sql_data and not reply.startswith("Status:"):
+                    reply = "Status: " + reply
+            elif anthropic_key:
                 # Anthropic requires system messages in a single "system" field.
                 # Returns continuation only (not the prefill) — prepend below if missing.
                 system_parts = [m["content"] for m in msgs if m["role"] == "system"]

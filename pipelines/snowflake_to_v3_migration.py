@@ -104,6 +104,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import snowflake.connector
+from afya_backends import warehouse as afya_warehouse
 from dotenv import load_dotenv
 
 # Run as a script this module is __main__; v3_passthrough's
@@ -185,7 +186,7 @@ def use_state_dir(facility: str) -> Path:
 # ─── SNOWFLAKE ───────────────────────────────────────────────────────────────
 
 def _snowflake_connect():
-    return snowflake.connector.connect(
+    return afya_warehouse.connect(
         user=os.getenv("SNOWFLAKE_USER").strip(),
         account=os.getenv("SNOWFLAKE_ACCOUNT").strip(),
         warehouse=os.getenv("SNOWFLAKE_WAREHOUSE").strip(),

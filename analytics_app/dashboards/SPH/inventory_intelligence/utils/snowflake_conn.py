@@ -78,8 +78,9 @@ def get_connection(key_path: Optional[Path] = None) -> Any:
     """
     _load_dotenv_if_available()
     import snowflake.connector  # lazy — never required for offline runs
+    from afya_backends import warehouse as afya_warehouse
 
-    return snowflake.connector.connect(
+    return afya_warehouse.connect(
         account=_setting("SNOWFLAKE_ACCOUNT"),
         user=_setting("SNOWFLAKE_USER"),
         role=_setting("SNOWFLAKE_ROLE"),

@@ -708,13 +708,14 @@ def dedupe_records(table: str, records: list[dict], *, overrides: dict | None = 
 
 def _connect():
     import snowflake.connector
+    from afya_backends import warehouse as afya_warehouse
     from dotenv import load_dotenv
     here = Path(__file__).resolve().parent
     load_dotenv(here / ".env", override=False)
     key = Path(os.getenv("SNOWFLAKE_PRIVATE_KEY_PATH").strip())
     if not key.is_absolute() and not key.exists():
         key = here / key                       # the .env's relative path, run from anywhere
-    return snowflake.connector.connect(
+    return afya_warehouse.connect(
         user=os.getenv("SNOWFLAKE_USER").strip(), account=os.getenv("SNOWFLAKE_ACCOUNT").strip(),
         warehouse=os.getenv("SNOWFLAKE_WAREHOUSE").strip(), database=os.getenv("SNOWFLAKE_DATABASE", DB).strip(),
         role=(os.getenv("SNOWFLAKE_ROLE") or "").strip() or None, private_key_file=str(key),

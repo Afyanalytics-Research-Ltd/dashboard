@@ -13,6 +13,7 @@ from typing import Optional
 
 import pandas as pd
 import snowflake.connector
+from afya_backends import warehouse as afya_warehouse
 from django.conf import settings
 
 logger = logging.getLogger(__name__)
@@ -72,7 +73,7 @@ class SnowflakeClient:
         else:
             common['password'] = os.getenv('SNOWFLAKE_PASSWORD', '').strip()
 
-        return snowflake.connector.connect(**common)
+        return afya_warehouse.connect(**common)
 
     def query(self, sql: str, max_rows: int = 10_000) -> pd.DataFrame:
         """Execute a read-only SQL query and return results as a DataFrame.

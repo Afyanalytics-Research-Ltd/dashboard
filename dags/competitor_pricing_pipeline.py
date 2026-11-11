@@ -85,6 +85,7 @@ from pathlib import Path
 
 import gspread
 import snowflake.connector
+from afya_backends import warehouse as afya_warehouse
 from dotenv import load_dotenv
 
 from airflow import DAG
@@ -124,7 +125,7 @@ MAX_ACTIVE_SCRAPE_TASKS = int(os.getenv("PIPELINE_WORKERS", "6"))
 # ── Snowflake client (key-pair auth required for COPY INTO / MERGE) ──────
 class SnowflakeClient:
     def __init__(self, schema_: str | None = None):
-        self._conn = snowflake.connector.connect(
+        self._conn = afya_warehouse.connect(
             user=os.getenv("SNOWFLAKE_USER").strip(),
             account=os.getenv("SNOWFLAKE_ACCOUNT").strip(),
             warehouse=os.getenv("SNOWFLAKE_WAREHOUSE").strip(),
@@ -338,8 +339,11 @@ PRODUCT_TOOL = {
 
 
 def _extract_products_with_openai(content: str, *, competitor: str, url: str, model: str) -> list[dict]:
-    import openai
-    client = openai.OpenAI()  # reads OPENAI_API_KEY
+    # OpenAI, or the local Ollama model when the platform LLM switch says so
+    # (afya_backends.llm; the Ollama model must support tool calling).
+    from afya_backends import llm as afya_llm
+    client = afya_llm.openai_client()  # reads OPENAI_API_KEY on the hosted API
+    model = afya_llm.model(model, purpose="extraction")
     truncated = content[:MAX_CONTENT_CHARS]
 
     prompt = (

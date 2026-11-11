@@ -143,8 +143,9 @@ class ConnectionPool:
         connector = self._connector
         if connector is None:
             import snowflake.connector as connector  # noqa: PLC0415 — heavy import, defer
+            from afya_backends import warehouse as afya_warehouse
         try:
-            conn = connector.connect(**connect_kwargs(self.config, context))
+            conn = afya_warehouse.connect(**connect_kwargs(self.config, context))
         except StudioConnectionError:
             raise
         except Exception as exc:  # connector raises many types; normalise

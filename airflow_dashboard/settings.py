@@ -311,6 +311,21 @@ DATABEND_HTTP_URL = os.getenv('DATABEND_HTTP_URL', 'http://databend:8000').rstri
 DATABEND_USER = os.getenv('DATABEND_USER', 'databend').strip()
 DATABEND_PASSWORD = os.getenv('DATABEND_PASSWORD', '').strip()
 
+# Platform backend switches (System Settings -> Warehouse / LLM provider;
+# afya_backends/). The *_BACKEND / *_PROVIDER env vars are only the default
+# used before a superuser first flips the switch.
+WAREHOUSE_BACKEND = os.getenv('WAREHOUSE_BACKEND', 'snowflake').strip().lower()
+LLM_PROVIDER_DEFAULT = os.getenv('LLM_PROVIDER_DEFAULT', 'api').strip().lower()
+OLLAMA_HOST = os.getenv('OLLAMA_HOST', 'http://localhost:11434').strip()
+OLLAMA_MODEL = os.getenv('OLLAMA_MODEL', 'llama3.1').strip()
+# Shared secret for machine-to-machine calls into Django (Redash's Databend
+# query runner translating Snowflake SQL, Cube polling the active warehouse).
+AFYA_INTERNAL_API_TOKEN = os.getenv('AFYA_INTERNAL_API_TOKEN', '').strip()
+# How Redash (inside dashboard-net) reaches Databend and this app's
+# translate endpoint - written into the Databend data sources it creates.
+REDASH_DATABEND_URL = os.getenv('REDASH_DATABEND_URL', 'http://databend:8000').strip()
+REDASH_TRANSLATE_URL = os.getenv('REDASH_TRANSLATE_URL', 'http://web:8000/core/api/warehouse/translate/').strip()
+
 # Browserbase (browserbase.com) — hosted headless-browser SaaS, used by the
 # browserbase app's SDK client. No self-hosted URL: the SDK talks to
 # api.browserbase.com directly, and the live-view iframe src returned by

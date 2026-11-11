@@ -33,7 +33,7 @@ import json
 import logging
 
 from . import expr_eval, schema_writer
-from .nodes import _openai
+from .nodes import _openai, _model
 from .nodes_query import RELEVANT_FLOOR, find_catalog_metric_containing_measure
 from .state import AgentState
 
@@ -237,7 +237,7 @@ def _compose_same_cube(state: AgentState, group: list[dict]) -> dict | None:
         field_b=cand_b["field"], label_b=cand_b.get("label", ""), desc_b=cand_b.get("description", ""),
     )
     response = _openai().chat.completions.create(
-        model="gpt-4o-mini",
+        model=_model("gpt-4o-mini"),
         messages=[{"role": "system", "content": prompt}],
         temperature=0,
         response_format={"type": "json_object"},

@@ -67,6 +67,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import snowflake.connector
+from afya_backends import warehouse as afya_warehouse
 from dotenv import load_dotenv
 
 from airflow import DAG
@@ -159,7 +160,7 @@ class SnowflakeClient:
             kwargs["password"] = password
 
         try:
-            self._conn = snowflake.connector.connect(**kwargs)
+            self._conn = afya_warehouse.connect(**kwargs)
         except Exception as e:
             raise RuntimeError(
                 f"Snowflake connection failed — account={account} user={user}. Cause: {e}"

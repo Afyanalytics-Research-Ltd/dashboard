@@ -14,10 +14,15 @@ x-redash-common:
     # links/asset paths match the nginx location block instead of assuming
     # root - see nginx/templates/django_project.template's /redash/ block.
     REDASH_ROOT_URL_PATH_PREFIX: /redash
+    # The Databend runner the dashboard's warehouse switch moves saved
+    # queries onto (redash/query_runner/afya_databend.py).
+    REDASH_ADDITIONAL_QUERY_RUNNERS: redash.query_runner.afya_databend
   volumes:
     # Patched Snowflake runner adding key-pair auth (stock 10.1 is
     # password-only, which Snowflake MFA enforcement rejects).
     - ./redash/query_runner/snowflake.py:/app/redash/query_runner/snowflake.py:ro
+    # Snowflake SQL executed on Databend (translated by the dashboard).
+    - ./redash/query_runner/afya_databend.py:/app/redash/query_runner/afya_databend.py:ro
   depends_on:
     &redash-common-depends-on
     redash-postgres:

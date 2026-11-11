@@ -13,7 +13,9 @@ from openai import OpenAI, RateLimitError, APIConnectionError, APIStatusError, A
 
 
 # ------------------- OpenAI Client -------------------
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+# OpenAI, or the local Ollama model when the platform LLM switch says so.
+from afya_backends import llm as afya_llm
+client = afya_llm.openai_client(api_key=os.getenv("OPENAI_API_KEY"))
 max_retries = 3
 retry_delay = 2  # seconds
 
@@ -49,7 +51,7 @@ def extract_lab_result_from_html(html_text: str,retry_delay=2,max_retries=3) -> 
     for attempt in range(1, max_retries + 1):
         try:
             response = client.chat.completions.create(
-                model="gpt-4o-mini",
+                model=afya_llm.model("gpt-4o-mini"),
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": f"Extract lab result from the following HTML:\n\n{html_text}"}

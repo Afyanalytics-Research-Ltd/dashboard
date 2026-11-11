@@ -1,0 +1,24 @@
+name: dashboard-ollama-relay
+
+# Lets containers (Airflow workers, the Django web container) reach an Ollama
+# server that runs on the Docker host but listens on 127.0.0.1 only (the
+# default for the ollama systemd service).
+#
+# A host-network socat relay listens on the Docker bridge address only
+# (172.17.0.1 by default - not on any public interface) and forwards to
+# 127.0.0.1:11434.  Containers use http://host.docker.internal:11435
+# (docker-compose.airflow.yaml maps host.docker.internal to the host gateway).
+#
+# Not needed if Ollama itself listens on the bridge/all interfaces
+# (sudo systemctl edit ollama  ->  Environment="OLLAMA_HOST=0.0.0.0:11434");
+# then point AIRFLOW_OLLAMA_HOST at port 11434 instead.
+
+services:
+  ollama-relay:
+    image: alpine/socat:1.8.0.3
+    container_name: ollama-relay
+    restart: always
+    network_mode: host
+    command: >-
+      TCP-LISTEN:${OLLAMA_RELAY_PORT:-11435},bind=${OLLAMA_RELAY_BIND:-172.17.0.1},fork,reuseaddr
+      TCP:127.0.0.1:${OLLAMA_PORT:-11434}

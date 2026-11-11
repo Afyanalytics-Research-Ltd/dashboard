@@ -94,6 +94,7 @@ class Command(BaseCommand):
     def _connect(self, env_file: str | None):
         import snowflake.connector
 
+        from afya_backends import warehouse as afya_warehouse
         env = _read_env_file(env_file) if env_file else {}
 
         def get(key):
@@ -118,6 +119,6 @@ class Command(BaseCommand):
         else:
             raise CommandError('Admin credentials need SNOWFLAKE_PRIVATE_KEY_PATH or SNOWFLAKE_PASSWORD.')
         try:
-            return snowflake.connector.connect(**kwargs)
+            return afya_warehouse.connect(**kwargs)
         except Exception as exc:  # noqa: BLE001
             raise CommandError(f'Could not connect as {user}: {exc}') from exc

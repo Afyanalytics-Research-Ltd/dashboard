@@ -1,0 +1,4 @@
+# afya_backends is a symlink to the repo-root library (warehouse/LLM
+# switches) - code, not DAGs. Without this the dag-processor would parse
+# its modules (several mention "airflow") on every scan.
+afya_backends/

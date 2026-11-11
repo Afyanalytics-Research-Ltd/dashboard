@@ -1219,6 +1219,7 @@ def _snowflake_connect():
     import os
     import snowflake.connector
 
+    from afya_backends import warehouse as afya_warehouse
     kwargs: dict[str, Any] = dict(
         user=os.getenv("SNOWFLAKE_USER", "").strip(),
         account=os.getenv("SNOWFLAKE_ACCOUNT", "").strip(),
@@ -1235,7 +1236,7 @@ def _snowflake_connect():
         kwargs["password"] = pwd
     else:
         raise RuntimeError("Set SNOWFLAKE_PRIVATE_KEY_PATH or SNOWFLAKE_PASSWORD in .env")
-    return snowflake.connector.connect(**kwargs)
+    return afya_warehouse.connect(**kwargs)
 
 
 def fetch_from_snowflake(since: str | None, record_type: str | None, limit: int | None) -> pd.DataFrame:

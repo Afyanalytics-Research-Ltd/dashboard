@@ -216,12 +216,30 @@ def _call_claude(evidence: str) -> OperationalBriefing:
     return OperationalBriefing(**data)
 
 
+def _call_ollama(evidence: str) -> OperationalBriefing:
+    from afya_backends import llm as afya_llm
+    raw = afya_llm.chat(
+        [{"role": "user", "content": _USER_TEMPLATE.format(evidence=evidence)}],
+        system=_SYSTEM_PROMPT, max_tokens=1024, temperature=0, json_mode=True, purpose="briefing",
+    )
+    start, end = raw.find("{"), raw.rfind("}") + 1
+    return OperationalBriefing(**json.loads(raw[start:end]))
+
+
 def synthesise(pp: PrioritisedProblem, provider: str = "groq") -> OperationalBriefing:
     """Translate a PrioritisedProblem into a management briefing.
 
-    provider: "groq" (testing) | "claude" (production)
+    provider: "groq" (testing) | "claude" (production).  When the platform
+    LLM switch (System Settings → LLM provider) is on Ollama, the local
+    model answers whatever provider was asked for.
     """
     evidence = _build_evidence_payload(pp)
+    try:
+        from afya_backends import llm as afya_llm
+        if afya_llm.is_ollama():
+            return _call_ollama(evidence)
+    except ImportError:
+        pass
     if provider == "groq":
         return _call_groq(evidence)
     if provider == "claude":

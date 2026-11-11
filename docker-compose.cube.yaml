@@ -11,6 +11,10 @@ services:
     volumes:
       - ./:/cube/conf
       - ./rsa_key.p8:/cube/conf/rsa_key.p8:ro
+      # Cube reads /cube/conf/cube.js: follows the platform warehouse switch
+      # (Snowflake via the CUBEJS_DB_* env as before, or Databend through
+      # the dashboard's SQL translator). See cube/cube.js.
+      - ./cube/cube.js:/cube/conf/cube.js:ro
       
     env_file: .env
     networks:

@@ -82,6 +82,7 @@ import boto3
 import requests
 import requests.adapters
 import snowflake.connector
+from afya_backends import warehouse as afya_warehouse
 from dotenv import load_dotenv
 from requests.exceptions import ChunkedEncodingError, ConnectionError, Timeout
 
@@ -353,7 +354,7 @@ class SnowflakeClient:
             kwargs["password"] = password
 
         try:
-            self._conn = snowflake.connector.connect(**kwargs)
+            self._conn = afya_warehouse.connect(**kwargs)
         except Exception as e:
             raise RuntimeError(
                 f"Snowflake connection failed — account={account} user={user}. "

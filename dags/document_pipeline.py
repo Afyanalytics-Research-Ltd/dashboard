@@ -1748,6 +1748,7 @@ class SnowflakeClient:
     def __init__(self, database: str):
         import snowflake.connector
 
+        from afya_backends import warehouse as afya_warehouse
         auth: Dict[str, Any] = {}
         key_path = os.getenv("SNOWFLAKE_PRIVATE_KEY_PATH", "").strip()
         if key_path:
@@ -1756,7 +1757,7 @@ class SnowflakeClient:
             auth["password"] = os.getenv("SNOWFLAKE_PASSWORD", "")
         if os.getenv("SNOWFLAKE_ROLE", "").strip():
             auth["role"] = os.getenv("SNOWFLAKE_ROLE").strip()
-        self._conn = snowflake.connector.connect(
+        self._conn = afya_warehouse.connect(
             user=os.getenv("SNOWFLAKE_USER", "").strip(),
             account=os.getenv("SNOWFLAKE_ACCOUNT", "").strip(),
             warehouse=os.getenv("SNOWFLAKE_WAREHOUSE", "").strip(),

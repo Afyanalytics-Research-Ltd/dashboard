@@ -132,7 +132,8 @@ def load_snowflake_table(
         ['VISIT_ID', 'PATIENT_ID', 'VISIT_DATE', 'DIAGNOSIS']
     """
     import snowflake.connector
-    conn = snowflake.connector.connect(
+    from afya_backends import warehouse as afya_warehouse
+    conn = afya_warehouse.connect(
         user=user,
         password=password,
         account=account,

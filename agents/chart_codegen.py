@@ -42,17 +42,19 @@ from warehouse.agent.sandbox import execute as sandbox_execute
 
 logger = logging.getLogger(__name__)
 
-_openai_client: OpenAI | None = None
+_openai_clients: dict[str, OpenAI] = {}
 
 
 def _openai() -> OpenAI:
-    global _openai_client
-    if _openai_client is None:
+    """Client for the active LLM provider (OpenAI, or Ollama's OpenAI API)."""
+    from afya_backends import llm
+    provider = llm.provider()
+    if provider not in _openai_clients:
         from django.conf import settings
 
         api_key = getattr(settings, "OPENAI_API_KEY", os.getenv("OPENAI_API_KEY"))
-        _openai_client = OpenAI(api_key=api_key)
-    return _openai_client
+        _openai_clients[provider] = llm.openai_client(api_key=api_key)
+    return _openai_clients[provider]
 
 
 def _setting(name: str, default):
@@ -234,7 +236,8 @@ def render_dynamic_chart(
         if df is None or df.empty:
             return None
 
-        model = _setting("CHART_CODEGEN_MODEL", "gpt-4o-mini")
+        from afya_backends import llm as _llm
+        model = _llm.model(_setting("CHART_CODEGEN_MODEL", "gpt-4o-mini"), purpose="codegen")
         code = _generate_chart_code(df, question, metric_name, model)
         if not code:
             return None

@@ -16,7 +16,7 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
-from airflow.providers.snowflake.hooks.snowflake import SnowflakeHook
+from afya_backends.warehouse.airflow_hook import WarehouseHook as SnowflakeHook
 
 # =========================
 # CONFIG

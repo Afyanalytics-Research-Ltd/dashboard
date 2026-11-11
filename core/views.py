@@ -11,6 +11,7 @@ from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.decorators import method_decorator
 from django.views import View
+from django.views.decorators.csrf import csrf_exempt
 from django.views.generic import TemplateView
 
 from django.contrib.auth import get_user_model
@@ -71,6 +72,13 @@ class SystemSettingsView(SuperuserRequiredMixin, BreadcrumbMixin, LoggingMixin, 
         context['settings_list'] = SystemSettings.objects.all()
         context['sidebar_section'] = 'settings'
         context['page_title'] = 'System Settings'
+        from afya_backends import llm, toggles
+        from . import backends
+        toggles.clear_cache()
+        context['warehouse_backend'] = toggles.warehouse_backend()
+        context['llm_provider'] = toggles.llm_provider()
+        context['ollama_model'] = llm.ollama_model()
+        context['backend_status_url'] = '/core/settings/backends/status/'
         return context
 
     def post(self, request: HttpRequest) -> JsonResponse:
@@ -103,6 +111,20 @@ class SystemSettingsView(SuperuserRequiredMixin, BreadcrumbMixin, LoggingMixin, 
         except (json.JSONDecodeError, TypeError):
             parsed_value = value
 
+        # The backend switches must go through backends.switch so the change
+        # is validated and reaches Airflow/Redash too, even when typed into
+        # the generic editor.
+        from . import backends
+        switch_for_key = {v: k for k, v in backends.SETTING_KEYS.items()}.get(key.lower())
+        if switch_for_key:
+            try:
+                result = backends.switch(switch_for_key, parsed_value, user=request.user)
+            except ValueError as exc:
+                return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+            setting = SystemSettings.objects.get(key=key.lower())
+            return JsonResponse({'ok': True, 'key': setting.key, 'value': setting.value,
+                                 'updated_at': setting.updated_at.isoformat(), 'switch': result})
+
         setting = SystemSettings.set(key=key, value=parsed_value, user=request.user, description=description)
         self.audit_log('update', 'SystemSettings', resource_id=key, detail=f'Updated setting {key}')
         logger.info('Superuser %s updated system setting: %s', request.user.username, key)
@@ -113,6 +135,101 @@ class SystemSettingsView(SuperuserRequiredMixin, BreadcrumbMixin, LoggingMixin, 
             'value': setting.value,
             'updated_at': setting.updated_at.isoformat(),
         })
+
+
+@method_decorator(login_required, name='dispatch')
+class BackendSwitchView(SuperuserRequiredMixin, LoggingMixin, View):
+    """Flip a platform backend switch (warehouse or LLM provider).
+
+    POST ``switch`` = ``warehouse_backend`` | ``llm_provider`` and
+    ``value``.  Saves, audits and starts propagation to Airflow/Redash
+    (see core.backends); the page then polls BackendStatusView.
+
+    Non-technical explanation:
+        The big switch on System Settings: one click moves every pipeline,
+        dashboard, AI chat and Redash report from Snowflake to Databend (or
+        from hosted AI keys to the local Ollama model), and back again.
+    """
+
+    def post(self, request: HttpRequest) -> JsonResponse:
+        from . import backends
+        switch = request.POST.get('switch', '').strip()
+        value = request.POST.get('value', '').strip()
+        try:
+            result = backends.switch(switch, value, user=request.user)
+        except ValueError as exc:
+            return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+        return JsonResponse({'ok': True, **result})
+
+
+@method_decorator(login_required, name='dispatch')
+class BackendStatusView(SuperuserRequiredMixin, View):
+    """JSON health/progress of both switches (polled by System Settings)."""
+
+    def get(self, request: HttpRequest) -> JsonResponse:
+        from . import backends
+        deep = request.GET.get('deep', '1') != '0'
+        return JsonResponse(backends.status(deep=deep))
+
+    def post(self, request: HttpRequest) -> JsonResponse:
+        """Re-push both switches to Airflow (repair after Airflow restarts)."""
+        from . import backends
+        return JsonResponse({'ok': True, 'steps': backends.sync_all_to_airflow()})
+
+
+@method_decorator(csrf_exempt, name='dispatch')
+class WarehouseTranslateAPIView(View):
+    """Translate Snowflake SQL to Databend SQL for out-of-process callers.
+
+    Used by Redash's afya_databend query runner (Redash runs Python 3.7 and
+    can't import the translator) and by Cube.  Authenticated with the
+    shared ``AFYA_INTERNAL_API_TOKEN`` header, not a user session.
+
+    Also answers ``GET`` with the active warehouse, for Cube's poller.
+    """
+
+    @staticmethod
+    def _authorized(request) -> bool:
+        from django.conf import settings as dj
+        import hmac
+        token = getattr(dj, 'AFYA_INTERNAL_API_TOKEN', '') or ''
+        given = request.headers.get('X-Afya-Token', '')
+        return bool(token) and hmac.compare_digest(token, given)
+
+    def dispatch(self, request, *args, **kwargs):
+        if not self._authorized(request):
+            return JsonResponse({'error': 'unauthorized'}, status=401)
+        return super().dispatch(request, *args, **kwargs)
+
+    def get(self, request: HttpRequest) -> JsonResponse:
+        from afya_backends import toggles
+        return JsonResponse({'warehouse_backend': toggles.warehouse_backend(),
+                             'llm_provider': toggles.llm_provider()})
+
+    def post(self, request: HttpRequest) -> JsonResponse:
+        import json as _json
+        from afya_backends.warehouse import sql_translate as tr
+        try:
+            body = _json.loads(request.body or b'{}')
+        except ValueError:
+            return JsonResponse({'error': 'invalid JSON'}, status=400)
+        sql = body.get('sql') or ''
+        database = (body.get('database') or tr.default_primary_database()).upper()
+        schema = body.get('schema')
+        ctx = tr.Context(database=database, schema=schema.upper() if schema else None,
+                         primary_database=tr.default_primary_database())
+        try:
+            statements = tr.translate(sql, ctx)
+        except tr.TranslationError as exc:
+            return JsonResponse({'error': str(exc)}, status=422)
+        out = []
+        for st in statements:
+            if st.action in ('sql', 'copy'):
+                out.append(st.sql)
+            elif st.action == 'use_schema':
+                out.append(f'USE "{tr.map_database(st.params.get("database") or database, st.params["schema"], ctx.primary_database)}"')
+        return JsonResponse({'sql': ';\n'.join(out), 'statements': out,
+                             'actions': [st.action for st in statements]})
 
 
 # ---------------------------------------------------------------------------

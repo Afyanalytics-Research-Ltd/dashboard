@@ -307,6 +307,7 @@ META_COLUMNS = {                       # the pipeline's own columns, after V3's
 
 def snowflake_connect(database: str = DEFAULT_DATABASE, schema: str = DEFAULT_SCHEMA):
     import snowflake.connector
+    from afya_backends import warehouse as afya_warehouse
     kwargs = dict(user=os.getenv("SNOWFLAKE_USER", "").strip(),
                   account=os.getenv("SNOWFLAKE_ACCOUNT", "").strip(),
                   warehouse=os.getenv("SNOWFLAKE_WAREHOUSE", "").strip(),
@@ -321,7 +322,7 @@ def snowflake_connect(database: str = DEFAULT_DATABASE, schema: str = DEFAULT_SC
         kwargs["password"] = password
     else:
         raise RuntimeError("set SNOWFLAKE_PRIVATE_KEY_PATH or SNOWFLAKE_PASSWORD")
-    return snowflake.connector.connect(**kwargs)
+    return afya_warehouse.connect(**kwargs)
 
 
 class SnowflakeSink:
@@ -452,7 +453,7 @@ class SnowflakeSink:
     # loading -------------------------------------------------------------------
     def _stage(self, name: str, columns: tuple[str, ...], rows: list[tuple]) -> str:
         """(Re)fill a session temp table with rows; returns its name."""
-        from snowflake.connector.pandas_tools import write_pandas
+        from afya_backends.warehouse import write_pandas
         import pandas as pd
         stage = f"{self.fq}._STG_{name}"
         cols = ", ".join(f"{c} STRING" for c in columns)

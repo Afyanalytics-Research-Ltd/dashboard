@@ -4,6 +4,7 @@ import logging
 import pandas as pd
 import snowflake.connector
 
+from afya_backends import warehouse as afya_warehouse
 logger = logging.getLogger(__name__)
 
 
@@ -29,7 +30,7 @@ def run_query_df(sql: str) -> pd.DataFrame:
     else:
         conn_kwargs["password"] = os.getenv("SNOWFLAKE_PASSWORD", "").strip()
 
-    conn = snowflake.connector.connect(**conn_kwargs)
+    conn = afya_warehouse.connect(**conn_kwargs)
     try:
         cur = conn.cursor()
         try:

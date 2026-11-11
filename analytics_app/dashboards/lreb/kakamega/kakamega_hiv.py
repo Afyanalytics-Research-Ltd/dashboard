@@ -8,6 +8,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import snowflake.connector
+from afya_backends import warehouse as afya_warehouse
 import streamlit as st
 from dotenv import load_dotenv
 
@@ -53,7 +54,7 @@ def get_connection():
             "SNOWFLAKE_AUTHENTICATOR in your .env file."
         )
 
-    return snowflake.connector.connect(**connect_kwargs)
+    return afya_warehouse.connect(**connect_kwargs)
 
 
 def _load_private_key(key_path, passphrase=None):

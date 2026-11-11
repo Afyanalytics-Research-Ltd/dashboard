@@ -4,16 +4,24 @@ name: dashboard-databend
 services:
   databend:
     restart: always
-    image: datafuselabs/databend:latest
+    # Pinned to an exact build (databend-query v1.2.881, 2026-04-17) instead
+    # of :latest, so a pull can never silently change the SQL dialect the
+    # pipelines' Snowflake->Databend translation (afya_warehouse/) is tested
+    # against. Bump deliberately and re-run afya_warehouse/tests.
+    image: datafuselabs/databend@sha256:847b20b0cfbadaa8dd87fc5c023db1d07042e9be6231dfc8303e75feefd94bf8
     container_name: databend
     environment:
       QUERY_DEFAULT_USER: ${DATABEND_USER}
       QUERY_DEFAULT_PASSWORD: ${DATABEND_PASSWORD}
-      # Runs Databend as a single all-in-one node (meta + query) backed by
-      # its embedded MinIO for object storage, instead of standing up
-      # separate databend-meta/databend-query services + external S3 - the
-      # simplest correct setup for a single-node deployment.
-      MINIO_ENABLED: "true"
+      # Single all-in-one node (meta + query) storing table data on the local
+      # filesystem (the databend-data volume below).
+      #
+      # Do NOT set MINIO_ENABLED: the image's bootstrap.sh then downloads the
+      # MinIO server binary from dl.min.io at every start, and that URL no
+      # longer serves a binary - minio never starts, and databend-query dies
+      # at boot with "StorageUnavailable ... http://0.0.0.0:9000". That is
+      # why the warehouse was down until 2026-11-11.
+      QUERY_STORAGE_TYPE: fs
     ports:
       # Host 8000 is already taken by the Django web app (docker-compose.dev.yaml),
       # so the HTTP handler is published on 8008 instead - the container
@@ -23,15 +31,25 @@ services:
       - "8124:8124"   # ClickHouse-compatible HTTP handler
     volumes:
       - databend-meta:/var/lib/databend/meta
+      # fs storage root (bootstrap.sh: [storage.fs] data_path).
       - databend-data:/var/lib/databend/query
-      - databend-minio:/var/lib/minio
       - databend-logs:/var/log/databend
+    healthcheck:
+      # The HTTP handler's /health answers only once databend-query is up
+      # (the container itself stays "running" even when query fails to boot).
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/health >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
     networks:
       - dashboard-net
 
 volumes:
   databend-meta:
   databend-data:
+  # Left over from the MinIO-backed setup; kept so `docker compose down`
+  # doesn't complain about an orphaned volume. Holds no live data.
   databend-minio:
   databend-logs:
 

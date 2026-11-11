@@ -129,6 +129,22 @@ x-airflow-common:
     DATABEND_HTTP_URL: ${AIRFLOW_DATABEND_HTTP_URL:-http://databend:8000}
     DATABEND_USER: ${DATABEND_USER:-databend}
     DATABEND_PASSWORD: ${DATABEND_PASSWORD:-}
+    # platform_backup_to_s3 (pipelines/platform_backup.py): the backup bucket
+    # and the credentials of the databases it dumps that live only in the
+    # repo-root .env (Django's POSTGRES_* is already in pipelines/.env).
+    # Unset ones just make that target fail to log in.
+    BACKUP_S3_BUCKET: ${BACKUP_S3_BUCKET:-afya-platform-backups-707559309638}
+    BACKUP_SOURCE_LABEL: ${BACKUP_SOURCE_LABEL:-datahub}
+    AIRFLOW_DB_USER: ${AIRFLOW_DB_USER:-airflow}
+    AIRFLOW_DB_PASSWORD: ${AIRFLOW_DB_PASSWORD:-}
+    REDASH_DB_USER: ${REDASH_DB_USER:-}
+    REDASH_DB_PASSWORD: ${REDASH_DB_PASSWORD:-}
+    SUPERSET_DB_USER: ${SUPERSET_DB_USER:-}
+    SUPERSET_DB_PASSWORD: ${SUPERSET_DB_PASSWORD:-}
+    MLFLOW_DB_USER: ${MLFLOW_DB_USER:-}
+    MLFLOW_DB_PASSWORD: ${MLFLOW_DB_PASSWORD:-}
+    MARQUEZ_DB_USER: ${MARQUEZ_DB_USER:-}
+    MARQUEZ_DB_PASSWORD: ${MARQUEZ_DB_PASSWORD:-}
     # Ollama runs on the Docker host; host.docker.internal is mapped to the
     # host gateway in extra_hosts below.  The ollama systemd service listens
     # on 127.0.0.1 only by default, so either make it listen on all

@@ -63,7 +63,7 @@ _CATALOG_PATH = _CHAT / "schema_catalog.json"
 _PROMPT_PATH  = _CHAT / "sql_prompt.md"
 
 GROQ_URL  = "https://api.groq.com/openai/v1/chat/completions"
-_SQL_MODEL = "llama-3.3-70b-versatile"
+_SQL_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")  # llama-3.3-70b-versatile was retired by Groq
 
 # Hard SQL-signal patterns — if any match, not_required fast-exit is suppressed.
 # Must stay in sync with _SQL_SIGNALS in router.py.
@@ -148,6 +148,7 @@ def _call_llm(system_prompt: str) -> str:
                 "messages":    [{"role": "user", "content": system_prompt}],
                 "max_tokens":  512,
                 "temperature": 0.0,
+                **({"reasoning_effort": "low"} if "gpt-oss" in _SQL_MODEL else {}),
             },
             timeout=30,
         )

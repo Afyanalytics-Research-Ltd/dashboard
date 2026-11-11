@@ -131,8 +131,10 @@ def chat_api(request):
                 resp = client.post(
                     GROQ_URL,
                     headers={"Authorization": f"Bearer {groq_key}", "Content-Type": "application/json"},
-                    json={"model": "llama-3.3-70b-versatile", "messages": msgs,
-                          "max_tokens": 512, "temperature": 0.1},
+                    json={"model": os.getenv("GROQ_MODEL", "openai/gpt-oss-120b"), "messages": msgs,
+                          "max_tokens": 512, "temperature": 0.1,
+                          **({"reasoning_effort": "low"}
+                             if "gpt-oss" in os.getenv("GROQ_MODEL", "openai/gpt-oss-120b") else {})},
                     timeout=30,
                 )
                 resp.raise_for_status()

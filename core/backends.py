@@ -139,7 +139,9 @@ def check_llm_api() -> dict:
         keys = llm.configured_api_providers()
         if not keys:
             raise RuntimeError("no GROQ_API_KEY / XAI_API_KEY / ANTHROPIC_API_KEY / OPENAI_API_KEY set")
-        return "keys: " + ", ".join(keys)
+        chat_p = llm.api_chat_provider()
+        chat_m = llm.groq_model() if chat_p == "groq" else llm.openai_fallback_model()
+        return "keys: " + ", ".join(keys) + f" · chat → {chat_p} ({chat_m})"
     return _timed(go)
 
 

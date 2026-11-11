@@ -18,6 +18,14 @@ Call sites ask this module for a client instead of constructing one:
     text = llm.chat([{"role": "user", "content": "hi"}], max_tokens=200)   # any provider
     chat_model = llm.langchain_chat(temperature=0.3)                       # LangChain
 
+Hosted chat routing (``api`` mode): when GROQ_API_KEY is set, OpenAI-SDK
+call sites (:func:`openai_client` / :func:`model`) run on Groq's hosted
+open-source models (GROQ_MODEL, default openai/gpt-oss-120b) instead of
+paid OpenAI, falling back to OpenAI (OPENAI_FALLBACK_MODEL, default
+gpt-4o-mini) when Groq rate-limits or is unreachable.  Set
+LLM_API_CHAT_PROVIDER=openai to send them straight to OpenAI again.
+Embeddings always stay on OpenAI in ``api`` mode (Groq has none).
+
 Embeddings: hosted -> text-embedding-3-small; Ollama -> OLLAMA_EMBED_MODEL
 (default nomic-embed-text).  Indexes built with one can't be queried with
 the other (different vector sizes), so :func:`embeddings_index_path`
@@ -29,6 +37,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from typing import Any, Iterable, Optional
 
 from . import toggles
@@ -89,11 +98,61 @@ def configured_api_providers() -> list[str]:
     return out
 
 
+GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+_OPENAI_MODEL_RE = re.compile(r"^(gpt-|chatgpt-|o[1-9](-|$))")
+
+
+def groq_key() -> str:
+    return _secret("GROQ_API_KEY") or _secret("GROQ_API")
+
+
+def groq_model(purpose: Optional[str] = None) -> str:
+    if purpose:
+        specific = os.getenv(f"GROQ_MODEL_{purpose.upper()}", "").strip()
+        if specific:
+            return specific
+    # Open-weight (Apache-2.0) model with tool calling + JSON mode on Groq.
+    # llama-3.3-70b-versatile, the old default, was retired by Groq.
+    return (os.getenv("GROQ_MODEL") or "openai/gpt-oss-120b").strip()
+
+
+def groq_extra(model_name: str) -> dict:
+    """Extra request fields for Groq: gpt-oss models are reasoning models;
+    low effort keeps latency down (GROQ_REASONING_EFFORT, blank = off)."""
+    effort = os.getenv("GROQ_REASONING_EFFORT", "low").strip()
+    if effort and "gpt-oss" in (model_name or ""):
+        return {"reasoning_effort": effort}
+    return {}
+
+
+def openai_fallback_model() -> str:
+    return (os.getenv("OPENAI_FALLBACK_MODEL") or "gpt-4o-mini").strip()
+
+
+def api_chat_provider() -> str:
+    """Where OpenAI-SDK chat calls go in ``api`` mode: ``groq`` (free/cheap
+    open-source models) when a Groq key exists, else ``openai``.
+    LLM_API_CHAT_PROVIDER=openai|groq overrides."""
+    forced = os.getenv("LLM_API_CHAT_PROVIDER", "").strip().lower()
+    if forced == "openai":
+        return "openai"
+    if forced in ("", "groq") and groq_key():
+        return "groq"
+    return "openai"
+
+
+def _routes_to_groq() -> bool:
+    return not is_ollama() and api_chat_provider() == "groq"
+
+
 def model(requested: Optional[str] = None, purpose: Optional[str] = None) -> str:
-    """The model name to send: ``requested`` on hosted APIs, the Ollama
-    model when local."""
+    """The model name to send: the Ollama model when local; on hosted APIs
+    ``requested``, except that OpenAI model names become the Groq model when
+    chat is routed to Groq (see :func:`openai_client`)."""
     if is_ollama():
         return ollama_model(purpose)
+    if _routes_to_groq() and (not requested or _OPENAI_MODEL_RE.match(requested)):
+        return groq_model(purpose)
     return requested or "gpt-4o-mini"
 
 
@@ -101,17 +160,115 @@ def model(requested: Optional[str] = None, purpose: Optional[str] = None) -> str
 # clients
 # ---------------------------------------------------------------------------
 
-def openai_client(api_key: Optional[str] = None, base_url: Optional[str] = None, **kwargs):
-    """An ``openai.OpenAI`` client for the active provider.
+def _fallback_worthy(exc: Exception) -> bool:
+    """Groq errors worth retrying on OpenAI: rate limits / quota, outages,
+    network trouble.  Bad requests (our bug) are re-raised as-is."""
+    import openai
+    return isinstance(exc, (openai.RateLimitError, openai.InternalServerError,
+                            openai.APIConnectionError, openai.APITimeoutError))
 
-    On ``api`` this is exactly what the call site built before (its own
-    key / base_url).  On ``ollama`` it points at Ollama's OpenAI API.
+
+def _openai_fallback_kwargs(kw: dict) -> dict:
+    out = {k: v for k, v in kw.items() if k != "reasoning_effort"}
+    out["model"] = openai_fallback_model()
+    return out
+
+
+class _GroqCompletions:
+    def __init__(self, router):
+        self._r = router
+
+    @staticmethod
+    def _groq_kwargs(kw: dict) -> dict:
+        return {**groq_extra(kw.get("model", "")), **kw}
+
+    def _fallback(self, e: Exception):
+        fb = self._r._openai_or_none()
+        if fb is None or not _fallback_worthy(e):
+            raise e
+        logger.warning("Groq chat failed (%s: %s); falling back to OpenAI %s",
+                       type(e).__name__, e, openai_fallback_model())
+        return fb
+
+    def create(self, **kw):
+        try:
+            return self._r._groq.chat.completions.create(**self._groq_kwargs(kw))
+        except Exception as e:
+            return self._fallback(e).chat.completions.create(**_openai_fallback_kwargs(kw))
+
+
+class _AsyncGroqCompletions(_GroqCompletions):
+    async def create(self, **kw):
+        try:
+            return await self._r._groq.chat.completions.create(**self._groq_kwargs(kw))
+        except Exception as e:
+            return await self._fallback(e).chat.completions.create(**_openai_fallback_kwargs(kw))
+
+
+class _Chat:
+    def __init__(self, completions):
+        self.completions = completions
+
+
+class _GroqRoutedClient:
+    """OpenAI-SDK-shaped client: chat -> Groq (OpenAI fallback), embeddings
+    and anything else -> OpenAI.  Covers the surface the call sites use
+    (``chat.completions.create``, ``embeddings.create``)."""
+
+    _completions_cls = _GroqCompletions
+
+    def __init__(self, groq_client, openai_factory):
+        self._groq = groq_client
+        self._openai_factory = openai_factory
+        self._openai = None
+        self.chat = _Chat(self._completions_cls(self))
+
+    def _openai_or_none(self):
+        if self._openai is None:
+            try:
+                self._openai = self._openai_factory()
+            except Exception:  # no OPENAI_API_KEY
+                return None
+        return self._openai
+
+    @property
+    def embeddings(self):
+        c = self._openai_or_none()
+        if c is None:
+            raise RuntimeError("Embeddings need OPENAI_API_KEY in 'api' mode (Groq has no embeddings API).")
+        return c.embeddings
+
+    def __getattr__(self, name):
+        c = self._openai_or_none()
+        if c is None:
+            raise AttributeError(name)
+        return getattr(c, name)
+
+
+class _AsyncGroqRoutedClient(_GroqRoutedClient):
+    _completions_cls = _AsyncGroqCompletions
+
+
+def openai_client(api_key: Optional[str] = None, base_url: Optional[str] = None, **kwargs):
+    """An ``openai.OpenAI``-compatible client for the active provider.
+
+    On ``ollama`` it points at Ollama's OpenAI API.  On ``api`` with a Groq
+    key (see :func:`api_chat_provider`) chat goes to Groq with OpenAI as the
+    fallback and embeddings stay on OpenAI; pair it with :func:`model`.
+    Otherwise it is exactly what the call site built before (its own key /
+    base_url).  An explicit ``base_url`` always bypasses the routing.
     """
     from openai import OpenAI
     if is_ollama():
         return OpenAI(base_url=ollama_host() + "/v1", api_key="ollama",
                       timeout=kwargs.pop("timeout", 300), **kwargs)
-    return OpenAI(api_key=api_key or _secret("OPENAI_API_KEY") or None, base_url=base_url, **kwargs)
+    make_openai = lambda: OpenAI(api_key=api_key or _secret("OPENAI_API_KEY") or None,  # noqa: E731
+                                 base_url=base_url, **kwargs)
+    if base_url is None and api_chat_provider() == "groq":
+        groq = OpenAI(api_key=groq_key(), base_url=GROQ_BASE_URL, max_retries=1,
+                      **{k: v for k, v in kwargs.items() if k != "max_retries"})
+        return _GroqRoutedClient(groq, make_openai)
+    return make_openai()
 
 
 def async_openai_client(api_key: Optional[str] = None, base_url: Optional[str] = None, **kwargs):
@@ -119,7 +276,13 @@ def async_openai_client(api_key: Optional[str] = None, base_url: Optional[str] =
     if is_ollama():
         return AsyncOpenAI(base_url=ollama_host() + "/v1", api_key="ollama",
                            timeout=kwargs.pop("timeout", 300), **kwargs)
-    return AsyncOpenAI(api_key=api_key or _secret("OPENAI_API_KEY") or None, base_url=base_url, **kwargs)
+    make_openai = lambda: AsyncOpenAI(api_key=api_key or _secret("OPENAI_API_KEY") or None,  # noqa: E731
+                                      base_url=base_url, **kwargs)
+    if base_url is None and api_chat_provider() == "groq":
+        groq = AsyncOpenAI(api_key=groq_key(), base_url=GROQ_BASE_URL, max_retries=1,
+                           **{k: v for k, v in kwargs.items() if k != "max_retries"})
+        return _AsyncGroqRoutedClient(groq, make_openai)
+    return make_openai()
 
 
 def langchain_chat(temperature: float = 0.3, model_name: Optional[str] = None, api_key: Optional[str] = None,
@@ -133,9 +296,10 @@ def langchain_chat(temperature: float = 0.3, model_name: Optional[str] = None, a
         return ChatOpenAI(model=model_name or "gpt-4o-mini", api_key=api_key or _secret("OPENAI_API_KEY"),
                           temperature=temperature, **kwargs)
     # Hosted priority order the agents already used: Groq -> xAI -> Anthropic -> OpenAI.
-    if _secret("GROQ_API_KEY"):
-        return ChatOpenAI(api_key=_secret("GROQ_API_KEY"), base_url="https://api.groq.com/openai/v1",
-                          model="llama-3.3-70b-versatile", temperature=temperature, **kwargs)
+    if groq_key():
+        m = groq_model("agent")
+        return ChatOpenAI(api_key=groq_key(), base_url=GROQ_BASE_URL, model=m, temperature=temperature,
+                          **{**groq_extra(m), **kwargs})
     if _secret("XAI_API_KEY"):
         return ChatOpenAI(api_key=_secret("XAI_API_KEY"), base_url="https://api.x.ai/v1",
                           model="grok-3-mini", temperature=temperature, **kwargs)
@@ -174,34 +338,49 @@ def chat(messages: list[dict], *, system: Optional[str] = None, max_tokens: int 
         return r.choices[0].message.content or ""
     order = list(prefer or ("anthropic", "groq", "openai", "xai"))
     available = configured_api_providers()
-    for p in order:
-        if p not in available:
-            continue
-        if p == "anthropic":
-            import anthropic
-            sys_txt = "\n\n".join(m["content"] for m in msgs if m["role"] == "system") or None
-            rest = [m for m in msgs if m["role"] != "system"]
-            c = anthropic.Anthropic(api_key=_secret("ANTHROPIC_API_KEY") or _secret("ANTHROPIC_API"), timeout=timeout)
-            kw = dict(model=os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5"), max_tokens=max_tokens,
-                      temperature=temperature, messages=rest)
-            if sys_txt:
-                kw["system"] = sys_txt
-            r = c.messages.create(**kw)
-            return "".join(b.text for b in r.content if getattr(b, "type", "") == "text")
-        base, key, mdl = {
-            "groq": ("https://api.groq.com/openai/v1", _secret("GROQ_API_KEY") or _secret("GROQ_API"),
-                     "llama-3.3-70b-versatile"),
-            "xai": ("https://api.x.ai/v1", _secret("XAI_API_KEY"), "grok-3-mini"),
-            "openai": (None, _secret("OPENAI_API_KEY"), "gpt-4o-mini"),
-        }[p]
-        from openai import OpenAI
-        c = OpenAI(api_key=key, base_url=base, timeout=timeout)
-        kw = dict(model=mdl, messages=msgs, max_tokens=max_tokens, temperature=temperature)
-        if json_mode:
-            kw["response_format"] = {"type": "json_object"}
-        r = c.chat.completions.create(**kw)
-        return r.choices[0].message.content or ""
+    candidates = [p for p in order if p in available]
+    last_exc: Optional[Exception] = None
+    for i, p in enumerate(candidates):
+        try:
+            return _chat_one(p, msgs, max_tokens=max_tokens, temperature=temperature,
+                             json_mode=json_mode, purpose=purpose, timeout=timeout)
+        except Exception as e:  # rate limit / outage on one provider -> try the next
+            last_exc = e
+            if i + 1 < len(candidates):
+                logger.warning("LLM chat via %s failed (%s: %s); trying %s",
+                               p, type(e).__name__, e, candidates[i + 1])
+    if last_exc is not None:
+        raise last_exc
     raise RuntimeError("No hosted LLM API key configured (and the LLM switch is on 'api').")
+
+
+def _chat_one(p: str, msgs: list[dict], *, max_tokens: int, temperature: float, json_mode: bool,
+              purpose: Optional[str], timeout: float) -> str:
+    if p == "anthropic":
+        import anthropic
+        sys_txt = "\n\n".join(m["content"] for m in msgs if m["role"] == "system") or None
+        rest = [m for m in msgs if m["role"] != "system"]
+        c = anthropic.Anthropic(api_key=_secret("ANTHROPIC_API_KEY") or _secret("ANTHROPIC_API"), timeout=timeout)
+        kw: dict[str, Any] = dict(model=os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5"), max_tokens=max_tokens,
+                                  temperature=temperature, messages=rest)
+        if sys_txt:
+            kw["system"] = sys_txt
+        r = c.messages.create(**kw)
+        return "".join(b.text for b in r.content if getattr(b, "type", "") == "text")
+    base, key, mdl = {
+        "groq": (GROQ_BASE_URL, groq_key(), groq_model(purpose)),
+        "xai": ("https://api.x.ai/v1", _secret("XAI_API_KEY"), "grok-3-mini"),
+        "openai": (None, _secret("OPENAI_API_KEY"), "gpt-4o-mini"),
+    }[p]
+    from openai import OpenAI
+    c = OpenAI(api_key=key, base_url=base, timeout=timeout, max_retries=1)
+    kw = dict(model=mdl, messages=msgs, max_tokens=max_tokens, temperature=temperature)
+    if p == "groq":
+        kw.update(groq_extra(mdl))
+    if json_mode:
+        kw["response_format"] = {"type": "json_object"}
+    r = c.chat.completions.create(**kw)
+    return r.choices[0].message.content or ""
 
 
 # ---------------------------------------------------------------------------
@@ -234,7 +413,9 @@ def describe() -> dict:
     if is_ollama():
         return {"provider": "ollama", "host": ollama_host(), "model": ollama_model(),
                 "embed_model": ollama_embed_model()}
-    return {"provider": "api", "configured": configured_api_providers()}
+    chat_p = api_chat_provider()
+    return {"provider": "api", "configured": configured_api_providers(), "chat_provider": chat_p,
+            "chat_model": groq_model() if chat_p == "groq" else openai_fallback_model()}
 
 
 def ollama_json(prompt: str, schema_hint: str = "") -> Any:

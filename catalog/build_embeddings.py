@@ -203,9 +203,10 @@ def main():
         from afya_backends import llm as afya_llm
     except ImportError:
         afya_llm = None
-    use_ollama = bool(afya_llm and afya_llm.is_ollama())
-    if not args.openai_key and not use_ollama:
-        sys.exit("ERROR: --openai-key or OPENAI_API_KEY is required (or set AFYA_LLM_PROVIDER=ollama)")
+    needs_openai = not afya_llm or afya_llm.embed_provider() == afya_llm.EMBED_OPENAI
+    if not args.openai_key and needs_openai:
+        sys.exit("ERROR: --openai-key or OPENAI_API_KEY is required for OpenAI embeddings "
+                 "(unset LLM_EMBED_PROVIDER to embed locally, or set AFYA_LLM_PROVIDER=ollama)")
     if afya_llm and args.output == DEFAULT_OUTPUT:
         args.output = afya_llm.embeddings_index_path(DEFAULT_OUTPUT)
 

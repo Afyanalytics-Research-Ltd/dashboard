@@ -14,7 +14,7 @@ from afya_backends import llm, toggles
 def env(monkeypatch):
     for k in ("AFYA_LLM_PROVIDER", "LLM_PROVIDER_DEFAULT", "LLM_API_CHAT_PROVIDER", "GROQ_API", "GROQ_MODEL",
               "GROQ_MODEL_EXTRACTION", "OPENAI_FALLBACK_MODEL", "ANTHROPIC_API_KEY", "ANTHROPIC_API",
-              "XAI_API_KEY"):
+              "XAI_API_KEY", "LLM_EMBED_PROVIDER", "LOCAL_EMBED_MODEL"):
         monkeypatch.delenv(k, raising=False)
     monkeypatch.setenv("GROQ_API_KEY", "gsk-test")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
@@ -45,7 +45,11 @@ def test_model_maps_openai_names_to_groq(monkeypatch):
 def test_no_groq_key_or_forced_openai_keeps_openai(monkeypatch):
     monkeypatch.setenv("LLM_API_CHAT_PROVIDER", "openai")
     assert llm.model("gpt-4o-mini") == "gpt-4o-mini"
-    assert isinstance(llm.openai_client(), openai.OpenAI)
+    c = llm.openai_client()
+    assert isinstance(c.embeddings, llm._LocalEmbeddings)  # embeddings still local
+    assert c.chat is c._openai_or_none().chat               # chat straight to OpenAI
+    monkeypatch.setenv("LLM_EMBED_PROVIDER", "openai")
+    assert isinstance(llm.openai_client(), openai.OpenAI)   # nothing routed: plain client
     monkeypatch.delenv("LLM_API_CHAT_PROVIDER")
     monkeypatch.delenv("GROQ_API_KEY")
     assert llm.api_chat_provider() == "openai"
@@ -64,16 +68,49 @@ def test_explicit_base_url_bypasses_routing():
     assert isinstance(c, openai.OpenAI) and "example.test" in str(c.base_url)
 
 
-def test_client_chat_goes_to_groq_embeddings_to_openai():
+def test_client_chat_goes_to_groq():
     c = llm.openai_client(api_key="sk-explicit")
     assert "groq.com" in str(c._groq.base_url)
     with mock.patch.object(c._groq.chat.completions, "create", return_value="groq-reply") as g:
         assert c.chat.completions.create(model="openai/gpt-oss-120b", messages=[]) == "groq-reply"
         g.assert_called_once()
         assert g.call_args.kwargs["reasoning_effort"] == "low"  # gpt-oss: low effort by default
+
+
+def test_openai_embeddings_when_forced(monkeypatch):
+    monkeypatch.setenv("LLM_EMBED_PROVIDER", "openai")
+    c = llm.openai_client(api_key="sk-explicit")
     emb = c.embeddings
     assert "openai.com" in str(c._openai.base_url) and c._openai.api_key == "sk-explicit"
     assert hasattr(emb, "create")
+    assert llm.embedding_model() == "text-embedding-3-small"
+    assert str(llm.embeddings_index_path("catalog/embeddings.npz")) == "catalog/embeddings.npz"
+
+
+class _FakeModel:
+    def embed(self, texts):
+        return [[float(len(t)), 1.0] for t in texts]
+
+
+def test_local_embeddings_default(monkeypatch):
+    assert llm.embed_provider() == "local"
+    assert llm.embedding_model() == "BAAI/bge-small-en-v1.5"
+    assert str(llm.embeddings_index_path("catalog/embeddings.npz")) == "catalog/embeddings.local.npz"
+    monkeypatch.setattr(llm, "_local_text_embedding", lambda name: _FakeModel())
+    c = llm.openai_client()
+    r = c.embeddings.create(model=llm.embedding_model(), input=["ab", "abcd"])
+    assert [d.embedding for d in r.data] == [[2.0, 1.0], [4.0, 1.0]]
+    assert llm.embed(["xyz"]) == [[3.0, 1.0]]
+    import asyncio
+    ac = llm.async_openai_client()
+    r = asyncio.run(ac.embeddings.create(model=llm.embedding_model(), input="hello"))
+    assert r.data[0].embedding == [5.0, 1.0]
+
+
+def test_ollama_embeddings_unchanged(monkeypatch):
+    monkeypatch.setenv("AFYA_LLM_PROVIDER", "ollama")
+    assert llm.embed_provider() == "ollama"
+    assert str(llm.embeddings_index_path("catalog/embeddings.npz")) == "catalog/embeddings.ollama.npz"
 
 
 def test_rate_limit_falls_back_to_openai():

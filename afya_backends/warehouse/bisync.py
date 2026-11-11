@@ -350,6 +350,99 @@ def copy_table(src: Side, dst: Side, schema: str, table: str, *, dst_exists: boo
     return total
 
 
+@dataclass
+class Bulk:
+    """Server-side Snowflake -> Databend path for big tables: Snowflake unloads
+    parquet to ``stage`` (an external stage on s3://bucket/prefix, via a storage
+    integration - no AWS secret in Snowflake), Databend COPYs the files in and
+    purges them. Set up once with pipelines/setup_bisync_bulk.py."""
+    stage: str                      # e.g. HOSPITALS.ANALYTICS.BISYNC_STAGE
+    s3_url: str                     # the stage's URL, e.g. s3://bucket/_bisync_stage/
+    key_id: str
+    secret: str
+    region: str = "eu-north-1"
+    min_rows: int = 200_000
+
+    def available(self, sf: "Side") -> bool:
+        try:
+            sf.run(f"DESC STAGE {self.stage}")
+            return bool(self.key_id and self.secret)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("bulk path off - stage %s unusable (%s)", self.stage, str(e)[:150])
+            return False
+
+
+def bulk_copy_sf_to_db(sf: Side, db: Side, schema: str, table: str, bulk: Bulk, *, dst_exists: bool,
+                       log: Callable) -> int:
+    """Snowflake COPY INTO @stage (parquet) -> Databend COPY INTO staging -> verify -> swap."""
+    import uuid
+    cols = sf.columns(schema, table)
+    if not cols:
+        raise RuntimeError(f"{sf.label}: no columns visible for {schema}.{table}")
+    path = f"{schema}/{table}/{uuid.uuid4().hex[:12]}/"
+    # Plain parquet types only: text as VARCHAR (TIME/GEOGRAPHY too), VARIANT as JSON text,
+    # every timestamp flavour as NTZ.
+    exprs = []
+    for c in cols:
+        q = _q(c.name)
+        if c.kind == "VARIANT":
+            exprs.append(f"TO_JSON({q}) AS {q}")
+        elif c.kind == "TEXT":
+            exprs.append(f"TO_VARCHAR({q}) AS {q}")
+        elif c.kind == "TIMESTAMP":
+            exprs.append(f"{q}::TIMESTAMP_NTZ AS {q}")
+        else:
+            exprs.append(q)
+    out = sf.run(f"COPY INTO @{bulk.stage}/{path} FROM (SELECT {', '.join(exprs)} FROM {sf.fq(schema, table)}) "
+                 "FILE_FORMAT = (TYPE = PARQUET) HEADER = TRUE MAX_FILE_SIZE = 268435456")
+    unloaded = int(sum(r[0] for r in out)) if out else 0
+
+    db.ensure_schema(schema)
+    staging, raw = table + STAGING_SUFFIX, table + STAGING_SUFFIX + "_RAW"
+    variant = any(c.kind == "VARIANT" for c in cols)
+    url = bulk.s3_url.rstrip("/") + "/" + path
+    conn = (f"CONNECTION = (ACCESS_KEY_ID = '{bulk.key_id}', SECRET_ACCESS_KEY = '{bulk.secret}', "
+            f"REGION = '{bulk.region}')")
+    try:
+        db.create_table(schema, staging, cols)
+        load_into = staging
+        if variant:  # parquet carries JSON text; load as text, then parse
+            db.create_table(schema, raw, [Col(c.name, "TEXT" if c.kind == "VARIANT" else c.kind, c.precision, c.scale)
+                                          for c in cols])
+            load_into = raw
+        if unloaded:
+            # File, Rows_loaded, Errors_seen, First_error, First_error_line
+            res = db.run(f"COPY INTO {db.fq(schema, load_into)} FROM '{url}' {conn} PATTERN = '.*[.]parquet' "
+                         "FILE_FORMAT = (TYPE = PARQUET) PURGE = TRUE FORCE = TRUE")
+            loaded = sum(int(r[1] or 0) for r in res)
+            errs = [f"{r[0]}: {r[3]}" for r in res if r[3]]
+            if loaded != unloaded or errs:
+                raise RuntimeError(f"databend COPY loaded {loaded} of {unloaded} rows from {len(res)} file(s); "
+                                   f"errors: {errs[:3]}")
+        if variant:
+            sel = ", ".join(f"PARSE_JSON({_bq(c.name)})" if c.kind == "VARIANT" else _bq(c.name) for c in cols)
+            db.run(f"INSERT INTO {db.fq(schema, staging)} SELECT {sel} FROM {db.fq(schema, raw)}")
+            db.drop(schema, raw)
+        got = db.count(schema, staging)
+        if got != unloaded:
+            raise RuntimeError(f"staging row count {got} != {unloaded} unloaded from Snowflake")
+        db.swap_in(schema, staging, table, dst_exists)
+    except Exception as e:
+        for t in (staging, raw):
+            try:
+                db.drop(schema, t)
+            except Exception:  # noqa: BLE001
+                pass
+        raise RuntimeError(str(e).replace(bulk.secret, "***") if bulk.secret else str(e)) from None
+    finally:
+        try:   # PURGE removes loaded files; this catches a failed load
+            sf.run(f"REMOVE @{bulk.stage}/{path}")
+        except Exception:  # noqa: BLE001
+            pass
+    log(f"  bulk-copied {schema}.{table} snowflake -> databend: {unloaded:,} rows")
+    return unloaded
+
+
 def insert_missing(src: Side, dst: Side, schema: str, table: str, key: str, *, log: Callable) -> int:
     """Append src rows whose key is absent on dst (columns dst lacks are dropped)."""
     dst_cols = dst.columns(schema, table)
@@ -408,8 +501,11 @@ def plan(sf: dict, bend: dict, state: dict, *, allow_shrink: bool) -> list[tuple
 
 
 def run(sf: Side, db: Side, state_path: Path, *, allow_shrink: bool = False, dry_run: bool = False,
-        only: Optional[set] = None, log: Callable[[str], None] = None) -> dict:
+        only: Optional[set] = None, log: Callable[[str], None] = None, bulk: Optional[Bulk] = None) -> dict:
     log = log or logger.info
+    if bulk is not None and not dry_run and not bulk.available(sf):
+        bulk = None
+    log(f"bulk path: {'ON via ' + bulk.stage + f' (tables >= {bulk.min_rows:,} rows)' if bulk else 'off'}")
     state_path = Path(state_path)
     state = json.loads(state_path.read_text()) if state_path.exists() else {}
     sf_t, db_t = sf.tables(), db.tables()
@@ -441,7 +537,11 @@ def run(sf: Side, db: Side, state_path: Path, *, allow_shrink: bool = False, dry
             if action == "adopt":
                 report["adopted"] += 1
             elif action == "copy_sf_to_db":
-                report["rows"] += copy_table(sf, db, s_schema, s_table, dst_exists=b is not None, log=log)
+                if bulk is not None and a.rows >= bulk.min_rows:
+                    report["rows"] += bulk_copy_sf_to_db(sf, db, s_schema, s_table, bulk,
+                                                         dst_exists=b is not None, log=log)
+                else:
+                    report["rows"] += copy_table(sf, db, s_schema, s_table, dst_exists=b is not None, log=log)
                 report["copied_sf_to_db"].append(name)
             elif action == "copy_db_to_sf":
                 report["rows"] += copy_table(db, sf, s_schema, s_table, dst_exists=a is not None, log=log)

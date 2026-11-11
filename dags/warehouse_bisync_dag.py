@@ -89,9 +89,19 @@ def warehouse_bisync():
 
         sf = bisync.Side("snowflake", sf_conn, database, schemas)
         db = bisync.Side("databend", dbapi.Connection(database=database), database, schemas)
+        # Big tables go Snowflake -> S3 parquet -> Databend server-side once
+        # pipelines/setup_bisync_bulk.py has created the stage; until then (or if
+        # it breaks) every table uses the row-streaming path.
+        bulk = bisync.Bulk(
+            stage=os.getenv("BISYNC_SNOWFLAKE_STAGE", "HOSPITALS.ANALYTICS.BISYNC_STAGE"),
+            s3_url=os.getenv("BISYNC_S3_URL", "s3://afya-platform-backups-707559309638/_bisync_stage/"),
+            key_id=(os.getenv("BACKUP_AWS_ACCESS_KEY_ID") or os.getenv("AWS_ACCESS_KEY_ID") or "").strip(),
+            secret=(os.getenv("BACKUP_AWS_SECRET_ACCESS_KEY") or os.getenv("AWS_SECRET_ACCESS_KEY") or "").strip(),
+            region=os.getenv("BACKUP_S3_REGION") or os.getenv("AWS_REGION") or "eu-north-1",
+            min_rows=int(os.getenv("BISYNC_BULK_MIN_ROWS", "200000")))
         try:
             report = bisync.run(sf, db, STATE_FILE, allow_shrink=bool(params.get("allow_shrink")),
-                                dry_run=bool(params.get("dry_run")), only=only, log=log.info)
+                                dry_run=bool(params.get("dry_run")), only=only, log=log.info, bulk=bulk)
         finally:
             sf_conn.close()
         for c in report["conflicts"]:

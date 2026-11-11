@@ -215,6 +215,11 @@ def setup_bucket() -> dict:
         "NoncurrentVersionExpiration": {"NoncurrentDays": 7},
         "AbortIncompleteMultipartUpload": {"DaysAfterInitiation": 2},
     }, {
+        # warehouse_bisync's bulk staging area: files are purged after each load;
+        # this only catches leftovers of a failed run.
+        "ID": "bisync-stage-2d", "Status": "Enabled", "Filter": {"Prefix": "_bisync_stage/"},
+        "Expiration": {"Days": 2}, "NoncurrentVersionExpiration": {"NoncurrentDays": 1},
+    }, {
         "ID": "expired-delete-markers", "Status": "Enabled", "Filter": {"Prefix": ""},
         "Expiration": {"ExpiredObjectDeleteMarker": True},
     }]})

@@ -27,12 +27,15 @@ def get_llm(temperature: float = 0.3) -> Any:
         )
 
     if os.getenv("GROQ_API_KEY"):
+        # A large tool-calling model (GROQ_MODEL, default openai/gpt-oss-120b;
+        # llama-3.3-70b-versatile was retired by Groq).
+        model = afya_llm.groq_model("agent")
         return ChatOpenAI(
             api_key=os.getenv("GROQ_API_KEY"),
-            base_url="https://api.groq.com/openai/v1",
-            # 70b model is required for reliable tool calling on Groq
-            model="llama-3.3-70b-versatile",
+            base_url=afya_llm.GROQ_BASE_URL,
+            model=model,
             temperature=temperature,
+            **afya_llm.groq_extra(model),
         )
 
     if os.getenv("XAI_API_KEY"):

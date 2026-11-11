@@ -1868,7 +1868,7 @@ def render_briefing(filters: dict, run_query):
     rev_at_risk     = _val(df_lap, "recoverable_revenue_kes")
 
     # ── Page header ───────────────────────────────────────────────────────
-    page_header("Today's Briefing", "Kisumu Specialists Hospital · Clinical overview")
+    page_header("Today's Briefing", "Your daily clinical pulse: what changed, what needs attention, and where to act")
 
     # ── A — Headline numbers ──────────────────────────────────────────────
     section_header("A — Headline numbers")

@@ -1,0 +1,3 @@
+# Build context for Dockerfile.airflow: only the pipelines' requirements.
+*
+!pipelines/requirements.txt

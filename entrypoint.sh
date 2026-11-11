@@ -26,7 +26,7 @@ echo "<<<<<<<<<<<<<<<<<<<< START Celery >>>>>>>>>>>>>>>>>>>>>>>>"
 celery -A airflow_dashboard worker --loglevel=info &
 
 # # # start celery beat
-# celery -A airflow_dashboard beat --loglevel=info &
+celery -A airflow_dashboard beat --loglevel=info &
 
 # sleep 5
 

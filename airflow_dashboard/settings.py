@@ -52,6 +52,15 @@ CORS_ALLOWED_ORIGINS = [
     'https://8fa2-105-164-5-177.ngrok-free.app'
 ]
 
+# The public hostname this deployment is served on (production:
+# datahub.afyaanalytics.com, staging: datapipelines.afyaanalytics.ai). Set
+# DOMAIN in the server's .env — the same value nginx and scripts/deploy.sh use.
+SITE_DOMAIN = os.getenv('DOMAIN', '').strip().lower()
+if SITE_DOMAIN and SITE_DOMAIN not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append(SITE_DOMAIN)
+    CSRF_TRUSTED_ORIGINS.append(f'https://{SITE_DOMAIN}')
+    CORS_ALLOWED_ORIGINS.append(f'https://{SITE_DOMAIN}')
+
 # Or for dev, just allow everything:
 # CORS_ALLOW_ALL_ORIGINS = True
 # ---------------------------------------------------------------------------
@@ -73,6 +82,7 @@ INSTALLED_APPS = [
     'drf_spectacular',
     'django_filters',
     'channels',
+    'django_celery_beat',
     # Local apps
     'core',
     'authentication',
@@ -84,6 +94,11 @@ INSTALLED_APPS = [
     'corsheaders',
     'catalog',
     'forecasting',
+    'browser_automation',
+    'redash_ui',
+    'warehouse_studio',
+    'wandb_ui',
+    'n8n_studio',
 ]
 
 # ---------------------------------------------------------------------------
@@ -249,11 +264,39 @@ REDASH_BASE_URL = os.getenv(
 
 # Admin-user API key used server-side to provision Redash Groups/Data
 # Sources per facility (see analytics_app/management/commands/provision_redash_facility.py).
-REDASH_ADMIN_API_KEY = os.getenv('REDASH_ADMIN_API_KEY', '').strip()
+REDASH_ADMIN_API_KEY = os.getenv('REDASH_ADMIN_API_KEY', '').strip().strip('"')
 
-AIRFLOW_BASE_URL = os.getenv('AIRFLOW_BASE_URL', 'http://localhost:8080').rstrip('/')
-AIRFLOW_USERNAME = os.getenv('AIRFLOW_USERNAME', 'airflow').strip()
-AIRFLOW_PASSWORD = os.getenv('AIRFLOW_PASSWORD', 'airflow').strip()
+# Server-side Redash URL for the Analytics Studio proxy (redash_ui). Inside
+# docker this is usually http://redash-server:5000; defaults to the base URL.
+REDASH_API_URL = os.getenv('REDASH_API_URL', REDASH_BASE_URL).rstrip('/')
+REDASH_TIMEOUT = float(os.getenv('REDASH_TIMEOUT', '60'))
+
+# Model Studio (wandb_ui) -> self-hosted W&B Server (docker-compose.wandb.yaml).
+# WANDB_BASE_URL is server-side (inside docker: http://wandb-local:8080);
+# WANDB_HOST_URL is the URL W&B advertises to SDK clients and in file links.
+WANDB_BASE_URL = os.getenv('WANDB_BASE_URL', 'http://localhost:8090').rstrip('/')
+WANDB_HOST_URL = os.getenv('WANDB_HOST_URL', WANDB_BASE_URL).rstrip('/')
+WANDB_API_KEY = os.getenv('WANDB_API_KEY', '').strip().strip('"')
+WANDB_TIMEOUT = float(os.getenv('WANDB_TIMEOUT', '60'))
+
+# Automation Studio (n8n_studio) -> n8n public API (docker-compose.n8n.yaml).
+# N8N_API_URL is server-side (inside docker: http://n8n-container:5678, plus the
+# N8N_PATH prefix if n8n runs under one). N8N_API_KEY comes from n8n -> Settings ->
+# n8n API. N8N_STUDIO_EMAIL/PASSWORD (optional) enable manual runs + live node catalog.
+N8N_API_URL = os.getenv('N8N_API_URL', 'http://localhost:5679').rstrip('/')
+N8N_API_KEY = os.getenv('N8N_API_KEY', '').strip().strip('"')
+N8N_PUBLIC_URL = os.getenv('N8N_PUBLIC_URL', os.getenv('N8N_EDITOR_BASE_URL', N8N_API_URL)).rstrip('/')
+N8N_WEBHOOK_URL = os.getenv('N8N_WEBHOOK_URL', N8N_PUBLIC_URL).rstrip('/')
+N8N_TIMEOUT = float(os.getenv('N8N_TIMEOUT', '60'))
+N8N_STUDIO_EMAIL = os.getenv('N8N_STUDIO_EMAIL', '').strip()
+N8N_STUDIO_PASSWORD = os.getenv('N8N_STUDIO_PASSWORD', '').strip().strip('"')
+
+AIRFLOW_BASE_URL = os.getenv('AIRFLOW_BASE_URL', 'https://datapipelines.afyaanalytics.com').rstrip('/')
+# Browser-facing Airflow URL for "open in Airflow" links (defaults to the base URL).
+AIRFLOW_PUBLIC_URL = os.getenv('AIRFLOW_PUBLIC_URL', 'https://datapipelines.afyaanalytics.com').rstrip('/')
+AIRFLOW_USERNAME = os.getenv('AIRFLOW_USERNAME', 'airflow').strip().strip('"')
+AIRFLOW_PASSWORD = os.getenv('AIRFLOW_PASSWORD', 'airflow').strip().strip('"')
+AIRFLOW_TIMEOUT = float(os.getenv('AIRFLOW_TIMEOUT', '30'))
 
 SNOWFLAKE_ACCOUNT = os.getenv('SNOWFLAKE_ACCOUNT', '').strip()
 SNOWFLAKE_USER = os.getenv('SNOWFLAKE_USER', '').strip()
@@ -261,6 +304,39 @@ SNOWFLAKE_PASSWORD = os.getenv('SNOWFLAKE_PASSWORD', '').strip()
 SNOWFLAKE_WAREHOUSE = os.getenv('SNOWFLAKE_WAREHOUSE', '').strip()
 SNOWFLAKE_DATABASE = os.getenv('SNOWFLAKE_DATABASE', '').strip()
 SNOWFLAKE_SCHEMA = os.getenv('SNOWFLAKE_SCHEMA', 'PUBLIC').strip()
+
+# Databend HTTP handler (docker-compose.databend.yaml) — reached from inside
+# the docker network, not the browser, so the container/service name is fine.
+DATABEND_HTTP_URL = os.getenv('DATABEND_HTTP_URL', 'http://databend:8000').rstrip('/')
+DATABEND_USER = os.getenv('DATABEND_USER', 'databend').strip()
+DATABEND_PASSWORD = os.getenv('DATABEND_PASSWORD', '').strip()
+
+# Browserbase (browserbase.com) — hosted headless-browser SaaS, used by the
+# browserbase app's SDK client. No self-hosted URL: the SDK talks to
+# api.browserbase.com directly, and the live-view iframe src returned by
+# their API points at their own domain (loaded straight in the user's
+# browser, not proxied through this app or nginx).
+BROWSERBASE_API_KEY = os.getenv('BROWSERBASE_API_KEY', '').strip()
+BROWSERBASE_PROJECT_ID = os.getenv('BROWSERBASE_PROJECT_ID', '').strip()
+
+# MCP server (docker-compose.mcp-browserbase.yaml) that wraps Browserbase as
+# agent tools (start/navigate/act/extract/observe/end) over Streamable HTTP.
+# Reached from inside the docker network — see browser_automation/mcp_client.py.
+BROWSERBASE_MCP_URL = os.getenv(
+    'BROWSERBASE_MCP_URL', 'http://mcp-browserbase:8931/mcp'
+).strip()
+
+# Persistent Browserbase Context — see BROWSERBASE_CONTEXT_ID's comment in
+# .env. Shared by both browser_automation/services.py (direct SDK sessions)
+# and the mcp-browserbase container, so a login made in either place carries
+# over to the other.
+BROWSERBASE_CONTEXT_ID = os.getenv('BROWSERBASE_CONTEXT_ID', '').strip()
+
+# Bright Data external proxy (Kenya) — see BRIGHTDATA_PROXY_SERVER's comment
+# in .env for why this exists instead of Browserbase's own geo-proxy.
+BRIGHTDATA_PROXY_SERVER = os.getenv('BRIGHTDATA_PROXY_SERVER', '').strip()
+BRIGHTDATA_PROXY_USERNAME = os.getenv('BRIGHTDATA_PROXY_USERNAME', '').strip()
+BRIGHTDATA_PROXY_PASSWORD = os.getenv('BRIGHTDATA_PROXY_PASSWORD', '').strip()
 
 # ---------------------------------------------------------------------------
 # Email
@@ -472,7 +548,7 @@ CSRF_COOKIE_SECURE = not DEBUG
 # ---------------------------------------------------------------------------
 # Reverse proxy trust (nginx terminates TLS; Django itself is only ever
 # reached over plain HTTP inside the docker network — see
-# nginx/sites-enabled/django_project, which sets X-Forwarded-Proto on
+# nginx/templates/django_project.template, which sets X-Forwarded-Proto on
 # every proxied location). Without this, request.is_secure() is always
 # False behind the proxy, which breaks secure-cookie logic above and any
 # https:// URL Django generates for itself (e.g. redirects).
@@ -523,3 +599,10 @@ CELERY_RESULT_EXPIRES = 60 * 60 * 24  # 24 hours — enough to check a result th
 # for local dev without docker-compose's redis service running. Off by
 # default so production always actually queues instead of silently blocking.
 CELERY_TASK_ALWAYS_EAGER = os.getenv('CELERY_TASK_ALWAYS_EAGER', 'false').strip().lower() == 'true'
+
+# django_celery_beat's DatabaseScheduler reads PeriodicTask rows (created by
+# browser_automation's ScheduledBrowserTask forms) instead of a static
+# schedule — lets "run this every day at 4pm" be configured from the UI
+# without a code deploy. Only takes effect for a `celery beat` process
+# started with this scheduler (see docker-compose.celery.yaml).
+CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'

@@ -208,12 +208,12 @@ def send_digest(facility_name: str, notices: list, stats: str = "",
 
 
 def write_current_notices(facility_name: str, notices: list) -> None:
-    """Write per-facility notices JSON so multiple facilities don't overwrite each other."""
-    slug = facility_name.replace(" ", "_").upper()
-    path = os.path.join(os.path.dirname(__file__), f"current_notices_{slug}.json")
-    today = datetime.now().strftime("%d %b %Y")
-    with open(path, "w") as f:
-        json.dump(
-            {"facility": facility_name, "date": today, "count": len(notices), "notices": notices},
-            f, indent=2,
-        )
+    from analytics_app.models import FacilityNotice
+    FacilityNotice.objects.update_or_create(
+        facility=facility_name,
+        defaults={
+            "date": datetime.now().strftime("%d %b %Y"),
+            "count": len(notices),
+            "notices": notices,
+        },
+    )

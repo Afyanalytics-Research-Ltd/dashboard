@@ -184,6 +184,27 @@ class Dashboard(models.Model):
         super().save(*args, **kwargs)
 
 
+class FacilityNotice(models.Model):
+    """Persists the current active notices for a facility.
+
+    Replaces the runtime-written current_notices_<FACILITY>.json files that
+    caused git pull conflicts in production. One row per facility — upserted
+    each time compute_notices runs.
+    """
+
+    facility = models.CharField(max_length=50, unique=True)
+    date = models.CharField(max_length=20)
+    count = models.PositiveIntegerField(default=0)
+    notices = models.JSONField(default=list)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name_plural = 'Facility notices'
+
+    def __str__(self):
+        return f"{self.facility} — {self.count} notice(s) as of {self.date}"
+
+
 class ReportingQuery(models.Model):
     """A Redash query provisioned against the Snowflake REPORTING schema.
 

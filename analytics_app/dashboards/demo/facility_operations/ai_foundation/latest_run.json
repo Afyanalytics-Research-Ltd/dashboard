@@ -1,0 +1,29 @@
+{
+  "schema_version": "1.0",
+  "run_ts": "2026-08-28T07:51:22+00:00",
+  "status": "ok",
+  "problems": [
+    {
+      "metric_id": "consult_p50",
+      "priority_score": 1.5654,
+      "severity": "Warning",
+      "impact_domain": "patient_flow",
+      "signature": {
+        "attribution": "PHYSIOTHERAPY CLINIC",
+        "temporal_pattern": "Wed/11:00",
+        "cohort": "PHYSIOTHERAPY CLINIC",
+        "mechanism": "volume"
+      },
+      "briefing": {
+        "what": "The median consultation wait time is currently 116 minutes, which is 26.1% above the baseline of 92 minutes. This elevation is based on a sample of 2046 consult records.",
+        "where": "The delay is attributed to the Physiotherapy Clinic, which has a median wait time of 213 minutes. Data confidence is limited because only 39.0% of visits have complete timestamp coverage.",
+        "when": "The peak day is Wednesday, with the highest average wait occurring at 11:00. The concentration window for elevated demand spans the hours of 09:00 to 11:00.",
+        "mechanism": "Volume is the supported mechanism, as peak arrivals are 1.65 times the overall average during the 09:00 to 11:00 window. Capacity and scheduling mechanisms are not applicable due to missing staffing and appointment data.",
+        "downstream": "Incomplete care is supported, with a cohort rate of 4.7% compared to the 3.5% baseline. Pharmacy impact is not applicable because this patient pathway does not include pharmacy visits.",
+        "unknowns": "Missing staffing data would clarify if provider availability limits throughput during peak hours. Missing appointment data would determine if session scheduling contributes to the wait time concentration.",
+        "action": "The Physiotherapy Clinic Manager should investigate the demand pattern and its operational cause during the 09:00 to 11:00 window."
+      },
+      "evidence_payload": "SIGNAL\n  Metric        : consult_p50\n  Current value : 116 min  (28-day rolling average P50)\n  Baseline      : 92 min  (prior 28-day average P50)\n  Change        : +26.1% above baseline\n  Sample        : 2046 consult records\n  Priority score: 1.5654  (consult_p50_card: severity=2 x impact=3)\n\nATTRIBUTION  [status: SUPPORTED]\n  Department  : PHYSIOTHERAPY CLINIC\n  P50 wait    : 213 min\n  Limitation  : PHYSIOTHERAPY CLINIC: 39.0% timestamp coverage (576/1477 visits)\n\nTEMPORAL  [status: SUPPORTED]\n  Peak day  : Wed  (avg 238.0 min across all hours that day)\n  Peak hour : 11:00  (avg 351.0 min)\n\nMECHANISM  [step status: SUPPORTED]\n  volume  [SUPPORTED]\n    Peak window hours : [9, 10, 11]\n    Peak arrivals/hr  : 6.6\n    Overall avg/hr    : 4.0\n    Ratio             : 1.65x  (threshold 1.2x)\n  capacity  [NOT_APPLICABLE]  — No Physiotherapy staffing data in schema — SHIFTS covers OPD and Pharmacy only\n  scheduling  [NOT_APPLICABLE]  — No appointments/clinic session table at source — DATA_GAPS.md §3\n\nDOWNSTREAM — pharmacy  [status: NOT_APPLICABLE]\n  Reason : PHYSIOTHERAPY CLINIC has 0 pharmacy records in the 28-day window — patient pathway does not include pharmacy\n\nDOWNSTREAM — incomplete care  [status: SUPPORTED]\n  Cohort incomplete rate  : 4.7%  (69 of 1477 visits)\n  OPD baseline rate       : 3.5%\n  Ratio                   : 1.34x  (threshold 1.2x)\n  Downstream elevated     : True"
+    }
+  ]
+}

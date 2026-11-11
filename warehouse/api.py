@@ -5,6 +5,7 @@ Endpoints:
     /api/v1/warehouse/snowflake/query/      — SnowflakeQueryAPIView
     /api/v1/warehouse/snowflake/queries/    — SnowflakeQueryLogViewSet
     /api/v1/warehouse/snowflake/tables/     — SnowflakeTablesAPIView
+    /api/v1/warehouse/databend/tables/      — DatabendTablesAPIView
 """
 
 import logging
@@ -29,6 +30,7 @@ from .serializers import (
     SnowflakeQuerySerializer,
     TrackedSpreadsheetSerializer,
 )
+from .services.databend import DatabendClient, DatabendQueryError
 from .services.facility_scope import FacilityScopeError, filter_tables_for_scope, get_facility_scope, validate_query_scope
 from .services.snowflake import SnowflakeClient, SnowflakeQueryError
 from .sheet_service import SheetsServiceError, get_service
@@ -323,4 +325,20 @@ class SnowflakeTablesAPIView(APIView):
 
         scope = get_facility_scope(request.user)
         tables = filter_tables_for_scope(tables, scope)
+        return Response({"tables": tables, "count": len(tables)})
+
+
+class DatabendTablesAPIView(APIView):
+    """GET the full list of user tables visible in Databend."""
+
+    permission_classes = [permissions.IsAuthenticated, IsWarehouseUser]
+
+    def get(self, request) -> Response:
+        try:
+            client = DatabendClient()
+            tables = client.list_tables()
+        except (DatabendQueryError, Exception) as exc:
+            logger.error("DatabendTablesAPIView error: %s", exc)
+            return Response({"error": str(exc)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
         return Response({"tables": tables, "count": len(tables)})

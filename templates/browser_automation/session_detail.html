@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+
+{% block title %}Session {{ session.id|default:"" }} — Browser Automation{% endblock %}
+
+{% block extra_css %}
+<style>
+  :root {
+    --afya-blue: #0072CE;
+    --afya-teal: #0BB99F;
+    --afya-cool: #003467;
+    --afya-amber: #D97706;
+  }
+  .bb-status-pill {
+    font-size: .72rem; font-weight: 600; padding: .25rem .7rem; border-radius: 20px;
+    text-transform: uppercase; letter-spacing: .02em;
+  }
+  .bb-status-RUNNING   { background: #dcfce7; color: #15803d; }
+  .bb-status-PENDING   { background: #fef9c3; color: #a16207; }
+  .bb-status-ERROR     { background: #fee2e2; color: #b91c1c; }
+  .bb-status-TIMED_OUT { background: #ffedd5; color: #c2410c; }
+  .bb-status-COMPLETED { background: #e5e7eb; color: #374151; }
+  .bb-live-frame-wrap {
+    background: #0f172a;
+    border-radius: 12px;
+    overflow: hidden;
+    aspect-ratio: 16 / 10;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .bb-live-frame-wrap iframe { width: 100%; height: 100%; border: 0; }
+  .bb-meta dt { font-size: .72rem; text-transform: uppercase; letter-spacing: .03em; color: #6c757d; }
+  .bb-meta dd { font-family: 'Fira Code','Consolas',monospace; font-size: .82rem; margin-bottom: .75rem; word-break: break-all; }
+  .bb-placeholder { color: #94a3b8; text-align: center; padding: 2rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="fw-bold mb-0">
+    <i class="bi bi-window me-2" style="color:var(--afya-teal);"></i>
+    Browser Session
+    {% if session %}<span class="bb-status-pill bb-status-{{ session.status }} ms-2">{{ session.status }}</span>{% endif %}
+  </h4>
+  <div class="d-flex gap-2">
+    <a href="{% url 'browserbase:console' %}" class="btn btn-sm btn-outline-secondary">&larr; All Sessions</a>
+    {% if session and session.status == "RUNNING" %}
+    <form method="post" action="{% url 'browserbase:end_session' session_id=session.id %}"
+          onsubmit="return confirm('End this session? This releases it immediately.');">
+      {% csrf_token %}
+      <button type="submit" class="btn btn-sm btn-danger">
+        <i class="bi bi-stop-circle me-1"></i>End Session
+      </button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
+{% if error %}
+<div class="alert alert-danger">{{ error }}</div>
+{% elif session %}
+<div class="row g-3">
+  <div class="col-lg-8">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header fw-semibold py-2">Live View</div>
+      <div class="card-body p-2">
+        <div class="bb-live-frame-wrap">
+          {% if live_urls %}
+          <iframe src="{{ live_urls.debugger_fullscreen_url }}" allow="clipboard-read; clipboard-write"></iframe>
+          {% elif live_error %}
+          <div class="bb-placeholder">
+            <i class="bi bi-exclamation-triangle display-6 d-block mb-2"></i>
+            Couldn't load the live view: {{ live_error }}
+          </div>
+          {% else %}
+          <div class="bb-placeholder">
+            <i class="bi bi-hourglass-split display-6 d-block mb-2"></i>
+            Live view is only available while the session is RUNNING.
+            {% if session.status == "COMPLETED" or session.status == "TIMED_OUT" or session.status == "ERROR" %}
+            <div class="small mt-1">This session has ended.</div>
+            {% endif %}
+          </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-4">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header fw-semibold py-2">Session Details</div>
+      <div class="card-body">
+        <dl class="bb-meta mb-0">
+          <dt>Session ID</dt>
+          <dd>{{ session.id }}</dd>
+          <dt>Region</dt>
+          <dd>{{ session.region|default:"—" }}</dd>
+          <dt>Created</dt>
+          <dd>{{ session.created_at|default:"—" }}</dd>
+          <dt>Started</dt>
+          <dd>{{ session.started_at|default:"—" }}</dd>
+          {% if session.ended_at %}
+          <dt>Ended</dt>
+          <dd>{{ session.ended_at }}</dd>
+          {% endif %}
+          <dt>Keep Alive</dt>
+          <dd>{{ session.keep_alive|yesno:"Yes,No" }}</dd>
+        </dl>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}

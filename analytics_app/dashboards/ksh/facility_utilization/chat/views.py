@@ -1,7 +1,6 @@
 import json
 import os
 import re
-from pathlib import Path
 
 import httpx
 from django.http import JsonResponse
@@ -15,9 +14,6 @@ from .chat_logger import log_event
 GROQ_URL      = "https://api.groq.com/openai/v1/chat/completions"
 ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
 _CLAUDE_MODEL = "claude-haiku-4-5-20251001"
-
-# facility_utilization/ — two levels up from chat/views.py
-_PRIVATE = Path(__file__).resolve().parent.parent
 
 # Inline SVG avatars — no static file dependency
 _BOT_SVG = mark_safe(
@@ -43,14 +39,9 @@ _USER_SVG = mark_safe(
 
 
 def _load_notices() -> dict:
-    for name in [f"current_notices_KSH.json", "current_notices.json"]:
-        path = _PRIVATE / name
-        if path.exists():
-            try:
-                return json.loads(path.read_text(encoding="utf-8"))
-            except Exception:
-                pass
-    return {"facility": "KSH", "date": "", "count": 0, "notices": []}
+    from analytics_app.models import FacilityNotice
+    row = FacilityNotice.objects.filter(facility="KSH").values("facility", "date", "count", "notices").first()
+    return row or {"facility": "KSH", "date": "", "count": 0, "notices": []}
 
 
 def chat_page(request):

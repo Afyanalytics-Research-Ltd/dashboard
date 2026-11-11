@@ -1,19 +1,4 @@
-"""Snowflake connectivity — RSA key-pair auth, read-only usage.
-
-WHY this shape:
-
-- The account's MFA policy blocks programmatic password auth, so the only
-  supported path is RSA key-pair (private key PEM → DER passed to the
-  connector). No passwords, and no secrets ever printed or logged.
-- ``snowflake.connector`` and ``cryptography`` are imported *lazily* inside
-  functions: offline runs must work on machines without either package
-  installed.
-- Connection identity comes from environment variables with documented
-  defaults; the private-key location comes from ``SNOWFLAKE_PRIVATE_KEY_PATH``
-  with a fallback to the workspace-root ``rsa_key.p8``. The fallback is
-  resolved relative to *this package's own root* (two levels up from this
-  file) — deliberately not the cross-repo ``parents[5]`` reach the KSH
-  reference module used, which broke whenever the repo layout shifted.
+"""Snowflake connectivity
 """
 
 from __future__ import annotations
@@ -24,51 +9,42 @@ from typing import Any, Mapping, Optional
 
 import pandas as pd
 
-# Workspace root = the directory that contains the inventory_intelligence
-# package (".../st peter's orthopedic"). parents[0]=utils, [1]=package, [2]=root.
+# _REPO_ROOT = the dashboard repo root (main-repo layout); _WORKSPACE_ROOT keeps
+# the standalone-repo layout working.
 _WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
-
-#: Environment-variable defaults for the SPH warehouse.
-#: Every value is overridable via the same-named environment variable.
-ENV_DEFAULTS: Mapping[str, str] = {
-    "SNOWFLAKE_ACCOUNT": "UFLYZNZ-RA32706",
-    "SNOWFLAKE_USER": "SAMUEL.SEKA",
-    "SNOWFLAKE_ROLE": "DATAANALYSTS",
-    "SNOWFLAKE_WAREHOUSE": "COMPUTE_WH",
-    "SNOWFLAKE_DATABASE": "HOSPITALS",
-}
+try:
+    _REPO_ROOT = Path(__file__).resolve().parents[5]
+except IndexError:
+    _REPO_ROOT = _WORKSPACE_ROOT
 
 
 def _load_dotenv_if_available() -> None:
-    """Best-effort .env loading (package root, then workspace root).
-
-    Optional: python-dotenv is in requirements but its absence must never
-    break imports (offline tests).
-    """
+  
     try:
-        from dotenv import load_dotenv  # lazy — optional convenience only
+        from dotenv import load_dotenv  
     except ImportError:
         return
-    for candidate in (_WORKSPACE_ROOT / ".env", Path(__file__).resolve().parents[1] / ".env"):
+    for candidate in (_REPO_ROOT / ".env", _WORKSPACE_ROOT / ".env",
+                      Path(__file__).resolve().parents[1] / ".env"):
         if candidate.is_file():
             load_dotenv(candidate, override=False)
 
 
 def _setting(name: str) -> str:
-    value = os.getenv(name, ENV_DEFAULTS.get(name, ""))
-    return value.strip()
+    return os.getenv(name, "").strip()
 
 
 def default_private_key_path() -> Path:
-    """Resolve the RSA private-key PEM path.
-
-    Order: ``SNOWFLAKE_PRIVATE_KEY_PATH`` env var, else ``rsa_key.p8`` in the
-    workspace root next to this package.
-    """
+    """RSA key path: ``SNOWFLAKE_PRIVATE_KEY_PATH`` (a relative value is anchored
+    to the repo root, like KSH), else ``rsa_key.p8`` at the repo/workspace root."""
     env_path = os.getenv("SNOWFLAKE_PRIVATE_KEY_PATH", "").strip()
     if env_path:
-        return Path(env_path).expanduser()
-    return _WORKSPACE_ROOT / "rsa_key.p8"
+        p = Path(env_path).expanduser()
+        return p if p.is_absolute() else (_REPO_ROOT / p)
+    for root in (_REPO_ROOT, _WORKSPACE_ROOT):
+        if (root / "rsa_key.p8").is_file():
+            return root / "rsa_key.p8"
+    return _REPO_ROOT / "rsa_key.p8"
 
 
 def _load_private_key_der(key_path: Path) -> bytes:

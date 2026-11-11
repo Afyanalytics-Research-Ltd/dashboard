@@ -11,6 +11,15 @@ venv/
 .ruff_cache/
 logs/
 *.log
+
+# Airflow pipelines (run by docker-compose.airflow.yaml, not the Django image):
+# hundreds of MB of migration state plus the pipelines' credentials.
+# requirements.txt stays in: Dockerfile.airflow COPYs it, and Docker's legacy
+# builder (no buildx) ignores Dockerfile.airflow.dockerignore and uses this file.
+pipelines/*
+!pipelines/requirements.txt
+dags/
+plugins/
 node_modules/
 .DS_Store
 Thumbs.db

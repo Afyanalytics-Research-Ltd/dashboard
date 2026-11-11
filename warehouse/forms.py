@@ -489,6 +489,33 @@ class SnowflakeQueryForm(forms.Form):
         return sql
 
 
+# ── databend ─────────────────────────────────────────────────────
+
+
+class DatabendQueryForm(forms.Form):
+    query = forms.CharField(
+        label="SQL Query",
+        widget=forms.Textarea(attrs={
+            **_ctrl("font-monospace"),
+            "rows": 12,
+            "placeholder": "SELECT * FROM my_table LIMIT 100",
+            "spellcheck": "false",
+        }),
+        help_text="Only SELECT statements are permitted. Destructive keywords are blocked.",
+        error_messages={"required": "Please enter a SQL query."},
+    )
+
+    def clean_query(self) -> str:
+        sql = self.cleaned_data["query"].strip()
+        match = _BLOCKED_RE.search(sql)
+        if match:
+            raise forms.ValidationError(
+                f"The keyword '{match.group(0).upper()}' is not permitted. "
+                "Only read-only SELECT queries are allowed."
+            )
+        return sql
+
+
 # ──────────────────────────────────────────── spreadsheet analyst
 
 from pathlib import Path as _Path

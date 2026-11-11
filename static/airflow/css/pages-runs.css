@@ -1,0 +1,81 @@
+/* Page styles: runs, run detail, task instances, task detail */
+
+/* ---- list filters */
+.af-runs-filters { display: flex; flex-direction: column; gap: 12px; }
+.af-filter-group { display: inline-flex; align-items: center; gap: 8px; flex-wrap: nowrap; }
+.af-runs-cell { min-width: 220px; max-width: 420px; }
+.af-runs-dagname { font-weight: 600; word-break: break-all; }
+.af-runs-dag { display: flex; align-items: center; gap: 6px; min-width: 220px; }
+.af-runs-dag input { border-radius: 99px; }
+.af-runs-custom { display: flex; align-items: center; gap: 6px; }
+.af-runs-custom input { width: auto; }
+.af-runs-id { display: flex; align-items: center; gap: 6px; }
+.af-runs-id .af-copy-btn { opacity: 0; transition: opacity .12s; }
+.af-table tr:hover .af-runs-id .af-copy-btn { opacity: 1; }
+.af-runs-note { display: inline-block; margin-top: 3px; font-size: 11.5px; color: #92400e; background: #fffbeb; padding: 0 6px; border-radius: 5px; white-space: nowrap; max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
+.af-runs-conf { max-width: 150px; }
+.af-run-type { font-size: 12px; white-space: nowrap; color: #334155; text-transform: capitalize; }
+.af-run-type i { color: var(--af-muted); }
+.af-ti-advanced { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; padding: 12px; border-radius: var(--af-radius-sm); background: var(--af-surface-2); border: 1px dashed var(--af-border); }
+.af-ti-filter { display: flex; flex-direction: column; gap: 3px; }
+.af-page .btn.active { background: var(--af-primary-soft); border-color: var(--af-primary); color: var(--af-primary); }
+
+/* ---- run / task header */
+.af-run-title { font-size: 19px; word-break: break-all; }
+.af-run-sub { display: inline-flex; flex-wrap: wrap; gap: 4px 16px; align-items: center; }
+.af-run-sub > span { display: inline-flex; align-items: center; gap: 4px; }
+.af-run-sub > span > .me-1 { margin-right: 0 !important; }
+.af-run-facts { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)) minmax(0, 2fr); gap: 1px; background: var(--af-border); border: 1px solid var(--af-border); border-radius: var(--af-radius); overflow: hidden; box-shadow: var(--af-shadow); }
+.af-run-fact { background: var(--af-surface); padding: 10px 14px; min-width: 0; }
+.af-run-fact-wide { grid-column: span 1; }
+.af-run-fact-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--af-muted); margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.af-run-fact-value { font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.af-run-progress { padding-top: 5px; }
+.af-run-facts .af-run-fact:last-child:nth-child(7) { grid-column: 1 / -1; }
+@media (max-width: 1199px) { .af-run-facts { grid-template-columns: repeat(3, minmax(0, 1fr)); } .af-run-fact-wide { grid-column: 1 / -1; } }
+@media (max-width: 575px) { .af-run-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+.af-section-title { display: flex; align-items: center; font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--af-muted); margin-bottom: 8px; }
+.af-note { white-space: pre-wrap; font-size: 13px; background: #fffbeb; border: 1px solid #fde68a; border-radius: var(--af-radius-sm); padding: 10px 12px; }
+.af-bordered { border: 1px solid var(--af-border); border-radius: var(--af-radius-sm); }
+.af-audit-extra { margin-top: 6px; max-width: 520px; }
+
+/* ---- task: tries */
+.af-tries-bar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+.af-try-btn { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 99px; border: 1px solid var(--af-border); background: var(--af-surface); font-size: 12.5px; font-weight: 600; font-variant-numeric: tabular-nums; color: #334155; }
+.af-try-btn:hover { border-color: var(--af-primary); }
+.af-try-btn.active { background: var(--af-navy); color: #fff; border-color: var(--af-navy); }
+
+/* ---- task: log viewer */
+.af-logviewer { display: flex; flex-direction: column; }
+.af-log-toolbar .af-chips .af-chip { padding: 2px 9px; font-size: 11.5px; text-transform: capitalize; }
+.af-log-search { max-width: 280px; min-width: 180px; }
+.af-log-search input { padding-right: 12px; }
+.af-log-matches { min-width: 64px; font-variant-numeric: tabular-nums; }
+.af-log { min-height: 260px; height: 64vh; max-height: none; }
+.af-log-extra { color: #64748b; }
+.af-log-tb { color: #fca5a5; white-space: pre-wrap; margin-top: 2px; }
+.af-log-hit { background: rgba(250, 204, 21, .08); }
+.af-log-current { background: rgba(250, 204, 21, .22) !important; box-shadow: inset 3px 0 0 #facc15; }
+.af-log-group { position: sticky; top: -8px; background: #0b1120; z-index: 1; }
+.af-log-group:hover { color: #c4b5fd; }
+.af-log-group-body { border-left: 2px solid #312e81; margin-left: 14px; }
+.af-log-foot { display: flex; justify-content: space-between; padding: 6px 2px 0; }
+.af-log-live { display: inline-flex; align-items: center; gap: 4px; color: #16a34a; }
+
+/* ---- task: xcom, rendered, hitl */
+.af-xcom-list { display: flex; flex-direction: column; border: 1px solid var(--af-border); border-radius: var(--af-radius-sm); }
+.af-xcom-item { border-bottom: 1px solid #f1f5f9; padding: 10px 14px; }
+.af-xcom-item:last-child { border-bottom: 0; }
+.af-xcom-head { display: flex; align-items: center; gap: 10px; }
+.af-xcom-head .af-grow { flex: 1; }
+.af-xcom-value { margin-top: 10px; }
+.af-rendered { border: 1px solid var(--af-border); border-radius: var(--af-radius-sm); padding: 8px 10px; background: var(--af-surface); }
+.af-rendered-key { font-weight: 600; color: #7c3aed; margin-bottom: 4px; }
+.af-rendered-val { white-space: pre-wrap; word-break: break-all; font-size: 12.5px; color: #15803d; }
+.af-doc-md { white-space: pre-wrap; font-size: 13px; line-height: 1.6; background: var(--af-surface-2); border: 1px solid var(--af-border); border-radius: var(--af-radius-sm); padding: 10px 12px; }
+.af-hitl { max-width: 760px; }
+.af-hitl-options { display: flex; flex-direction: column; gap: 6px; }
+.af-hitl-option { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border: 1px solid var(--af-border); border-radius: var(--af-radius-sm); cursor: pointer; font-size: 13.5px; }
+.af-hitl-option:hover { border-color: var(--af-primary); background: #f8fbff; }
+.af-hitl-option .form-check-input { margin: 0; }

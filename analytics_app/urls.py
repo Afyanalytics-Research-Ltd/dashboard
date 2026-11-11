@@ -12,6 +12,7 @@ urlpatterns = [
     path('', views.HomeView.as_view(), name='home'),
     path('dashboards/', views.DashboardListView.as_view(), name='dashboard_list'),
     path('dashboards/sync/', views.DashboardSyncView.as_view(), name='dashboard_sync'),
+    path('dashboards/<slug:slug>/toggle-active/', views.DashboardToggleActiveView.as_view(), name='dashboard_toggle_active'),
     path('dashboards/create/', views.DashboardCreateView.as_view(), name='dashboard_create'),
     path('dashboards/<slug:slug>/', views.DashboardDetailView.as_view(), name='dashboard_view'),
     path('dashboards/<slug:slug>/edit/', views.DashboardUpdateView.as_view(), name='dashboard_edit'),

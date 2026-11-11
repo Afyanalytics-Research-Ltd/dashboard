@@ -1,0 +1,34 @@
+name: dashboard-celery
+
+services:
+  # Runs agents/tasks.py's existing tasks AND browser_automation/tasks.py's
+  # run_scheduled_browser_task — one worker queue for all Celery tasks in
+  # this app, not split per-feature.
+  celery-worker:
+    restart: always
+    build: .
+    container_name: celery-worker
+    command: ["celery", "-A", "airflow_dashboard", "worker", "--loglevel=info"]
+    env_file: .env
+    networks:
+      - dashboard-net
+
+  # django_celery_beat's DatabaseScheduler (CELERY_BEAT_SCHEDULER in
+  # settings.py) reads PeriodicTask rows from the DB — this is what actually
+  # fires "every day at 4pm" on schedule; celery-worker above just executes
+  # whatever beat enqueues. Needs django_celery_beat's migrations applied
+  # (run via the main `web` service/entrypoint) before it has anything to read.
+  celery-beat:
+    restart: always
+    build: .
+    container_name: celery-beat
+    command: ["celery", "-A", "airflow_dashboard", "beat", "--loglevel=info",
+              "--scheduler", "django_celery_beat.schedulers:DatabaseScheduler"]
+    env_file: .env
+    networks:
+      - dashboard-net
+
+networks:
+  dashboard-net:
+    external: true
+    name: dashboard-net

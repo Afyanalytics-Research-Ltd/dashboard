@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Pipelines{% endblock %}
+{% block page_title %}Pipelines{% endblock %}
+
+{% block extra_css %}
+{{ block.super }}
+<link rel="stylesheet" href="{% static 'ui/css/ui.css' %}" />
+<link rel="stylesheet" href="{% static 'airflow/css/pages-dags.css' %}" />
+<link rel="stylesheet" href="{% static 'airflow/css/pages-runs.css' %}" />
+<link rel="stylesheet" href="{% static 'airflow/css/pages-admin.css' %}" />
+<link rel="stylesheet" href="{% static 'airflow/css/pages-system.css' %}" />
+<link rel="modulepreload" href="{% static 'airflow/js/app.js' %}" />
+{% endblock %}
+
+{% block breadcrumbs %}{% endblock %}
+
+{% block content %}
+{% csrf_token %}
+<div id="af-app">
+  <noscript>The pipeline UI needs JavaScript enabled.</noscript>
+</div>
+{{ airflow_config|json_script:"af-config" }}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  window.AIRFLOW_UI = JSON.parse(document.getElementById('af-config').textContent);
+</script>
+<script type="module" src="{% static 'airflow/js/app.js' %}"></script>
+{% endblock %}

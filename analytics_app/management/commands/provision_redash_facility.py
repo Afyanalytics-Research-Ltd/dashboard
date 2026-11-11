@@ -39,7 +39,11 @@ class Command(BaseCommand):
         parser.add_argument('--facility', required=True, help='Facility slug (unique within the client).')
         parser.add_argument('--snowflake-account', help='Snowflake account identifier, e.g. UFLYZNZ-RA32706.')
         parser.add_argument('--snowflake-user', help='Facility-scoped Snowflake user created by the RLS setup script.')
-        parser.add_argument('--snowflake-password', help='Password for the Snowflake user above.')
+        parser.add_argument('--snowflake-password', help='Password for the Snowflake user above (blocked by MFA for PERSON users; prefer --snowflake-private-key-file).')
+        parser.add_argument(
+            '--snowflake-private-key-file',
+            help='Path to an unencrypted PKCS#8 PEM private key for key-pair auth (see snowflake/redash_keypair_auth.sql).',
+        )
         parser.add_argument('--snowflake-warehouse', default='COMPUTE_WH')
         parser.add_argument('--snowflake-database', default='HOSPITALS')
         parser.add_argument('--add-user', help="Email of an existing Redash user to add to this facility's group.")
@@ -71,8 +75,10 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f"Group '{group_name}' -> id={group['id']}"))
 
         if not opts['skip_datasource']:
-            required = ('snowflake_account', 'snowflake_user', 'snowflake_password')
+            required = ('snowflake_account', 'snowflake_user')
             missing = [f'--{name.replace("_", "-")}' for name in required if not opts.get(name)]
+            if not (opts.get('snowflake_password') or opts.get('snowflake_private_key_file')):
+                missing.append('--snowflake-private-key-file (or --snowflake-password)')
             if missing:
                 raise CommandError(f"Missing required options: {', '.join(missing)} (or pass --skip-datasource).")
 
@@ -100,16 +106,20 @@ class Command(BaseCommand):
 
     def _get_or_create_datasource(self, session, base_url, facility, opts):
         # NOTE: 'schema' is not a real option for this connector (verified via
-        # GET /api/data_sources/types — only account/region/user/password/
-        # warehouse/database/host) — queries must fully-qualify schema.table.
+        # GET /api/data_sources/types) — queries must fully-qualify schema.table.
+        # 'private_key' comes from our patched runner (redash/query_runner/snowflake.py).
         name = f'reporting-{facility.client.slug}-{facility.slug}'
         options = {
             'account': opts['snowflake_account'],
             'user': opts['snowflake_user'],
-            'password': opts['snowflake_password'],
             'warehouse': opts['snowflake_warehouse'],
             'database': opts['snowflake_database'],
         }
+        if opts.get('snowflake_private_key_file'):
+            with open(opts['snowflake_private_key_file']) as fh:
+                options['private_key'] = fh.read()
+        else:
+            options['password'] = opts['snowflake_password']
         payload = {'name': name, 'type': 'snowflake', 'options': options}
 
         resp = session.get(f'{base_url}/api/data_sources')

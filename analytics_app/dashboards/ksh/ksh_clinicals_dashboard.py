@@ -320,23 +320,15 @@ def _page_clean(page: str) -> str:
 def render_sidebar():
     with st.sidebar:
         # ── Logo ──────────────────────────────────────────────────────────
-        st.markdown(
-            '<div style="padding:14px 4px 6px;">'
-            '<span style="font-size:18px;font-weight:800;color:#0F6E56;font-family:Inter,-apple-system,sans-serif;'
-            'letter-spacing:-0.02em;">Afya</span>'
-            '<span style="font-size:18px;font-weight:800;color:#111827;font-family:Inter,-apple-system,sans-serif;'
-            'letter-spacing:-0.02em;">Analytics</span>'
-            '</div>',
-            unsafe_allow_html=True,
-        )
+        _logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "inventory_intelligence", "ksh_logo.png")
+        if os.path.exists(_logo_path):
+            st.image(_logo_path, width=180)
 
         # ── Facility badge ─────────────────────────────────────────────────
         st.markdown(
             '<div style="background:#F0FAF6;border:1px solid #A7F3D0;border-radius:6px;'
             'padding:7px 10px;margin:2px 0 12px;">'
-            '<div style="font-size:12px;font-weight:700;color:#0F6E56;font-family:Inter,-apple-system,sans-serif;">'
-            '🏥 Kisumu Specialists</div>'
-            '<div style="font-size:11px;color:#6B7280;margin-top:1px;font-family:Inter,-apple-system,sans-serif;">'
+            '<div style="font-size:11px;color:#6B7280;font-family:Inter,-apple-system,sans-serif;">'
             'Sep 2024 – present</div>'
             '</div>',
             unsafe_allow_html=True,
@@ -363,28 +355,12 @@ def render_sidebar():
             key="nav_page",
         )
 
-        st.markdown('<hr style="margin:10px 0;border:none;border-top:1px solid #E5E7EB">', unsafe_allow_html=True)
-
-        # ── Hospital filter ───────────────────────────────────────────────
-        with st.expander("🏥 Hospital", expanded=True):
-            schema_opts = list(dict.fromkeys(SCHEMA_DISPLAY.values()))
-            _hosp_default = ["Kisumu Specialists"] if "Kisumu Specialists" in schema_opts else []
-            selected_display = st.multiselect(
-                "Select hospital", options=schema_opts,
-                default=_hosp_default, placeholder="All hospitals",
-                label_visibility="collapsed")
-            selected_schemas = _display_to_schemas(selected_display)
-
-        # ── Facility filter ───────────────────────────────────────────────
-        with st.expander("🏢 Facility", expanded=False):
-            facility_opts = _facility_options(selected_schemas)
-            _fac_default = ["1"] if "1" in facility_opts else (facility_opts[:1] if facility_opts else [])
-            selected_facilities = st.multiselect(
-                "Select facilities", options=facility_opts,
-                default=_fac_default,
-                placeholder="All facilities" if facility_opts else "Select a hospital first",
-                label_visibility="collapsed",
-                disabled=not facility_opts)
+        # ── Hospital / Facility (fixed — single-site deployment) ──────────
+        schema_opts = list(dict.fromkeys(SCHEMA_DISPLAY.values()))
+        selected_display = ["Kisumu Specialists"] if "Kisumu Specialists" in schema_opts else schema_opts
+        selected_schemas = _display_to_schemas(selected_display)
+        facility_opts = _facility_options(selected_schemas)
+        selected_facilities = ["1"] if "1" in facility_opts else facility_opts
 
         st.markdown('<hr style="margin:10px 0;border:none;border-top:1px solid #E5E7EB">', unsafe_allow_html=True)
 

@@ -1,0 +1,1544 @@
+#!/usr/bin/env python3
+"""
+facility_api_to_snowflake.py  —  standalone (no Airflow) pipeline runner.
+
+  1. Reads the data-dictionary Google Sheet to know which (module, table)
+     pairs to extract.
+  2. For each pair, calls the facility's /api/finance/access/data/point
+     endpoint (with namespace + singular/double-namespace fallbacks),
+     paginating until done.  Pagination after page 1 runs concurrently.
+  3. Writes each model's payload as gzipped JSONL to S3.
+  4. COPYs each S3 file into the facility's RAW.EVENTS_RAW table.
+  5. MERGEs RAW.EVENTS_RAW → CLEAN.EVENTS.
+
+PERFORMANCE
+  · Jobs run in a thread pool (PIPELINE_WORKERS, default 8).
+  · One requests.Session + one cached auth token per facility.
+  · One Snowflake connection shared across every COPY for the run.
+  · Pages 2..N within a job fetched concurrently (PAGE_WORKERS, default 4).
+  · orjson used for JSONL encoding when available.
+
+USAGE
+  python facility_api_to_snowflake.py --facility kisumu
+  python facility_api_to_snowflake.py --facility xanalife --since 2025-09-01
+  python facility_api_to_snowflake.py --facility xanalife --skip-merge
+  python facility_api_to_snowflake.py --facility xanalife --only-tables sales,patients
+  python facility_api_to_snowflake.py --facility xanalife --dry-run
+  python facility_api_to_snowflake.py --facility xanalife --workers 4
+  python facility_api_to_snowflake.py --facility kisumu_v3 --table-set old_system_history
+
+ENV VARS  (put them in a `.env` file next to this script — auto-loaded)
+  # Snowflake (key-pair auth)
+  SNOWFLAKE_USER, SNOWFLAKE_ACCOUNT, SNOWFLAKE_WAREHOUSE,
+  SNOWFLAKE_DATABASE, SNOWFLAKE_SCHEMA, SNOWFLAKE_PRIVATE_KEY_PATH
+
+  # AWS  (or use the default boto3 credential chain — ~/.aws/credentials)
+  AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION
+
+  # Google service account for the data-dictionary sheet
+  GOOGLE_SA_JSON_PATH=/abs/path/to/service-account.json
+  IGNITE_SHEET_ID=...
+  IGNITE_SHEET_WORKSHEET=Sheet1
+
+  # Facility API credentials  (per facility you want to run)
+  FACILITY_KISUMU_USERNAME=...,    FACILITY_KISUMU_PASSWORD=...
+  FACILITY_XANALIFE_USERNAME=...,  FACILITY_XANALIFE_PASSWORD=...
+
+  # Tuning
+  PIPELINE_WORKERS=8        # parallel jobs (tables) — drop to 4 if you see 429s
+  PAGE_WORKERS=4            # parallel pages within a job
+  LOG_LEVEL=INFO            # set DEBUG to see per-page response bodies
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import gzip
+import hashlib
+import json
+import logging
+import os
+import re
+import sys
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import contextmanager
+from datetime import datetime, timezone
+from functools import lru_cache
+from io import BytesIO
+from pathlib import Path
+
+import boto3
+import gspread
+import pandas as pd
+import requests
+import requests.adapters
+import snowflake.connector
+from dotenv import load_dotenv
+from requests.exceptions import ConnectionError, HTTPError, Timeout
+from pipeline_checkpointing import atomic_write_json, update_json_file
+
+# Optional: orjson is ~3× faster than stdlib json for encoding rows.
+try:
+    import orjson
+    def _dumps_bytes(obj) -> bytes:
+        return orjson.dumps(obj)
+except ImportError:
+    def _dumps_bytes(obj) -> bytes:
+        return json.dumps(obj, separators=(",", ":")).encode("utf-8")
+
+# Load .env from same dir as this script
+load_dotenv(Path(__file__).resolve().parent / ".env", override=False)
+
+# ─── LOGGING ─────────────────────────────────────────────────────────────
+
+log = logging.getLogger("facility_pipeline")
+if not log.handlers:
+    h = logging.StreamHandler(sys.stdout)
+    h.setFormatter(logging.Formatter(
+        "%(asctime)s · %(levelname)-7s · %(name)s · %(message)s",
+        datefmt="%H:%M:%S",
+    ))
+    log.addHandler(h)
+    log.setLevel(os.getenv("LOG_LEVEL", "INFO").upper())
+    log.propagate = False
+
+# ─── CONFIG ──────────────────────────────────────────────────────────────
+
+
+PIPELINE_NAME = "facility_api_to_snowflake"
+
+FACILITIES = {
+    "afya_api_auth": {"base_url": "https://staging.collabmed.net", "db": "staging_db"},
+    "kakamega":      {"base_url": "https://demo.collabmed.net",      "db": "kakamega_db"},
+    "kisumu":        {"base_url": "https://kshospital.collabmed.net","db": "kisumu_db"},
+    "kisumu_v3":     {"base_url": "https://kshospital.collabmed.net","db": "kisumu_db"},
+    "lodwar":        {"base_url": "https://lcrh.collabmed.net",      "db": "lodwar_db"},
+    "tenri":         {"base_url": "https://stageenv.collabmed.net",  "db": "tenri_db"},
+    "xanalife":      {"base_url": "https://xanalife.afyanalytics.ai/", "db": "xanalife_db"},
+}
+
+S3_BUCKET = "collabmedbucket"
+S3_PREFIX = "raw/facilities"
+
+SF_DB            = "HOSPITALS"
+SF_SHARED_SCHEMA = "SHARED"
+SF_STAGE         = f"{SF_DB}.{SF_SHARED_SCHEMA}.FACILITY_RAW_STAGE"
+SF_FILE_FORMAT   = f"{SF_DB}.{SF_SHARED_SCHEMA}.JSON_FF"
+
+WATERMARK_FILE = Path(__file__).resolve().parent / ".watermarks.json"
+PROGRESS_FILE  = Path(__file__).resolve().parent / ".progress.json"
+
+DEFAULT_PIPELINE_WORKERS = int(os.getenv("PIPELINE_WORKERS", "8"))
+DEFAULT_PAGE_WORKERS     = int(os.getenv("PAGE_WORKERS", "4"))
+TOKEN_TTL_SECONDS        = int(os.getenv("TOKEN_TTL_SECONDS", str(50 * 60)))
+
+# ─── INFLECT (lazy) ──────────────────────────────────────────────────────
+
+_inflect_engine = None
+def _get_inflect():
+    global _inflect_engine
+    if _inflect_engine is None:
+        import inflect
+        _inflect_engine = inflect.engine()
+    return _inflect_engine
+
+# ─── WATERMARKS ──────────────────────────────────────────────────────────
+
+def load_watermarks() -> dict:
+    if WATERMARK_FILE.exists():
+        try:
+            watermarks = json.loads(WATERMARK_FILE.read_text())
+            if not isinstance(watermarks, dict):
+                raise ValueError("watermark state must be a JSON object")
+            return watermarks
+        except Exception as e:
+            raise RuntimeError(f"Cannot safely resume from {WATERMARK_FILE}: {e}") from e
+    return {}
+
+def get_watermark(facility: str, default: str = "1970-01-01T00:00:00Z") -> str:
+    return load_watermarks().get(facility, default)
+
+def set_watermark(facility: str, ts_iso: str) -> None:
+    def update(watermarks):
+        if not isinstance(watermarks, dict):
+            raise ValueError(f"{WATERMARK_FILE} must contain a JSON object")
+        watermarks[facility] = ts_iso
+        return watermarks
+
+    update_json_file(WATERMARK_FILE, update, default={})
+    log.info("Watermark for %s set → %s", facility, ts_iso)
+
+# ─── PROGRESS / RESUME ───────────────────────────────────────────────────
+
+_progress_lock = threading.Lock()
+
+def _load_progress() -> dict:
+    if PROGRESS_FILE.exists():
+        try:
+            progress = json.loads(PROGRESS_FILE.read_text())
+            if not isinstance(progress, dict):
+                raise ValueError("progress state must be a JSON object")
+            return progress
+        except Exception as e:
+            raise RuntimeError(f"Cannot safely resume from {PROGRESS_FILE}: {e}") from e
+    return {}
+
+def _save_progress(data: dict) -> None:
+    atomic_write_json(PROGRESS_FILE, data)
+
+def _job_key(job: dict) -> str:
+    return f"{job['module'].lower()}|{job['table'].lower()}"
+
+def _mark_done(facility: str, run_id: str, job: dict, s3_key: str | None) -> None:
+    """Record that (facility, module, table) has finished — survives a kill."""
+    def update(prog):
+        if not isinstance(prog, dict):
+            raise ValueError(f"{PROGRESS_FILE} must contain a JSON object")
+        bucket = prog.setdefault(facility, {"run_id": run_id, "completed": {}})
+        if not isinstance(bucket, dict):
+            raise ValueError(f"{PROGRESS_FILE} has an invalid state for {facility}")
+        if bucket.get("run_id") != run_id:
+            bucket["run_id"] = run_id   # rolling resume across multiple invocations
+        completed = bucket.setdefault("completed", {})
+        if not isinstance(completed, dict):
+            raise ValueError(f"{PROGRESS_FILE} has invalid completed jobs for {facility}")
+        completed[_job_key(job)] = {
+            "s3_key": s3_key,
+            "at": datetime.now(timezone.utc).isoformat(),
+        }
+        return prog
+
+    with _progress_lock:
+        update_json_file(PROGRESS_FILE, update, default={})
+
+def _clear_progress(facility: str) -> None:
+    def update(prog):
+        if not isinstance(prog, dict):
+            raise ValueError(f"{PROGRESS_FILE} must contain a JSON object")
+        prog.pop(facility, None)
+        return prog
+
+    with _progress_lock:
+        update_json_file(PROGRESS_FILE, update, default={})
+
+def _completed_keys(facility: str) -> set[str]:
+    return set(_load_progress().get(facility, {}).get("completed", {}).keys())
+
+# ─── SNOWFLAKE CLIENT  (thread-safe via per-call lock) ───────────────────
+
+class SnowflakeClient:
+    """Read (`query`) + write (`execute`) with structured logging.
+    Thread-safe across multiple workers as long as `execute` /
+    `query` are called via the public methods (each one creates its
+    own short-lived cursor under a lock)."""
+
+    def __init__(self, schema_: str | None = None):
+        with open(os.getenv("SNOWFLAKE_PRIVATE_KEY_PATH").strip(), "rb") as key:
+            key.read()  # presence check; the connector reads the path itself
+
+        self._conn = snowflake.connector.connect(
+            user=os.getenv("SNOWFLAKE_USER").strip(),
+            account=os.getenv("SNOWFLAKE_ACCOUNT").strip(),
+            warehouse=os.getenv("SNOWFLAKE_WAREHOUSE").strip(),
+            database=os.getenv("SNOWFLAKE_DATABASE").strip(),
+            schema=schema_ or os.getenv("SNOWFLAKE_SCHEMA", "PUBLIC").strip(),
+            private_key_file=os.getenv("SNOWFLAKE_PRIVATE_KEY_PATH").strip(),
+        )
+        self._lock = threading.Lock()
+
+    def close(self):
+        if self._conn is not None:
+            try:
+                self._conn.close()
+            except Exception:
+                pass
+            self._conn = None
+
+    @contextmanager
+    def _cursor(self):
+        cur = self._conn.cursor()
+        try:
+            yield cur
+        finally:
+            cur.close()
+
+    def query(self, sql: str, label: str | None = None) -> pd.DataFrame:
+        label = label or f"q:{hashlib.md5(sql.encode()).hexdigest()[:8]}"
+        log.info("▶ %-26s SELECT    | %s…", label, " ".join(sql.split())[:140])
+        t0 = time.perf_counter()
+        try:
+            with self._lock, self._cursor() as cur:
+                cur.execute(sql)
+                df = cur.fetch_pandas_all()
+            elapsed = time.perf_counter() - t0
+            from decimal import Decimal
+            for col in df.columns:
+                if df[col].dtype == "object":
+                    nn = df[col].dropna()
+                    if len(nn) and isinstance(nn.iloc[0], Decimal):
+                        df[col] = df[col].astype(float)
+            log.info("✓ %-26s done      | %s rows · %d cols · %.2fs",
+                     label, f"{len(df):,}", df.shape[1], elapsed)
+            return df
+        except Exception as e:
+            log.exception("✗ %-26s SELECT failed | %.2fs · %s",
+                          label, time.perf_counter() - t0, e)
+            raise
+
+    def execute(self, sql: str, label: str | None = None) -> dict:
+        label = label or f"x:{hashlib.md5(sql.encode()).hexdigest()[:8]}"
+        log.info("▶ %-26s WRITE     | %s…", label, " ".join(sql.split())[:140])
+        t0 = time.perf_counter()
+        try:
+            with self._lock, self._cursor() as cur:
+                cur.execute(sql)
+                rowcount = cur.rowcount
+                sfqid = cur.sfqid
+            elapsed = time.perf_counter() - t0
+            log.info("✓ %-26s done      | rowcount=%s · sfqid=%s · %.2fs",
+                     label, rowcount, sfqid, elapsed)
+            return {"rowcount": rowcount, "sfqid": sfqid, "elapsed_s": elapsed}
+        except Exception as e:
+            log.exception("✗ %-26s WRITE failed | %.2fs · %s",
+                          label, time.perf_counter() - t0, e)
+            raise
+
+    def __enter__(self): return self
+    def __exit__(self, *a): self.close()
+
+# ─── HTTP SESSION + TOKEN CACHE  (per facility) ──────────────────────────
+
+_session_cache: dict[str, requests.Session] = {}
+_session_lock = threading.Lock()
+
+def _facility_session(facility: str) -> requests.Session:
+    """One pooled requests.Session per facility — reuses TCP/TLS connections."""
+    with _session_lock:
+        s = _session_cache.get(facility)
+        if s is None:
+            s = requests.Session()
+            adapter = requests.adapters.HTTPAdapter(
+                pool_connections=32, pool_maxsize=32, max_retries=0,
+            )
+            s.mount("https://", adapter)
+            s.mount("http://", adapter)
+            _session_cache[facility] = s
+        return s
+
+_token_cache: dict[str, tuple[str, float]] = {}   # facility -> (token, fetched_at_epoch)
+_token_lock = threading.Lock()
+
+def _facility_token(facility: str) -> str:
+    """Cached auth token. Refreshes on TTL expiry (default 50 minutes)."""
+    with _token_lock:
+        cached = _token_cache.get(facility)
+        if cached and (time.time() - cached[1]) < TOKEN_TTL_SECONDS:
+            return cached[0]
+        token = generate_auth_token(facility)
+        _token_cache[facility] = (token, time.time())
+        return token
+
+# ─── GOOGLE SHEET ────────────────────────────────────────────────────────
+
+def get_gsheet_client():
+    sa_path = os.getenv("GOOGLE_SA_JSON_PATH")
+    if sa_path:
+        return gspread.service_account(filename=sa_path)
+    sa_json = os.getenv("GOOGLE_SA_JSON")
+    if sa_json:
+        return gspread.service_account_from_dict(json.loads(sa_json))
+    raise RuntimeError("Set GOOGLE_SA_JSON_PATH (file path) or GOOGLE_SA_JSON (raw JSON)")
+
+@lru_cache(maxsize=4)
+def _read_dictionary_sheet_cached(spreadsheet_id: str, worksheet_name: str) -> tuple[str, ...]:
+    """Cached for the lifetime of the process. Stores serialized rows so the
+    cache key works (lists/dicts aren't hashable)."""
+    gc = get_gsheet_client()
+    ws = gc.open_by_key(spreadsheet_id).worksheet(worksheet_name)
+    rows = ws.get_all_records()
+    return tuple(json.dumps(r, sort_keys=True) for r in rows)
+
+def read_dictionary_sheet(spreadsheet_id: str, worksheet_name: str) -> list[dict]:
+    return [json.loads(r) for r in _read_dictionary_sheet_cached(spreadsheet_id, worksheet_name)]
+
+# ─── NAMESPACE BUILDERS ──────────────────────────────────────────────────
+
+def snake_to_pascal(s: str) -> str:
+    return "".join(w.capitalize() for w in re.split(r"[_\s]+", s.strip()) if w)
+
+# The data-dictionary sheet documents V3's module layout, which sometimes
+# differs from where the table actually still lives in V2 (the sheet's own
+# "definition" column calls this out, e.g. visits: "V2: evaluation_visits —
+# moved to reception-service"). Override the V2-side module per table name
+# where the two diverge; confirmed against the live API (singular `Visit`
+# under Evaluation returns real data, nothing under Reception does).
+_V2_SOURCE_MODULE_OVERRIDE: dict[str, str] = {
+    "visits": "Evaluation",
+}
+
+def build_namespace(module: str, table: str) -> str:
+    v2_module = _V2_SOURCE_MODULE_OVERRIDE.get(table.strip().lower(), module)
+    mod = snake_to_pascal(v2_module)
+    prefix = module.strip().lower() + "_"
+    t = table.strip().lower()
+    if t.startswith(prefix):
+        t = t[len(prefix):]
+    return f"Ignite\\{mod}\\Entities\\{snake_to_pascal(t)}"
+
+def namespace_to_singular_model(namespace: str) -> str:
+    parts = namespace.split("\\")
+    if not parts:
+        return namespace
+    class_name = parts[-1]
+    singular = _get_inflect().singular_noun(class_name)
+    parts[-1] = singular if singular else class_name
+    return "\\".join(parts)
+
+def double_namespace_model(namespace: str) -> str:
+    parts = namespace.split("\\")
+    if not parts:
+        return namespace
+    parts[-1] = parts[1] + parts[-1]
+    return "\\".join(parts)
+
+def _safe_s3_token(s: str) -> str:
+    s = (s or "").strip()
+    return re.sub(r"[^a-zA-Z0-9_\-=\.\+]+", "_", s)
+
+# ─── OLD SYSTEM HISTORY TABLE SET ────────────────────────────────────────
+# The V2 tables that feed reception-service's old_system_history (see
+# OLD_SYSTEM_HISTORY_MAPPING.md), keyed by their V2 table name — which
+# becomes source_table in Snowflake, so the CLEAN views and the history
+# JSON (keyed by V2 table name) line up 1:1. The data-dictionary sheet
+# lists V3 tables, so most of these never get extracted by a sheet run.
+#
+# Namespaces confirmed against kshospital's live API (2026-10-06); several
+# don't follow build_namespace() naming (Visit, NextOfKin, Dispensing under
+# Evaluation, InventoryProducts), hence the explicit list. Tables that
+# returned 0 rows there are kept so other facilities' data still comes in.
+#
+# Not extractable through the API, so left out:
+#   evaluation_sick_offs, inpatient_administer_drugs, users
+#       — the model exists but the endpoint 500s (SickOff, AdministerDrug, User)
+#   result_files, evaluation_investigation_results_publications,
+#   evaluation_nursing_notes
+#       — no namespace resolves (404 on every variant tried)
+OLD_SYSTEM_HISTORY_TABLES: dict[str, tuple[str, str]] = {
+    # visit-level
+    "evaluation_visit_destinations":     ("Evaluation", "Ignite\\Evaluation\\Entities\\VisitDestinations"),
+    "evaluation_visit_metas":            ("Evaluation", "Ignite\\Evaluation\\Entities\\VisitMeta"),
+    "evaluation_vitals":                 ("Evaluation", "Ignite\\Evaluation\\Entities\\Vitals"),
+    "evaluation_doctor_notes":           ("Evaluation", "Ignite\\Evaluation\\Entities\\DoctorNotes"),
+    "evaluation_drawings":               ("Evaluation", "Ignite\\Evaluation\\Entities\\Drawings"),
+    "evaluation_exam":                   ("Evaluation", "Ignite\\Evaluation\\Entities\\Exam"),
+    "evaluation_preliminary":            ("Evaluation", "Ignite\\Evaluation\\Entities\\Preliminary"),
+    "evaluation_eye_exams":              ("Evaluation", "Ignite\\Evaluation\\Entities\\EyeExam"),
+    "evaluation_investigations":         ("Evaluation", "Ignite\\Evaluation\\Entities\\Investigations"),
+    "evaluation_external_orders":        ("Evaluation", "Ignite\\Evaluation\\Entities\\ExternalOrders"),
+    "evaluation_external_order_details": ("Evaluation", "Ignite\\Evaluation\\Entities\\ExternalOrderDetails"),
+    "evaluation_investigation_results":  ("Evaluation", "Ignite\\Evaluation\\Entities\\InvestigationResult"),
+    "evaluation_sensitivity":            ("Evaluation", "Ignite\\Evaluation\\Entities\\Sensitivity"),
+    "evaluation_samples":                ("Evaluation", "Ignite\\Evaluation\\Entities\\Sample"),
+    "evaluation_prescriptions":          ("Evaluation", "Ignite\\Evaluation\\Entities\\Prescriptions"),
+    "evaluation_typed_prescriptions":    ("Evaluation", "Ignite\\Evaluation\\Entities\\TypedPrescription"),
+    "inventory_evaluation_dispensing":   ("Evaluation", "Ignite\\Evaluation\\Entities\\Dispensing"),
+    "admissions":                        ("Inpatient",  "Ignite\\Inpatient\\Entities\\Admission"),
+    "ward_assigned":                     ("Inpatient",  "Ignite\\Inpatient\\Entities\\WardAssigned"),
+    "inpatient_discharge_requests":      ("Inpatient",  "Ignite\\Inpatient\\Entities\\DischargeRequest"),
+    "discharges":                        ("Inpatient",  "Ignite\\Inpatient\\Entities\\Discharge"),
+    "evaluation_opnotes":                ("Evaluation", "Ignite\\Evaluation\\Entities\\OpNotes"),
+    # patient-level
+    "reception_patients_nok":            ("Reception",  "Ignite\\Reception\\Entities\\NextOfKin"),
+    "reception_patient_documents":       ("Reception",  "Ignite\\Reception\\Entities\\PatientDocuments"),
+    "reception_appointments":            ("Reception",  "Ignite\\Reception\\Entities\\Appointments"),
+    # lookups for resolving V2 ids to names
+    "evaluation_procedures":             ("Evaluation", "Ignite\\Evaluation\\Entities\\Procedures"),
+    "evaluation_diagnosis_codes":        ("Evaluation", "Ignite\\Evaluation\\Entities\\DiagnosisCodes"),
+    "inventory_products":                ("Inventory",  "Ignite\\Inventory\\Entities\\InventoryProducts"),
+    "settings_clinics":                  ("Settings",   "Ignite\\Settings\\Entities\\Clinics"),
+    "inpatient_wards":                   ("Inpatient",  "Ignite\\Inpatient\\Entities\\Ward"),
+    "inpatient_beds":                    ("Inpatient",  "Ignite\\Inpatient\\Entities\\Bed"),
+    # parents of products (unit_id, category_id) and beds (bed_type_id) —
+    # migrated to V3 ahead of them so those FKs remap to real V3 ids
+    "inventory_units":                   ("Inventory",  "Ignite\\Inventory\\Entities\\InventoryUnits"),
+    "inventory_categories":              ("Inventory",  "Ignite\\Inventory\\Entities\\InventoryCategories"),
+    "inpatient_bed_types":               ("Inpatient",  "Ignite\\Inpatient\\Entities\\BedType"),
+    # parent of admissions (admission_type_id)
+    "inpatient_admission_types":         ("Inpatient",  "Ignite\\Inpatient\\Entities\\AdmissionType"),
+    # parent of discharges and discharge requests (discharge_type_id)
+    "inpatient_discharge_types":         ("Inpatient",  "Ignite\\Inpatient\\Entities\\DischargeType"),
+    # V2's generic lookup lists (module + option group + item_name/item_meta:
+    # card_types, age_groups, …)
+    "settings_options":                  ("Settings",   "Ignite\\Settings\\Entities\\SettingsOption"),
+    # parent of dispensing → V3 sales (inv_sales.store_id is a required FK)
+    "inventory_stores":                  ("Inventory",  "Ignite\\Inventory\\Entities\\Store"),
+    # parent of procedures (category)
+    "evaluation_procedure_categories":   ("Evaluation", "Ignite\\Evaluation\\Entities\\ProcedureCategories"),
+    # V2 staff accounts — every doctor/approver/analyst a record points at.
+    # Secrets are stripped before anything is written (see _strip_secrets).
+    "users":                             ("Users",      "Ignite\\Users\\Entities\\User"),
+}
+
+# History inputs that the sheet run already loads from the same V2 endpoints
+# (Reception\Patients, Evaluation\Visit). They are NOT re-extracted here:
+# the history step reads them from these existing source tables and stores
+# them under the V2 table name on the left.
+OLD_SYSTEM_HISTORY_ALIASES: dict[str, str] = {
+    "reception_patients": "patients",
+    "evaluation_visits":  "visits",
+}
+
+TABLE_SETS = ("sheet", "old_system_history")
+
+
+def state_key(facility: str, table_set: str) -> str:
+    """Key for this run's watermark + resume progress. Each non-sheet table
+    set gets its own, so its first run starts from scratch instead of
+    inheriting the sheet run's watermark (which would skip every row not
+    updated since then), and finishing one set never clears the other's
+    progress."""
+    return facility if table_set == "sheet" else f"{facility}|{table_set}"
+
+
+# ─── JOB BUILDER ─────────────────────────────────────────────────────────
+
+def facility_config(facility: str) -> dict:
+    """V2 base_url / db for a facility: FACILITY_<F>_BASE_URL / FACILITY_<F>_DB
+    (the DAGs fill these from the Airflow Connection <facility>: host, schema)
+    override the FACILITIES entry, so a new facility needs no code change.
+    The result is cached back into FACILITIES for code that indexes it."""
+    up = facility.upper()
+    cfg = dict(FACILITIES.get(facility, {}))
+    for key, env in (("base_url", f"FACILITY_{up}_BASE_URL"), ("db", f"FACILITY_{up}_DB")):
+        val = (os.getenv(env) or "").strip().strip("'\"")
+        if val:
+            cfg[key] = val
+    if not cfg.get("base_url") or not cfg.get("db"):
+        raise KeyError(f"No V2 base_url/db for {facility!r}: add it to FACILITIES, or set "
+                       f"FACILITY_{up}_BASE_URL and FACILITY_{up}_DB (Airflow: Connection "
+                       f"{facility!r} with host = base URL, schema = database).")
+    FACILITIES[facility] = cfg
+    return cfg
+
+
+# ─── V2 EXTRACTION QUEUE TABLE SET ────────────────────────────────────────
+# Every V2 table the uuid layer tracks, with its exact namespace, tier and
+# wave (V2_EXTRACTION_QUEUE.csv, generated from the V2 journey registry —
+# regenerate it there rather than editing it). table_set=queue extracts from
+# it, so any V2 table can be pulled by name, not only the sheet's. Tables
+# with no Eloquent model (no namespace) can't come through the gateway.
+EXTRACTION_QUEUE_FILE = Path(__file__).resolve().parent / "mapping" / "v2_extraction_queue.csv"
+
+
+def read_extraction_queue() -> list[dict]:
+    """The queue's rows in load order (tier, wave): step, tier, wave, module,
+    table, namespace, kind, join_column, join_table, rows_ref_dump."""
+    with EXTRACTION_QUEUE_FILE.open(newline="", encoding="utf-8") as f:
+        rows = [{k: (v or "").strip() for k, v in r.items()} for r in csv.DictReader(f)]
+    return sorted(rows, key=lambda r: (int(r["step"] or 9), int(r["wave"] or 0), r["table"]))
+
+
+def build_jobs_for_facility(facility: str, since: str | None = None,
+                             only_tables: set[str] | None = None,
+                             table_set: str = "sheet") -> list[dict]:
+    cfg = facility_config(facility)
+    last_run = since or get_watermark(state_key(facility, table_set))
+
+    if table_set == "queue":
+        jobs = [
+            {
+                "facility":      facility,
+                "module":        q["module"],
+                "table":         q["table"],
+                "namespace":     q["namespace"],
+                "database":      cfg.get("db"),
+                "updated_since": last_run,
+                "limit":         500,
+            }
+            for q in read_extraction_queue()
+            if q["namespace"] and (not only_tables or q["table"].lower() in only_tables)
+        ]
+        log.info("Prepared %d extraction-queue jobs for facility=%s", len(jobs), facility)
+        return jobs
+
+    if table_set == "old_system_history":
+        jobs = [
+            {
+                "facility":      facility,
+                "module":        module,
+                "table":         table,
+                "namespace":     namespace,
+                "database":      cfg.get("db"),
+                "updated_since": last_run,
+                "limit":         500,
+            }
+            for table, (module, namespace) in OLD_SYSTEM_HISTORY_TABLES.items()
+            if not only_tables or table in only_tables
+        ]
+        log.info("Prepared %d old-system-history jobs for facility=%s (since %s)",
+                 len(jobs), facility, last_run)
+        return jobs
+
+    sheet_id  = os.environ["IGNITE_SHEET_ID"]
+    sheet_tab = os.getenv("IGNITE_SHEET_WORKSHEET", "Sheet1")
+    rows = read_dictionary_sheet(sheet_id, sheet_tab)
+
+    seen, jobs = set(), []
+    for r in rows:
+        module = (r.get("module") or "").strip()
+        table  = (r.get("table") or "").strip()
+        if not module or not table:
+            continue
+        if only_tables and table.lower() not in only_tables:
+            continue
+
+        key = (module.lower(), table.lower())
+        if key in seen:
+            continue
+        seen.add(key)
+
+        jobs.append({
+            "facility":      facility,
+            "module":        module,
+            "table":         table,
+            "namespace":     build_namespace(module, table),
+            "database":      cfg.get("db"),
+            "updated_since": last_run,
+            "limit":         500,
+        })
+
+    log.info("Prepared %d model jobs for facility=%s (since %s)",
+             len(jobs), facility, last_run)
+    return jobs
+
+# ─── AUTH ────────────────────────────────────────────────────────────────
+
+def generate_auth_token(facility: str) -> str:
+    cfg = facility_config(facility)
+    upper = facility.upper()
+    user = os.getenv(f"FACILITY_{upper}_USERNAME")
+    pwd  = os.getenv(f"FACILITY_{upper}_PASSWORD")
+    if not user or not pwd:
+        raise RuntimeError(
+            f"Missing FACILITY_{upper}_USERNAME / FACILITY_{upper}_PASSWORD env vars"
+        )
+
+    url = f"{cfg['base_url'].rstrip('/')}/api/users/authenticate/user"
+    r = _facility_session(facility).post(
+        url, json={"username": user, "password": pwd}, timeout=30,
+    )
+    if r.status_code != 200:
+        raise Exception(f"Auth failed for {facility}: {r.status_code} · {r.text}")
+    token = (r.json().get("success") or {}).get("token")
+    if not token:
+        raise Exception(f"Token not found in response for {facility}")
+    return token
+
+# ─── HTTP RETRY + FALLBACK ───────────────────────────────────────────────
+
+def post_with_retry_and_fallback(
+    url, headers, bodies, *, session=None, timeout=60, max_retries=6,
+    default_retry_wait=10, backoff_factor=2, base_delay=0.0,
+):
+    """Tries multiple request bodies in order. Handles 404 (next fallback),
+    429 (wait + retry same body), 5xx (backoff + retry), Timeout/ConnectionError."""
+    poster = (session or requests).post
+
+    for body_index, base_body in enumerate(bodies):
+        attempt, wait_time = 0, default_retry_wait
+        while True:
+            attempt += 1
+            try:
+                r = poster(url=url, headers=headers, json=base_body, timeout=timeout)
+
+                # Cheap one-line at INFO; full body only at DEBUG
+                log.debug("BodyIndex=%s Attempt=%s Status=%s Resp=%.300s",
+                          body_index, attempt, r.status_code, r.text)
+                # keyset requests have no page number — show their cursor
+                position = (f"page={base_body['page']}" if "page" in base_body
+                            else f"after_id={base_body.get('after_id', '?')}")
+                log.info("· ns=%s %s status=%s",
+                         base_body.get("namespace", "?"), position, r.status_code)
+
+                if r.status_code == 404:
+                    log.warning("404 ns=%s — trying next fallback",
+                                base_body.get("namespace"))
+                    break
+
+                if r.status_code == 429:
+                    retry_after = default_retry_wait
+                    try:
+                        retry_after = int(r.json().get("retry_after_seconds", default_retry_wait))
+                    except Exception:
+                        pass
+                    if attempt >= max_retries:
+                        r.raise_for_status()
+                    log.warning("429 ns=%s · sleeping %ss (%s/%s)",
+                                base_body.get("namespace"), retry_after, attempt, max_retries)
+                    time.sleep(retry_after)
+                    continue
+
+                if r.status_code in {500, 502, 503, 504}:
+                    if attempt >= max_retries:
+                        r.raise_for_status()
+                    time.sleep(wait_time)
+                    wait_time *= backoff_factor
+                    continue
+
+                r.raise_for_status()
+                if base_delay > 0:
+                    time.sleep(base_delay)
+                return r, base_body
+
+            except (Timeout, ConnectionError) as e:
+                if attempt >= max_retries:
+                    raise
+                log.warning("Network error ns=%s · %s · sleeping %ss (%s/%s)",
+                            base_body.get("namespace"), e, wait_time, attempt, max_retries)
+                time.sleep(wait_time)
+                wait_time *= backoff_factor
+            except HTTPError:
+                raise
+
+    raise NamespaceNotFound("All fallback request bodies returned 404")
+
+
+class NamespaceNotFound(Exception):
+    """Every namespace spelling 404'd: this V2 site has no such model."""
+
+
+def _log_not_on_site(job: dict) -> None:
+    """A table whose model this V2 site doesn't have (every namespace spelling
+    404s on the first request) has nothing to extract — skipped, not failed.
+    Sheet table sets list some V3-style names a V2 site never had; the queue
+    table set (exact V2 names) avoids them."""
+    log.warning("    %s · %s — not on this V2 site (%s → 404 on every namespace variant) — skipped",
+                job.get("module"), job["table"], job["namespace"])
+
+def extract_all_pages(url, headers, body, singular_body,
+                      double_namespace_body, double_namespace_singular_body,
+                      *, session=None, timeout=60, max_pages=10000, max_retries=6,
+                      default_retry_wait=10, backoff_factor=2, base_delay=0.0,
+                      page_workers=DEFAULT_PAGE_WORKERS):
+    """Page 1 sequentially (uses fallback chain to discover the right body
+    shape), then pages 2..N concurrently with the chosen body."""
+
+    def extract_rows(payload: dict) -> list:
+        rows = payload.get("data")
+        if rows is None:
+            sv = payload.get("success")
+            rows = sv.get("data") or [] if isinstance(sv, dict) else []
+        if isinstance(rows, dict):
+            rows = rows.get("data") or []
+        elif not isinstance(rows, list):
+            rows = []
+        return rows
+
+    candidate_bodies = [
+        {**body, "page": 1},
+        {**singular_body, "page": 1},
+        {**double_namespace_body, "page": 1},
+        {**double_namespace_singular_body, "page": 1},
+    ]
+
+    r, chosen_body = post_with_retry_and_fallback(
+        url=url, headers=headers, bodies=candidate_bodies, session=session,
+        timeout=timeout, max_retries=max_retries,
+        default_retry_wait=default_retry_wait,
+        backoff_factor=backoff_factor, base_delay=base_delay,
+    )
+    payload  = r.json()
+    all_rows = extract_rows(payload)
+
+    pagination = payload.get("pagination") or {}
+    has_more   = bool(pagination.get("has_more_pages", False))
+    last_page  = pagination.get("last_page")
+
+    if not has_more:
+        return all_rows, chosen_body
+
+    # If we know the last page up front → fan-out fetch.
+    if last_page is not None:
+        last_page = min(int(last_page), max_pages)
+        pages = list(range(2, last_page + 1))
+        if not pages:
+            return all_rows, chosen_body
+
+        def _fetch(p):
+            r, _ = post_with_retry_and_fallback(
+                url=url, headers=headers,
+                bodies=[{**chosen_body, "page": p}], session=session,
+                timeout=timeout, max_retries=max_retries,
+                default_retry_wait=default_retry_wait,
+                backoff_factor=backoff_factor, base_delay=base_delay,
+            )
+            return p, extract_rows(r.json())
+
+        with ThreadPoolExecutor(max_workers=max(1, page_workers)) as pool:
+            page_rows: dict[int, list] = {}
+            for fut in as_completed(pool.submit(_fetch, p) for p in pages):
+                p, rows = fut.result()
+                page_rows[p] = rows
+        # preserve page order
+        for p in pages:
+            all_rows.extend(page_rows.get(p, []))
+        return all_rows, chosen_body
+
+    # Server didn't tell us last_page — fall back to sequential pagination.
+    page = 1
+    while has_more:
+        page += 1
+        if page > max_pages:
+            log.info("Pagination safety stop (max_pages=%s)", max_pages)
+            break
+        r, chosen_body = post_with_retry_and_fallback(
+            url=url, headers=headers,
+            bodies=[{**chosen_body, "page": page}], session=session,
+            timeout=timeout, max_retries=max_retries,
+            default_retry_wait=default_retry_wait,
+            backoff_factor=backoff_factor, base_delay=base_delay,
+        )
+        payload = r.json()
+        rows    = extract_rows(payload)
+        all_rows.extend(rows)
+        pagination = payload.get("pagination") or {}
+        has_more   = bool(pagination.get("has_more_pages", False))
+        last_page  = pagination.get("last_page", last_page)
+        if not rows:
+            break
+
+    return all_rows, chosen_body
+
+# ─── PIPELINE STEPS ──────────────────────────────────────────────────────
+
+def sf_schema(facility: str, layer: str) -> str:
+    return f"{SF_DB}.{facility.upper()}_{layer}"
+
+def _ensure_tables(sf: SnowflakeClient, facility: str) -> None:
+    """Create the facility's RAW/CLEAN schemas + tables if they don't exist
+    yet — lets a brand-new facility run with zero manual Snowflake setup."""
+    raw_schema, clean_schema = sf_schema(facility, "RAW"), sf_schema(facility, "CLEAN")
+    raw_table, clean_table   = f"{raw_schema}.EVENTS_RAW", f"{clean_schema}.EVENTS"
+
+    sf.execute(f"CREATE SCHEMA IF NOT EXISTS {raw_schema};", label="ensure_raw_schema")
+    sf.execute(f"CREATE SCHEMA IF NOT EXISTS {clean_schema};", label="ensure_clean_schema")
+
+    sf.execute(f"""
+        CREATE TABLE IF NOT EXISTS {raw_table} (
+            facility_id    STRING        NOT NULL,
+            ingested_at    TIMESTAMP_TZ  NOT NULL,
+            module_source  STRING,
+            source_table   STRING,
+            namespace      STRING,
+            payload        VARIANT
+        );
+        """, label="ensure_raw_table")
+
+    sf.execute(f"""
+        CREATE TABLE IF NOT EXISTS {clean_table} (
+            event_id     STRING NOT NULL,
+            event_time   TIMESTAMP_NTZ,
+            event_type   STRING,
+            amount       NUMBER,
+            payload      VARIANT,
+            ingested_at  TIMESTAMP_TZ
+        );
+        """, label="ensure_clean_table")
+
+    log.info("Tables ready: %s, %s", raw_table, clean_table)
+
+# Lazy S3 client — one per process, thread-safe.
+_s3_client_singleton = None
+_s3_client_lock = threading.Lock()
+
+def _s3_client():
+    global _s3_client_singleton
+    if _s3_client_singleton is None:
+        with _s3_client_lock:
+            if _s3_client_singleton is None:
+                ak = os.getenv("AWS_ACCESS_KEY_ID")
+                sk = os.getenv("AWS_SECRET_ACCESS_KEY")
+                if not (ak and sk):
+                    raise RuntimeError(
+                        "AWS credentials missing — set AWS_ACCESS_KEY_ID + "
+                        "AWS_SECRET_ACCESS_KEY in your .env (and AWS_REGION)."
+                    )
+                _s3_client_singleton = boto3.client(
+                    "s3",
+                    aws_access_key_id=ak,
+                    aws_secret_access_key=sk,
+                    region_name=os.getenv("AWS_REGION", "us-east-1"),
+                )
+    return _s3_client_singleton
+
+# ─── PAGE-LEVEL RESUME ───────────────────────────────────────────────────
+# A big table is hundreds of API pages (the V2 API serves 100 rows/page
+# whatever `limit` says, and rate-limits to roughly one request per ~20s).
+# Instead of holding every page in memory and uploading once at the end —
+# where one failed page threw away all the others — each page is written to
+# a local spool file the moment it arrives, and every CHUNK_PAGES pages the
+# spooled pages are uploaded to S3 and COPYed into Snowflake as one file.
+# A per-job state file records the page count, the request body the API
+# accepted, and which pages are already in Snowflake, so a re-run only
+# requests the pages it doesn't have: spooled pages are uploaded without
+# being fetched again, loaded pages are skipped entirely.
+#
+# State lives under .page_progress/<facility>/, one file + spool dir per
+# job (keyed by table, namespace and updated_since, so a different
+# extraction window never reuses another's pages), and is removed once the
+# table is fully loaded.
+
+PAGE_STATE_DIR = Path(__file__).resolve().parent / ".page_progress"
+CHUNK_PAGES    = int(os.getenv("CHUNK_PAGES", "50"))
+MAX_PAGES      = 10000
+
+# Tables extracted with the API's keyset (cursor) pagination instead of page
+# numbers: {"after_id": <last id seen>, "per_page": 100} → rows with id >
+# after_id plus pagination.next_after_id. Offset paging on these big tables
+# times out on the V2 server (investigations didn't answer page 1 in 120s);
+# keyset answers in ~1s. after_id is exclusive, so a fresh run starts at 0.
+# The API ignores updated_since in this mode, so every run is a full extract.
+# Default "*" = every table: since V2's uuid layer (2026-10) the gateway
+# ignores updated_since in page mode too (same total either way, checked live
+# on level6), so offset paging is just a slower full extract — and each page
+# runs a COUNT(*). KEYSET_TABLES=a,b limits keyset to those tables again.
+KEYSET_TABLES  = {t.strip() for t in os.getenv("KEYSET_TABLES", "*").split(",") if t.strip()}
+
+
+def _use_keyset(table: str) -> bool:
+    return "*" in KEYSET_TABLES or table in KEYSET_TABLES
+
+# Never written to spool, S3 or Snowflake — at any depth (admissions embed
+# their doctor's whole user record, e.g. doctor_email_token).
+_SECRET_FIELDS = ("password", "remember_token", "email_token", "session_id", "two_factor_code",
+                  "two_factor_secret", "api_token", "signature")
+
+
+def _is_secret(key) -> bool:
+    k = str(key).lower()
+    return any(k == f or k.endswith("_" + f) for f in _SECRET_FIELDS)
+
+
+def _strip_secrets(value):
+    if isinstance(value, dict):
+        return {k: _strip_secrets(v) for k, v in value.items() if not _is_secret(k)}
+    if isinstance(value, list):
+        return [_strip_secrets(v) for v in value]
+    return value
+KEYSET_PER_PAGE = 100
+
+
+def _extract_rows(payload: dict) -> list:
+    rows = payload.get("data")
+    if rows is None:
+        sv = payload.get("success")
+        rows = sv.get("data") or [] if isinstance(sv, dict) else []
+    if isinstance(rows, dict):
+        rows = rows.get("data") or []
+    elif not isinstance(rows, list):
+        rows = []
+    return rows
+
+
+def _page_state_paths(job: dict) -> tuple[Path, Path]:
+    ident = json.dumps({k: job.get(k) for k in
+                        ("facility", "module", "table", "namespace", "database", "updated_since", "limit")},
+                       sort_keys=True)
+    digest = hashlib.sha1(ident.encode()).hexdigest()[:16]
+    base = PAGE_STATE_DIR / job["facility"] / f"{_safe_s3_token(job['table'])}__{digest}"
+    return base.with_suffix(".json"), base
+
+
+def _load_page_state(path: Path) -> dict:
+    if not path.exists():
+        return {}
+    try:
+        state = json.loads(path.read_text())
+        if not isinstance(state, dict):
+            raise ValueError("page state must be a JSON object")
+        return state
+    except (OSError, ValueError) as e:
+        raise RuntimeError(f"Cannot safely resume page extraction from {path}: {e}") from e
+
+def _save_page_state(path: Path, state: dict) -> None:
+    atomic_write_json(path, state)
+
+
+def _spool_write(spool: Path, page: int, rows: list) -> None:
+    spool.mkdir(parents=True, exist_ok=True)
+    tmp = spool / f"page_{page:05d}.jsonl.gz.tmp"
+    with gzip.open(tmp, "wb") as gz:
+        for row in rows:
+            gz.write(_dumps_bytes(_strip_secrets(row)) + b"\n")
+    tmp.replace(spool / f"page_{page:05d}.jsonl.gz")
+
+
+def _spooled_pages(spool: Path) -> set[int]:
+    if not spool.exists():
+        return set()
+    return {int(f.name[5:10]) for f in spool.glob("page_*.jsonl.gz")}
+
+
+def _s3_key_prefix(job: dict, when: datetime) -> str:
+    return (
+        f"{S3_PREFIX}/"
+        f"facility_id={job['facility']}/"
+        f"module={_safe_s3_token(job.get('module', '')) or 'unknown'}/"
+        f"table={_safe_s3_token(job.get('table', '')) or 'unknown'}/"
+        f"namespace={_safe_s3_token(job['namespace'].replace(chr(92), '_'))}/"
+        f"dt={when.date().isoformat()}/"
+    )
+
+
+def _flush_spool(job: dict, run_id: str, spool: Path, state: dict, state_path: Path,
+                 sf: "SnowflakeClient | None") -> None:
+    """Upload every spooled page as one S3 file, COPY it into RAW, then mark
+    those pages loaded and delete their spool files. Pages are only marked
+    loaded after the COPY succeeds, so a failure here just retries them."""
+    pages = sorted(_spooled_pages(spool) - set(state["loaded_pages"]))
+    if not pages:
+        return
+    buf, n_rows = BytesIO(), 0
+    with gzip.GzipFile(fileobj=buf, mode="wb") as out:
+        for p in pages:
+            with gzip.open(spool / f"page_{p:05d}.jsonl.gz", "rb") as f:
+                data = f.read()
+            n_rows += data.count(b"\n")
+            out.write(data)
+    if n_rows:
+        now = datetime.now(timezone.utc)
+        key = f"{_s3_key_prefix(job, now)}{run_id}__p{pages[0]:05d}-{pages[-1]:05d}.jsonl.gz"
+        _s3_client().put_object(Bucket=S3_BUCKET, Key=key, Body=buf.getvalue())
+        copy_into_snowflake({"facility": job["facility"], "s3_key": key, "ingested_at": now.isoformat(),
+                             "module": job.get("module"), "table": job.get("table"),
+                             "namespace": job["namespace"]}, sf=sf)
+        state["s3_keys"].append(key)
+        state["rows_loaded"] += n_rows
+        if state.get("mode") == "keyset":
+            log.info("    %s · batches %s–%s (up to id %s) → s3://%s/%s rows=%s (%d rows loaded so far)",
+                     job["table"], pages[0], pages[-1], state.get("after_id"), S3_BUCKET, key, n_rows,
+                     state["rows_loaded"])
+        else:
+            log.info("    %s · pages %s–%s → s3://%s/%s rows=%s (loaded %d/%s pages)", job["table"],
+                     pages[0], pages[-1], S3_BUCKET, key, n_rows,
+                     len(state["loaded_pages"]) + len(pages), state.get("last_page") or "?")
+    state["loaded_pages"] = sorted(set(state["loaded_pages"]) | set(pages))
+    _save_page_state(state_path, state)
+    for p in pages:
+        (spool / f"page_{p:05d}.jsonl.gz").unlink(missing_ok=True)
+
+
+def _extract_keyset(job: dict, run_id: str, dry_run: bool, sf: "SnowflakeClient | None", *,
+                    url: str, headers: dict, session) -> dict | None:
+    """Keyset version of the page loop (see KEYSET_TABLES): batches are
+    fetched in id order, each spooled as it arrives (batch number = spool
+    page number) with the next cursor saved alongside, and loaded every
+    CHUNK_PAGES batches. A resume continues from the saved cursor, so no
+    batch that was already received is requested again."""
+    body = {"namespace": job["namespace"], "action": "get", "database": job["database"],
+            "per_page": KEYSET_PER_PAGE}
+    state_path, spool = _page_state_paths(job)
+    state = {} if dry_run else _load_page_state(state_path)
+    if state and state.get("mode") != "keyset":
+        # a half-done page-mode run (from before keyset became the default):
+        # its page numbers / spool would be mistaken for keyset batches — start over
+        log.info("    %s — discarding page-mode resume state; starting a keyset walk", job["table"])
+        for f in _spooled_pages(spool):
+            (spool / f"page_{f:05d}.jsonl.gz").unlink(missing_ok=True)
+        state = {}
+    state.setdefault("mode", "keyset")
+    state.setdefault("after_id", 0)
+    state.setdefault("batch", 0)
+    state.setdefault("loaded_pages", [])
+    state.setdefault("s3_keys", [])
+    state.setdefault("rows_loaded", 0)
+    if state["batch"]:
+        log.info("    %s — resuming keyset after id %s: %d batch(es) already in Snowflake, %d spooled",
+                 job["table"], state["after_id"], len(state["loaded_pages"]), len(_spooled_pages(spool)))
+
+    # Until one answers, try the same namespace spellings as the page loop
+    # (V2 class names are singular or plural per model: Visit, Patients …);
+    # the one that worked is kept for every later batch and for a resume.
+    if state.get("namespace"):
+        body["namespace"] = state["namespace"]
+        variants = [body]
+    else:
+        ns = body["namespace"]
+        variants = list({b["namespace"]: b for b in (
+            body, {**body, "namespace": namespace_to_singular_model(ns)},
+            {**body, "namespace": double_namespace_model(ns)},
+            {**body, "namespace": double_namespace_model(namespace_to_singular_model(ns))})}.values())
+
+    counted, error = 0, None
+    resolved = bool(state.get("namespace"))   # a namespace that answered before
+    while state["batch"] < MAX_PAGES:
+        try:
+            r, used = post_with_retry_and_fallback(
+                url=url, headers=headers, session=session, timeout=60,
+                bodies=[{**b, "after_id": state["after_id"]} for b in variants],
+            )
+        except NamespaceNotFound as e:
+            if not resolved and not state["batch"] and not counted:
+                _log_not_on_site(job)          # nothing fetched yet: the model isn't on this site
+                return None
+            error = e                          # a 404 mid-walk is a real failure
+            break
+        except Exception as e:
+            error = e
+            break
+        if not resolved:
+            resolved = True
+            body["namespace"] = state["namespace"] = used["namespace"]
+            variants = [body]
+        payload = r.json()
+        rows = _extract_rows(payload)
+        pagination = payload.get("pagination") or {}
+        if dry_run:
+            counted += len(rows)
+        elif rows:
+            state["batch"] += 1
+            _spool_write(spool, state["batch"], rows)
+        next_after = pagination.get("next_after_id") or (rows[-1].get("id") if rows else None)
+        if not rows or not pagination.get("has_more_pages") or next_after in (None, state["after_id"]):
+            break
+        state["after_id"] = next_after
+        if not dry_run:
+            _save_page_state(state_path, state)   # cursor saved with its batch → exact resume point
+            if state["batch"] % CHUNK_PAGES == 0:
+                _flush_spool(job, run_id, spool, state, state_path, sf)
+
+    if dry_run:
+        if error:
+            raise error
+        log.info("DRY-RUN ✓ %-22s %s rows via keyset (would upload to s3://%s/%s)",
+                 job["table"], counted, S3_BUCKET, _s3_key_prefix(job, datetime.now(timezone.utc)))
+        return None
+
+    _save_page_state(state_path, state)
+    _flush_spool(job, run_id, spool, state, state_path, sf)
+    if error:
+        raise RuntimeError(
+            f"{job['table']}: keyset fetch after id {state['after_id']} failed: {error}. "
+            f"{len(state['loaded_pages'])} batch(es) / {state['rows_loaded']} rows are already in "
+            f"Snowflake and won't be requested again — re-run to continue from id {state['after_id']}."
+        ) from error
+
+    result = None
+    if state["rows_loaded"]:
+        result = {
+            "facility": job["facility"], "module": job.get("module"), "table": job.get("table"),
+            "namespace": job["namespace"], "database": job.get("database"),
+            "updated_since": job.get("updated_since"),
+            "ingested_at": datetime.now(timezone.utc).isoformat(),
+            "s3_key": state["s3_keys"][-1], "s3_keys": state["s3_keys"],
+            "row_count": state["rows_loaded"], "copied": True,
+        }
+    else:
+        log.info("    %s · %s — 0 rows, skipping S3", job["module"], job["table"])
+    state_path.unlink(missing_ok=True)
+    if spool.exists():
+        for f in spool.iterdir():
+            f.unlink(missing_ok=True)
+        spool.rmdir()
+    return result
+
+
+def extract_one_model(job: dict, run_id: str, dry_run: bool = False,
+                      page_workers: int = DEFAULT_PAGE_WORKERS,
+                      sf: "SnowflakeClient | None" = None) -> dict | None:
+    """Extract one table and load it into RAW chunk by chunk (see PAGE-LEVEL
+    RESUME above). Returns a summary with copied=True — the caller must not
+    COPY again — or None when the table has no rows (or on a dry run)."""
+    facility = job["facility"]
+    cfg      = facility_config(facility)
+
+    url     = f"{cfg['base_url'].rstrip('/')}/api/finance/access/data/point"
+    session = _facility_session(facility)
+    headers = {"Authorization": f"Bearer {_facility_token(facility)}",
+               "Content-Type": "application/json"}
+
+    body = {
+        "namespace": job["namespace"], "action": "get",
+        "database": job["database"], "updated_since": job["updated_since"],
+        "limit": job["limit"],
+    }
+    singular_body                  = {**body, "namespace": namespace_to_singular_model(job["namespace"])}
+    double_namespace_body          = {**body, "namespace": double_namespace_model(job["namespace"])}
+    double_namespace_singular_body = {**body, "namespace": double_namespace_model(namespace_to_singular_model(job["namespace"]))}
+
+    if _use_keyset(job["table"]):
+        return _extract_keyset(job, run_id, dry_run, sf, url=url, headers=headers, session=session)
+
+    if dry_run:
+        # Count only — nothing spooled, uploaded or checkpointed.
+        rows, _ = extract_all_pages(
+            url=url, headers=headers, body=body,
+            singular_body=singular_body,
+            double_namespace_body=double_namespace_body,
+            double_namespace_singular_body=double_namespace_singular_body,
+            session=session, timeout=60, max_pages=MAX_PAGES,
+            page_workers=page_workers,
+        )
+        if not rows:
+            log.info("    %s · %s — 0 rows, skipping S3", job["module"], job["table"])
+        else:
+            log.info("DRY-RUN ✓ %-22s %s rows (would upload to s3://%s/%s%s.jsonl.gz)",
+                     job["table"], len(rows), S3_BUCKET,
+                     _s3_key_prefix(job, datetime.now(timezone.utc)), run_id)
+        return None
+
+    state_path, spool = _page_state_paths(job)
+    state = _load_page_state(state_path)
+    state.setdefault("loaded_pages", [])
+    state.setdefault("s3_keys", [])
+    state.setdefault("rows_loaded", 0)
+
+    def _fetch(page: int) -> tuple[int, list, dict]:
+        r, _ = post_with_retry_and_fallback(
+            url=url, headers=headers, bodies=[{**state["chosen_body"], "page": page}],
+            session=session, timeout=60,
+        )
+        payload = r.json()
+        return page, _extract_rows(payload), payload.get("pagination") or {}
+
+    # Page 1 — only on a fresh start: it discovers the body shape the API
+    # accepts (fallback chain) and the page count. On resume both come from
+    # the state file and page 1 is never requested again.
+    if "chosen_body" not in state:
+        try:
+            r, chosen = post_with_retry_and_fallback(
+                url=url, headers=headers, session=session, timeout=60,
+                bodies=[{**b, "page": 1} for b in (body, singular_body, double_namespace_body,
+                                                   double_namespace_singular_body)],
+            )
+        except NamespaceNotFound:
+            _log_not_on_site(job)
+            return None
+        payload = r.json()
+        pagination = payload.get("pagination") or {}
+        last_page = pagination.get("last_page")
+        if not pagination.get("has_more_pages"):
+            last_page = 1
+        state["chosen_body"] = {k: v for k, v in chosen.items() if k != "page"}
+        state["last_page"] = min(int(last_page), MAX_PAGES) if last_page is not None else None
+        _spool_write(spool, 1, _extract_rows(payload))
+        _save_page_state(state_path, state)
+    else:
+        log.info("    %s — resuming: %d page(s) already in Snowflake, %d spooled, last_page=%s",
+                 job["table"], len(state["loaded_pages"]), len(_spooled_pages(spool)),
+                 state.get("last_page") or "?")
+
+    failures: list[tuple[int, Exception]] = []
+    if state.get("last_page") is not None:
+        # Known page count: fetch only the pages we don't have, CHUNK_PAGES
+        # at a time, and load each chunk before starting the next.
+        have = set(state["loaded_pages"]) | _spooled_pages(spool)
+        missing = [p for p in range(1, state["last_page"] + 1) if p not in have]
+        for i in range(0, len(missing), CHUNK_PAGES):
+            window = missing[i:i + CHUNK_PAGES]
+            with ThreadPoolExecutor(max_workers=max(1, page_workers)) as pool:
+                futures = {pool.submit(_fetch, p): p for p in window}
+                for fut in as_completed(futures):
+                    try:
+                        page, rows, _ = fut.result()
+                        _spool_write(spool, page, rows)
+                    except Exception as e:
+                        failures.append((futures[fut], e))
+            _flush_spool(job, run_id, spool, state, state_path, sf)
+            if failures:
+                break
+        if not missing:
+            _flush_spool(job, run_id, spool, state, state_path, sf)
+    else:
+        # Unknown page count: walk forward from the last page we have until
+        # an empty page / has_more_pages=false.
+        page = max(set(state["loaded_pages"]) | _spooled_pages(spool) | {1})
+        while page < MAX_PAGES:
+            page += 1
+            try:
+                _, rows, pagination = _fetch(page)
+            except Exception as e:
+                failures.append((page, e))
+                break
+            _spool_write(spool, page, rows)
+            if not rows or not pagination.get("has_more_pages"):
+                break
+            if page % CHUNK_PAGES == 0:
+                _flush_spool(job, run_id, spool, state, state_path, sf)
+        _flush_spool(job, run_id, spool, state, state_path, sf)
+
+    if failures:
+        page, err = min(failures, key=lambda f: f[0])
+        raise RuntimeError(
+            f"{job['table']}: {len(failures)} page(s) failed (first: page {page}: {err}). "
+            f"{len(state['loaded_pages'])} page(s) / {state['rows_loaded']} rows are already in "
+            f"Snowflake and won't be requested again — re-run to fetch only the rest."
+        ) from err
+
+    if state["rows_loaded"] == 0:
+        log.info("    %s · %s — 0 rows, skipping S3", job["module"], job["table"])
+        result = None
+    else:
+        result = {
+            "facility":      facility,
+            "module":        job.get("module"),
+            "table":         job.get("table"),
+            "namespace":     job["namespace"],
+            "database":      job.get("database"),
+            "updated_since": job.get("updated_since"),
+            "ingested_at":   datetime.now(timezone.utc).isoformat(),
+            "s3_key":        state["s3_keys"][-1],
+            "s3_keys":       state["s3_keys"],
+            "row_count":     state["rows_loaded"],
+            "copied":        True,
+        }
+    # Table fully loaded — drop its page state and spool.
+    state_path.unlink(missing_ok=True)
+    if spool.exists():
+        for f in spool.iterdir():
+            f.unlink(missing_ok=True)
+        spool.rmdir()
+    return result
+
+def copy_into_snowflake(job_result: dict, sf: SnowflakeClient | None = None) -> None:
+    facility      = job_result["facility"]
+    s3_key        = job_result["s3_key"]
+    ingested_at   = job_result["ingested_at"]
+    module_source = job_result.get("module") or ""
+    source_table  = job_result.get("table") or ""
+    namespace     = job_result.get("namespace") or ""
+
+    raw_table = f"{sf_schema(facility, 'RAW')}.EVENTS_RAW"
+
+    def lit(value: str) -> str:
+        # Snowflake string literals treat backslash as an escape: an unescaped
+        # 'Ignite\Evaluation\Entities\Sample' was stored as
+        # 'IgniteEvaluationEntitiesSample' (snowflake_to_v3_migration's
+        # _stored_namespace still repairs rows loaded before this fix).
+        return str(value).replace("\\", "\\\\").replace("'", "\\'")
+
+    sql = f"""
+    COPY INTO {raw_table} (facility_id, ingested_at, module_source, source_table, namespace, payload)
+    FROM (
+      SELECT
+        '{lit(facility)}'::STRING        AS facility_id,
+        '{lit(ingested_at)}'::TIMESTAMP_TZ AS ingested_at,
+        '{lit(module_source)}'::STRING   AS module_source,
+        '{lit(source_table)}'::STRING    AS source_table,
+        '{lit(namespace)}'::STRING       AS namespace,
+        PARSE_JSON($1)              AS payload
+      FROM @{SF_STAGE}
+    )
+    FILES = ('{s3_key}')
+    FILE_FORMAT = (FORMAT_NAME = {SF_FILE_FORMAT})
+    ON_ERROR = 'CONTINUE';
+    """
+    label = f"copy:{facility}:{source_table or 'events'}"
+    if sf is not None:
+        sf.execute(sql, label=label)
+    else:
+        with SnowflakeClient(schema_=sf_schema(facility, "RAW")) as new_sf:
+            new_sf.execute(sql, label=label)
+
+def merge_clean(facility: str, sf: SnowflakeClient | None = None) -> None:
+    raw_table   = f"{sf_schema(facility, 'RAW')}.EVENTS_RAW"
+    clean_table = f"{sf_schema(facility, 'CLEAN')}.EVENTS"
+    sql = f"""
+    MERGE INTO {clean_table} AS t
+    USING (
+        SELECT
+            facility_id,
+            f.value:id::STRING            AS event_id,
+            f.value:event_time::TIMESTAMP AS event_time,
+            f.value:type::STRING          AS event_type,
+            f.value:amount::NUMBER        AS amount,
+            f.value                       AS payload,
+            ingested_at
+        FROM {raw_table} AS r,
+             LATERAL FLATTEN(input => r.payload) AS f
+        WHERE f.value:id IS NOT NULL
+          AND NULLIF(TRIM(f.value:id::STRING), '') IS NOT NULL
+        QUALIFY ROW_NUMBER() OVER (
+            PARTITION BY f.value:id::STRING ORDER BY ingested_at DESC
+        ) = 1
+    ) AS s
+    ON t.event_id = s.event_id
+    WHEN MATCHED THEN UPDATE SET
+        event_time  = s.event_time,
+        event_type  = s.event_type,
+        amount      = s.amount,
+        payload     = s.payload,
+        ingested_at = s.ingested_at
+    WHEN NOT MATCHED THEN INSERT (event_id, event_time, event_type, amount, payload, ingested_at)
+    VALUES (s.event_id, s.event_time, s.event_type, s.amount, s.payload, s.ingested_at);
+    """
+    label = f"merge_clean:{facility}"
+    if sf is not None:
+        sf.execute(sql, label=label)
+    else:
+        with SnowflakeClient(schema_=sf_schema(facility, "RAW")) as new_sf:
+            new_sf.execute(sql, label=label)
+
+# ─── ORCHESTRATOR ────────────────────────────────────────────────────────
+
+def run_pipeline(facility: str, *, since: str | None = None,
+                 only_tables: set[str] | None = None,
+                 skip_merge: bool = False, dry_run: bool = False,
+                 update_watermark: bool = True,
+                 workers: int = DEFAULT_PIPELINE_WORKERS,
+                 page_workers: int = DEFAULT_PAGE_WORKERS,
+                 resume: bool = True,
+                 table_set: str = "sheet") -> None:
+
+    facility_config(facility)   # raises with setup instructions if unknown
+
+    run_id = datetime.now(timezone.utc).strftime("manual__%Y-%m-%dT%H-%M-%SZ")
+    started_at = datetime.now(timezone.utc)
+    skey = state_key(facility, table_set)
+
+    # 1. Build full job list
+    all_jobs = build_jobs_for_facility(facility, since=since, only_tables=only_tables,
+                                       table_set=table_set)
+    if not all_jobs:
+        log.warning("No jobs to run.")
+        return
+
+    # 1b. Filter based on resume / progress checkpoint
+    if not resume and not dry_run:
+        _clear_progress(skey)
+        log.info("⟲ Resume disabled · cleared previous progress for %s", skey)
+        jobs = all_jobs
+    elif resume and not dry_run:
+        done = _completed_keys(skey)
+        skipped = [j for j in all_jobs if _job_key(j) in done]
+        jobs    = [j for j in all_jobs if _job_key(j) not in done]
+        if skipped:
+            log.info("⟲ Resume mode · skipping %d already-completed jobs "
+                     "(use --no-resume to redo)", len(skipped))
+    else:
+        jobs = all_jobs
+
+    log.info("══════ START %s · facility=%s · run_id=%s · %d/%d jobs · workers=%d (page_workers=%d) ══════",
+             PIPELINE_NAME, facility, run_id, len(jobs), len(all_jobs), workers, page_workers)
+
+    if not jobs:
+        log.info("✓ Everything was already done in a previous run. Running merge only.")
+
+    successes: list[dict] = []
+    failures:  list[dict] = []
+
+    sf_client = None
+    try:
+        if not dry_run:
+            sf_client = SnowflakeClient(schema_=sf_schema(facility, "RAW"))
+            _ensure_tables(sf_client, facility)
+
+        def _do_one(idx_and_job):
+            idx, job = idx_and_job
+            log.info("──[%d/%d] start · %s · %s",
+                     idx, len(jobs), job["module"], job["table"])
+            try:
+                # Loads into RAW chunk by chunk itself (page-level resume).
+                result = extract_one_model(job, run_id=run_id, dry_run=dry_run,
+                                           page_workers=page_workers, sf=sf_client)
+                if result is None:
+                    if not dry_run:
+                        _mark_done(skey, run_id, job, s3_key=None)
+                    return ("skip", None, job)
+                _mark_done(skey, run_id, job, s3_key=result["s3_key"])
+                return ("ok", result, job)
+            except Exception as e:
+                log.error("✗ %s · %s · failed: %s",
+                          job["module"], job["table"], e, exc_info=True)
+                return ("err", str(e), job)
+
+        if jobs:
+            with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
+                for status, payload, job in pool.map(
+                    _do_one, list(enumerate(jobs, start=1))
+                ):
+                    if status == "ok":
+                        successes.append(payload)
+                    elif status == "err":
+                        failures.append({"job": job, "error": payload})
+
+        # 4. Merge into CLEAN — safe to re-run on resume.
+        if not dry_run and not skip_merge:
+            try:
+                merge_clean(facility, sf=sf_client)
+            except Exception as e:
+                log.error("merge_clean failed: %s", e, exc_info=True)
+                failures.append({"job": "merge_clean", "error": str(e)})
+
+    finally:
+        if sf_client is not None:
+            sf_client.close()
+
+    # 5. Bump watermark + clear progress only on a clean full run.
+    if not dry_run and update_watermark and not failures:
+        set_watermark(skey, started_at.isoformat().replace("+00:00", "Z"))
+        _clear_progress(skey)
+        log.info("✓ Run complete — watermark advanced, progress file cleared.")
+
+    log.info("══════ END   ✓ %d ok · ✗ %d failed · %s ══════",
+             len(successes), len(failures), PIPELINE_NAME)
+    if failures:
+        log.warning("Failures (truncated):")
+        for f in failures[:10]:
+            log.warning("  · %s",
+                        {k: (v if k != "job" or isinstance(v, str)
+                             else f"{v.get('module')}.{v.get('table')}")
+                         for k, v in f.items()})
+        sys.exit(1)
+
+# ─── CLI ─────────────────────────────────────────────────────────────────
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--facility", required=True, choices=list(FACILITIES.keys()))
+    ap.add_argument("--since", help="ISO date / timestamp (overrides watermark).")
+    ap.add_argument("--only-tables",
+                    help="Comma-separated list of tables to limit the run to.")
+    ap.add_argument("--skip-merge", action="store_true",
+                    help="Skip the CLEAN MERGE step.")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="Extract only — no S3 / Snowflake writes.")
+    ap.add_argument("--no-watermark-update", action="store_true",
+                    help="Don't bump the local watermark on a clean run.")
+    ap.add_argument("--no-resume", action="store_true",
+                    help="Ignore .progress.json and re-run every table from scratch.")
+    ap.add_argument("--workers", type=int, default=DEFAULT_PIPELINE_WORKERS,
+                    help=f"Parallel jobs (default {DEFAULT_PIPELINE_WORKERS}). "
+                         "Drop to 4 if the source API rate-limits.")
+    ap.add_argument("--page-workers", type=int, default=DEFAULT_PAGE_WORKERS,
+                    help=f"Parallel page fetches within a job (default {DEFAULT_PAGE_WORKERS}).")
+    ap.add_argument("--table-set", choices=TABLE_SETS, default="sheet",
+                    help="'sheet' (default): tables from the data-dictionary sheet. "
+                         "'old_system_history': the V2 tables behind old_system_history "
+                         "(OLD_SYSTEM_HISTORY_TABLES), with their own watermark/progress.")
+    args = ap.parse_args()
+
+    only_tables = None
+    if args.only_tables:
+        only_tables = {t.strip().lower() for t in args.only_tables.split(",") if t.strip()}
+
+    run_pipeline(
+        facility=args.facility,
+        since=args.since,
+        only_tables=only_tables,
+        skip_merge=args.skip_merge,
+        dry_run=args.dry_run,
+        update_watermark=not args.no_watermark_update,
+        workers=args.workers,
+        page_workers=args.page_workers,
+        resume=not args.no_resume,
+        table_set=args.table_set,
+    )
+
+
+if __name__ == "__main__":
+    main()

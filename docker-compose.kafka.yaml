@@ -37,7 +37,7 @@ services:
       SERVER_PORT: "8090"
       # Tells kafka-ui (a Spring Boot app) it's mounted under /kafka-ui so
       # its own generated links/asset paths match the nginx location block
-      # instead of assuming root - see nginx/sites-enabled/django_project's
+      # instead of assuming root - see nginx/templates/django_project.template's
       # /kafka-ui/ block.
       SERVER_SERVLET_CONTEXT_PATH: /kafka-ui
       KAFKA_CLUSTERS_0_NAME: local

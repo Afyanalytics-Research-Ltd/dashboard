@@ -30,12 +30,16 @@ class DAGRunSerializer(serializers.Serializer):
     dag_run_id = serializers.CharField()
     dag_id = serializers.CharField()
     state = serializers.CharField()
+    run_type = serializers.CharField(allow_blank=True, default='')
+    triggered_by = serializers.CharField(allow_null=True, default=None)
+    logical_date = serializers.CharField(allow_null=True, default=None)
+    run_after = serializers.CharField(allow_null=True, default=None)
+    queued_at = serializers.CharField(allow_null=True, default=None)
     start_date = serializers.CharField(allow_null=True, default=None)
     end_date = serializers.CharField(allow_null=True, default=None)
-    execution_date = serializers.CharField(allow_null=True, default=None)
-    logical_date = serializers.CharField(allow_null=True, default=None)
-    run_type = serializers.CharField(allow_blank=True, default='')
-    note = serializers.CharField(allow_blank=True, default='')
+    duration = serializers.FloatField(allow_null=True, default=None)
+    conf = serializers.JSONField(allow_null=True, default=None)
+    note = serializers.CharField(allow_null=True, allow_blank=True, default=None)
 
 
 class TaskInstanceSerializer(serializers.Serializer):

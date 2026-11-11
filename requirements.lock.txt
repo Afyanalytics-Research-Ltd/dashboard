@@ -262,3 +262,13 @@ yarl==1.25.1
 zipp==4.1.2
 zope.interface==8.7
 zstandard==0.25.0
+# fastembed (local embeddings, afya_backends.llm) and its deps
+fastembed==0.9.1
+flatbuffers==25.12.19
+hf-xet==1.8.0
+huggingface_hub==1.16.1
+loguru==0.7.3
+mmh3==5.3.1
+onnxruntime==1.31.1
+py_rust_stemmers==0.1.8
+tokenizers==0.23.3

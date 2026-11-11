@@ -151,7 +151,7 @@
           <button type="button" data-switch="llm_provider" data-value="api"
                   class="{% if llm_provider == 'api' %}active{% endif %}"
                   aria-pressed="{% if llm_provider == 'api' %}true{% else %}false{% endif %}">
-            <span><i class="bi bi-key me-1"></i>API keys</span>
+            <span><i class="bi bi-cloud me-1"></i>{% if api_chat_provider == 'groq' %}Groq (hosted open-source){% else %}Hosted API (OpenAI){% endif %}</span>
             <span class="health"><span class="dot" data-check="llm_api"></span><span data-check-text="llm_api">checking…</span></span>
           </button>
           <button type="button" data-switch="llm_provider" data-value="ollama"
@@ -161,7 +161,15 @@
             <span class="health"><span class="dot" data-check="ollama"></span><span data-check-text="ollama">checking…</span></span>
           </button>
         </div>
-        <div class="backend-meta">Local model: <code>{{ ollama_model }}</code>. Hosted keys are used in their existing order (Groq → xAI → Anthropic → OpenAI).</div>
+        <div class="backend-meta">
+          {% if api_chat_provider == 'groq' %}
+            Hosted: chat on <b>Groq</b> <code>{{ api_chat_model }}</code> (open-source; falls back to OpenAI on rate limits).
+          {% else %}
+            Hosted: chat on <b>OpenAI</b> <code>{{ api_chat_model }}</code> (set <code>GROQ_API_KEY</code> to use free open-source models on Groq).
+          {% endif %}
+          Embeddings run locally (<code>{{ local_embed_model }}</code>, free).
+          Ollama: <code>{{ ollama_model }}</code> — needs an Ollama server on this host.
+        </div>
       </div>
     </div>
     <div id="switchProgress" class="d-none mt-3">
@@ -327,7 +335,9 @@
     const CSRF = '{{ csrf_token }}';
     const LABELS = {
       warehouse_backend: {title: 'data warehouse', snowflake: 'Snowflake', databend: 'Databend'},
-      llm_provider: {title: 'LLM provider', api: 'hosted API keys', ollama: 'Ollama (local)'},
+      llm_provider: {title: 'LLM provider',
+                     api: {% if api_chat_provider == 'groq' %}'Groq (hosted open-source)'{% else %}'hosted API (OpenAI)'{% endif %},
+                     ollama: 'Ollama (local)'},
     };
     const EFFECTS = {
       warehouse_backend: {
@@ -340,7 +350,8 @@
       llm_provider: {
         ollama: 'AI chat, agents, insights and extraction pipelines will call the <b>local Ollama model</b> '
           + '(no API spend, slower, smaller model).',
-        api: 'AI features go back to the <b>hosted APIs</b> using the configured keys.',
+        api: {% if api_chat_provider == 'groq' %}'AI features use <b>Groq</b>\'s hosted open-source model (<code>{{ api_chat_model|escapejs }}</code>), '
+          + 'falling back to OpenAI if Groq rate-limits. Embeddings stay local and free.'{% else %}'AI features go back to the <b>hosted APIs</b> using the configured keys.'{% endif %},
       },
     };
     let pending = null, pollTimer = null;

@@ -78,6 +78,10 @@ class SystemSettingsView(SuperuserRequiredMixin, BreadcrumbMixin, LoggingMixin, 
         context['warehouse_backend'] = toggles.warehouse_backend()
         context['llm_provider'] = toggles.llm_provider()
         context['ollama_model'] = llm.ollama_model()
+        context['api_chat_provider'] = llm.api_chat_provider()
+        context['api_chat_model'] = (llm.groq_model() if context['api_chat_provider'] == 'groq'
+                                     else llm.openai_fallback_model())
+        context['local_embed_model'] = llm.local_embed_model()
         context['backend_status_url'] = '/core/settings/backends/status/'
         return context
 

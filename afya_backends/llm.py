@@ -24,12 +24,12 @@ open-source models (GROQ_MODEL, default openai/gpt-oss-120b) instead of
 paid OpenAI, falling back to OpenAI (OPENAI_FALLBACK_MODEL, default
 gpt-4o-mini) when Groq rate-limits or is unreachable.  Set
 LLM_API_CHAT_PROVIDER=openai to send them straight to OpenAI again.
-Embeddings always stay on OpenAI in ``api`` mode (Groq has none).
-
-Embeddings: hosted -> text-embedding-3-small; Ollama -> OLLAMA_EMBED_MODEL
-(default nomic-embed-text).  Indexes built with one can't be queried with
-the other (different vector sizes), so :func:`embeddings_index_path`
-gives each provider its own index file.
+Embeddings (:func:`embed_provider`): ``api`` mode computes them in-process
+with fastembed (LOCAL_EMBED_MODEL, default BAAI/bge-small-en-v1.5, free,
+CPU) unless LLM_EMBED_PROVIDER=openai (text-embedding-3-small); Ollama mode
+uses OLLAMA_EMBED_MODEL (default nomic-embed-text).  Indexes built with one
+can't be queried with another (different vector sizes), so
+:func:`embeddings_index_path` gives each provider its own index file.
 """
 
 from __future__ import annotations
@@ -145,6 +145,67 @@ def _routes_to_groq() -> bool:
     return not is_ollama() and api_chat_provider() == "groq"
 
 
+# ---------------------------------------------------------------------------
+# embeddings provider
+# ---------------------------------------------------------------------------
+
+EMBED_LOCAL = "local"    # fastembed, in-process on CPU (free, open-source)
+EMBED_OPENAI = "openai"  # text-embedding-3-small (paid)
+EMBED_OLLAMA = "ollama"
+
+
+def embed_provider() -> str:
+    """Who computes embeddings: ``ollama`` when the LLM switch is on Ollama;
+    otherwise ``local`` (fastembed, LOCAL_EMBED_MODEL) unless
+    LLM_EMBED_PROVIDER=openai."""
+    if is_ollama():
+        return EMBED_OLLAMA
+    forced = os.getenv("LLM_EMBED_PROVIDER", "").strip().lower()
+    return EMBED_OPENAI if forced == EMBED_OPENAI else EMBED_LOCAL
+
+
+def local_embed_model() -> str:
+    return (os.getenv("LOCAL_EMBED_MODEL") or "BAAI/bge-small-en-v1.5").strip()
+
+
+_local_models: dict[str, Any] = {}
+_local_lock = __import__("threading").Lock()
+
+
+def _local_text_embedding(name: str):
+    """Load (once per process) a fastembed model.  Weights are cached under
+    FASTEMBED_CACHE_PATH (the web image pre-downloads them there)."""
+    m = _local_models.get(name)
+    if m is None:
+        with _local_lock:
+            m = _local_models.get(name)
+            if m is None:
+                from fastembed import TextEmbedding
+                cache = os.getenv("FASTEMBED_CACHE_PATH") or None
+                m = TextEmbedding(name, cache_dir=cache) if cache else TextEmbedding(name)
+                _local_models[name] = m
+    return m
+
+
+class _LocalEmbeddings:
+    """``client.embeddings`` stand-in: ``create(model=, input=)`` answered
+    in-process by fastembed, shaped like the OpenAI response."""
+
+    def create(self, *, model: Optional[str] = None, input, **_ignored):
+        from types import SimpleNamespace
+        texts = [input] if isinstance(input, str) else list(input)
+        name = model if model and "/" in model else local_embed_model()
+        vecs = _local_text_embedding(name).embed(texts)
+        return SimpleNamespace(data=[SimpleNamespace(embedding=[float(x) for x in v], index=i)
+                                     for i, v in enumerate(vecs)], model=name)
+
+
+class _AsyncLocalEmbeddings(_LocalEmbeddings):
+    async def create(self, **kw):
+        import asyncio
+        return await asyncio.to_thread(_LocalEmbeddings.create, self, **kw)
+
+
 def model(requested: Optional[str] = None, purpose: Optional[str] = None) -> str:
     """The model name to send: the Ollama model when local; on hosted APIs
     ``requested``, except that OpenAI model names become the Groq model when
@@ -210,18 +271,24 @@ class _Chat:
         self.completions = completions
 
 
-class _GroqRoutedClient:
-    """OpenAI-SDK-shaped client: chat -> Groq (OpenAI fallback), embeddings
-    and anything else -> OpenAI.  Covers the surface the call sites use
-    (``chat.completions.create``, ``embeddings.create``)."""
+class _RoutedClient:
+    """OpenAI-SDK-shaped client for ``api`` mode.  Chat -> Groq (OpenAI
+    fallback) when ``groq_client`` is given, else OpenAI; embeddings ->
+    in-process fastembed when ``local_embed``, else OpenAI; anything else ->
+    OpenAI.  Covers the surface the call sites use (``chat.completions.create``,
+    ``embeddings.create``)."""
 
     _completions_cls = _GroqCompletions
+    _local_embeddings_cls = _LocalEmbeddings
 
-    def __init__(self, groq_client, openai_factory):
+    def __init__(self, groq_client, openai_factory, local_embed: bool = False):
         self._groq = groq_client
         self._openai_factory = openai_factory
         self._openai = None
-        self.chat = _Chat(self._completions_cls(self))
+        if groq_client is not None:
+            self.chat = _Chat(self._completions_cls(self))
+        if local_embed:
+            self.embeddings = self._local_embeddings_cls()
 
     def _openai_or_none(self):
         if self._openai is None:
@@ -231,44 +298,49 @@ class _GroqRoutedClient:
                 return None
         return self._openai
 
-    @property
-    def embeddings(self):
-        c = self._openai_or_none()
-        if c is None:
-            raise RuntimeError("Embeddings need OPENAI_API_KEY in 'api' mode (Groq has no embeddings API).")
-        return c.embeddings
-
-    def __getattr__(self, name):
-        c = self._openai_or_none()
-        if c is None:
+    def __getattr__(self, name):  # chat / embeddings not routed above, models, ...
+        if name.startswith("_"):
             raise AttributeError(name)
+        c = self._openai_or_none()
+        if c is None:
+            raise RuntimeError(f"client.{name} needs OPENAI_API_KEY in 'api' mode")
         return getattr(c, name)
 
 
-class _AsyncGroqRoutedClient(_GroqRoutedClient):
+class _AsyncRoutedClient(_RoutedClient):
     _completions_cls = _AsyncGroqCompletions
+    _local_embeddings_cls = _AsyncLocalEmbeddings
+
+
+def _api_client(openai_cls, routed_cls, api_key, base_url, kwargs):
+    make_openai = lambda: openai_cls(api_key=api_key or _secret("OPENAI_API_KEY") or None,  # noqa: E731
+                                     base_url=base_url, **kwargs)
+    if base_url is not None:  # explicit endpoint: the caller knows what it wants
+        return make_openai()
+    groq = None
+    if api_chat_provider() == "groq":
+        groq = openai_cls(api_key=groq_key(), base_url=GROQ_BASE_URL, max_retries=1,
+                          **{k: v for k, v in kwargs.items() if k != "max_retries"})
+    local_embed = embed_provider() == EMBED_LOCAL
+    if groq is None and not local_embed:
+        return make_openai()
+    return routed_cls(groq, make_openai, local_embed=local_embed)
 
 
 def openai_client(api_key: Optional[str] = None, base_url: Optional[str] = None, **kwargs):
     """An ``openai.OpenAI``-compatible client for the active provider.
 
-    On ``ollama`` it points at Ollama's OpenAI API.  On ``api`` with a Groq
-    key (see :func:`api_chat_provider`) chat goes to Groq with OpenAI as the
-    fallback and embeddings stay on OpenAI; pair it with :func:`model`.
-    Otherwise it is exactly what the call site built before (its own key /
-    base_url).  An explicit ``base_url`` always bypasses the routing.
+    On ``ollama`` it points at Ollama's OpenAI API.  On ``api``: chat goes
+    to Groq when a Groq key exists (see :func:`api_chat_provider`; OpenAI is
+    the fallback) and embeddings are computed locally by fastembed (see
+    :func:`embed_provider`); pair it with :func:`model` /
+    :func:`embedding_model`.  An explicit ``base_url`` bypasses the routing.
     """
     from openai import OpenAI
     if is_ollama():
         return OpenAI(base_url=ollama_host() + "/v1", api_key="ollama",
                       timeout=kwargs.pop("timeout", 300), **kwargs)
-    make_openai = lambda: OpenAI(api_key=api_key or _secret("OPENAI_API_KEY") or None,  # noqa: E731
-                                 base_url=base_url, **kwargs)
-    if base_url is None and api_chat_provider() == "groq":
-        groq = OpenAI(api_key=groq_key(), base_url=GROQ_BASE_URL, max_retries=1,
-                      **{k: v for k, v in kwargs.items() if k != "max_retries"})
-        return _GroqRoutedClient(groq, make_openai)
-    return make_openai()
+    return _api_client(OpenAI, _RoutedClient, api_key, base_url, kwargs)
 
 
 def async_openai_client(api_key: Optional[str] = None, base_url: Optional[str] = None, **kwargs):
@@ -276,13 +348,7 @@ def async_openai_client(api_key: Optional[str] = None, base_url: Optional[str] =
     if is_ollama():
         return AsyncOpenAI(base_url=ollama_host() + "/v1", api_key="ollama",
                            timeout=kwargs.pop("timeout", 300), **kwargs)
-    make_openai = lambda: AsyncOpenAI(api_key=api_key or _secret("OPENAI_API_KEY") or None,  # noqa: E731
-                                      base_url=base_url, **kwargs)
-    if base_url is None and api_chat_provider() == "groq":
-        groq = AsyncOpenAI(api_key=groq_key(), base_url=GROQ_BASE_URL, max_retries=1,
-                           **{k: v for k, v in kwargs.items() if k != "max_retries"})
-        return _AsyncGroqRoutedClient(groq, make_openai)
-    return make_openai()
+    return _api_client(AsyncOpenAI, _AsyncRoutedClient, api_key, base_url, kwargs)
 
 
 def langchain_chat(temperature: float = 0.3, model_name: Optional[str] = None, api_key: Optional[str] = None,
@@ -388,7 +454,8 @@ def _chat_one(p: str, msgs: list[dict], *, max_tokens: int, temperature: float, 
 # ---------------------------------------------------------------------------
 
 def embedding_model() -> str:
-    return ollama_embed_model() if is_ollama() else "text-embedding-3-small"
+    return {EMBED_OLLAMA: ollama_embed_model, EMBED_LOCAL: local_embed_model,
+            EMBED_OPENAI: lambda: "text-embedding-3-small"}[embed_provider()]()
 
 
 def embed(texts: list[str], client=None) -> list[list[float]]:
@@ -398,13 +465,15 @@ def embed(texts: list[str], client=None) -> list[list[float]]:
 
 
 def embeddings_index_path(default_path):
-    """Hosted embeddings keep ``default_path``; Ollama uses a sibling file
-    (embeddings.npz -> embeddings.ollama.npz) built with its own model."""
+    """Each embeddings provider has its own index (vector sizes differ):
+    OpenAI keeps ``default_path``; local fastembed / Ollama use a sibling
+    file (embeddings.npz -> embeddings.local.npz / embeddings.ollama.npz)."""
     from pathlib import Path
-    if not is_ollama():
+    ep = embed_provider()
+    if ep == EMBED_OPENAI:
         return default_path
     p = Path(default_path)
-    out = p.with_name(p.stem + ".ollama" + p.suffix)
+    out = p.with_name(p.stem + "." + ep + p.suffix)
     return out if isinstance(default_path, Path) else str(out)
 
 
@@ -412,10 +481,11 @@ def describe() -> dict:
     """What the switch currently resolves to (for status pages / logs)."""
     if is_ollama():
         return {"provider": "ollama", "host": ollama_host(), "model": ollama_model(),
-                "embed_model": ollama_embed_model()}
+                "embed_provider": EMBED_OLLAMA, "embed_model": ollama_embed_model()}
     chat_p = api_chat_provider()
     return {"provider": "api", "configured": configured_api_providers(), "chat_provider": chat_p,
-            "chat_model": groq_model() if chat_p == "groq" else openai_fallback_model()}
+            "chat_model": groq_model() if chat_p == "groq" else openai_fallback_model(),
+            "embed_provider": embed_provider(), "embed_model": embedding_model()}
 
 
 def ollama_json(prompt: str, schema_hint: str = "") -> Any:

@@ -141,7 +141,9 @@ def check_llm_api() -> dict:
             raise RuntimeError("no GROQ_API_KEY / XAI_API_KEY / ANTHROPIC_API_KEY / OPENAI_API_KEY set")
         chat_p = llm.api_chat_provider()
         chat_m = llm.groq_model() if chat_p == "groq" else llm.openai_fallback_model()
-        return "keys: " + ", ".join(keys) + f" · chat → {chat_p} ({chat_m})"
+        emb = "local" if llm.embed_provider() == llm.EMBED_LOCAL else "openai"
+        return ("keys: " + ", ".join(keys) + f" · chat → {chat_p} ({chat_m})"
+                + f" · embeddings → {emb} ({llm.local_embed_model() if emb == 'local' else 'text-embedding-3-small'})")
     return _timed(go)
 
 

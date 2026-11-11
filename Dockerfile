@@ -17,6 +17,11 @@ COPY requirements.lock.txt requirements.lock.txt
 RUN --mount=type=cache,target=/root/.cache/pip \
     python -m pip install -r requirements.lock.txt
 
+# Local embedding model for semantic retrieval (afya_backends.llm, fastembed,
+# ~65 MB) baked into the image so containers never download it at runtime.
+ENV FASTEMBED_CACHE_PATH=/opt/fastembed
+RUN python -c "from fastembed import TextEmbedding; TextEmbedding('BAAI/bge-small-en-v1.5', cache_dir='/opt/fastembed')"
+
 COPY . .
 
 CMD ["/bin/bash", "+x", "/entrypoint.sh"]

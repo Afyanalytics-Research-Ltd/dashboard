@@ -31,6 +31,10 @@ ALLOWED_HOSTS = [
     'localhost',
     '127.0.0.1',
     '0.0.0.0',
+    # Compose service name: Redash's afya_databend runner calls
+    # http://web:8000/core/api/warehouse/translate/ over dashboard-net
+    # (REDASH_TRANSLATE_URL) - without this every Databend query 400s.
+    'web',
     '2c97-129-222-187-199.ngrok-free.app',
     '8fa2-105-164-5-177.ngrok-free.app'
 ]

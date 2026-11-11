@@ -142,10 +142,11 @@ class ConnectionPool:
     def _connect(self, context: Context):
         connector = self._connector
         if connector is None:
-            import snowflake.connector as connector  # noqa: PLC0415 — heavy import, defer
-            from afya_backends import warehouse as afya_warehouse
+            # Snowflake or Databend, per the platform warehouse switch
+            # (same .connect(**kwargs) interface as snowflake.connector).
+            from afya_backends import warehouse as connector  # noqa: PLC0415
         try:
-            conn = afya_warehouse.connect(**connect_kwargs(self.config, context))
+            conn = connector.connect(**connect_kwargs(self.config, context))
         except StudioConnectionError:
             raise
         except Exception as exc:  # connector raises many types; normalise

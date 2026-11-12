@@ -11,6 +11,7 @@ import altair as alt
 import pandas as pd
 import streamlit as st
 
+from . import hmis as H
 from . import theme as T
 from .analysis import fmt, pct
 
@@ -23,13 +24,27 @@ def _span(a, b):
     return f"{a:%d %b} – {b:%d %b %Y}" if a.year == b.year else f"{a:%d %b %Y} – {b:%d %b %Y}"
 
 
-def _period(receipts, updated):
-    """Period picker plus the as-of line. Returns (start, end), or None for all time."""
+def _hmis_status(view, error, choice):
+    """One line on where the HMIS figures come from (environment, capture time, freshness)."""
+    env = H.CHOICES.get(choice, choice)
+    if error is not None:
+        return f"HMIS ({env}) unavailable: {error.__class__.__name__}"
+    if not view:
+        return f"HMIS ({env}): no runs yet"
+    when = f"{view['captured']:%d %b %Y, %H:%M}" if hasattr(view["captured"], "strftime") else view["captured"]
+    stale = f" · <b class='x-flag-t'>no new run for over {H.STALE_HOURS}h</b>" if view["stale"] else ""
+    return f"HMIS ({env}) captured <b>{when}</b>{stale}"
+
+
+def _period(receipts, updated, hmis_line=""):
+    """Period picker, the HMIS environment switch and the as-of line. Returns (start, end), or None for all time."""
     dated = [r["DATE"] for r in receipts if r["DATE"]]
     today = date.today()
     lo = min(dated) if dated else today
     with st.container(key="pc_filter"):
-        c_pick, c_asof = st.columns([3, 1], vertical_alignment="bottom")
+        c_pick, c_env = st.columns([3, 1.3], vertical_alignment="bottom")
+        c_env.segmented_control("HMIS environment", list(H.CHOICES), key=H.SWITCH_KEY, format_func=H.CHOICES.get,
+                                width="stretch")
         row = c_pick.container(horizontal=True, vertical_alignment="bottom", gap="small")
         choice = row.segmented_control("Data received", PERIODS, default="All time", key="pc_period",
                                        disabled=not dated) or "All time"
@@ -44,8 +59,8 @@ def _period(receipts, updated):
                                        format="DD/MM/YYYY", label_visibility="collapsed")
             picked = tuple(picked) if isinstance(picked, (tuple, list)) else (picked,)
             rng = (picked[0], picked[-1]) if picked else (lo, today)
-        asof = f"Updated <b>{updated:%d %b %Y}</b>" if updated else ""
-        c_asof.markdown(f'<div class="x-asof">{asof}</div>', unsafe_allow_html=True)
+    asof = " · ".join(x for x in (f"Warehouse updated <b>{updated:%d %b %Y}</b>" if updated else "", hmis_line) if x)
+    T.html(f'<div class="x-asof pc-asof"><span>{asof}</span></div>')
     return rng
 
 
@@ -113,34 +128,60 @@ def _chart(receipts, rng):
                         .configure_view(strokeWidth=0), width="stretch", theme=None)
 
 
-def render(rows, updated, receipts):
+SHOW_FIRST = 25          # longer tables (hundreds of HMIS facilities) open with the largest sources first
+
+
+def _source_cell(r, on_warehouse):
+    """Source name, plus where an HMIS figure belongs: its own row (HMIS) or a note on the warehouse row."""
+    name = escape(r["SOURCE"])
+    if r.get("HMIS"):
+        flags = "".join(f" <span class='x-disc-chip warn'>{escape(f)}</span>" for f in r.get("FLAGS", []))
+        return f"{name} <span class='x-disc-chip'>HMIS</span>{flags}"
+    if r["SOURCE"] in on_warehouse:
+        return f"{name}<div class='x-src-sub'>HMIS: {fmt(on_warehouse[r['SOURCE']])} registered patients</div>"
+    return name
+
+
+def render(rows, updated, receipts, hmis_view=None, hmis_error=None, hmis_choice=H.PRODUCTION):
+    hmis_line = _hmis_status(hmis_view, hmis_error, hmis_choice)
     if not rows:
+        _period(receipts, updated, hmis_line)
         T.html('<div class="x-empty"><b>No patient counts yet</b>They appear after the next count.</div>')
         return
 
-    rng = _period(receipts, updated)
+    rng = _period(receipts, updated, hmis_line)
     shown = _received(rows, receipts, rng) if rng else rows
     total = {m: sum(r[m] for r in shown) for m in MEASURES}
     when = f"received {_span(*rng)}" if rng else None
+    n_hmis = sum(1 for r in rows if r.get("HMIS"))
+    n_wh = len(rows) - n_hmis
+    on_warehouse = (hmis_view or {}).get("on_warehouse", {})
+    upd_meta = "unique patients, counted within each source"
+    if n_hmis:
+        upd_meta = f"patients across {len(rows)} sources, {n_hmis} of them from the HMIS"
 
     T.html('<div class="x-grid two">'
            + _tile("Patient Records", T.REC, total["PATIENT_RECORDS"],
-                   when or f"held in the warehouse, across {len(rows)} sources")
+                   when or f"held in the warehouse, across {n_wh} sources")
            + _tile('<span class="x-acr">UPDs</span>', T.UPD, total["UPDS"],
-                   f"new unique patients, {when}" if when else "unique patients, counted within each source",
+                   f"new unique patients, {when}" if when else upd_meta,
                    primary=True)
            + '</div>')
 
     _chart(receipts, rng)
 
     listed = [r for r in shown if r["PATIENT_RECORDS"] or r["UPDS"]] if rng else shown
-    top = max([r["PATIENT_RECORDS"] for r in listed] or [1]) or 1
+    listed = sorted(listed, key=lambda r: (not r.get("FLAGS"), -max(r["PATIENT_RECORDS"], r["UPDS"])))
+    show_all = len(listed) <= SHOW_FIRST or st.session_state.get("pc_all", False)
+    visible = listed if show_all else listed[:SHOW_FIRST]
+    top = max([max(r["PATIENT_RECORDS"], r["UPDS"]) for r in listed] or [1]) or 1
     body = "".join(
-        f'<tr><td>{escape(r["SOURCE"])}</td><td class="x-num">{fmt(r["PATIENT_RECORDS"])}</td>'
+        f'<tr><td>{_source_cell(r, on_warehouse)}</td>'
+        f'<td class="x-num">{"—" if r.get("HMIS") else fmt(r["PATIENT_RECORDS"])}</td>'
         f'<td class="x-num">{fmt(r["UPDS"])}</td><td class="x-barcell"><div class="x-hbar">'
         f'<i style="width:{pct(r["PATIENT_RECORDS"], top):.1f}%;background:{T.REC};opacity:.35"></i>'
         f'<i style="width:{pct(r["UPDS"], top):.1f}%;background:{T.UPD}"></i></div></td></tr>'
-        for r in sorted(listed, key=lambda r: -r["PATIENT_RECORDS"]))
+        for r in visible)
     if not listed:
         body = '<tr><td colspan="4" class="x-dim">No data was received in this period.</td></tr>'
     T.html(f'<table class="x-table"><thead><tr><th>Source</th>'
@@ -149,6 +190,14 @@ def render(rows, updated, receipts):
            f'<th class="x-barcell"></th></tr></thead>'
            f'<tbody>{body}</tbody><tfoot><tr><td>Total</td><td class="x-num">{fmt(total["PATIENT_RECORDS"])}</td>'
            f'<td class="x-num">{fmt(total["UPDS"])}</td><td></td></tr></tfoot></table>')
+    if len(listed) > SHOW_FIRST:
+        st.toggle(f"Show all {len(listed)} sources", key="pc_all")
     hidden = len(shown) - len(listed)
     if hidden:
         T.html(f'<div class="x-note">{hidden} other source{"s" if hidden != 1 else ""} received no data in this period.</div>')
+    if rng and n_hmis:
+        T.html('<div class="x-note">HMIS facilities post a running total, not dated arrivals, so they are included '
+               'under "All time" only.</div>')
+    if hmis_view and hmis_view["dropped"]:
+        T.html(f'<div class="x-note">{hmis_view["dropped"]} HMIS rows skipped (another counting method, or zero '
+               f'patients).</div>')

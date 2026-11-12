@@ -231,7 +231,12 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 30s
+      # On the small prod box the apiserver needs ~3 min to come up; with a
+      # 30 s start_period compose gave up first ("dependency airflow-apiserver
+      # failed to start"), failing the deploy and leaving the worker in
+      # "Created". start_interval polls fast once it is ready.
+      start_period: 300s
+      start_interval: 10s
     restart: always
     depends_on:
       <<: *airflow-common-depends-on

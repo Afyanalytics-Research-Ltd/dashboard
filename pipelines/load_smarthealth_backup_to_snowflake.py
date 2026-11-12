@@ -21,6 +21,7 @@ if sys.platform == "win32":
 
 import snowflake.connector
 
+from afya_backends import warehouse as afya_warehouse
 ROOT = Path(__file__).resolve().parent
 DUMP = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "backup-2.sql"
 DATABASE = "HOSPITALS"
@@ -46,7 +47,7 @@ def key_path(p):
 
 
 def connect():
-    return snowflake.connector.connect(
+    return afya_warehouse.connect(
         user=os.getenv("SNOWFLAKE_USER").strip(),
         account=os.getenv("SNOWFLAKE_ACCOUNT").strip(),
         warehouse=os.getenv("SNOWFLAKE_WAREHOUSE").strip(),

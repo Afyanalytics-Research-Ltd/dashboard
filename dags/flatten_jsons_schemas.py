@@ -48,6 +48,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import snowflake.connector
+from afya_backends import warehouse as afya_warehouse
 from dotenv import load_dotenv
 
 from airflow import DAG
@@ -105,7 +106,7 @@ def schema_pairs(context: dict, sf: "SnowflakeClient | None" = None) -> list[tup
 # ── Snowflake client (key-pair auth) ─────────────────────────────────────
 class SnowflakeClient:
     def __init__(self, schema_: str | None = None):
-        self._conn = snowflake.connector.connect(
+        self._conn = afya_warehouse.connect(
             user=os.getenv("SNOWFLAKE_USER").strip(),
             account=os.getenv("SNOWFLAKE_ACCOUNT").strip(),
             warehouse=os.getenv("SNOWFLAKE_WAREHOUSE").strip(),

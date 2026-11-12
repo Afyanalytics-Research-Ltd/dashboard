@@ -1,5 +1,9 @@
 default:
-  target: dev
+  # DBT_TARGET=dev (Snowflake, the default) or DBT_TARGET=databend.
+  # The project has no models yet; when it gets some, run them on the
+  # warehouse System Settings points at:  DBT_TARGET=databend dbt run
+  # (needs the dbt-databend-cloud adapter: pip install dbt-databend-cloud).
+  target: "{{ env_var('DBT_TARGET', 'dev') }}"
   outputs:
     dev:
       type: snowflake
@@ -10,4 +14,14 @@ default:
       warehouse: "{{ env_var('SNOWFLAKE_WAREHOUSE') }}"
       database: "{{ env_var('SNOWFLAKE_DATABASE') }}"
       schema: "{{ env_var('SNOWFLAKE_SCHEMA') }}"
+      threads: 4
+    databend:
+      type: databend
+      host: "{{ env_var('DATABEND_HOST', 'databend') }}"
+      port: "{{ env_var('DATABEND_PORT', '8000') | int }}"
+      user: "{{ env_var('DATABEND_USER', 'databend') }}"
+      pass: "{{ env_var('DATABEND_PASSWORD', '') }}"
+      # A Snowflake schema = a Databend database (see afya_backends/warehouse).
+      schema: "{{ env_var('SNOWFLAKE_SCHEMA', 'PUBLIC') }}"
+      secure: false
       threads: 4

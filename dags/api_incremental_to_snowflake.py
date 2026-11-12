@@ -56,6 +56,7 @@ from pathlib import Path
 import gspread
 import requests
 import snowflake.connector
+from afya_backends import warehouse as afya_warehouse
 from dotenv import load_dotenv
 from requests.exceptions import ConnectionError, HTTPError, Timeout
 
@@ -161,7 +162,7 @@ class SnowflakeClient:
             # raises -- that one sends you looking in the wrong place.
             raise RuntimeError(f"Missing Snowflake env vars: {', '.join(missing)}")
 
-        self._conn = snowflake.connector.connect(
+        self._conn = afya_warehouse.connect(
             user=os.getenv("SNOWFLAKE_USER").strip(),
             account=os.getenv("SNOWFLAKE_ACCOUNT").strip(),
             warehouse=os.getenv("SNOWFLAKE_WAREHOUSE").strip(),
@@ -764,4 +765,4 @@ with DAG(
         trigger_rule=TriggerRule.ALL_DONE,
     )
 
-    t_ensure >> t_prepare >> t_extract >> t_copy >> t_report
+    t_ensure >> t_prepare >> t_extract >> t_copy >> t_report

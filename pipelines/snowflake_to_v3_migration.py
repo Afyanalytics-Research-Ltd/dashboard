@@ -120,6 +120,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import snowflake.connector
+from afya_backends import warehouse as afya_warehouse
 from dotenv import load_dotenv
 
 # Run as a script this module is __main__; v3_passthrough's
@@ -201,7 +202,7 @@ def use_state_dir(facility: str) -> Path:
 # ─── SNOWFLAKE ───────────────────────────────────────────────────────────────
 
 def _snowflake_connect():
-    return snowflake.connector.connect(
+    return afya_warehouse.connect(
         user=os.getenv("SNOWFLAKE_USER").strip(),
         account=os.getenv("SNOWFLAKE_ACCOUNT").strip(),
         warehouse=os.getenv("SNOWFLAKE_WAREHOUSE").strip(),
@@ -482,8 +483,13 @@ def _add_uuids(table: str, id_uuid: dict, person: dict | None = None) -> None:
             _uuid_to_id[_norm_uuid(u)] = i
         try:
             on_disk = json.loads(ID_TO_UUID_FILE.read_text()) if ID_TO_UUID_FILE.exists() else {}
-        except Exception:
-            on_disk = {}
+        except (OSError, ValueError) as e:
+            raise RuntimeError(f"Cannot safely checkpoint UUID links: {ID_TO_UUID_FILE} is unreadable: {e}") from e
+        if not isinstance(on_disk, dict):
+            raise RuntimeError(f"Cannot safely checkpoint UUID links: {ID_TO_UUID_FILE} must contain a JSON object")
+        for key in ("id_to_uuid", "alias_to_table", "person_uuid_to_id"):
+            if key in on_disk and not isinstance(on_disk[key], dict):
+                raise RuntimeError(f"Cannot safely checkpoint UUID links: {ID_TO_UUID_FILE} has invalid {key}")
         persons = {**on_disk.get("person_uuid_to_id", {}), **{_norm_uuid(u): i for u, i in (person or {}).items()}}
         v2v3._atomic_write(ID_TO_UUID_FILE, json.dumps({
             **on_disk,
@@ -1996,6 +2002,7 @@ def run_one_table(facility: str, table: str, *, dry_run: bool) -> dict:
 def _run_one_table(facility: str, table: str, *, dry_run: bool) -> dict:
     """run_one_table without the canary bookkeeping."""
     org_cfg, available_models = _start(facility)
+    org_cfg["default_store"] = os.getenv("AFYA_DEFAULT_STORE", "")
     runnable, unmapped, no_insert = _select_entries(facility, [table], None, available_models)
     if not runnable:
         why = ((unmapped[0].get("skipped") or "no NAMESPACE_MAP entry") if unmapped else
@@ -2007,6 +2014,8 @@ def _run_one_table(facility: str, table: str, *, dry_run: bool) -> dict:
         log.exception("Unhandled error [%s]", table)
         return {"table": table, "status": "error", "detail": str(e)[:500]}
     finally:
+        # A flush failure must propagate so the caller can retry instead of
+        # reporting a successful table whose resume state wasn't persisted.
         if v2v3._record_progress_unflushed:
             with v2v3._record_progress_lock:
                 v2v3._flush_record_progress()   # writes buffered id-map entries first

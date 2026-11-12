@@ -62,6 +62,7 @@ _PIPELINE = [
 def _make_connection():
     """Snowflake connection — mirrors dashboard.db.get_connection without Streamlit."""
     import snowflake.connector
+    from afya_backends import warehouse as afya_warehouse
     from cryptography.hazmat.primitives import serialization
     from dotenv import load_dotenv
 
@@ -76,7 +77,7 @@ def _make_connection():
         encryption_algorithm=serialization.NoEncryption(),
     )
 
-    return snowflake.connector.connect(
+    return afya_warehouse.connect(
         user=os.getenv("SNOWFLAKE_USER"),
         account=os.getenv("SNOWFLAKE_ACCOUNT"),
         private_key=private_key_bytes,

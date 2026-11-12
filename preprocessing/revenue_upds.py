@@ -40,6 +40,7 @@ import sys
 import traceback
 
 import snowflake.connector
+from afya_backends import warehouse as afya_warehouse
 from snowflake.connector.errors import ProgrammingError, DatabaseError
 
 logging.basicConfig(
@@ -176,7 +177,7 @@ def get_connection():
               os.getenv("SNOWFLAKE_WAREHOUSE"),
               os.getenv("SNOWFLAKE_DATABASE"),
               os.getenv("SNOWFLAKE_ROLE"))
-    return snowflake.connector.connect(
+    return afya_warehouse.connect(
         user=os.getenv("SNOWFLAKE_USER").strip(),
         account=os.getenv("SNOWFLAKE_ACCOUNT").strip(),
         warehouse=os.getenv("SNOWFLAKE_WAREHOUSE").strip(),

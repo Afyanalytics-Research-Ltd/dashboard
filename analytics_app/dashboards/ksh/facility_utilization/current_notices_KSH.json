@@ -1,0 +1,13 @@
+{
+  "facility": "KSH",
+  "date": "18 Aug 2026",
+  "count": 1,
+  "notices": [
+    {
+      "level": "CRITICAL",
+      "title": "Staffing \u2014 Doctor Concentration",
+      "metric": "J.Ogutu: 70% of visits",
+      "action": "Flag to clinical lead \u2014 single-doctor dependency risk."
+    }
+  ]
+}

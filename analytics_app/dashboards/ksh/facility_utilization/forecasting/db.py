@@ -7,6 +7,7 @@ Env vars are loaded by Django settings.py — do not load .env here.
 import os
 import pandas as pd
 import snowflake.connector
+from afya_backends import warehouse as afya_warehouse
 from cryptography.hazmat.primitives import serialization
 
 
@@ -21,7 +22,7 @@ def _load_private_key(path: str) -> bytes:
 
 
 def get_connection():
-    return snowflake.connector.connect(
+    return afya_warehouse.connect(
         user=os.getenv("SNOWFLAKE_USER"),
         account=os.getenv("SNOWFLAKE_ACCOUNT"),
         private_key=_load_private_key(os.getenv("SNOWFLAKE_PRIVATE_KEY_PATH")),

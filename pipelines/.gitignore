@@ -15,6 +15,8 @@ config/*.json
 # migration / extraction state
 .migration_state/
 .page_progress/
+# per-warehouse copies (afya_backends.toggles.state_path), e.g. .page_progress.databend/
+.page_progress.*/
 state/
 schema_cache/
 input/

@@ -27,7 +27,7 @@ from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.decorators import task
 from airflow.models import Variable
-from airflow.providers.snowflake.hooks.snowflake import SnowflakeHook
+from afya_backends.warehouse.airflow_hook import WarehouseHook as SnowflakeHook
 from airflow.utils.trigger_rule import TriggerRule
 
 log = logging.getLogger(__name__)

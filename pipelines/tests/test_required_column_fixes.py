@@ -21,6 +21,23 @@ def ns(v2_class):
     return v2v3.NAMESPACE_MAP[v2_class]["transform"]
 
 
+class TestTemplateLabOrder:
+    """V2 template rows have no sort_order and display in id order; V3 needs it set."""
+    def tf(self, rec):
+        return v2v3.transform_record({"procedure": 27587, "subtest": 27622, **rec},
+                                     ns(r"Ignite\Evaluation\Entities\TemplateLab"), ORG, "kisumu_v3")
+
+    def test_null_sort_order_takes_the_v2_id(self):
+        assert self.tf({"id": 1652, "sort_order": None})["sort_order"] == 1652
+
+    def test_v2_order_survives_whatever_order_rows_are_posted_in(self):
+        rows = [self.tf({"id": i, "sort_order": None}) for i in (1674, 1652, 1663)]
+        assert [r["id"] for r in sorted(rows, key=lambda r: r["sort_order"])] == [1652, 1663, 1674]
+
+    def test_a_v2_sort_order_is_kept(self):
+        assert self.tf({"id": 1652, "sort_order": 3})["sort_order"] == 3
+
+
 class TestVisitDestination:
     def tf(self, monkeypatch, rec):
         monkeypatch.setattr(v2v3, "_v3_department_id_by_name", lambda n: {"pharmacy": 7, "nursing": 8}.get(

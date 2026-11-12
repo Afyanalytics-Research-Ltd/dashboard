@@ -1,0 +1,283 @@
+{
+  "statements": [
+    {
+      "id": "N:NANDI:UNIQUE_PATIENT_ID",
+      "kind": "namespace",
+      "subject": "Nandi resolved patient ID",
+      "origin": "human",
+      "assertion": {
+        "meaning": "person",
+        "members": [
+          [
+            "HOSPITALS.NANDI_CLEAN.NANDI_OUTPATIENT_WIDE",
+            "UNIQUE_PATIENT_ID"
+          ]
+        ],
+        "scope": {
+          "facility": "NANDI"
+        },
+        "provenance": {
+          "question": "patient-count audit",
+          "by": "user",
+          "at": "2026-11-04",
+          "basis": "UNIQUE_PATIENT_ID approved as a resolved person key (one PNO -> one ID)"
+        }
+      }
+    },
+    {
+      "id": "N:MOTHERFRANSICA_MEDICAL_CAMP:PATIENT_ID",
+      "kind": "namespace",
+      "subject": "Mother Francisca camp document numbers",
+      "origin": "audit",
+      "assertion": {
+        "meaning": "file",
+        "members": [
+          [
+            "HOSPITALS.MOTHERFRANSICA_MEDICAL_CAMP_CLEAN.PATIENT_DATA",
+            "PATIENT_ID"
+          ]
+        ],
+        "scope": {
+          "facility": "MOTHERFRANSICA_MEDICAL_CAMP"
+        },
+        "provenance": {
+          "question": "patient-count audit",
+          "by": "audit (aggregate profiling)",
+          "at": "2026-11-04",
+          "basis": "PATIENT_ID is assigned per extracted file, not per person; camp patients are still reported by business decision"
+        }
+      }
+    },
+    {
+      "id": "P-SEP:KAKAMEGA",
+      "kind": "unlinked_populations",
+      "subject": "KAKAMEGA",
+      "origin": "human",
+      "assertion": {
+        "action": "count_separately",
+        "provenance": {
+          "question": "registry",
+          "by": "user",
+          "at": "2026-11-04",
+          "basis": "Kakamega outpatient and HIV testing populations are both registered and counted separately"
+        }
+      }
+    },
+    {
+      "id": "N:KISUMU:PATIENT",
+      "kind": "namespace",
+      "subject": "KISUMU PATIENT",
+      "origin": "human",
+      "assertion": {
+        "meaning": "person",
+        "members": [
+          [
+            "HOSPITALS.KISUMU_V3_CLEAN.EVALUATION_VISITS",
+            "PATIENT"
+          ]
+        ],
+        "scope": {
+          "facility": "KISUMU"
+        },
+        "provenance": {
+          "question": "counted source keys",
+          "by": "user",
+          "at": "2026-11-09",
+          "basis": "keep the identifier already established for the counted source 'KSH'"
+        }
+      }
+    },
+    {
+      "id": "N:TENRI:PATIENT",
+      "kind": "namespace",
+      "subject": "TENRI PATIENT",
+      "origin": "human",
+      "assertion": {
+        "meaning": "person",
+        "members": [
+          [
+            "HOSPITALS.TENRI.EVALUATION_VISITS",
+            "PATIENT"
+          ]
+        ],
+        "scope": {
+          "facility": "TENRI"
+        },
+        "provenance": {
+          "question": "counted source keys",
+          "by": "user",
+          "at": "2026-11-09",
+          "basis": "keep the identifier already established for the counted source 'Tenri'"
+        }
+      }
+    },
+    {
+      "id": "N:LODWAR:PATIENT",
+      "kind": "namespace",
+      "subject": "LODWAR PATIENT",
+      "origin": "human",
+      "assertion": {
+        "meaning": "person",
+        "members": [
+          [
+            "HOSPITALS.LODWAR_CLEAN.EVALUATION_VISITS",
+            "PATIENT"
+          ]
+        ],
+        "scope": {
+          "facility": "LODWAR"
+        },
+        "provenance": {
+          "question": "counted source keys",
+          "by": "user",
+          "at": "2026-11-09",
+          "basis": "keep the identifier already established for the counted source 'Lodwar'"
+        }
+      }
+    },
+    {
+      "id": "N:KAKAMEGA:PATIENT",
+      "kind": "namespace",
+      "subject": "KAKAMEGA PATIENT",
+      "origin": "human",
+      "assertion": {
+        "meaning": "person",
+        "members": [
+          [
+            "HOSPITALS.KAKAMEGA_CLEAN.EVALUATION_VISITS",
+            "PATIENT"
+          ]
+        ],
+        "scope": {
+          "facility": "KAKAMEGA"
+        },
+        "provenance": {
+          "question": "counted source keys",
+          "by": "user",
+          "at": "2026-11-09",
+          "basis": "keep the identifier already established for the counted source 'Kakamega'"
+        }
+      }
+    },
+    {
+      "id": "N:KAKAMEGA:PATIENT_ID",
+      "kind": "namespace",
+      "subject": "KAKAMEGA PATIENT_ID",
+      "origin": "human",
+      "assertion": {
+        "meaning": "person",
+        "members": [
+          [
+            "HOSPITALS.KAKAMEGA_CLEAN.HIV_HTS_DATA",
+            "PATIENT_ID"
+          ]
+        ],
+        "scope": {
+          "facility": "KAKAMEGA"
+        },
+        "provenance": {
+          "question": "counted source keys",
+          "by": "user",
+          "at": "2026-11-09",
+          "basis": "keep the identifier already established for the counted source 'Kakamega HIV data'"
+        }
+      }
+    },
+    {
+      "id": "N:MIGORI:PATIENT_ID_HASH",
+      "kind": "namespace",
+      "subject": "MIGORI PATIENT_ID_HASH",
+      "origin": "human",
+      "assertion": {
+        "meaning": "person",
+        "members": [
+          [
+            "HOSPITALS.MIGORI_CLEAN.AROMBE_HIV_RAW",
+            "PATIENT_ID_HASH"
+          ]
+        ],
+        "scope": {
+          "facility": "MIGORI"
+        },
+        "provenance": {
+          "question": "counted source keys",
+          "by": "user",
+          "at": "2026-11-09",
+          "basis": "keep the identifier already established for the counted source 'Migori HIV'"
+        }
+      }
+    },
+    {
+      "id": "N:MOTHERFRANSICA:REGID",
+      "kind": "namespace",
+      "subject": "MOTHERFRANSICA REGID",
+      "origin": "human",
+      "assertion": {
+        "meaning": "person",
+        "members": [
+          [
+            "HOSPITALS.MOTHERFRANSICA_HISTORICAL_DATA.LIMPATIENTVISITDETAILS",
+            "REGID"
+          ]
+        ],
+        "scope": {
+          "facility": "MOTHERFRANSICA"
+        },
+        "provenance": {
+          "question": "counted source keys",
+          "by": "user",
+          "at": "2026-11-09",
+          "basis": "keep the identifier already established for the counted source 'Mother Francisca historical data'"
+        }
+      }
+    },
+    {
+      "id": "N:SILVERWOOD:PATIENT",
+      "kind": "namespace",
+      "subject": "SILVERWOOD PATIENT",
+      "origin": "human",
+      "assertion": {
+        "meaning": "person",
+        "members": [
+          [
+            "HOSPITALS.SILVERWOOD_CLEAN.VISITS",
+            "PATIENT"
+          ]
+        ],
+        "scope": {
+          "facility": "SILVERWOOD"
+        },
+        "provenance": {
+          "question": "counted source keys",
+          "by": "user",
+          "at": "2026-11-09",
+          "basis": "keep the identifier already established for the counted source 'Silverwood'"
+        }
+      }
+    },
+    {
+      "id": "N:WEMA_MEDICAL:PATIENT_ID",
+      "kind": "namespace",
+      "subject": "WEMA_MEDICAL PATIENT_ID",
+      "origin": "human",
+      "assertion": {
+        "meaning": "person",
+        "members": [
+          [
+            "HOSPITALS.WEMA_MEDICAL_CLEAN.VISITS",
+            "PATIENT_ID"
+          ]
+        ],
+        "scope": {
+          "facility": "WEMA_MEDICAL"
+        },
+        "provenance": {
+          "question": "counted source keys",
+          "by": "user",
+          "at": "2026-11-09",
+          "basis": "keep the identifier already established for the counted source 'Wema'"
+        }
+      }
+    }
+  ]
+}

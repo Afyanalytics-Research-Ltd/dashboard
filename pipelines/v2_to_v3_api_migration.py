@@ -70,6 +70,7 @@ import requests
 import requests.adapters
 from dotenv import load_dotenv
 from requests.exceptions import ConnectionError, HTTPError, ReadTimeout, Timeout
+from pipeline_checkpointing import atomic_write_text, load_json
 
 def _json_default(o):
     """Types the encoders don't know. Snowflake NUMBER columns with a scale
@@ -149,7 +150,9 @@ def use_state_dir(facility: str | None) -> Path:
     loading any state (the loaders read these paths at call time)."""
     global PROGRESS_FILE, RECORD_PROGRESS_FILE, ID_MAP_FILE, VISIT_PATIENT_FILE, \
         VISIT_ADMISSION_FILE, DONE_FILE, _record_progress_mtime, _id_map_mtime
-    d = STATE_ROOT / facility if facility else Path(__file__).resolve().parent
+    run_tag = os.getenv("LAP_RUN_TAG", "").strip()
+    base = STATE_ROOT / facility if facility else Path(__file__).resolve().parent
+    d = base / run_tag if run_tag else base
     d.mkdir(parents=True, exist_ok=True)
     PROGRESS_FILE        = d / ".migration_progress.json"
     RECORD_PROGRESS_FILE = d / ".migration_record_progress.json"
@@ -3142,6 +3145,25 @@ def _post_to_v3_batch(
                 gw_wait = min(gw_wait * backoff_factor, 300)
                 continue
 
+            if r.status_code == 409:
+                # Cross-org unique-key collision: a record with this patient_no (or
+                # equivalent unique field) already belongs to a different organization.
+                # Unresolvable by retrying — skip with a warning so the rest of the
+                # table continues. First exposed by multi-facility support: new
+                # facilities can have patient_no values that collide with records
+                # already seeded from other orgs in the same V3 instance.
+                try:
+                    _msg_409 = (r.json() or {}).get("message", "") if r.text else ""
+                except Exception:
+                    _msg_409 = ""
+                if "belongs to another organization" in _msg_409:
+                    log.warning(
+                        "  V3 409 id=%-6s cross-org conflict — skipping (not dead-lettered): %s",
+                        record.get("id", "?"), _msg_409,
+                    )
+                    return
+                # Unknown 409 shape — fall through to raise_for_status() below.
+
             if r.status_code == 422:
                 # Validation / schema error on this one record — dead-letter and move on.
                 # Do NOT raise: a single bad record must not kill the entire job.
@@ -3344,16 +3366,30 @@ def _load_progress(run_id: str) -> set[str]:
     if PROGRESS_FILE.exists():
         try:
             data = json.loads(PROGRESS_FILE.read_text())
+            if not isinstance(data, dict):
+                raise ValueError("progress state must be a JSON object")
             if data.get("run_id") == run_id:
-                return set(data.get("completed", []))
-        except Exception:
-            pass
+                completed = data.get("completed", [])
+                if not isinstance(completed, list) or not all(isinstance(k, str) for k in completed):
+                    raise ValueError("progress state must contain a list of completed job keys")
+                return set(completed)
+        except (OSError, ValueError, TypeError) as e:
+            raise RuntimeError(f"Cannot safely resume: {PROGRESS_FILE} is unreadable: {e}") from e
     return set()
 
 
 def _mark_done(run_id: str, job_key: str) -> None:
-    with _progress_lock:
+    with _progress_lock, _file_lock(PROGRESS_FILE):
         _completed_jobs.add(job_key)
+        if PROGRESS_FILE.exists():
+            data = load_json(PROGRESS_FILE)
+            if not isinstance(data, dict):
+                raise ValueError(f"{PROGRESS_FILE} must contain a JSON object")
+            if data.get("run_id") == run_id:
+                disk_completed = data.get("completed", [])
+                if not isinstance(disk_completed, list) or not all(isinstance(k, str) for k in disk_completed):
+                    raise ValueError(f"{PROGRESS_FILE} contains invalid completed job keys")
+                _completed_jobs.update(disk_completed)
         _atomic_write(PROGRESS_FILE, json.dumps(
             {"run_id": run_id, "completed": sorted(_completed_jobs)},
             indent=2,
@@ -3374,6 +3410,8 @@ def _load_permanently_done() -> None:
     if DONE_FILE.exists():
         try:
             data = json.loads(DONE_FILE.read_text())
+            if not isinstance(data, dict) or not isinstance(data.get("done", []), list):
+                raise ValueError("completed-job state must contain a 'done' list")
             _permanently_done = set(data.get("done", []))
             if _permanently_done:
                 log.info(
@@ -3381,18 +3419,18 @@ def _load_permanently_done() -> None:
                     len(_permanently_done), DONE_FILE.name,
                 )
         except Exception as e:
-            log.warning("Could not load %s: %s", DONE_FILE.name, e)
-            _permanently_done = set()
+            raise RuntimeError(f"Cannot safely resume: {DONE_FILE} is unreadable: {e}") from e
 
 
 def _mark_permanently_done(job_key: str) -> None:
     with _done_lock, _file_lock(DONE_FILE):
         _permanently_done.add(job_key)
         # union with what other processes (parallel Airflow tasks) marked done
-        try:
-            _permanently_done.update(json.loads(DONE_FILE.read_text()).get("done", []))
-        except (OSError, ValueError):
-            pass
+        if DONE_FILE.exists():
+            data = load_json(DONE_FILE)
+            if not isinstance(data, dict) or not isinstance(data.get("done", []), list):
+                raise ValueError(f"{DONE_FILE} has an invalid completed-job state")
+            _permanently_done.update(data.get("done", []))
         _atomic_write(DONE_FILE, json.dumps({"done": sorted(_permanently_done)}, indent=2))
 
 
@@ -3485,9 +3523,7 @@ def _atomic_write(path: Path, text: str) -> tuple:
     """Write via a temp file + rename, so a run killed mid-write can't leave
     a truncated file (which the loaders would treat as empty). Returns the
     new version's _file_sig."""
-    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
-    tmp.write_text(text)
-    os.replace(tmp, path)
+    atomic_write_text(path, text)
     return _file_sig(path)
 
 
@@ -3513,8 +3549,11 @@ def _flush_record_progress() -> None:
             try:
                 for k, ids in json.loads(RECORD_PROGRESS_FILE.read_text()).items():
                     _inserted_ids.setdefault(k, set()).update(ids)
-            except (OSError, ValueError) as e:
-                log.warning("Could not merge %s before writing: %s", RECORD_PROGRESS_FILE.name, e)
+            except (OSError, ValueError, TypeError) as e:
+                raise RuntimeError(
+                    f"Cannot safely checkpoint records: {RECORD_PROGRESS_FILE} changed on disk "
+                    f"but could not be merged: {e}"
+                ) from e
         _record_progress_mtime = _atomic_write(RECORD_PROGRESS_FILE, json.dumps(
             {k: sorted(v, key=str) for k, v in _inserted_ids.items()},
             indent=2,

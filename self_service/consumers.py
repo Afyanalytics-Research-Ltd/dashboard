@@ -38,8 +38,18 @@ from channels.generic.websocket import AsyncWebsocketConsumer
 
 logger = logging.getLogger('self_service')
 
-_openai = AsyncOpenAI(api_key=os.getenv('OPENAI_API_KEY'))
 _MODEL = 'gpt-4o-mini'
+_clients: dict = {}
+
+
+def _client_and_model():
+    """Async OpenAI-SDK client + model for the active LLM provider
+    (System Settings → LLM provider: OpenAI, or the local Ollama model)."""
+    from afya_backends import llm
+    provider = llm.provider()
+    if provider not in _clients:
+        _clients[provider] = llm.async_openai_client(api_key=os.getenv('OPENAI_API_KEY'))
+    return _clients[provider], llm.model(_MODEL)
 _HISTORY_LIMIT = 20
 
 # Intents handled by the platform (no Cube.js needed)
@@ -333,8 +343,9 @@ class AnalyticsChatConsumer(AsyncWebsocketConsumer):
             + [{'role': 'user', 'content': user_content}]
         )
 
-        completion = await _openai.chat.completions.create(
-            model=_MODEL,
+        client, model = _client_and_model()
+        completion = await client.chat.completions.create(
+            model=model,
             messages=messages,
             max_tokens=1024,
             temperature=0.4,

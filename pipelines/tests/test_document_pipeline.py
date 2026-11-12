@@ -127,6 +127,12 @@ def test_blank_values_fall_back_to_defaults():
     assert cfg.record_start_markers == dp.DEFAULT_CONFIG.record_start_markers
 
 
+def test_config_from_params_raises_when_schema_path_not_found(tmp_path):
+    from airflow.exceptions import AirflowFailException
+    with pytest.raises(AirflowFailException, match="file not found"):
+        dp.config_from_params({"schema_path": str(tmp_path / "kisumu_v3_outpatient_schema.json")})
+
+
 def test_overrides(tmp_path):
     cfg = dp.config_from_params({
         "schema": SCHEMA,

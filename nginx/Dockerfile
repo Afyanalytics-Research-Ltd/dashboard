@@ -1,15 +1,16 @@
 FROM ubuntu:latest
 
-# Update and install necessary packages
+# nginx + certbot (webroot issuing/renewal, see entrypoint.sh); gettext-base
+# for envsubst, openssl for the first-boot self-signed certificate.
 RUN apt-get update && \
-    apt-get install -y nginx python3-certbot-nginx && \
+    apt-get install -y nginx python3-certbot-nginx gettext-base openssl && \
     rm -rf /var/lib/apt/lists/* && \
     rm -rf /etc/nginx/sites-enabled/default
 
-# Copy your custom nginx configurations
-COPY sites-enabled/ /etc/nginx/sites-enabled
-COPY sites-enabled/ /etc/nginx/sites-available
+# The site config is a template rendered at start for this server's DOMAIN.
+COPY templates/ /etc/nginx/templates
 COPY snippets/ /etc/nginx/snippets
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
-# Command to start nginx (if not started by default)
-CMD ["nginx", "-g", "daemon off;"]
+ENTRYPOINT ["/entrypoint.sh"]

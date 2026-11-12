@@ -14,7 +14,7 @@ import json
 import logging
 
 from . import charts
-from .nodes import _openai, _recent_history
+from .nodes import _openai, _recent_history, _model
 from .state import AgentState
 
 logger = logging.getLogger(__name__)
@@ -148,7 +148,7 @@ def explain_result(state: AgentState) -> dict:
     raw_for_prompt = _capped_raw_result(raw)
 
     response = _openai().chat.completions.create(
-        model="gpt-4o-mini",
+        model=_model("gpt-4o-mini"),
         messages=[
             {"role": "system", "content": prompt},
             *_recent_history(state, include_current=False),

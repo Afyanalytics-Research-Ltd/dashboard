@@ -131,6 +131,7 @@ from pathlib import Path
 
 import snowflake.connector
 
+from afya_backends import warehouse as afya_warehouse
 from airflow import DAG
 from airflow.models import Variable
 from airflow.operators.python import PythonOperator
@@ -204,7 +205,7 @@ class SnowflakeClient:
             kwargs["password"] = password
 
         try:
-            self._conn = snowflake.connector.connect(**kwargs)
+            self._conn = afya_warehouse.connect(**kwargs)
         except Exception as e:
             raise RuntimeError(f"Snowflake connection failed — account={account} user={user}. Cause: {e}") from e
 
@@ -312,8 +313,16 @@ def ensure_clean_table(sf: SnowflakeClient, table: str, columns: list[str]) -> N
 
 # ─── WATERMARKS (Airflow Variable, replaces .orthopedic_v2_clean_watermarks.json) ─
 
-def _wm_key(table: str) -> str:
+def _wm_key_base(table: str) -> str:
     return f"orthopedic_v2_clean_wm__{table}"
+
+def _wm_key(table: str) -> str:
+    # Per-warehouse watermark: on Databend the key gets a __databend
+    # suffix, so a Databend run backfills from the API while the
+    # Snowflake watermark stays where Snowflake left it.
+    from afya_backends import toggles
+    return toggles.state_key(_wm_key_base(table))
+
 
 def get_watermark(table: str, default: str = "1970-01-01T00:00:00Z") -> str:
     return Variable.get(_wm_key(table), default_var=default)

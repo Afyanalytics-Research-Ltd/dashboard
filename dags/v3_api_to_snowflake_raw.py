@@ -40,6 +40,7 @@ import gspread
 import pandas as pd
 import requests
 import snowflake.connector
+from afya_backends import warehouse as afya_warehouse
 from dotenv import load_dotenv
 from requests.exceptions import ConnectionError, HTTPError, Timeout
 
@@ -91,7 +92,7 @@ _EVENTS_RAW_DDL = """
 # ── Snowflake client (key-pair auth required for COPY INTO) ─────────────
 class SnowflakeClient:
     def __init__(self, schema_: str | None = None):
-        self._conn = snowflake.connector.connect(
+        self._conn = afya_warehouse.connect(
             user=os.getenv("SNOWFLAKE_USER").strip(),
             account=os.getenv("SNOWFLAKE_ACCOUNT").strip(),
             warehouse=os.getenv("SNOWFLAKE_WAREHOUSE").strip(),
@@ -295,8 +296,16 @@ def _v3_raw_schema(facility: str) -> str:
     return f"{SF_DB}.{facility.upper()}_V3_RAW"
 
 
-def _wm_key(facility: str) -> str:
+def _wm_key_base(facility: str) -> str:
     return f"v3__{DAG_ID}__{facility}"
+
+
+def _wm_key(facility: str) -> str:
+    # Per-warehouse watermark: on Databend the key gets a __databend
+    # suffix, so a Databend run backfills from the API while the
+    # Snowflake watermark stays where Snowflake left it.
+    from afya_backends import toggles
+    return toggles.state_key(_wm_key_base(facility))
 
 
 # ── DAG task callables ──────────────────────────────────────────────────

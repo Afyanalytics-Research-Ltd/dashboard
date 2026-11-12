@@ -7,5 +7,7 @@ class CoreConfig(AppConfig):
     verbose_name = 'Core Platform'
 
     def ready(self) -> None:
-        # Import signal handlers when the app is ready
-        pass  # noqa: F401
+        # System Settings is the source of truth for the warehouse / LLM
+        # switches in every Django process (web, Celery).
+        from . import backends
+        backends.register()

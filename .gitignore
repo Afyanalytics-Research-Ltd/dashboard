@@ -280,3 +280,7 @@ ml_platform/retrain_status.json
 .cubestore/
 config/airflow.cfg
 logs/current_notices_*.json
+*.pub
+# Airflow repoints this symlink at runtime; tracking it made
+# `git pull --autostash` conflict on every deploy (2026-11-11).
+logs/dag_processor/latest

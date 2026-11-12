@@ -25,15 +25,29 @@ logger = logging.getLogger(__name__)
 EMBEDDINGS_PATH = Path(__file__).resolve().parent.parent / "catalog" / "embeddings.npz"
 EMBEDDING_MODEL = "text-embedding-3-small"
 
-_openai_client: OpenAI | None = None
+_openai_clients: dict[str, OpenAI] = {}
 
 
 def _openai() -> OpenAI:
-    global _openai_client
-    if _openai_client is None:
+    """Embeddings client for the active LLM provider (one per provider)."""
+    from afya_backends import llm
+    provider = llm.provider()
+    if provider not in _openai_clients:
         api_key = getattr(settings, "OPENAI_API_KEY", os.getenv("OPENAI_API_KEY"))
-        _openai_client = OpenAI(api_key=api_key)
-    return _openai_client
+        _openai_clients[provider] = llm.openai_client(api_key=api_key)
+    return _openai_clients[provider]
+
+
+def _index_path() -> Path:
+    """The index built with the active provider's embedding model
+    (embeddings.npz for OpenAI, embeddings.ollama.npz for Ollama)."""
+    from afya_backends import llm
+    return llm.embeddings_index_path(EMBEDDINGS_PATH)
+
+
+def _embedding_model() -> str:
+    from afya_backends import llm
+    return llm.embedding_model()
 
 
 @dataclass
@@ -51,10 +65,13 @@ _index_cache_mtime: float | None = None
 def _load_index() -> _EmbeddingsIndex:
     global _index_cache, _index_cache_mtime
 
-    if not EMBEDDINGS_PATH.exists():
+    path = _index_path()
+    if not path.exists():
         raise RuntimeError(
-            f"{EMBEDDINGS_PATH} not found — run "
-            f"'python manage.py rebuild_embeddings' first to build the semantic-retrieval index."
+            f"{path} not found — run "
+            f"'python manage.py rebuild_embeddings' first to build the semantic-retrieval index"
+            f" (it is built with the active LLM provider's embedding model, so switching to Ollama "
+            f"needs one rebuild)."
         )
 
     # A rebuild (Settings page / `manage.py rebuild_embeddings`) overwrites
@@ -65,9 +82,9 @@ def _load_index() -> _EmbeddingsIndex:
     # silently never reaches retrieval until every worker process happens
     # to restart. The stat() itself is cheap (page-cache hit) compared to
     # the embeddings call this feeds into, so checking on every call is fine.
-    current_mtime = EMBEDDINGS_PATH.stat().st_mtime
+    current_mtime = (str(path), path.stat().st_mtime)
     if _index_cache is None or current_mtime != _index_cache_mtime:
-        with np.load(EMBEDDINGS_PATH, allow_pickle=True) as data:
+        with np.load(path, allow_pickle=True) as data:
             metadata = json.loads(str(data["metadata"]))
             _index_cache = _EmbeddingsIndex(
                 vectors=data["vectors"],
@@ -76,7 +93,7 @@ def _load_index() -> _EmbeddingsIndex:
                 metadata=metadata,
             )
         _index_cache_mtime = current_mtime
-        logger.info("retrieval: loaded %d embeddings from %s", len(_index_cache.ids), EMBEDDINGS_PATH)
+        logger.info("retrieval: loaded %d embeddings from %s", len(_index_cache.ids), path)
     return _index_cache
 
 
@@ -87,7 +104,7 @@ def reload_index() -> None:
 
 
 def _embed_query(text: str) -> np.ndarray:
-    resp = _openai().embeddings.create(model=EMBEDDING_MODEL, input=[text])
+    resp = _openai().embeddings.create(model=_embedding_model(), input=[text])
     v = np.array(resp.data[0].embedding, dtype=np.float32)
     norm = np.linalg.norm(v)
     return v / norm if norm else v

@@ -169,7 +169,7 @@ class Extractor:
         from pipelines_common import use_pipelines_dir
         use_pipelines_dir([])
         import snowflake_to_v3_migration as s2v3
-        from snowflake.connector.pandas_tools import write_pandas
+        from afya_backends.warehouse import write_pandas
         self.write_pandas = write_pandas
         self.gw = V1Gateway(os.environ.get("MEDHANIT_V1_BASE_URL", "https://medhanit.collabmed.net"),
                             os.environ["MEDHANIT_V1_USERNAME"], os.environ["MEDHANIT_V1_PASSWORD"])

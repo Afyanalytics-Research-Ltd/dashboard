@@ -125,6 +125,7 @@ import boto3
 import gspread
 import pandas as pd
 import snowflake.connector
+from afya_backends import warehouse as afya_warehouse
 from dotenv import load_dotenv
 
 # Optional: orjson is ~3x faster than stdlib json for encoding rows.
@@ -221,7 +222,7 @@ class SnowflakeClient:
         with open(os.getenv("SNOWFLAKE_PRIVATE_KEY_PATH").strip(), "rb") as key:
             key.read()
 
-        self._conn = snowflake.connector.connect(
+        self._conn = afya_warehouse.connect(
             user=os.getenv("SNOWFLAKE_USER").strip(),
             account=os.getenv("SNOWFLAKE_ACCOUNT").strip(),
             warehouse=os.getenv("SNOWFLAKE_WAREHOUSE").strip(),
@@ -544,17 +545,19 @@ def fetch_page_content(url: str, *, allow_selenium_fallback: bool) -> tuple[str,
 
 # ─── STRUCTURED EXTRACTION  (OpenAI function-calling, fixed schema) ──────
 
-_openai_client_singleton = None
+_openai_clients: dict = {}
 _openai_lock = threading.Lock()
 
 def _get_openai_client():
-    global _openai_client_singleton
-    if _openai_client_singleton is None:
+    """OpenAI client, or the local Ollama server's OpenAI API when the platform
+    LLM switch is on Ollama (one cached client per provider)."""
+    from afya_backends import llm as afya_llm
+    provider = afya_llm.provider()
+    if provider not in _openai_clients:
         with _openai_lock:
-            if _openai_client_singleton is None:
-                import openai
-                _openai_client_singleton = openai.OpenAI()  # reads OPENAI_API_KEY
-    return _openai_client_singleton
+            if provider not in _openai_clients:
+                _openai_clients[provider] = afya_llm.openai_client()  # reads OPENAI_API_KEY
+    return _openai_clients[provider]
 
 PRODUCT_TOOL = {
     "type": "function",
@@ -592,6 +595,8 @@ PRODUCT_TOOL = {
 def extract_products_with_openai(content: str, *, competitor: str, url: str,
                                  model: str) -> list[dict]:
     client = _get_openai_client()
+    from afya_backends import llm as afya_llm
+    model = afya_llm.model(model, purpose="extraction")
     truncated = content[:MAX_CONTENT_CHARS]
 
     prompt = (

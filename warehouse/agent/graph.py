@@ -74,13 +74,19 @@ def build_graph(
 ):
     """Compile a graph bound to `session`. Cheap enough to call per request."""
     tools = build_tools(session)
-    llm = ChatOpenAI(
-        model=model or DEFAULT_MODEL,
-        temperature=temperature,
-        api_key=api_key or os.environ.get("OPENAI_API_KEY"),
-        timeout=120,
-        max_retries=2,
-    ).bind_tools(tools)
+    from afya_backends import llm as afya_llm
+    if afya_llm.is_ollama():
+        # System Settings → LLM provider = Ollama: the local model through
+        # its OpenAI-compatible API (tool calling supported by llama3.1+).
+        llm = afya_llm.langchain_chat(temperature=temperature, max_retries=2).bind_tools(tools)
+    else:
+        llm = ChatOpenAI(
+            model=model or DEFAULT_MODEL,
+            temperature=temperature,
+            api_key=api_key or os.environ.get("OPENAI_API_KEY"),
+            timeout=120,
+            max_retries=2,
+        ).bind_tools(tools)
 
     #: Rebuilt once per graph, prepended to every model call. Kept OUT of
     #: `state["messages"]` so the stored transcript stays purely conversational

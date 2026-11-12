@@ -38,6 +38,7 @@ import boto3
 import requests
 import requests.adapters
 import snowflake.connector
+from afya_backends import warehouse as afya_warehouse
 from dotenv import load_dotenv
 from requests.exceptions import ChunkedEncodingError, ConnectionError, HTTPError, Timeout
 
@@ -309,7 +310,7 @@ class SnowflakeClient:
             kwargs["private_key_file"] = key_path
         else:
             kwargs["password"] = password
-        self._conn = snowflake.connector.connect(**kwargs)
+        self._conn = afya_warehouse.connect(**kwargs)
         self._lock = threading.Lock()
 
     def close(self) -> None:

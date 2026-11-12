@@ -31,6 +31,11 @@ services:
     volumes:
       - web-static:/www/static
       - letsencrypt:/etc/letsencrypt # Mount LetsEncrypt certificates
+    environment:
+      # Public hostname + Let's Encrypt email; set DOMAIN in this server's .env
+      # (staging: datapipelines.afyaanalytics.ai). See nginx/entrypoint.sh.
+      DOMAIN: ${DOMAIN:-datahub.afyaanalytics.com}
+      CERTBOT_EMAIL: ${CERTBOT_EMAIL:-lutherlunyamwi@gmail.com}
     depends_on:
       - web
     networks:
@@ -42,7 +47,7 @@ services:
     volumes:
       - letsencrypt:/etc/letsencrypt
       - web-static:/static/
-    command: certonly --non-interactive --agree-tos --nginx -m "lutherlunyamwi@gmail.com" -d "datahub.afyaanalytics.com"
+    command: certonly --non-interactive --agree-tos --nginx -m "${CERTBOT_EMAIL:-lutherlunyamwi@gmail.com}" -d "${DOMAIN:-datahub.afyaanalytics.com}"
     networks:
       - dashboard-net
 
@@ -66,7 +71,10 @@ services:
     restart: always
     image: redis:latest
     ports:
-      - "6379:6379"
+      # Host port overridable per server: staging already runs a host-level
+      # redis-server on 6379, so its .env sets REDIS_HOST_PORT=16379. Inside
+      # Docker everything uses redis:6379 regardless.
+      - "${REDIS_HOST_PORT:-6379}:6379"
     volumes:
       - redisdata:/data
     networks:

@@ -100,21 +100,76 @@ def _add_callback(task: Any, attribute: str, callback: Any) -> None:
         setattr(task, attribute, [existing, callback])
 
 
+WAREHOUSE_PARAM = "warehouse_backend"
+WAREHOUSE_CHOICES = ("default", "snowflake", "databend")
+
+
+def _add_warehouse_param(dag: Any) -> None:
+    """Give every DAG a ``warehouse_backend`` trigger param.
+
+    "default" follows the platform switch (System Settings -> Data
+    warehouse, mirrored into the Airflow Variable afya_warehouse_backend);
+    "snowflake"/"databend" force that warehouse for this run only.
+    """
+    params = getattr(dag, "params", None)
+    if params is None or WAREHOUSE_PARAM in params:
+        return
+    try:
+        from airflow.sdk import Param
+    except ImportError:
+        try:  # Airflow 2
+            from airflow.models.param import Param
+        except ImportError:
+            log.warning("no Param class available; %s param not added", WAREHOUSE_PARAM)
+            return
+    try:
+        params[WAREHOUSE_PARAM] = Param(
+            "default",
+            type="string",
+            enum=list(WAREHOUSE_CHOICES),
+            title="Warehouse",
+            description="Where this run reads/writes warehouse data. 'default' follows the "
+                        "dashboard's System Settings switch.",
+        )
+    except Exception:
+        log.exception("could not add %s param to DAG %s", WAREHOUSE_PARAM, getattr(dag, "dag_id", "?"))
+
+
+def apply_warehouse_param(context: Mapping[str, Any]) -> None:
+    """Before a task runs: export the run's warehouse choice.
+
+    afya_backends.toggles reads AFYA_WAREHOUSE_BACKEND first, so this pins
+    every connect() in the task - including subprocesses it starts - to the
+    run's choice.  "default" clears it so the platform switch applies.
+    """
+    params = context.get("params") or {}
+    choice = str(params.get(WAREHOUSE_PARAM) or "default").strip().lower()
+    if choice in ("snowflake", "databend"):
+        os.environ["AFYA_WAREHOUSE_BACKEND"] = choice
+        log.info("warehouse for this run: %s (DAG param)", choice)
+    else:
+        os.environ.pop("AFYA_WAREHOUSE_BACKEND", None)
+
+
 def dag_policy(dag: Any) -> None:
-    """Set a one-hour run deadline unless the DAG defines its own deadline."""
+    """Set a one-hour run deadline unless the DAG defines its own deadline;
+    add the warehouse_backend trigger param."""
     if dag.deadline is None:
         dag.deadline = DeadlineAlert(
             reference=DeadlineReference.DAGRUN_QUEUED_AT,
             interval=DAG_RUN_DEADLINE,
             callback=AsyncCallback(sentry_deadline_callback),
         )
+    _add_warehouse_param(dag)
 
 
 def task_policy(task: Any) -> None:
-    """Report every task failure; check row counts after terminal tasks succeed."""
+    """Report every task failure; check row counts after terminal tasks succeed;
+    apply the run's warehouse choice before the task executes."""
     _add_callback(task, "on_failure_callback", pipeline_failure_callback)
     if not getattr(task, "downstream_task_ids", set()):
         _add_callback(task, "on_success_callback", pipeline_row_count_callback)
+    _add_callback(task, "on_execute_callback", apply_warehouse_param)
 
 
 def pipeline_failure_callback(context: Mapping[str, Any]) -> None:

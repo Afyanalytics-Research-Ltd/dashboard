@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 
 import snowflake.connector
+from afya_backends import warehouse as afya_warehouse
 from dotenv import load_dotenv
 
 import dedup
@@ -31,7 +32,7 @@ SCHEMA_PAIRS = [
 # layered a password/MFA flow on top that the real connection never used.
 
 def _snowflake_connect():
-    return snowflake.connector.connect(
+    return afya_warehouse.connect(
         user=os.getenv("SNOWFLAKE_USER").strip(),
         account=os.getenv("SNOWFLAKE_ACCOUNT").strip(),
         warehouse=os.getenv("SNOWFLAKE_WAREHOUSE").strip(),

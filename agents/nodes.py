@@ -41,15 +41,26 @@ from .nodes_query import CONFIDENT_SINGLE_SCORE, RELEVANT_FLOOR, is_directly_res
 
 logger = logging.getLogger(__name__)
 
-_openai_client: OpenAI | None = None
+_openai_clients: dict[str, OpenAI] = {}
 
 
 def _openai() -> OpenAI:
-    global _openai_client
-    if _openai_client is None:
+    """OpenAI-SDK client for the active LLM provider (System Settings →
+    LLM provider): OpenAI with OPENAI_API_KEY, or the local Ollama server's
+    OpenAI-compatible API.  One cached client per provider, so flipping the
+    switch takes effect on the next call."""
+    from afya_backends import llm
+    provider = llm.provider()
+    if provider not in _openai_clients:
         api_key = getattr(settings, "OPENAI_API_KEY", os.getenv("OPENAI_API_KEY"))
-        _openai_client = OpenAI(api_key=api_key)
-    return _openai_client
+        _openai_clients[provider] = llm.openai_client(api_key=api_key)
+    return _openai_clients[provider]
+
+
+def _model(name: str) -> str:
+    """``name`` on the hosted API; the Ollama model when local."""
+    from afya_backends import llm
+    return llm.model(name)
 
 
 CONFIDENCE_THRESHOLD = 0.75  # below this → fallback
@@ -370,7 +381,7 @@ def re_classify(state: AgentState) -> dict:
     )
 
     response = _openai().chat.completions.create(
-        model="gpt-4o-mini",
+        model=_model("gpt-4o-mini"),
         messages=[
             {"role": "system", "content": filter_prompt},
             {"role": "user", "content": state["question"]},

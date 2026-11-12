@@ -12,8 +12,17 @@ x-redash-common:
     REDASH_SECRET_KEY: ${REDASH_SECRET_KEY}
     # Tells Redash it's mounted under /redash/ so its own generated
     # links/asset paths match the nginx location block instead of assuming
-    # root - see nginx/sites-enabled/django_project's /redash/ block.
+    # root - see nginx/templates/django_project.template's /redash/ block.
     REDASH_ROOT_URL_PATH_PREFIX: /redash
+    # The Databend runner the dashboard's warehouse switch moves saved
+    # queries onto (redash/query_runner/afya_databend.py).
+    REDASH_ADDITIONAL_QUERY_RUNNERS: redash.query_runner.afya_databend
+  volumes:
+    # Patched Snowflake runner adding key-pair auth (stock 10.1 is
+    # password-only, which Snowflake MFA enforcement rejects).
+    - ./redash/query_runner/snowflake.py:/app/redash/query_runner/snowflake.py:ro
+    # Snowflake SQL executed on Databend (translated by the dashboard).
+    - ./redash/query_runner/afya_databend.py:/app/redash/query_runner/afya_databend.py:ro
   depends_on:
     &redash-common-depends-on
     redash-postgres:
@@ -53,7 +62,11 @@ services:
       - "5050:5000"
     environment:
       <<: *redash-common-env
-      REDASH_WEB_WORKERS: 4
+      # On the CPU-throttled t2.large a gunicorn worker needs >30 s (gunicorn's
+      # default timeout) to load Redash, so all 4 were killed in a loop and
+      # /redash/ never answered. Fewer workers + a longer boot/request timeout.
+      REDASH_WEB_WORKERS: 2
+      GUNICORN_CMD_ARGS: "--timeout 180 --graceful-timeout 60"
 
   redash-scheduler:
     <<: *redash-common

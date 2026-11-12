@@ -15,6 +15,7 @@ from requests.exceptions import Timeout, ConnectionError, HTTPError
 import re
 import gspread
 import snowflake.connector
+from afya_backends import warehouse as afya_warehouse
 from dotenv import load_dotenv
 from datetime import datetime, timedelta, timezone
 from airflow import DAG
@@ -78,7 +79,7 @@ class SnowflakeClient:
         with open(os.getenv("SNOWFLAKE_PRIVATE_KEY_PATH").strip(), "rb") as key:
             private_key = key.read()
 
-        self._conn = snowflake.connector.connect(
+        self._conn = afya_warehouse.connect(
             user=os.getenv("SNOWFLAKE_USER").strip(),
             account=os.getenv("SNOWFLAKE_ACCOUNT").strip(),
             warehouse=os.getenv("SNOWFLAKE_WAREHOUSE").strip(),
@@ -631,9 +632,17 @@ def sf_schema(facility: str, layer: str) -> str:
     # layer = "RAW" or "CLEAN"
     return f"{SF_DB}.{facility.upper()}_{layer}"
 
-def wm_key(facility: str) -> str:
+def _wm_key_base(facility: str) -> str:
     return f"wm__{DAG_ID}__{facility}"
 
+
+
+def wm_key(facility: str) -> str:
+    # Per-warehouse watermark: on Databend the key gets a __databend
+    # suffix, so a Databend run backfills from the API while the
+    # Snowflake watermark stays where Snowflake left it.
+    from afya_backends import toggles
+    return toggles.state_key(_wm_key_base(facility))
 
 
 def copy_one_into_snowflake(**job_result):

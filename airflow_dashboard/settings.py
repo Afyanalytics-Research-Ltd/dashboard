@@ -31,6 +31,10 @@ ALLOWED_HOSTS = [
     'localhost',
     '127.0.0.1',
     '0.0.0.0',
+    # Compose service name: Redash's afya_databend runner calls
+    # http://web:8000/core/api/warehouse/translate/ over dashboard-net
+    # (REDASH_TRANSLATE_URL) - without this every Databend query 400s.
+    'web',
     '2c97-129-222-187-199.ngrok-free.app',
     '8fa2-105-164-5-177.ngrok-free.app'
 ]
@@ -51,6 +55,15 @@ CORS_ALLOWED_ORIGINS = [
     'https://2c97-129-222-187-199.ngrok-free.app',
     'https://8fa2-105-164-5-177.ngrok-free.app'
 ]
+
+# The public hostname this deployment is served on (production:
+# datahub.afyaanalytics.com, staging: datapipelines.afyaanalytics.ai). Set
+# DOMAIN in the server's .env — the same value nginx and scripts/deploy.sh use.
+SITE_DOMAIN = os.getenv('DOMAIN', '').strip().lower()
+if SITE_DOMAIN and SITE_DOMAIN not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append(SITE_DOMAIN)
+    CSRF_TRUSTED_ORIGINS.append(f'https://{SITE_DOMAIN}')
+    CORS_ALLOWED_ORIGINS.append(f'https://{SITE_DOMAIN}')
 
 # Or for dev, just allow everything:
 # CORS_ALLOW_ALL_ORIGINS = True
@@ -302,6 +315,21 @@ DATABEND_HTTP_URL = os.getenv('DATABEND_HTTP_URL', 'http://databend:8000').rstri
 DATABEND_USER = os.getenv('DATABEND_USER', 'databend').strip()
 DATABEND_PASSWORD = os.getenv('DATABEND_PASSWORD', '').strip()
 
+# Platform backend switches (System Settings -> Warehouse / LLM provider;
+# afya_backends/). The *_BACKEND / *_PROVIDER env vars are only the default
+# used before a superuser first flips the switch.
+WAREHOUSE_BACKEND = os.getenv('WAREHOUSE_BACKEND', 'snowflake').strip().lower()
+LLM_PROVIDER_DEFAULT = os.getenv('LLM_PROVIDER_DEFAULT', 'api').strip().lower()
+OLLAMA_HOST = os.getenv('OLLAMA_HOST', 'http://localhost:11434').strip()
+OLLAMA_MODEL = os.getenv('OLLAMA_MODEL', 'llama3.1').strip()
+# Shared secret for machine-to-machine calls into Django (Redash's Databend
+# query runner translating Snowflake SQL, Cube polling the active warehouse).
+AFYA_INTERNAL_API_TOKEN = os.getenv('AFYA_INTERNAL_API_TOKEN', '').strip()
+# How Redash (inside dashboard-net) reaches Databend and this app's
+# translate endpoint - written into the Databend data sources it creates.
+REDASH_DATABEND_URL = os.getenv('REDASH_DATABEND_URL', 'http://databend:8000').strip()
+REDASH_TRANSLATE_URL = os.getenv('REDASH_TRANSLATE_URL', 'http://web:8000/core/api/warehouse/translate/').strip()
+
 # Browserbase (browserbase.com) — hosted headless-browser SaaS, used by the
 # browserbase app's SDK client. No self-hosted URL: the SDK talks to
 # api.browserbase.com directly, and the live-view iframe src returned by
@@ -539,7 +567,7 @@ CSRF_COOKIE_SECURE = not DEBUG
 # ---------------------------------------------------------------------------
 # Reverse proxy trust (nginx terminates TLS; Django itself is only ever
 # reached over plain HTTP inside the docker network — see
-# nginx/sites-enabled/django_project, which sets X-Forwarded-Proto on
+# nginx/templates/django_project.template, which sets X-Forwarded-Proto on
 # every proxied location). Without this, request.is_secure() is always
 # False behind the proxy, which breaks secure-cookie logic above and any
 # https:// URL Django generates for itself (e.g. redirects).

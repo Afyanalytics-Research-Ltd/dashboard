@@ -69,7 +69,10 @@ PLATFORM_KEY  = os.getenv("UPD_RAW_PLATFORM_KEY", "platform")
 ENVIRONMENT   = os.getenv("UPD_RAW_ENVIRONMENT", "migrate")
 COUNT_SERVICE = "reception"
 PATIENT_MODEL = "patient"
-VISIT_MODEL   = "visit"
+# Visits live in the evaluation service (613k on PROD, incl. migrated history); reception's own
+# "visit" model only holds the few visits opened at the V3 front desk since 2026-08.
+VISIT_SERVICE = "evaluation"
+VISIT_MODEL   = "visits"
 UNASSIGNED    = "(unassigned)"
 GROUP_BY      = ["organization_id", "facility_id"]
 
@@ -145,8 +148,8 @@ def fetch_org_facility_counts(client: V3Client) -> list[dict]:
         "labels": True,
         "queries": {
             "patients": {"service": COUNT_SERVICE, "model": PATIENT_MODEL, "group_by": GROUP_BY, "limit": 1000},
-            "visits": {"service": COUNT_SERVICE, "model": VISIT_MODEL, "group_by": GROUP_BY, "limit": 1000},
-            "visits_this_month": {"service": COUNT_SERVICE, "model": VISIT_MODEL, "group_by": GROUP_BY, "limit": 1000,
+            "visits": {"service": VISIT_SERVICE, "model": VISIT_MODEL, "group_by": GROUP_BY, "limit": 1000},
+            "visits_this_month": {"service": VISIT_SERVICE, "model": VISIT_MODEL, "group_by": GROUP_BY, "limit": 1000,
                                   "where": [{"field": "created_at", "op": "this_month"}]},
         },
     }
@@ -225,10 +228,10 @@ def _add_months(d: date, n: int) -> date:
     return date(d.year + y, m + 1, 1)
 
 
-def _monthly_groups(client: V3Client, headers: dict, model: str, start: date, end: date) -> dict:
+def _monthly_groups(client: V3Client, headers: dict, service: str, model: str, start: date, end: date) -> dict:
     """{(org_id, facility_id, 'YYYY-MM'): count} for `model` records created in [start, end). The gateway
     returns at most 1000 groups, so a truncated window is split in two and asked again."""
-    spec = {"service": COUNT_SERVICE, "model": model, "limit": 1000,
+    spec = {"service": service, "model": model, "limit": 1000,
             "group_by": GROUP_BY + [{"field": "created_at", "bucket": "month"}],
             "where": [{"field": "created_at", "op": ">=", "value": start.isoformat()},
                       {"field": "created_at", "op": "<", "value": end.isoformat()}]}
@@ -241,7 +244,8 @@ def _monthly_groups(client: V3Client, headers: dict, model: str, start: date, en
         if months <= 1:
             raise GatewayError(f"{model} per month {start}: more than 1000 org/facility groups in one month")
         mid = _add_months(start, months // 2)
-        return {**_monthly_groups(client, headers, model, start, mid), **_monthly_groups(client, headers, model, mid, end)}
+        return {**_monthly_groups(client, headers, service, model, start, mid),
+                **_monthly_groups(client, headers, service, model, mid, end)}
     out = {}
     for g in data.get("groups", []):
         k = g.get("key") or {}
@@ -267,10 +271,10 @@ def fetch_monthly_history(client: V3Client, org_names: dict, fac_names: dict) ->
     visits: dict | None = {}
     for y in range(years[0], today.year + 1):
         start, end = date(y, 1, 1), min(date(y + 1, 1, 1), end_all)
-        patients.update(_monthly_groups(client, headers, PATIENT_MODEL, start, end))
+        patients.update(_monthly_groups(client, headers, COUNT_SERVICE, PATIENT_MODEL, start, end))
         if visits is not None:
             try:
-                visits.update(_monthly_groups(client, headers, VISIT_MODEL, start, end))
+                visits.update(_monthly_groups(client, headers, VISIT_SERVICE, VISIT_MODEL, start, end))
             except GatewayError as e:
                 log.warning("visit history failed - NEW_VISITS left empty: %s", str(e)[:200])
                 visits = None

@@ -22,6 +22,12 @@ services:
       # at boot with "StorageUnavailable ... http://0.0.0.0:9000". That is
       # why the warehouse was down until 2026-11-11.
       QUERY_STORAGE_TYPE: fs
+      # Cap the query server's memory (bytes; default 2 GiB) so an oversized
+      # query fails instead of the kernel OOM-killing databend-query. That
+      # happened on prod 2026-11-11 23:24 (3.1 GB RSS): the container stayed
+      # "running" (bootstrap.sh tails logs) but nothing listened on 8000
+      # until a manual `docker restart databend`.
+      QUERY_MAX_SERVER_MEMORY_USAGE: ${DATABEND_MAX_MEMORY_BYTES:-2147483648}
     ports:
       # Host 8000 is already taken by the Django web app (docker-compose.dev.yaml),
       # so the HTTP handler is published on 8008 instead - the container

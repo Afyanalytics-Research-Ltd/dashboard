@@ -102,6 +102,13 @@ x-airflow-common:
     # See https://airflow.apache.org/docs/apache-airflow/stable/administration-and-deployment/logging-monitoring/check-health.html#scheduler-health-check-server
     # yamllint enable rule:line-length
     AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: 'true'
+    # Re-parse each DAG file every 10 min, not the default 30 s. With ~56 files
+    # taking 1-7 s each on the CPU-starved prod box, a full pass took longer
+    # than 30 s, so the dag-processor re-parsed non-stop at ~280% CPU. New
+    # files are still found every refresh_interval (5 min) and deploys
+    # recreate the processor, so DAG changes still land promptly.
+    AIRFLOW__DAG_PROCESSOR__MIN_FILE_PROCESS_INTERVAL: ${AIRFLOW_MIN_FILE_PROCESS_INTERVAL:-600}
+    AIRFLOW__DAG_PROCESSOR__PARSING_PROCESSES: ${AIRFLOW_PARSING_PROCESSES:-1}
     # WARNING: Use _PIP_ADDITIONAL_REQUIREMENTS option ONLY for a quick checks
     # for other purpose (development, test and especially production usage) build/extend Airflow image.
     _PIP_ADDITIONAL_REQUIREMENTS: ${_PIP_ADDITIONAL_REQUIREMENTS:-}

@@ -206,6 +206,37 @@ class _AsyncLocalEmbeddings(_LocalEmbeddings):
         return await asyncio.to_thread(_LocalEmbeddings.create, self, **kw)
 
 
+def local_embed(texts: list[str], *, query: bool = False, model_name: Optional[str] = None) -> list[list[float]]:
+    """Embed in-process with fastembed.  ``query=True`` uses the model's
+    query form (bge adds its retrieval instruction), for search queries
+    matched against passages embedded with ``query=False``."""
+    m = _local_text_embedding(model_name or local_embed_model())
+    vecs = m.query_embed(texts) if query else m.embed(texts)
+    return [[float(x) for x in v] for v in vecs]
+
+
+def local_rerank_model() -> str:
+    return (os.getenv("LOCAL_RERANK_MODEL") or "Xenova/ms-marco-MiniLM-L-6-v2").strip()
+
+
+def local_rerank(query: str, documents: list[str], model_name: Optional[str] = None) -> list[float]:
+    """Cross-encoder relevance scores (higher = more relevant), one per document."""
+    if not documents:
+        return []
+    name = model_name or local_rerank_model()
+    key = "rerank:" + name
+    enc = _local_models.get(key)
+    if enc is None:
+        with _local_lock:
+            enc = _local_models.get(key)
+            if enc is None:
+                from fastembed.rerank.cross_encoder import TextCrossEncoder
+                cache = os.getenv("FASTEMBED_CACHE_PATH") or None
+                enc = TextCrossEncoder(name, cache_dir=cache) if cache else TextCrossEncoder(name)
+                _local_models[key] = enc
+    return [float(s) for s in enc.rerank(query, documents)]
+
+
 def model(requested: Optional[str] = None, purpose: Optional[str] = None) -> str:
     """The model name to send: the Ollama model when local; on hosted APIs
     ``requested``, except that OpenAI model names become the Groq model when

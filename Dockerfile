@@ -21,6 +21,8 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # ~65 MB) baked into the image so containers never download it at runtime.
 ENV FASTEMBED_CACHE_PATH=/opt/fastembed
 RUN python -c "from fastembed import TextEmbedding; TextEmbedding('BAAI/bge-small-en-v1.5', cache_dir='/opt/fastembed')"
+# Cross-encoder re-ranker for the support chatbot's retrieval (~80 MB).
+RUN python -c "from fastembed.rerank.cross_encoder import TextCrossEncoder as T; T('Xenova/ms-marco-MiniLM-L-6-v2', cache_dir='/opt/fastembed')"
 
 COPY . .
 

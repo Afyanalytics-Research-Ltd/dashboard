@@ -49,7 +49,7 @@ import logging
 import os
 import sys
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -204,6 +204,94 @@ def fetch_org_facility_counts(client: V3Client) -> list[dict]:
     return out
 
 
+# ─── MONTHLY HISTORY (new records per month since the first one) ────────────
+# The hourly snapshots only start when this pipeline started; the count gateway can also bucket
+# records by the month they were created, which gives the whole history. Summing those months in
+# order = the running total at the end of each month (deleted records excluded, as in the snapshot).
+# NB: created_at is when the record entered V3 - migrated patients count in their migration month.
+HISTORY_TABLE = os.getenv("UPD_RAW_HISTORY_TABLE", "AFYA_HMIS_PATIENT_REGISTRATIONS_MONTHLY")
+MONTH_KEY = "created_at:month"
+
+
+def _gateway_headers(client: V3Client) -> dict:
+    headers = client._headers("core")
+    if client.organization_id is not None:          # the Model Gateway collection sends it on every call
+        headers["X-Tenant-Id"] = str(client.organization_id)
+    return headers
+
+
+def _add_months(d: date, n: int) -> date:
+    y, m = divmod(d.month - 1 + n, 12)
+    return date(d.year + y, m + 1, 1)
+
+
+def _monthly_groups(client: V3Client, headers: dict, model: str, start: date, end: date) -> dict:
+    """{(org_id, facility_id, 'YYYY-MM'): count} for `model` records created in [start, end). The gateway
+    returns at most 1000 groups, so a truncated window is split in two and asked again."""
+    spec = {"service": COUNT_SERVICE, "model": model, "limit": 1000,
+            "group_by": GROUP_BY + [{"field": "created_at", "bucket": "month"}],
+            "where": [{"field": "created_at", "op": ">=", "value": start.isoformat()},
+                      {"field": "created_at", "op": "<", "value": end.isoformat()}]}
+    res = _direct_count(client, headers, spec)
+    if not res.get("success"):
+        raise GatewayError(f"{model} per month {start}..{end}: {res.get('status')} {res.get('message')}")
+    data = res["data"]
+    if data.get("truncated"):
+        months = (end.year - start.year) * 12 + end.month - start.month
+        if months <= 1:
+            raise GatewayError(f"{model} per month {start}: more than 1000 org/facility groups in one month")
+        mid = _add_months(start, months // 2)
+        return {**_monthly_groups(client, headers, model, start, mid), **_monthly_groups(client, headers, model, mid, end)}
+    out = {}
+    for g in data.get("groups", []):
+        k = g.get("key") or {}
+        out[(k.get("organization_id"), k.get("facility_id"), k.get(MONTH_KEY))] = int(g.get("count") or 0)
+    return out
+
+
+def fetch_monthly_history(client: V3Client, org_names: dict, fac_names: dict) -> list[dict]:
+    """New patients (required) and visits (best-effort) per organisation / facility / month, from the
+    first year that has patients up to the current month, asked one calendar year at a time."""
+    headers = _gateway_headers(client)
+    years_res = _direct_count(client, headers, {"service": COUNT_SERVICE, "model": PATIENT_MODEL, "limit": 1000,
+                                                "group_by": [{"field": "created_at", "bucket": "year"}]})
+    if not years_res.get("success"):
+        raise GatewayError(f"patients per year: {years_res.get('status')} {years_res.get('message')}")
+    years = sorted(int(y) for g in years_res["data"].get("groups", [])
+                   if (y := (g.get("key") or {}).get("created_at:year")))
+    if not years:
+        return []
+    today = datetime.now(timezone.utc).date()
+    end_all = _add_months(date(today.year, today.month, 1), 1)
+    patients: dict = {}
+    visits: dict | None = {}
+    for y in range(years[0], today.year + 1):
+        start, end = date(y, 1, 1), min(date(y + 1, 1, 1), end_all)
+        patients.update(_monthly_groups(client, headers, PATIENT_MODEL, start, end))
+        if visits is not None:
+            try:
+                visits.update(_monthly_groups(client, headers, VISIT_MODEL, start, end))
+            except GatewayError as e:
+                log.warning("visit history failed - NEW_VISITS left empty: %s", str(e)[:200])
+                visits = None
+    rows = []
+    for (org, fac, month) in sorted(set(patients) | set(visits or {}), key=lambda k: (str(k[2]), str(k[0]), str(k[1]))):
+        if not month:                                   # records with no created_at: no month to put them in
+            continue
+        rows.append({
+            "ENVIRONMENT": ENVIRONMENT,
+            "MONTH": date(int(month[:4]), int(month[5:7]), 1),
+            "ORGANIZATION_ID": org, "ORGANIZATION_NAME": org_names.get(org),
+            "FACILITY_ID": fac, "FACILITY_NAME": fac_names.get(fac) if fac is not None else UNASSIGNED,
+            "NEW_PATIENTS": patients.get((org, fac, month), 0),
+            "NEW_VISITS": None if visits is None else visits.get((org, fac, month), 0),
+        })
+    log.info("monthly history: %d rows, %s .. %s, %d patients", len(rows),
+             rows[0]["MONTH"] if rows else None, rows[-1]["MONTH"] if rows else None,
+             sum(r["NEW_PATIENTS"] for r in rows))
+    return rows
+
+
 # ─── REGION (per-org superadmin facility reads) ─────────────────────────────
 def migrate_org_key_map() -> dict[int, str]:
     """{organization_id: AFYA_<KEY>} for every per-org superadmin login in the
@@ -344,8 +432,79 @@ def write_rows(conn, rows: list[dict], run_id: str) -> int:
     return len(data)
 
 
+HISTORY_COLUMNS = [
+    ("ENVIRONMENT", "STRING"), ("MONTH", "DATE"),
+    ("ORGANIZATION_ID", "NUMBER"), ("ORGANIZATION_NAME", "STRING"),
+    ("FACILITY_ID", "NUMBER"), ("FACILITY_NAME", "STRING"),
+    ("NEW_PATIENTS", "NUMBER"), ("NEW_VISITS", "NUMBER"),
+    ("REFRESHED_AT", "TIMESTAMP_NTZ"), ("RUN_ID", "STRING"),
+]
+
+
+def write_history(conn, rows: list[dict], run_id: str, refreshed_at: datetime) -> int:
+    """Replace this environment's monthly history in one transaction (it is recomputed from source each
+    run; the hourly snapshot table is append-only and never touched here)."""
+    fq = f"{_ident(SF_DATABASE)}.{_ident(SF_SCHEMA)}.{_ident(HISTORY_TABLE)}"
+    order = [c for c, _ in HISTORY_COLUMNS]
+    cur = conn.cursor()
+    try:
+        cur.execute(f"CREATE TABLE IF NOT EXISTS {fq} ({', '.join(f'{c} {t}' for c, t in HISTORY_COLUMNS)})")
+        cur.execute("BEGIN")
+        cur.execute(f"DELETE FROM {fq} WHERE ENVIRONMENT = %s", (ENVIRONMENT,))
+        if rows:
+            cur.executemany(f"INSERT INTO {fq} ({', '.join(order)}) VALUES ({', '.join(['%s'] * len(order))})",
+                            [tuple({**r, "RUN_ID": run_id, "REFRESHED_AT": refreshed_at}.get(c) for c in order) for r in rows])
+        cur.execute("COMMIT")
+    except Exception:
+        cur.execute("ROLLBACK")
+        raise
+    finally:
+        cur.close()
+    return len(rows)
+
+
+def ensure_views(conn) -> None:
+    """Plot-ready views (recreated each run, cheap):
+      <SF_TABLE>_DAILY             last snapshot of each day + increase since the previous day
+      AFYA_HMIS_PATIENT_GROWTH_MONTHLY        per org/facility: new + running-total patients/visits per month
+      AFYA_HMIS_PATIENT_GROWTH_MONTHLY_TOTAL  whole platform: new + running-total patients/visits per month"""
+    sch = f"{_ident(SF_DATABASE)}.{_ident(SF_SCHEMA)}"
+    snap, hist = f"{sch}.{_ident(SF_TABLE)}", f"{sch}.{_ident(HISTORY_TABLE)}"
+    part = "s.ENVIRONMENT, s.SCOPE, s.ORGANIZATION_ID, s.FACILITY_ID"
+    running = "OVER (PARTITION BY ENVIRONMENT, ORGANIZATION_ID, FACILITY_ID ORDER BY MONTH ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)"
+    statements = [
+        f"""CREATE OR REPLACE VIEW {sch}.{_ident(SF_TABLE + '_DAILY')} AS
+            WITH last_run AS (SELECT ENVIRONMENT, TO_DATE(CAPTURED_AT) AS DAY, MAX(CAPTURED_AT) AS CAPTURED_AT
+                              FROM {snap} GROUP BY 1, 2)
+            SELECT s.ENVIRONMENT, l.DAY, s.CAPTURED_AT, s.SCOPE, s.ORGANIZATION_ID, s.ORGANIZATION_NAME,
+                   s.FACILITY_ID, s.FACILITY_NAME, s.PATIENT_COUNT,
+                   s.PATIENT_COUNT - LAG(s.PATIENT_COUNT) OVER (PARTITION BY {part} ORDER BY l.DAY) AS PATIENT_INCREASE,
+                   s.VISIT_COUNT,
+                   s.VISIT_COUNT - LAG(s.VISIT_COUNT) OVER (PARTITION BY {part} ORDER BY l.DAY) AS VISIT_INCREASE
+            FROM {snap} s JOIN last_run l ON s.ENVIRONMENT = l.ENVIRONMENT AND s.CAPTURED_AT = l.CAPTURED_AT""",
+        f"""CREATE OR REPLACE VIEW {sch}.AFYA_HMIS_PATIENT_GROWTH_MONTHLY AS
+            SELECT ENVIRONMENT, MONTH, ORGANIZATION_ID, ORGANIZATION_NAME, FACILITY_ID, FACILITY_NAME,
+                   NEW_PATIENTS, SUM(NEW_PATIENTS) {running} AS CUMULATIVE_PATIENTS,
+                   NEW_VISITS, SUM(NEW_VISITS) {running} AS CUMULATIVE_VISITS, REFRESHED_AT
+            FROM {hist}""",
+        f"""CREATE OR REPLACE VIEW {sch}.AFYA_HMIS_PATIENT_GROWTH_MONTHLY_TOTAL AS
+            SELECT ENVIRONMENT, MONTH, SUM(NEW_PATIENTS) AS NEW_PATIENTS,
+                   SUM(SUM(NEW_PATIENTS)) OVER (PARTITION BY ENVIRONMENT ORDER BY MONTH) AS CUMULATIVE_PATIENTS,
+                   SUM(NEW_VISITS) AS NEW_VISITS,
+                   SUM(SUM(NEW_VISITS)) OVER (PARTITION BY ENVIRONMENT ORDER BY MONTH) AS CUMULATIVE_VISITS,
+                   MAX(REFRESHED_AT) AS REFRESHED_AT
+            FROM {hist} GROUP BY ENVIRONMENT, MONTH""",
+    ]
+    cur = conn.cursor()
+    try:
+        for sql in statements:
+            cur.execute(sql)
+    finally:
+        cur.close()
+
+
 # ─── RUN ───────────────────────────────────────────────────────────────────
-def run(*, platform_key: str | None = None, with_region: bool = True,
+def run(*, platform_key: str | None = None, with_region: bool = True, with_history: bool = True,
         dry_run: bool = False, database: str = SF_DATABASE, schema: str = SF_SCHEMA) -> dict:
     load_dotenv(Path(__file__).resolve().parent / ".env", override=False)
     run_id = uuid.uuid4().hex[:16]
@@ -367,18 +526,38 @@ def run(*, platform_key: str | None = None, with_region: bool = True,
 
     rows = build_rows(counts, regions, captured_at)
 
-    written = 0
+    # history is best-effort: a failure there never costs the hourly snapshot
+    history: list[dict] = []
+    history_error = None
+    if with_history:
+        try:
+            org_names = {c["org_id"]: c["org_name"] for c in counts if c["org_name"]}
+            fac_names = {c["facility_id"]: c["facility_name"] for c in counts if c["facility_id"] is not None and c["facility_name"]}
+            history = fetch_monthly_history(client, org_names, fac_names)
+        except Exception as e:  # noqa: BLE001
+            history_error = f"{type(e).__name__}: {str(e)[:200]}"
+            log.warning("monthly history skipped: %s", history_error)
+
+    written = history_written = 0
     if dry_run:
-        log.info("[dry-run] would write %d rows to %s.%s.%s", len(rows), database, schema, SF_TABLE)
+        log.info("[dry-run] would write %d rows to %s.%s.%s and %d to %s", len(rows), database, schema, SF_TABLE,
+                 len(history), HISTORY_TABLE)
     else:
         conn = snowflake_connect(database=database, schema=schema)
         try:
             ensure_table(conn)
             written = write_rows(conn, rows, run_id)
             conn.commit()
+            log.info("wrote %d rows to %s.%s.%s (run %s)", written, database, schema, SF_TABLE, run_id)
+            if history:
+                history_written = write_history(conn, history, run_id, captured_at)
+                log.info("refreshed %d rows in %s.%s.%s", history_written, database, schema, HISTORY_TABLE)
+            try:
+                ensure_views(conn)
+            except Exception as e:  # noqa: BLE001 - views are a convenience
+                log.warning("could not (re)create views: %s", str(e)[:200])
         finally:
             conn.close()
-        log.info("wrote %d rows to %s.%s.%s (run %s)", written, database, schema, SF_TABLE, run_id)
 
     return {
         "run_id": run_id, "environment": ENVIRONMENT,
@@ -387,6 +566,7 @@ def run(*, platform_key: str | None = None, with_region: bool = True,
         "total_patients": sum(c["count"] for c in counts),
         "total_visits": total_visits,
         "regions_covered": len({k[0] for k in regions}),
+        "history_rows": len(history), "history_written": history_written, "history_error": history_error,
     }
 
 
@@ -394,6 +574,7 @@ def _cli():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--platform", default=None, help=f"platform account key (default {PLATFORM_KEY} → AFYA_PLATFORM_*)")
     ap.add_argument("--no-region", action="store_true", help="skip per-org region reads")
+    ap.add_argument("--no-history", action="store_true", help="skip the monthly history refresh")
     ap.add_argument("--dry-run", action="store_true", help="compute but do not write to Snowflake")
     ap.add_argument("--database", default=SF_DATABASE)
     ap.add_argument("--schema", default=SF_SCHEMA)
@@ -402,7 +583,7 @@ def _cli():
 
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s %(message)s")
-    summary = run(platform_key=args.platform, with_region=not args.no_region,
+    summary = run(platform_key=args.platform, with_region=not args.no_region, with_history=not args.no_history,
                   dry_run=args.dry_run, database=args.database, schema=args.schema)
     print(json.dumps(summary, indent=2, default=str))
 

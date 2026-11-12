@@ -125,6 +125,9 @@ def apply_platform_account(key: str, conn_id: str | None = None) -> str:
         "with_region": Param(True, type="boolean", title="Resolve region",
                              description="Read per-org facilities to fill region_id/name. Off = region null."),
         "dry_run": Param(False, type="boolean", title="Dry run (no Snowflake write)"),
+        "monthly_history": Param(True, type="boolean", title="Refresh monthly history",
+                                 description="Recompute new patients/visits per org/facility/month since the first "
+                                             "record (AFYA_HMIS_PATIENT_REGISTRATIONS_MONTHLY) for running-total charts."),
         # This DAG's table lives in Snowflake: pin it there so the platform-wide
         # System Settings -> Data warehouse switch (afya_backends.toggles) can't
         # redirect the hourly snapshot to Databend.
@@ -154,6 +157,7 @@ def patient_counts_to_snowflake():
         summary = P.run(
             platform_key=key,
             with_region=with_region,
+            with_history=bool(params.get("monthly_history", True)),
             dry_run=bool(params.get("dry_run", False)),
         )
         summary["account_source"] = source

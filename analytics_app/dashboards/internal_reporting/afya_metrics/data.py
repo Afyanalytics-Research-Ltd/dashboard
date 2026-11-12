@@ -147,7 +147,7 @@ def read_hmis_environments():
 @st.cache_data(ttl=SF_TTL, show_spinner=False)
 def read_hmis(env):
     """The latest run of environment `env` and the last run at least a day older (WHICH = 'latest' | 'previous'),
-    facility and unassigned rows only. `env` must be a name returned by hmis.resolve / pick_environment."""
+    facility and unassigned rows only. `env` must be a name returned by hmis.resolve."""
     from . import hmis as H
     if not env or not H._SAFE.match(str(env)):
         return []
@@ -158,12 +158,38 @@ def read_hmis(env):
                      QUALIFY ROW_NUMBER() OVER (ORDER BY r.AT DESC) = 1)
         SELECT IFF(t.RUN_ID IN (SELECT RUN_ID FROM latest), 'latest', 'previous') AS WHICH, t.CAPTURED_AT,
                t.ORGANIZATION_ID, t.ORGANIZATION_NAME, t.FACILITY_ID, t.FACILITY_NAME, t.PATIENT_COUNT, t.SCOPE,
-               t.COUNT_METHOD
+               t.COUNT_METHOD, t.VISIT_COUNT
         FROM {HM_FQN} t
         WHERE t.ENVIRONMENT = '{env}' AND t.SCOPE IN ('facility', 'unassigned')
           AND t.RUN_ID IN (SELECT RUN_ID FROM latest UNION ALL SELECT RUN_ID FROM previous)""")
     return [{**r, "PATIENT_COUNT": _num(r["PATIENT_COUNT"]), "SCOPE": str(r["SCOPE"]).lower(),
-             "COUNT_METHOD": str(r["COUNT_METHOD"]).strip()} for r in recs]
+             "COUNT_METHOD": str(r["COUNT_METHOD"]).strip(),
+             "VISIT_COUNT": None if r.get("VISIT_COUNT") is None else _num(r["VISIT_COUNT"])} for r in recs]
+
+
+@st.cache_data(ttl=SF_TTL, show_spinner=False)
+def read_hmis_daily(env):
+    """Each facility's patients as of the end of each day it was posted (the day's last run), with the change since
+    its previous day: the first day carries the whole count. Summed over the days, the changes give the latest
+    count, so dated arrivals and the running total agree."""
+    from . import hmis as H
+    if not env or not H._SAFE.match(str(env)):
+        return []
+    methods = ", ".join("'" + m.replace("'", "") + "'" for m in sorted(H.METHODS))
+    recs = _fetch(f"""
+        WITH daily AS (
+            SELECT ORGANIZATION_ID, FACILITY_ID, CAPTURED_AT::DATE AS DAY, MAX_BY(PATIENT_COUNT, CAPTURED_AT) AS N,
+                   COALESCE(MAX_BY(VISIT_COUNT, CAPTURED_AT), 0) AS V
+            FROM {HM_FQN}
+            WHERE ENVIRONMENT = '{env}' AND SCOPE = 'facility' AND FACILITY_ID IS NOT NULL
+              AND COUNT_METHOD IN ({methods})
+            GROUP BY 1, 2, 3)
+        SELECT ORGANIZATION_ID, FACILITY_ID, DAY,
+               N - COALESCE(LAG(N) OVER (PARTITION BY ORGANIZATION_ID, FACILITY_ID ORDER BY DAY), 0) AS ADDED,
+               V - COALESCE(LAG(V) OVER (PARTITION BY ORGANIZATION_ID, FACILITY_ID ORDER BY DAY), 0) AS VISITS_ADDED
+        FROM daily""")
+    return [{"ORGANIZATION_ID": r["ORGANIZATION_ID"], "FACILITY_ID": r["FACILITY_ID"], "DATE": _date(r["DAY"]),
+             "ADDED": _num(r["ADDED"]), "VISITS_ADDED": _num(r["VISITS_ADDED"])} for r in recs]
 
 
 @st.cache_data(ttl=SF_TTL, show_spinner=False)

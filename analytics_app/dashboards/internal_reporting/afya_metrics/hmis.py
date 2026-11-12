@@ -4,32 +4,37 @@ The HMIS posts PATIENT_COUNT, the patients registered at each facility, every ho
 environments (migrate now, production soon). This module decides which run feeds the dashboard and how its facilities
 join the warehouse patient counts. It is pure logic; the Snowflake reads are data.read_hmis_environments/read_hmis.
 
-- Environment: chosen on the dashboard (session key SWITCH_KEY); by default production once it has runs, else
-  migrate. AFYA_HMIS_ENVIRONMENT sets the default. The chosen environment feeds the table and the totals.
-- Rows: the latest whole run; facility and unassigned rows only (organization rows are their totals); the agreed
-  counting method; counts above zero.
+- Environment: every HMIS environment with runs is loaded; the dashboard's Environment filter (session key ENV_KEY)
+  picks which of Warehouse / Production / Migrate feed the table and the totals (combine). Default: Warehouse and
+  Production (else Migrate). Selecting two HMIS environments together is flagged: they can hold the same facilities.
+- Rows: the latest whole run; facility rows with a facility ID only (organization rows are their totals, and
+  unassigned rows have no facility); the agreed counting method; counts above zero.
 - Facilities: test organisations (IGNORE_ORGS) are dropped entirely. Facilities the warehouse already counts
   (WAREHOUSE, or an exact name match with a warehouse source) are not added again: their HMIS figure is shown on the
   warehouse row instead, so nobody is counted twice. Every other facility is a row of its own.
-- HMIS facilities add PATIENT_COUNT to UPDs (patients). They have no Patient Records (visits).
+- HMIS facilities add PATIENT_COUNT to UPDs (patients) and VISIT_COUNT to Patient Records (visits), once posted.
+- HMIS_WINS: warehouse sources the HMIS replaces (the HMIS row takes the source's name; the warehouse row goes).
+- Dated arrivals (for the period filters): each day's change in a facility's counts, from the run history, with
+  the whole count on the day it first appears. They add up to the latest counts.
 """
 
 import os
 import re
 from datetime import datetime, timedelta
 
-PRODUCTION = "production"
+PRODUCTION = "prod"
 MIGRATE = "migrate"
 CHOICES = {PRODUCTION: "Production", MIGRATE: "Migrate"}
-SWITCH_KEY = "hmis_env"
-OVERRIDE = os.environ.get("AFYA_HMIS_ENVIRONMENT", "").strip().lower()
+ALIASES = {PRODUCTION: {"prod", "production"}, MIGRATE: {"migrate"}}     # ENVIRONMENT values per environment
+WAREHOUSE_ENV = "Warehouse"                     # the Environment value of the warehouse sources
+ENV_KEY = "pc_envs"                             # session key of the dashboard's Environment filter
 METHODS = {m.strip() for m in os.environ.get("AFYA_HMIS_METHODS", "gateway_count").split(",") if m.strip()}
 STALE_HOURS = 26          # runs are hourly; a day without one is worth a look
 JUMP = 0.20               # flag a facility whose count moved more than this since the previous day
 
 # Test organisations: never shown or counted (matched on the organisation name, any environment).
 IGNORE_ORGS = {"STAGING", "LIVE DB MIGRATE", "DEMO FACILITY 6", "DRY RUN HOSPITAL"}
-# (organisation, facility) -> the warehouse source that already counts it.
+# (organisation, facility) names -> the warehouse source that already counts it (migrate posts names).
 WAREHOUSE = {
     ("KISUMU SPECIALIST", "KSH"): "Kisumu Specialist Hospital (KSH)",
     ("WEMA MEDICAL CENTER", "WEMA MEDICAL CENTER"): "Wema Medical",
@@ -37,6 +42,24 @@ WAREHOUSE = {
     ("PORTBELL", "PORTBELL"): "Portbell",
     ("SILVERWOOD MEDICAL HOSPITAL", "SILVERWOOD HOSPITAL"): "Silverwood",
 }
+# Production posts no organisation names and few facility names, so its exceptions and labels go by ID:
+# environment -> {(organisation id, facility id): warehouse source}. KSH appears under two organisations.
+WAREHOUSE_IDS = {PRODUCTION: {
+    (284, 283): "Kisumu Specialist Hospital (KSH)",
+    (250, 247): "Kisumu Specialist Hospital (KSH)",
+    (258, 256): "Wema Medical",
+    (71, 69): "Medhanit",
+}}
+# Warehouse sources the HMIS replaces: when the chosen environment has the facility, its HMIS figures are used and
+# the warehouse source is dropped from the table, the totals and the dated arrivals.
+HMIS_WINS = {"Medhanit"}
+# environment -> {(organisation id, facility id): name}, for facilities posted without one. The Eagle branches
+# carry the same IDs' patient counts as the named migrate rows (65,849 / 46,970 / 18,817).
+NAMES_IDS = {PRODUCTION: {
+    (199, 329): "Kangemi · Eagle Nursing Home",
+    (199, 328): "Kawangware · Eagle Nursing Home",
+    (199, 330): "Kibra · Eagle Nursing Home",
+}}
 
 _SAFE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
@@ -45,19 +68,16 @@ def norm(s):
     return re.sub(r"\s+", " ", str(s or "").strip()).upper()
 
 
-def pick_environment(environments):
-    """The default environment, from {name: last captured}: the override, else production, else migrate."""
-    names = {str(e).strip().lower(): e for e in environments if e is not None}
-    for want in ([OVERRIDE] if OVERRIDE else []) + [PRODUCTION, MIGRATE]:
-        if want in names and _SAFE.match(str(names[want])):
-            return names[want]
-    return None
+def choice_of(environment):
+    """The environment ('prod' / 'migrate') an ENVIRONMENT value belongs to, or None."""
+    e = str(environment or "").strip().lower()
+    return next((c for c, names in ALIASES.items() if e in names), None)
 
 
 def resolve(choice, environments):
-    """The environment name as stored for a switch choice ('production' / 'migrate'), or None if it has no rows."""
+    """The ENVIRONMENT value as stored for 'prod' / 'migrate', or None if that environment has no rows."""
     for e in environments:
-        if e is not None and str(e).strip().lower() == choice and _SAFE.match(str(e)):
+        if e is not None and choice_of(e) == choice and _SAFE.match(str(e)):
             return e
     return None
 
@@ -71,7 +91,7 @@ def label(org, facility, scope):
     o, f = _nice(org), _nice(facility)
     if scope == "unassigned" or not f or f == "(unassigned)":
         return f"{o} (unassigned)"
-    return f if norm(f) == norm(o) else f"{f} · {o}"
+    return f if not o or norm(f) == norm(o) else f"{f} · {o}"
 
 
 def build(rows, environment, warehouse_sources, now=None):
@@ -88,31 +108,58 @@ def build(rows, environment, warehouse_sources, now=None):
     prev_at = max((r["CAPTURED_AT"] for r in rows if r["WHICH"] == "previous"), default=None)
     captured = max(r["CAPTURED_AT"] for r in latest)
     sources = {norm(s): s for s in warehouse_sources}
+    choice = choice_of(environment)
+    by_id, names_by_id = WAREHOUSE_IDS.get(choice, {}), NAMES_IDS.get(choice, {})
 
-    facilities, on_warehouse, dropped, seen = [], {}, 0, set()
+    facilities, on_warehouse, dropped, seen, replaced = [], {}, 0, set(), set()
     for r in latest:
         n = int(r["PATIENT_COUNT"] or 0)
         if r["COUNT_METHOD"] not in METHODS or n <= 0:
             dropped += 1
             continue
+        if r["FACILITY_ID"] is None:                       # no facility (the unassigned rows): not shown or counted
+            continue
         org, fac = norm(r["ORGANIZATION_NAME"]), norm(r["FACILITY_NAME"])
         if org in IGNORE_ORGS:                             # test organisations never reach the dashboard
             continue
-        name = label(r["ORGANIZATION_NAME"], r["FACILITY_NAME"], r["SCOPE"])
+        ids = (r["ORGANIZATION_ID"], r["FACILITY_ID"])
+        if ids in names_by_id:
+            name = names_by_id[ids]
+        elif fac:
+            name = label(r["ORGANIZATION_NAME"], r["FACILITY_NAME"], r["SCOPE"])
+        else:                                              # no name posted: identify it by its HMIS IDs
+            name = f"HMIS facility {r['FACILITY_ID']} (organisation {r['ORGANIZATION_ID']})"
         if name in seen:                                   # two facilities with the same names: keep both apart
             name = f"{name} (#{r['FACILITY_ID']})"
         seen.add(name)
-        source = WAREHOUSE.get((org, fac)) or sources.get(fac) or sources.get(norm(name))
-        if source:                                         # already counted from the warehouse: shown on its row
+        source = by_id.get(ids) or WAREHOUSE.get((org, fac)) or sources.get(fac) or sources.get(norm(name))
+        if source in HMIS_WINS:                            # the HMIS replaces this warehouse source
+            name = source
+            replaced.add(source)
+        elif source:                                       # already counted from the warehouse: not added again
             on_warehouse[source] = on_warehouse.get(source, 0) + n
             continue
         before = prev.get(key(r))
         change = (n - before) / before if before else None
         flags = [f"{change:+.0%} since {prev_at:%d %b}"] if change is not None and abs(change) > JUMP else []
-        facilities.append(dict(name=name, patients=n, flags=flags))
+        visits = r.get("VISIT_COUNT")
+        facilities.append(dict(name=name, patients=n, visits=None if visits is None else int(visits), flags=flags,
+                               ids=ids))
     return dict(environment=environment, captured=captured, previous_at=prev_at,
                 stale=captured < now - timedelta(hours=STALE_HOURS), facilities=facilities,
-                on_warehouse=on_warehouse, dropped=dropped)
+                on_warehouse=on_warehouse, replaced=replaced, dropped=dropped)
+
+
+def receipts(view, daily):
+    """Dated arrivals for the HMIS facilities in the table, in the shape of the warehouse receipts: the patients
+    each facility gained on each day it was posted (the whole count on its first day). Facilities left to the
+    warehouse, test organisations and rows without a facility never appear, as in the table."""
+    if not view:
+        return []
+    names = {f["ids"]: f["name"] for f in view["facilities"]}
+    return [{"SOURCE": names[(d["ORGANIZATION_ID"], d["FACILITY_ID"])], "DATE": d["DATE"],
+             "RECORDS": d.get("VISITS_ADDED", 0), "UPDS": d["ADDED"]} for d in daily
+            if (d["ORGANIZATION_ID"], d["FACILITY_ID"]) in names and (d["ADDED"] or d.get("VISITS_ADDED"))]
 
 
 def counted_rows(view):
@@ -120,5 +167,37 @@ def counted_rows(view):
     if not view:
         return []
     day = view["captured"].date() if hasattr(view["captured"], "date") else view["captured"]
-    return [{"SOURCE": f["name"], "PATIENT_RECORDS": 0, "UPDS": f["patients"], "COUNTED_AT": day, "HMIS": True,
-             "FLAGS": f["flags"]} for f in view["facilities"]]
+    env = CHOICES.get(choice_of(view["environment"]), str(view["environment"]))
+    return [{"SOURCE": f["name"], "PATIENT_RECORDS": f.get("visits") or 0, "VISITS_POSTED": f.get("visits") is not None,
+             "UPDS": f["patients"], "COUNTED_AT": day, "HMIS": True, "ENV": env, "FLAGS": f["flags"]}
+            for f in view["facilities"]]
+
+
+def env_options(parts):
+    """The Environment filter's options: the warehouse, then each HMIS environment that has a run."""
+    return [WAREHOUSE_ENV] + [label for label in CHOICES.values() if label in parts]
+
+
+def default_envs(parts):
+    """Warehouse plus production when it has runs, else plus the first HMIS environment that does."""
+    hmis = [label for label in CHOICES.values() if label in parts]
+    return [WAREHOUSE_ENV] + hmis[:1]
+
+
+def combine(warehouse_rows, warehouse_receipts, parts, selected):
+    """The sources table and dated arrivals for the selected environments. parts: {environment label: (view,
+    receipts)}. Warehouse sources an HMIS environment replaces (HMIS_WINS) drop out when that environment is
+    selected. Returns (rows, receipts, overlap): overlap lists HMIS environments selected together, whose facilities
+    can be the same ones (Production and Migrate)."""
+    hmis = [label for label in CHOICES.values() if label in parts and label in selected]
+    replaced = set().union(*(parts[label][0]["replaced"] for label in hmis)) if hmis else set()
+    rows, rec = [], []
+    if WAREHOUSE_ENV in selected:
+        rows += [{**r, "ENV": WAREHOUSE_ENV} for r in warehouse_rows if r["SOURCE"] not in replaced]
+        rec += [x for x in warehouse_receipts if x["SOURCE"] not in replaced]
+    for i, label in enumerate(hmis):
+        view, receipts_ = parts[label]
+        tag = f" ({label})" if i else ""               # two HMIS environments: keep same-named facilities apart
+        rows += [{**r, "SOURCE": r["SOURCE"] + tag} for r in counted_rows(view)]
+        rec += [{**x, "SOURCE": x["SOURCE"] + tag} for x in receipts_]
+    return rows, rec, hmis if len(hmis) > 1 else []

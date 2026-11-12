@@ -30,7 +30,7 @@ FEED = [
     row("latest", 13, "EAGLE NURSING HOME", None, "(unassigned)", 4, scope="unassigned"),
     row("latest", 20, "demo facility 6", 24, "demo facility 6", 3),
 ]
-OWN_ROWS = 65849 + 24547 + 170 + 4          # Kangemi, Gyno, Level6's KSH, Eagle unassigned
+OWN_ROWS = 65849 + 24547 + 170 + 2739       # Kangemi, Gyno, Level6's KSH, Medhanit (HMIS replaces the warehouse)
 
 
 def names(view):
@@ -38,19 +38,36 @@ def names(view):
 
 
 class Environment(unittest.TestCase):
-    def test_production_is_the_default_once_it_has_runs(self):
-        self.assertEqual(H.pick_environment({"migrate": NOW, "production": NOW}), "production")
+    PARTS = {"Production": (H.build(FEED, "prod", WAREHOUSE_SOURCES, NOW), []),
+             "Migrate": (H.build(FEED, "migrate", WAREHOUSE_SOURCES, NOW), [])}
 
-    def test_migrate_until_production_arrives(self):
-        self.assertEqual(H.pick_environment({"migrate": NOW}), "migrate")
-        self.assertIsNone(H.pick_environment({}))
+    def test_filter_options_and_default(self):
+        self.assertEqual(H.env_options(self.PARTS), ["Warehouse", "Production", "Migrate"])
+        self.assertEqual(H.default_envs(self.PARTS), ["Warehouse", "Production"])
+        self.assertEqual(H.default_envs({"Migrate": self.PARTS["Migrate"]}), ["Warehouse", "Migrate"])
+        self.assertEqual(H.default_envs({}), ["Warehouse"])
+
+    def test_selection_drives_rows_and_replacement(self):
+        wh = [{"SOURCE": "Medhanit", "PATIENT_RECORDS": 913, "UPDS": 551},
+              {"SOURCE": "Tenri", "PATIENT_RECORDS": 10, "UPDS": 5}]
+        rows, _, overlap = H.combine(wh, [], self.PARTS, ["Warehouse"])
+        self.assertEqual({r["SOURCE"] for r in rows}, {"Medhanit", "Tenri"})      # no HMIS: warehouse Medhanit stays
+        rows, _, overlap = H.combine(wh, [], self.PARTS, ["Warehouse", "Production"])
+        med = [r for r in rows if r["SOURCE"] == "Medhanit"]
+        self.assertEqual([(r["ENV"], r["UPDS"]) for r in med], [("Production", 2739)])   # HMIS replaces it
+        self.assertEqual(overlap, [])
+        rows, _, overlap = H.combine(wh, [], self.PARTS, ["Production", "Migrate"])
+        self.assertEqual(overlap, ["Production", "Migrate"])
+        self.assertIn("Medhanit (Migrate)", {r["SOURCE"] for r in rows})          # same-named facilities kept apart
+        self.assertFalse(any(r["ENV"] == "Warehouse" for r in rows))
 
     def test_unsafe_names_are_never_used_in_sql(self):
-        self.assertIsNone(H.pick_environment({"production'; drop": NOW}))
+        self.assertIsNone(H.resolve("prod", {"prod'; drop": NOW}))
 
     def test_switch_choices_resolve_to_stored_names(self):
-        self.assertEqual(H.resolve("production", {"PRODUCTION": NOW, "migrate": NOW}), "PRODUCTION")
-        self.assertIsNone(H.resolve("production", {"migrate": NOW}))
+        self.assertEqual(H.resolve("prod", {"prod": NOW, "migrate": NOW}), "prod")
+        self.assertEqual(H.resolve("prod", {"PRODUCTION": NOW}), "PRODUCTION")
+        self.assertIsNone(H.resolve("prod", {"migrate": NOW}))
 
 
 class Facilities(unittest.TestCase):
@@ -65,10 +82,54 @@ class Facilities(unittest.TestCase):
 
     def test_warehouse_facilities_are_not_added_twice(self):
         v = H.build(FEED, "production", WAREHOUSE_SOURCES, NOW)
-        self.assertFalse({"Ksh · Kisumu Specialist", "Medhanit", "Portbell"} & names(v))
-        self.assertEqual(v["on_warehouse"], {"Kisumu Specialist Hospital (KSH)": 53291, "Medhanit": 2739,
-                                             "Portbell": 736})
+        self.assertFalse({"Ksh · Kisumu Specialist", "Portbell"} & names(v))
+        self.assertEqual(v["on_warehouse"], {"Kisumu Specialist Hospital (KSH)": 53291, "Portbell": 736})
+        self.assertIn("Medhanit", names(v))                    # the HMIS replaces the warehouse for Medhanit
+        self.assertEqual(v["replaced"], {"Medhanit"})
         self.assertIn("KSH · Level6 Hospital", names(v))       # a different KSH: matched on the organisation too
+
+    def test_rows_without_a_facility_id_are_dropped(self):
+        feed = FEED + [row("latest", 30, "Other", None, "Somewhere", 6)]
+        v = H.build(feed, "migrate", WAREHOUSE_SOURCES, NOW)
+        self.assertFalse([f for f in v["facilities"] if "unassigned" in f["name"].lower() or "Somewhere" in f["name"]])
+
+
+class Production(unittest.TestCase):
+    """Production posts no organisation names and few facility names: exceptions and labels go by ID."""
+    PROD = [
+        row("latest", 199, None, 329, None, 65849),
+        row("latest", 284, None, 283, "KISUMU SPECIALISTS HOSPITAL", 53771),
+        row("latest", 250, None, 247, "Kisumu Specialists Hospital", 52829),
+        row("latest", 159, None, 157, "THE GYNO SOLUTIONS CENTER LIMITED", 24681),
+        row("latest", 258, None, 256, "WEMA MEDKIN MEDICAL CENTER LTD", 5342),
+        row("latest", 53, None, 52, None, 2265),
+        row("latest", 199, None, None, "(unassigned)", 4, scope="unassigned"),
+        row("latest", 12, None, None, "(unassigned)", 2506, scope="unassigned"),
+    ]
+
+    def setUp(self):
+        self.v = H.build(self.PROD, "prod", WAREHOUSE_SOURCES, NOW)
+        self.rows = {r["SOURCE"]: r["UPDS"] for r in H.counted_rows(self.v)}
+
+    def test_hmis_replaces_the_warehouse_for_medhanit(self):
+        feed = self.PROD + [dict(row("latest", 71, None, 69, "Medhanit Healthcare Limited", 234), VISIT_COUNT=425)]
+        v = H.build(feed, "prod", WAREHOUSE_SOURCES, NOW)
+        rows = {r["SOURCE"]: r for r in H.counted_rows(v)}
+        self.assertEqual(v["replaced"], {"Medhanit"})
+        self.assertEqual((rows["Medhanit"]["UPDS"], rows["Medhanit"]["PATIENT_RECORDS"]), (234, 425))
+        self.assertTrue(rows["Medhanit"]["VISITS_POSTED"])
+        self.assertNotIn("Medhanit", v["on_warehouse"])
+
+    def test_both_ksh_entries_and_wema_are_left_to_the_warehouse(self):
+        self.assertEqual(self.v["on_warehouse"], {"Kisumu Specialist Hospital (KSH)": 53771 + 52829,
+                                                  "Wema Medical": 5342})
+        self.assertFalse(any("KISUMU" in s.upper() or "WEMA" in s.upper() for s in self.rows))
+
+    def test_nameless_facilities_get_a_label(self):
+        self.assertEqual(self.rows["Kangemi · Eagle Nursing Home"], 65849)
+        self.assertEqual(self.rows["The Gyno Solutions Center Limited"], 24681)   # no stray separator
+        self.assertEqual(self.rows["HMIS facility 52 (organisation 53)"], 2265)
+        self.assertEqual(sum(self.rows.values()), 65849 + 24681 + 2265)       # unassigned rows dropped
 
     def test_unlisted_name_matching_a_warehouse_source_goes_on_that_row(self):
         v = H.build([row("latest", 30, "Tenri Hospital Group", 40, "Tenri", 900)], "production",
@@ -83,6 +144,21 @@ class Facilities(unittest.TestCase):
         v = H.build([row("latest", 13, "EAGLE NURSING HOME", 16, "Kangemi", 10, method="estimate"),
                      row("latest", 13, "EAGLE NURSING HOME", 17, "Kibra", 0)], "production", [], NOW)
         self.assertEqual((v["facilities"], v["dropped"]), ([], 2))
+
+
+class DatedArrivals(unittest.TestCase):
+    def test_daily_changes_become_arrivals_that_add_up_to_the_total(self):
+        from datetime import date
+        v = H.build(FEED, "migrate", WAREHOUSE_SOURCES, NOW)
+        daily = [dict(ORGANIZATION_ID=13, FACILITY_ID=16, DATE=date(2026, 11, 11), ADDED=65000),   # first day: all
+                 dict(ORGANIZATION_ID=13, FACILITY_ID=16, DATE=date(2026, 11, 12), ADDED=849),
+                 dict(ORGANIZATION_ID=7, FACILITY_ID=9, DATE=date(2026, 11, 11), ADDED=736),      # Portbell: warehouse
+                 dict(ORGANIZATION_ID=1, FACILITY_ID=1, DATE=date(2026, 11, 11), ADDED=179334),   # test organisation
+                 dict(ORGANIZATION_ID=6, FACILITY_ID=8, DATE=date(2026, 11, 12), ADDED=0)]        # no change: omitted
+        got = H.receipts(v, daily)
+        self.assertEqual([(r["SOURCE"], r["DATE"].day, r["UPDS"], r["RECORDS"]) for r in got],
+                         [("Kangemi · Eagle Nursing Home", 11, 65000, 0), ("Kangemi · Eagle Nursing Home", 12, 849, 0)])
+        self.assertEqual(sum(r["UPDS"] for r in got), 65849)
 
 
 class Flags(unittest.TestCase):

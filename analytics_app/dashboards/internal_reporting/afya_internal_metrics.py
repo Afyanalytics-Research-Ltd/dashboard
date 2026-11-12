@@ -2,6 +2,8 @@
 
 import os
 import sys
+import time
+from datetime import timedelta
 
 import streamlit as st
 
@@ -22,6 +24,26 @@ for _m in [m for m in sys.modules if m == "afya_metrics" or m.startswith("afya_m
 from afya_metrics import data as D, discovery, hmis, overview, patients, theme as T, update
 
 T.inject_css()
+
+# Automatic refresh: the HMIS pipeline posts every 15 minutes, so the whole page reruns every 15 minutes and picks up
+# the latest run (the Snowflake reads are cached for 10, so they are fresh by then). It waits for up to two refreshes
+# after the Update dialog was last used, since a rerun would close it and lose what was typed (Streamlit gives no
+# signal when a dialog is dismissed; saving clears the wait).
+REFRESH = int(os.environ.get("AFYA_METRICS_REFRESH", str(15 * 60)))      # seconds
+st.session_state["x_full_run_at"] = time.time()
+
+
+@st.fragment(run_every=timedelta(seconds=min(60, REFRESH)))     # a cheap check each minute; it draws nothing
+def _auto_refresh():
+    now = time.time()
+    if now - st.session_state.get("x_full_run_at", now) < REFRESH:
+        return                              # part of a full run, or one happened less than REFRESH ago
+    if now - st.session_state.get(update.IN_USE, 0) < 2 * REFRESH:
+        return                              # the Update dialog is in use: try again next time
+    st.rerun(scope="app")
+
+
+_auto_refresh()
 
 try:
     rows, _ = D.read_rows()

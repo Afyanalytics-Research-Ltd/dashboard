@@ -30,7 +30,8 @@ FEED = [
     row("latest", 13, "EAGLE NURSING HOME", None, "(unassigned)", 4, scope="unassigned"),
     row("latest", 20, "demo facility 6", 24, "demo facility 6", 3),
 ]
-OWN_ROWS = 65849 + 24547 + 170 + 2739       # Kangemi, Gyno, Level6's KSH, Medhanit (HMIS replaces the warehouse)
+# Kangemi, Gyno, Level6's KSH, and Medhanit, KSH and Portbell (the HMIS replaces the warehouse for these)
+OWN_ROWS = 65849 + 24547 + 170 + 2739 + 53291 + 736
 
 
 def names(view):
@@ -51,7 +52,9 @@ class Environment(unittest.TestCase):
         wh = [{"SOURCE": "Medhanit", "PATIENT_RECORDS": 913, "UPDS": 551},
               {"SOURCE": "Tenri", "PATIENT_RECORDS": 10, "UPDS": 5}]
         rows, _, overlap = H.combine(wh, [], self.PARTS, ["Warehouse"])
-        self.assertEqual({r["SOURCE"] for r in rows}, {"Medhanit", "Tenri"})      # no HMIS: warehouse Medhanit stays
+        self.assertEqual({r["SOURCE"] for r in rows}, {"Tenri"})       # the HMIS is Medhanit's only source
+        rows, _, _ = H.combine(wh, [], {}, ["Warehouse"])
+        self.assertEqual({r["SOURCE"] for r in rows}, {"Medhanit", "Tenri"})      # HMIS not loaded: warehouse stays
         rows, _, overlap = H.combine(wh, [], self.PARTS, ["Warehouse", "Production"])
         med = [r for r in rows if r["SOURCE"] == "Medhanit"]
         self.assertEqual([(r["ENV"], r["UPDS"]) for r in med], [("Production", 2739)])   # HMIS replaces it
@@ -80,13 +83,21 @@ class Facilities(unittest.TestCase):
         v = H.build(FEED, "migrate", WAREHOUSE_SOURCES, NOW)
         self.assertFalse({"Collabmed · Staging", "demo facility 6"} & names(v))
 
-    def test_warehouse_facilities_are_not_added_twice(self):
+    def test_hmis_replaces_matching_warehouse_sources_under_its_own_names(self):
         v = H.build(FEED, "production", WAREHOUSE_SOURCES, NOW)
-        self.assertFalse({"Ksh · Kisumu Specialist", "Portbell"} & names(v))
-        self.assertEqual(v["on_warehouse"], {"Kisumu Specialist Hospital (KSH)": 53291, "Portbell": 736})
-        self.assertIn("Medhanit", names(v))                    # the HMIS replaces the warehouse for Medhanit
-        self.assertEqual(v["replaced"], {"Medhanit"})
+        self.assertEqual(v["replaced"], {"Kisumu Specialist Hospital (KSH)", "Portbell", "Medhanit"})
+        self.assertTrue({"Ksh", "Portbell", "Medhanit"} <= names(v))   # HMIS facility names, not warehouse sources
+        self.assertEqual(v["on_warehouse"], {})
         self.assertIn("KSH · Level6 Hospital", names(v))       # a different KSH: matched on the organisation too
+
+    def test_demo_and_probe_set_ups_never_appear(self):
+        feed = [row("latest", 1, "Hill Wood Health Care Limited", 1, "HILL WOOD HEALTH CARE LIMITED", 326)] + [
+            row("latest", o, name, o, fac, 0) for o, name, fac in (
+                (6, "Demo Facility", "HILL WOOD HEALTH CARE LIMITED"), (15, "demo9", "HILL WOOD HEALTH CARE LIMITED"),
+                (16, "demo 2", "HILL WOOD HEALTH CARE LIMITED"), (17, "demo", "HILL WOOD HEALTH CARE LIMITED"),
+                (14, "demo-probe2-1789299052", "Demo Facility Probe2"), (40, "Demola Clinic", "Demola Clinic"))]
+        self.assertEqual(sorted(names(H.build(feed, "prod", [], NOW))),
+                         ["Demola Clinic", "Hill Wood Health Care Limited"])
 
     def test_rows_without_a_facility_id_are_dropped(self):
         feed = FEED + [row("latest", 30, "Other", None, "Somewhere", 6)]
@@ -115,21 +126,34 @@ class Production(unittest.TestCase):
         feed = self.PROD + [dict(row("latest", 71, None, 69, "Medhanit Healthcare Limited", 234), VISIT_COUNT=425)]
         v = H.build(feed, "prod", WAREHOUSE_SOURCES, NOW)
         rows = {r["SOURCE"]: r for r in H.counted_rows(v)}
-        self.assertEqual(v["replaced"], {"Medhanit"})
-        self.assertEqual((rows["Medhanit"]["UPDS"], rows["Medhanit"]["PATIENT_RECORDS"]), (234, 425))
-        self.assertTrue(rows["Medhanit"]["VISITS_POSTED"])
+        self.assertIn("Medhanit", v["replaced"])
+        med = rows["Medhanit Healthcare Limited"]
+        self.assertEqual((med["UPDS"], med["PATIENT_RECORDS"]), (234, 425))
+        self.assertTrue(med["VISITS_POSTED"])
         self.assertNotIn("Medhanit", v["on_warehouse"])
 
-    def test_both_ksh_entries_and_wema_are_left_to_the_warehouse(self):
-        self.assertEqual(self.v["on_warehouse"], {"Kisumu Specialist Hospital (KSH)": 53771 + 52829,
-                                                  "Wema Medical": 5342})
-        self.assertFalse(any("KISUMU" in s.upper() or "WEMA" in s.upper() for s in self.rows))
+    def test_ksh_comes_from_the_live_organisation_only(self):
+        self.assertEqual(self.rows["Kisumu Specialists Hospital"], 53771)    # organisation 284, HMIS name
+        self.assertNotIn(52829, self.rows.values())                          # 250 is a duplicate: never counted
+        self.assertEqual(self.v["replaced"], {"Kisumu Specialist Hospital (KSH)", "Wema Medical"})
+
+    def test_wema_comes_from_the_hmis(self):
+        self.assertEqual(self.v["on_warehouse"], {})
+        self.assertEqual(self.rows["Wema Medkin Medical Center Ltd"], 5342)
+
+    def test_portbell_and_silverwood_come_from_the_hmis(self):
+        feed = [row("latest", 263, None, 261, "PORTBELL MEDICAL CENTRE LIMITED", 897),
+                row("latest", 82, None, 80, "SILVERWOOD MEDICAL CENTRE LTD", 733)]
+        v = H.build(feed, "prod", WAREHOUSE_SOURCES, NOW)
+        self.assertEqual(v["replaced"], {"Portbell", "Silverwood"})
+        self.assertEqual({r["SOURCE"]: r["UPDS"] for r in H.counted_rows(v)},
+                         {"Portbell Medical Centre Limited": 897, "Silverwood Medical Centre Ltd": 733})
 
     def test_nameless_facilities_get_a_label(self):
         self.assertEqual(self.rows["Kangemi · Eagle Nursing Home"], 65849)
         self.assertEqual(self.rows["The Gyno Solutions Center Limited"], 24681)   # no stray separator
         self.assertEqual(self.rows["HMIS facility 52 (organisation 53)"], 2265)
-        self.assertEqual(sum(self.rows.values()), 65849 + 24681 + 2265)       # unassigned rows dropped
+        self.assertEqual(sum(self.rows.values()), 65849 + 24681 + 2265 + 53771 + 5342)   # unassigned rows dropped
 
     def test_unlisted_name_matching_a_warehouse_source_goes_on_that_row(self):
         v = H.build([row("latest", 30, "Tenri Hospital Group", 40, "Tenri", 900)], "production",
@@ -140,10 +164,16 @@ class Production(unittest.TestCase):
         rows = H.counted_rows(H.build(FEED, "production", WAREHOUSE_SOURCES, NOW))
         self.assertTrue(all(r["HMIS"] and r["PATIENT_RECORDS"] == 0 for r in rows))
 
-    def test_other_methods_and_zero_counts_are_skipped(self):
-        v = H.build([row("latest", 13, "EAGLE NURSING HOME", 16, "Kangemi", 10, method="estimate"),
-                     row("latest", 13, "EAGLE NURSING HOME", 17, "Kibra", 0)], "production", [], NOW)
-        self.assertEqual((v["facilities"], v["dropped"]), ([], 2))
+    def test_other_methods_are_skipped(self):
+        v = H.build([row("latest", 13, "EAGLE NURSING HOME", 16, "Kangemi", 10, method="estimate")], "production", [],
+                    NOW)
+        self.assertEqual((v["facilities"], v["dropped"]), ([], 1))
+
+    def test_facilities_without_patients_are_listed_with_zero(self):
+        v = H.build([row("latest", 13, "EAGLE NURSING HOME", 17, "Kibra", 0)], "production", [], NOW)
+        rows = H.counted_rows(v)
+        self.assertEqual([(r["SOURCE"], r["UPDS"]) for r in rows], [("Kibra · Eagle Nursing Home", 0)])
+        self.assertEqual(v["dropped"], 0)
 
 
 class DatedArrivals(unittest.TestCase):
@@ -152,13 +182,14 @@ class DatedArrivals(unittest.TestCase):
         v = H.build(FEED, "migrate", WAREHOUSE_SOURCES, NOW)
         daily = [dict(ORGANIZATION_ID=13, FACILITY_ID=16, DATE=date(2026, 11, 11), ADDED=65000),   # first day: all
                  dict(ORGANIZATION_ID=13, FACILITY_ID=16, DATE=date(2026, 11, 12), ADDED=849),
-                 dict(ORGANIZATION_ID=7, FACILITY_ID=9, DATE=date(2026, 11, 11), ADDED=736),      # Portbell: warehouse
+                 dict(ORGANIZATION_ID=7, FACILITY_ID=9, DATE=date(2026, 11, 11), ADDED=736),      # Portbell: HMIS wins
                  dict(ORGANIZATION_ID=1, FACILITY_ID=1, DATE=date(2026, 11, 11), ADDED=179334),   # test organisation
                  dict(ORGANIZATION_ID=6, FACILITY_ID=8, DATE=date(2026, 11, 12), ADDED=0)]        # no change: omitted
         got = H.receipts(v, daily)
         self.assertEqual([(r["SOURCE"], r["DATE"].day, r["UPDS"], r["RECORDS"]) for r in got],
-                         [("Kangemi · Eagle Nursing Home", 11, 65000, 0), ("Kangemi · Eagle Nursing Home", 12, 849, 0)])
-        self.assertEqual(sum(r["UPDS"] for r in got), 65849)
+                         [("Kangemi · Eagle Nursing Home", 11, 65000, 0), ("Kangemi · Eagle Nursing Home", 12, 849, 0),
+                          ("Portbell", 11, 736, 0)])
+        self.assertEqual(sum(r["UPDS"] for r in got), 65849 + 736)
 
 
 class Flags(unittest.TestCase):
@@ -170,6 +201,11 @@ class Flags(unittest.TestCase):
         rows = {r["SOURCE"]: r for r in H.counted_rows(H.build(feed, "production", [], NOW))}
         self.assertEqual(rows["Kangemi · Eagle Nursing Home"]["FLAGS"], ["+40% since 11 Nov"])
         self.assertEqual(rows["Kibra · Eagle Nursing Home"]["FLAGS"], [])
+
+    def test_times_are_east_africa_time(self):
+        from datetime import timezone
+        utc = datetime.now(timezone.utc).replace(tzinfo=None)
+        self.assertAlmostEqual((H.now_eat() - utc).total_seconds(), 3 * 3600, delta=5)
 
     def test_stale_run(self):
         old = [row("latest", 13, "EAGLE NURSING HOME", 16, "Kangemi", 1, at=datetime(2026, 11, 10, 8, 0))]

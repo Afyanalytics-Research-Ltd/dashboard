@@ -1,5 +1,7 @@
 """Update dialog: weekly figures (new week, new quarter, or correction)."""
 
+import time
+
 import streamlit as st
 
 from . import data as D
@@ -129,6 +131,7 @@ def _weekly(rows, patient_records):
                  width="stretch"):
         if _saved(D.upsert, row):
             st.session_state["x_goto_week"] = week
+            st.session_state.pop(IN_USE, None)         # saved and closing: the automatic refresh may resume
             st.rerun()
 
 
@@ -141,6 +144,10 @@ def _saved(fn, *args):
     return True
 
 
+IN_USE = "x_dialog_used_at"           # when the dialog last ran: the automatic refresh waits while it is in use
+
+
 @st.dialog("Update", width="large")
 def open_dialog(rows, patient_records=None):
+    st.session_state[IN_USE] = time.time()
     _weekly(rows, patient_records)

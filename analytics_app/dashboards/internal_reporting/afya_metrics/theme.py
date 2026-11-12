@@ -103,6 +103,8 @@ html, body, .stApp, button, input, label, p, li, td, th,
 .st-key-pc_chart {{ background:#fff; border:1px solid {BORDER}; border-radius:12px; padding:18px 22px 8px;
     box-shadow:{SHADOW}; margin-bottom:14px; gap:0; }}
 .x-chart-hd {{ display:flex; align-items:baseline; justify-content:space-between; gap:12px; }}
+.x-legend {{ display:flex; gap:14px; flex-wrap:wrap; font-size:12.5px; font-weight:600; color:{INK}; }}
+.x-legend span {{ display:inline-flex; align-items:center; }}
 .x-chart-t {{ font-size:14px; font-weight:700; color:{NAVY}; }}
 .x-sub {{ font-size:12px; color:{MUTED}; margin-top:3px; }}
 .x-note {{ font-size:12px; color:{MUTED}; margin:8px 2px 0; }}

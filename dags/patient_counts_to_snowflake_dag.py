@@ -2,7 +2,7 @@
 """
 Patient record counts per organisation / facility / region → HOSPITALS.ANALYTICS.AFYA_HMIS_PATIENT_COUNTS.
 
-Every hour, one call to the platform's native count gateway
+Every 15 minutes, one call to the platform's native count gateway
 (core /gateway/counts, tenants:"all", group_by organization_id+facility_id,
 labels) counts every organisation and facility exactly — no row scanning, no
 PII. Region is resolved per organisation from the per-org superadmin logins in
@@ -109,8 +109,10 @@ def apply_platform_account(key: str, conn_id: str | None = None) -> str:
 
 @dag(
     dag_id=DAG_ID,
-    description="V3 patient counts per org/facility/region → HOSPITALS.ANALYTICS.AFYA_HMIS_PATIENT_COUNTS (hourly snapshot)",
-    schedule="0 * * * *",
+    description="V3 patient counts per org/facility/region → HOSPITALS.ANALYTICS.AFYA_HMIS_PATIENT_COUNTS (snapshot every 15 min)",
+    # every 15 minutes; meant to run on the PROD server only (keep it paused on staging/local:
+    # they have no afya_v3_prod connection and would add duplicate snapshots to the same table)
+    schedule="*/15 * * * *",
     start_date=datetime(2026, 11, 1),
     catchup=False,
     max_active_runs=1,
@@ -130,7 +132,7 @@ def apply_platform_account(key: str, conn_id: str | None = None) -> str:
                                              "record (AFYA_HMIS_PATIENT_REGISTRATIONS_MONTHLY) for running-total charts."),
         # This DAG's table lives in Snowflake: pin it there so the platform-wide
         # System Settings -> Data warehouse switch (afya_backends.toggles) can't
-        # redirect the hourly snapshot to Databend.
+        # redirect the snapshot to Databend.
         "warehouse_backend": Param("snowflake", type="string", enum=["snowflake", "databend"],
                                    title="Warehouse", description="Where the snapshot is written (default Snowflake)."),
     },

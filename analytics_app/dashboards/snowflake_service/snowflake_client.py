@@ -1,12 +1,22 @@
 import logging
 import os
+import sys
 from pathlib import Path
 
-import snowflake.connector
-from afya_backends import warehouse as afya_warehouse
-from dotenv import load_dotenv
+# Project root (…/analytics_app/dashboards/snowflake_service/ -> 3 up). Streamlit
+# dashboards import this module with only their own folder on sys.path, so
+# `afya_backends` (a top-level package in the project root) is not importable
+# unless the root is added here -- otherwise every Streamlit dashboard using
+# SnowflakeClient fails with "ModuleNotFoundError: No module named 'afya_backends'".
+_PROJECT_ROOT = Path(__file__).resolve().parents[3]
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.append(str(_PROJECT_ROOT))
 
-load_dotenv(Path(__file__).parent.parent.parent.parent / ".env")
+import snowflake.connector  # noqa: E402
+from afya_backends import warehouse as afya_warehouse  # noqa: E402
+from dotenv import load_dotenv  # noqa: E402
+
+load_dotenv(_PROJECT_ROOT / ".env")
 
 logger = logging.getLogger(__name__)
 

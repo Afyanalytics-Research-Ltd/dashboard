@@ -137,6 +137,31 @@ def _names(client: V3Client, headers: dict) -> tuple[dict, dict]:
     return orgs, facs
 
 
+def _platform_directory(client: V3Client, headers: dict) -> tuple[set, set]:
+    """({(organization_id, facility_id)} for EVERY facility, {organization_id} for EVERY organisation) from
+    core's own count gateway. The patient counts only return groups that have patients, so without this a
+    facility (or organisation) with no patients yet would be missing from the snapshot. Best-effort."""
+    facilities, orgs = set(), set()
+    res = _direct_count(client, headers, {"service": "core", "model": "facilities", "limit": 1000,
+                                          "group_by": ["organization_id", "id"]})
+    if res.get("success"):
+        if res["data"].get("truncated"):
+            log.warning("facility directory truncated at 1000 - some empty facilities may be missing")
+        for g in res["data"].get("groups", []):
+            k = g.get("key") or {}
+            if k.get("id") is not None:
+                facilities.add((k.get("organization_id"), k.get("id")))
+    else:
+        log.warning("facility directory unavailable: %s %s", res.get("status"), res.get("message"))
+    res = _direct_count(client, headers, {"service": "core", "model": "organizations", "limit": 1000, "group_by": ["id"]})
+    if res.get("success"):
+        orgs = {(g.get("key") or {}).get("id") for g in res["data"].get("groups", [])} - {None}
+    else:
+        log.warning("organisation directory unavailable: %s %s", res.get("status"), res.get("message"))
+    log.info("platform directory: %d facilities, %d organisations", len(facilities), len(orgs))
+    return facilities, orgs
+
+
 def fetch_org_facility_counts(client: V3Client) -> list[dict]:
     """Patient and visit counts per (organization_id, facility_id), named, for every org.
     Uses core /gateway/counts with tenants:"all" + labels (one call, three queries).
@@ -204,6 +229,29 @@ def fetch_org_facility_counts(client: V3Client) -> list[dict]:
         })
     if not out:
         raise GatewayError("gateway/counts returned no groups")
+
+    # Every facility and organisation on the platform gets a row, not only those with patients:
+    # facilities with none get PATIENT_COUNT 0; an organisation with no facility gets an org total of 0.
+    directory, all_orgs = _platform_directory(client, headers)
+    org_names, fac_names = _names(client, headers)
+    for row in out:                                  # fill names core's labels didn't give
+        row["org_name"] = row["org_name"] or org_names.get(row["org_id"])
+        if row["facility_id"] is not None:
+            row["facility_name"] = row["facility_name"] or fac_names.get(row["facility_id"])
+    zero_visits = lambda v: None if v is None else 0
+    counted_facilities = {fac for _, fac in keys if fac is not None}   # facility ids are platform-wide
+    empty = sorted((k for k in directory if k[1] not in counted_facilities), key=lambda k: (str(k[0]), str(k[1])))
+    for org, fac in empty:
+        out.append({"org_id": org, "org_name": org_names.get(org), "facility_id": fac, "facility_name": fac_names.get(fac),
+                    "count": 0, "visit_count": zero_visits(v_all), "visits_this_month": zero_visits(v_month)})
+    seen_orgs = {row["org_id"] for row in out}
+    no_facility = sorted(all_orgs - seen_orgs, key=str)
+    for org in no_facility:
+        out.append({"org_id": org, "org_name": org_names.get(org), "facility_id": None, "facility_name": None,
+                    "count": 0, "visit_count": zero_visits(v_all), "visits_this_month": zero_visits(v_month),
+                    "org_only": True})
+    log.info("rows: %d with data, %d empty facilities, %d organisations without facilities",
+             len(keys), len(empty), len(no_facility))
     return out
 
 
@@ -358,6 +406,8 @@ def build_rows(counts: list[dict], regions: dict[tuple[int, int], tuple[int | No
         org_totals[org_id] = org_totals.get(org_id, 0) + c["count"]
         add(org_visits, org_id, c.get("visit_count"))
         add(org_visits_month, org_id, c.get("visits_this_month"))
+        if c.get("org_only"):                        # an organisation with no facility: org total row only
+            continue
         fid = c["facility_id"]
         rid, rname = regions.get((org_id, fid), (None, None)) if fid is not None else (None, None)
         rows.append({

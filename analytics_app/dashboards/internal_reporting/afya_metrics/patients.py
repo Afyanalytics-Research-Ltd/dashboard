@@ -29,7 +29,7 @@ def _hmis_status(parts, error):
         return f"HMIS unavailable: {error.__class__.__name__}"
     out = []
     for label, (view, _) in parts.items():
-        when = f"{view['captured']:%d %b %Y, %H:%M}" if hasattr(view["captured"], "strftime") else view["captured"]
+        when = f"{view['captured']:%d %b %Y, %H:%M} EAT" if hasattr(view["captured"], "strftime") else view["captured"]
         stale = f" <b class='x-flag-t'>(no new run for over {H.STALE_HOURS}h)</b>" if view["stale"] else ""
         out.append(f"{label} captured <b>{when}</b>{stale}")
     return " · ".join(out)
@@ -75,17 +75,23 @@ def _tile(label, colour, value, meta, primary=False):
 
 
 def _chart(receipts, rng):
-    """Running total of Patient Records by the date they reached the warehouse."""
-    dated = pd.DataFrame([x for x in receipts if x["DATE"]], columns=["DATE", "RECORDS"])
+    """Running totals of Patient Records and UPDs by the date they reached the warehouse."""
+    dated = pd.DataFrame([x for x in receipts if x["DATE"]], columns=["DATE", "RECORDS", "UPDS"])
     if dated.empty:
         return
-    daily = dated.groupby("DATE", as_index=False)["RECORDS"].sum().sort_values("DATE")
-    daily["TOTAL"] = daily["RECORDS"].cumsum()
+    daily = dated.groupby("DATE", as_index=False)[["RECORDS", "UPDS"]].sum().sort_values("DATE")
+    daily["R_TOTAL"], daily["U_TOTAL"] = daily["RECORDS"].cumsum(), daily["UPDS"].cumsum()
     end = max(date.today(), daily["DATE"].iloc[-1])
-    if daily["DATE"].iloc[-1] < end:   # carry the line to today
-        daily = pd.concat([daily, pd.DataFrame({"DATE": [end], "RECORDS": [0], "TOTAL": [daily["TOTAL"].iloc[-1]]})])
+    if daily["DATE"].iloc[-1] < end:   # carry the lines to today
+        daily = pd.concat([daily, pd.DataFrame({"DATE": [end], "RECORDS": [0], "UPDS": [0],
+                                                "R_TOTAL": [daily["R_TOTAL"].iloc[-1]],
+                                                "U_TOTAL": [daily["U_TOTAL"].iloc[-1]]})])
     daily["DATE"] = pd.to_datetime(daily["DATE"])
     first, last = daily["DATE"].iloc[0], daily["DATE"].iloc[-1]
+    series = {"R_TOTAL": "Patient Records", "U_TOTAL": "UPDs"}
+    long = daily.melt(id_vars=["DATE"], value_vars=list(series), var_name="M", value_name="TOTAL")
+    long["M"] = long["M"].map(series)
+    colour = alt.Color("M:N", legend=None, scale=alt.Scale(domain=list(series.values()), range=[T.REC, T.UPD]))
 
     months = pd.date_range(first.to_period("M").to_timestamp(), last, freq="MS")
     step = max(1, -(-len(months) // 8))   # at most ~8 month labels
@@ -96,43 +102,54 @@ def _chart(receipts, rng):
     y = alt.Y("TOTAL:Q", title=None, scale=alt.Scale(zero=True),
               axis=alt.Axis(format="~s", tickCount=4, gridColor=T.DIVIDE, domain=False, ticks=False, **axis))
     hover = alt.selection_point(nearest=True, on="pointerover", fields=["DATE"], empty=False, clear="pointerout")
-    base = alt.Chart(daily).encode(x=x)
+    lines = alt.Chart(long).encode(x=x, y=y, color=colour)
     shaded = rng and (pd.Timestamp(rng[0]) > first or pd.Timestamp(rng[1]) < last)
     layers = []
     if shaded:
         layers.append(alt.Chart(pd.DataFrame({"a": [pd.Timestamp(rng[0])], "b": [pd.Timestamp(rng[1])]}))
                       .mark_rect(color=T.REC, opacity=0.08).encode(x="a:T", x2="b:T"))
     layers += [
-        base.mark_line(interpolate="step-after", strokeWidth=2, color=T.REC).encode(y=y),
-        alt.Chart(daily.tail(1)).mark_text(   # current total, labelled at the line's end
-            align="right", dy=-12, font=T.FONT, fontSize=12, fontWeight=700, color=T.INK).encode(
-            x=x, y="TOTAL:Q", text=alt.Text("TOTAL:Q", format=",")),
-        base.mark_rule(color=T.SOFT).encode(opacity=alt.condition(hover, alt.value(1), alt.value(0))),
-        base.mark_point(size=80, filled=True, color=T.REC, stroke="white", strokeWidth=2).encode(
-            y="TOTAL:Q", opacity=alt.condition(hover, alt.value(1), alt.value(0)),
+        lines.mark_line(interpolate="step-after", strokeWidth=2),
+        alt.Chart(long[long["DATE"] == last]).mark_text(   # current totals, labelled at the lines' ends
+            align="right", dy=-12, font=T.FONT, fontSize=12, fontWeight=700).encode(
+            x=x, y="TOTAL:Q", color=colour, text=alt.Text("TOTAL:Q", format=",")),
+        alt.Chart(daily).mark_rule(color=T.SOFT).encode(
+            x=x, opacity=alt.condition(hover, alt.value(1), alt.value(0)),
             tooltip=[alt.Tooltip("DATE:T", title="Date received", format="%d %b %Y"),
-                     alt.Tooltip("RECORDS:Q", title="Records received that day", format=","),
-                     alt.Tooltip("TOTAL:Q", title="Total so far", format=",")]).add_params(hover),
+                     alt.Tooltip("RECORDS:Q", title="Patient Records received that day", format=","),
+                     alt.Tooltip("R_TOTAL:Q", title="Patient Records so far", format=","),
+                     alt.Tooltip("UPDS:Q", title="UPDs received that day", format=","),
+                     alt.Tooltip("U_TOTAL:Q", title="UPDs so far", format=",")]).add_params(hover),
+        lines.mark_point(size=80, filled=True, stroke="white", strokeWidth=2).encode(
+            opacity=alt.condition(hover, alt.value(1), alt.value(0))),
     ]
     note = f" · shaded: {_span(*rng)}" if shaded else ""
     with st.container(key="pc_chart"):
         T.html(f'<div class="x-chart-hd"><div><div class="x-chart-t">'
-               f'<i class="x-mk" style="background:{T.REC}"></i>Patient Records received</div>'
-               f'<div class="x-sub">Running total by the date data reached the warehouse{note}</div></div></div>')
+               f'Data received over time</div>'
+               f'<div class="x-sub">Running totals by the date data reached the warehouse{note}</div></div>'
+               f'<div class="x-legend"><span><i class="x-mk" style="background:{T.REC}"></i>Patient Records</span>'
+               f'<span><i class="x-mk" style="background:{T.UPD}"></i><span class="x-acr">UPDs</span></span></div></div>')
         st.altair_chart(alt.layer(*layers).properties(height=220, background="transparent",
                                                      padding={"left": 0, "right": 4, "top": 18, "bottom": 0})
                         .configure_view(strokeWidth=0), width="stretch", theme=None)
 
 
+ENV_CHANGED = "pc_env_changed"
+
+
+def _env_changed():
+    st.session_state[ENV_CHANGED] = True
 
 
 def _filters(env_options):
     """Search (narrows the table only) and the Environment filter (picks what feeds the table and every total;
-    read before the totals in afya_internal_metrics)."""
+    read before the totals in afya_internal_metrics, so changing it reruns the whole page)."""
     with st.container(key="pc_tbl_filters"):
         c_q, c_env = st.columns([2.2, 2], vertical_alignment="bottom")
         q = c_q.text_input("Search sources", key="pc_q", placeholder="Type part of a source or facility name")
-        c_env.multiselect("Environment", env_options, key=H.ENV_KEY, placeholder="Choose environments")
+        c_env.multiselect("Environment", env_options, key=H.ENV_KEY, placeholder="Choose environments",
+                          on_change=_env_changed)
     return q
 
 
@@ -165,6 +182,7 @@ def _sources_table(listed, q):
 
 
 def render(rows, updated, receipts, hmis_parts=None, hmis_error=None, env_options=(H.WAREHOUSE_ENV,), overlap=()):
+    st.session_state.pop(ENV_CHANGED, None)          # this is a whole-page run already
     hmis_parts = hmis_parts or {}
     hmis_line = _hmis_status(hmis_parts, hmis_error)
     if not rows:
@@ -193,8 +211,17 @@ def render(rows, updated, receipts, hmis_parts=None, hmis_error=None, env_option
            + '</div>')
 
     _chart(receipts, rng)
+    dropped = sum(view["dropped"] for view, _ in hmis_parts.values())
+    _table_part(shown, rng, list(env_options), list(overlap), dropped)
 
-    q = _filters(list(env_options))
+
+@st.fragment
+def _table_part(shown, rng, env_options, overlap, dropped):
+    """The search, the Environment filter and the sources table. A fragment: searching reruns only this part, not
+    the Snowflake reads, tiles and chart above it. The Environment filter changes every total, so it reruns all."""
+    q = _filters(env_options)
+    if st.session_state.pop(ENV_CHANGED, False):
+        st.rerun(scope="app")
     if overlap:
         T.html(f'<div class="x-note" style="margin:0 2px 8px"><b class="x-flag-t">{" and ".join(overlap)} are both '
                f'selected:</b> they can hold the same facilities, so the totals may count them twice.</div>')
@@ -207,6 +234,5 @@ def render(rows, updated, receipts, hmis_parts=None, hmis_error=None, env_option
     hidden = len(shown) - len(listed)
     if hidden:
         T.html(f'<div class="x-note">{hidden} other source{"s" if hidden != 1 else ""} received no data in this period.</div>')
-    dropped = sum(view["dropped"] for view, _ in hmis_parts.values())
     if dropped:
-        T.html(f'<div class="x-note">{dropped} HMIS rows skipped (another counting method, or zero patients).</div>')
+        T.html(f'<div class="x-note">{dropped} HMIS rows skipped (another counting method).</div>')

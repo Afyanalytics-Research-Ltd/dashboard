@@ -73,16 +73,40 @@ def _client():
     return SnowflakeClient()
 
 
-def _fetch(sql):
-    # JSON result format: the Arrow reader DLL can be blocked by endpoint policy.
-    cur = _client().conn.cursor()
+@st.cache_resource(show_spinner=False)
+def _reader():
+    """One Snowflake connection per process for reads: a new connection takes 1-3 s, a query on an open one well
+    under a second. Writes keep their own connection (_write) so their transactions never share it."""
+    return _client()
+
+
+def _run(conn, sql):
+    cur = conn.cursor()
     try:
+        # JSON result format: the Arrow reader DLL can be blocked by endpoint policy.
         cur.execute("ALTER SESSION SET PYTHON_CONNECTOR_QUERY_RESULT_FORMAT = 'JSON'")
         cur.execute(sql)
         names = [d[0].upper() for d in cur.description]
         return [dict(zip(names, r)) for r in cur.fetchall()]
     finally:
         cur.close()
+
+
+def _fetch(sql):
+    client = _reader()
+    try:
+        if client.conn.is_closed():
+            raise ConnectionError("closed")
+        return _run(client.conn, sql)
+    except Exception as exc:    # closed, or idle long enough for the session to expire: reconnect once and retry
+        if type(exc).__name__ == "ProgrammingError" and getattr(exc, "errno", None) != 390114:
+            raise               # a problem with the query itself: reconnecting would not help
+        try:
+            client.conn.close()
+        except Exception:
+            pass
+        client.conn = client._connect()
+        return _run(client.conn, sql)
 
 
 def _write(statements):
@@ -140,14 +164,16 @@ def read_patient_counts():
 @st.cache_data(ttl=SF_TTL, show_spinner=False)
 def read_hmis_environments():
     """{environment: last captured} in the HMIS counts table."""
-    return {r["ENVIRONMENT"]: r["LAST"] for r in _fetch(f"SELECT ENVIRONMENT, MAX(CAPTURED_AT) AS LAST FROM {HM_FQN} "
-                                                        f"GROUP BY 1")}
+    from . import hmis as H
+    return {r["ENVIRONMENT"]: r["LAST"] for r in _fetch(
+        f"SELECT ENVIRONMENT, CONVERT_TIMEZONE('UTC', '{H.TZ}', MAX(CAPTURED_AT)) AS LAST FROM {HM_FQN} GROUP BY 1")}
 
 
 @st.cache_data(ttl=SF_TTL, show_spinner=False)
 def read_hmis(env):
     """The latest run of environment `env` and the last run at least a day older (WHICH = 'latest' | 'previous'),
-    facility and unassigned rows only. `env` must be a name returned by hmis.resolve."""
+    facility and unassigned rows only, with CAPTURED_AT in East Africa Time. `env` must be a name returned by
+    hmis.resolve."""
     from . import hmis as H
     if not env or not H._SAFE.match(str(env)):
         return []
@@ -156,7 +182,8 @@ def read_hmis(env):
         latest AS (SELECT RUN_ID, AT FROM runs QUALIFY ROW_NUMBER() OVER (ORDER BY AT DESC) = 1),
         previous AS (SELECT r.RUN_ID FROM runs r JOIN latest l ON r.AT <= DATEADD('hour', -24, l.AT)
                      QUALIFY ROW_NUMBER() OVER (ORDER BY r.AT DESC) = 1)
-        SELECT IFF(t.RUN_ID IN (SELECT RUN_ID FROM latest), 'latest', 'previous') AS WHICH, t.CAPTURED_AT,
+        SELECT IFF(t.RUN_ID IN (SELECT RUN_ID FROM latest), 'latest', 'previous') AS WHICH,
+               CONVERT_TIMEZONE('UTC', '{H.TZ}', t.CAPTURED_AT) AS CAPTURED_AT,
                t.ORGANIZATION_ID, t.ORGANIZATION_NAME, t.FACILITY_ID, t.FACILITY_NAME, t.PATIENT_COUNT, t.SCOPE,
                t.COUNT_METHOD, t.VISIT_COUNT
         FROM {HM_FQN} t
@@ -169,7 +196,7 @@ def read_hmis(env):
 
 @st.cache_data(ttl=SF_TTL, show_spinner=False)
 def read_hmis_daily(env):
-    """Each facility's patients as of the end of each day it was posted (the day's last run), with the change since
+    """Each facility's patients as of the end of each day (East Africa Time) it was posted (the day's last run), with the change since
     its previous day: the first day carries the whole count. Summed over the days, the changes give the latest
     count, so dated arrivals and the running total agree."""
     from . import hmis as H
@@ -178,7 +205,7 @@ def read_hmis_daily(env):
     methods = ", ".join("'" + m.replace("'", "") + "'" for m in sorted(H.METHODS))
     recs = _fetch(f"""
         WITH daily AS (
-            SELECT ORGANIZATION_ID, FACILITY_ID, CAPTURED_AT::DATE AS DAY, MAX_BY(PATIENT_COUNT, CAPTURED_AT) AS N,
+            SELECT ORGANIZATION_ID, FACILITY_ID, CONVERT_TIMEZONE('UTC', '{H.TZ}', CAPTURED_AT)::DATE AS DAY, MAX_BY(PATIENT_COUNT, CAPTURED_AT) AS N,
                    COALESCE(MAX_BY(VISIT_COUNT, CAPTURED_AT), 0) AS V
             FROM {HM_FQN}
             WHERE ENVIRONMENT = '{env}' AND SCOPE = 'facility' AND FACILITY_ID IS NOT NULL

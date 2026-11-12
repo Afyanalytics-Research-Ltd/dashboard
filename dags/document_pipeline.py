@@ -150,6 +150,7 @@ PARAMS (Trigger DAG w/ config, or `airflow dags trigger -c '<json>'`)
     when the DAG file is parsed and is not a param.)
   Output:       output_dir, json_output_dir, state_dir, save_json,
     parse_model, extract_model.
+  Canary:       canary (0 = full run; see CANARY below).
   Snowflake:    push_to_snowflake (default on; env PUSH_TO_SNOWFLAKE=0 turns
     the default off), snowflake_database (blank = $SNOWFLAKE_DATABASE),
     snowflake_schema (blank = the extraction schema's title, e.g.
@@ -168,6 +169,21 @@ SNOWFLAKE LOAD (task load_snowflake, after every file task)
   (DELETE by FILE_ID + INSERT, one transaction), so reruns never duplicate.
   It reads the records from the state files, so files finished in earlier
   runs are (re)loaded too.
+
+CANARY (param canary = N > 0; see canary.py and CANARY_README.md)
+  A test of the whole path on a few records before the full run. Each
+  selected file (one file unless max_files is set) has only its first
+  N x max_pages_per_record + 1 pages parsed, and its first N complete records
+  extracted -- a record that may run past the last page read is left out.
+  Those records are loaded into the same Snowflake table as a full run, but
+  only their own rows are replaced (DELETE by RECORD_KEY); the files' other
+  rows stay. verify_canary then reads them back and fails the run (-> Sentry,
+  via the central failure callback) if a record failed extraction, is
+  missing, is stored twice, or has a field that is set in the extraction but
+  NULL in its column (a value its column type could not take). Files are
+  never moved or marked done. The full run afterwards reuses the parsed pages,
+  skips re-extracting each canary record that the whole file groups on the
+  same pages under the same schema, then replaces the files' rows as usual.
 
 Install dependencies:
     pip install "apache-airflow>=2.3" requests pypdf google-api-python-client \
@@ -617,8 +633,11 @@ def parse_single_page(
 
 def parse_pdf_per_page_resumable(
     pdf_local_path: Path, work_dir: Path, state: Dict[str, Any],
-    cfg: Optional[PipelineConfig] = None,
+    cfg: Optional[PipelineConfig] = None, max_pages: int = 0,
 ) -> List[Dict[str, Any]]:
+    """Every page's markdown, parsing only pages not cached in `state`.
+    max_pages > 0 (a canary): only the first max_pages pages are parsed and
+    returned; state["total_pages"] still records the whole file."""
     cfg = cfg or DEFAULT_CONFIG
     reader = PdfReader(str(pdf_local_path))
     total_pages = len(reader.pages)
@@ -628,6 +647,8 @@ def parse_pdf_per_page_resumable(
         state.setdefault("page_errors", {})
         save_state(state, cfg.state_dir)
 
+    if max_pages:
+        total_pages = min(total_pages, max_pages)
     cached_pages = state.get("pages", {})
     missing_page_nums = [i for i in range(1, total_pages + 1) if str(i) not in cached_pages]
 
@@ -771,6 +792,7 @@ class PipelineConfig:
     snowflake_database: str = ""
     snowflake_schema: str = ""
     snowflake_table: str = ""
+    canary: int = 0  # > 0: only the first N records of each file (see CANARY in the module docstring)
 
     def __post_init__(self) -> None:
         self.record_start_markers = [
@@ -815,7 +837,14 @@ class PipelineConfig:
             f"{self.page_parse_workers}/{self.boundary_workers}/{self.record_workers}; "
             f"state_dir={self.state_dir}; output_dir={self.output_dir}; "
             f"snowflake={self._snowflake_label()}"
+            f"{f'; CANARY {self.canary} record(s) per file' if self.canary else ''}"
         )
+
+    @property
+    def canary_page_limit(self) -> int:
+        """Pages a canary parses per file: enough for `canary` records of the
+        longest plausible length, plus one page to see the next record start."""
+        return self.canary * self.max_pages_per_record + 1 if self.canary else 0
 
     def _snowflake_label(self) -> str:
         if not self.push_to_snowflake:
@@ -948,7 +977,10 @@ def config_from_params(params: Optional[Dict[str, Any]]) -> PipelineConfig:
         snowflake_database=str(p.get("snowflake_database", "")).strip(),
         snowflake_schema=str(p.get("snowflake_schema", "")).strip(),
         snowflake_table=str(p.get("snowflake_table", "")).strip(),
+        canary=_int("canary"),
     )
+    if cfg.canary and not cfg.max_files:
+        cfg.max_files = 1  # a canary reads one file unless asked for more
 
     missing = [f for f in BOUNDARY_FIELDS if f not in cfg.boundary_schema["properties"]]
     if missing:
@@ -1269,6 +1301,18 @@ def group_pages_into_records(
     return records
 
 
+def canary_records(
+    records: List[Dict[str, Any]], pages_read: int, total_pages: int, size: int,
+) -> List[Dict[str, Any]]:
+    """The first `size` records of a canary's partial read. When the read
+    stopped before the end of the file, the record running up to the last page
+    read may continue past it, so it is left out (the page limit leaves room
+    for `size` full-length records before it)."""
+    if pages_read < total_pages and records and max(records[-1]["page_numbers"]) >= pages_read:
+        records = records[:-1]
+    return records[:size]
+
+
 def build_record_markdown(rec: Dict[str, Any]) -> str:
     """Concatenate a record's pages, prefixing patient context when the name
     had to be carried forward so the extraction model sees it."""
@@ -1435,7 +1479,7 @@ def _process_one_record(
             "extracted_json": json.dumps(extracted),
         })
         return {
-            "ok": True, "filename": file_name, "record_index": idx,
+            "ok": True, "filename": file_name, "file_id": file_id, "record_index": idx,
             "page_range": page_range, "status": status,
             "split_method": rec.get("split_method"),
         }
@@ -1528,31 +1572,44 @@ def process_one_file(
     try:
         total_pages_known = state.get("total_pages")
         pages_cached = state.get("pages", {})
-        fully_cached = bool(total_pages_known) and all(
-            str(i) in pages_cached for i in range(1, total_pages_known + 1)
+        # a canary needs only the file's first pages
+        wanted_pages = (min(total_pages_known, cfg.canary_page_limit) if cfg.canary and total_pages_known
+                        else total_pages_known)
+        fully_cached = bool(wanted_pages) and all(
+            str(i) in pages_cached for i in range(1, wanted_pages + 1)
         )
 
         if fully_cached:
             log.info(
                 "%s: reusing %d cached page(s) from a previous run -- skipping download.",
-                file_name, total_pages_known,
+                file_name, wanted_pages,
             )
             page_results = [
                 {"page": i, "markdown": pages_cached[str(i)]}
-                for i in range(1, total_pages_known + 1)
+                for i in range(1, wanted_pages + 1)
             ]
         else:
             log.info("Downloading %s (%s)", file_name, file_id)
             download_file(service, file_id, local_path)
-            page_results = parse_pdf_per_page_resumable(local_path, tmp_dir, state, cfg)
+            page_results = parse_pdf_per_page_resumable(local_path, tmp_dir, state, cfg,
+                                                        max_pages=cfg.canary_page_limit)
 
         page_meta = classify_pages_resumable(page_results, state, cfg)
         records = group_pages_into_records(page_results, page_meta, cfg)
         log.info("%s: %d page(s) -> %s", file_name, len(page_results), record_length_histogram(records))
-        with STATE_LOCK:
-            # records above this index are left over from an older grouping
-            state["record_count"] = len(records)
-            save_state(state, cfg.state_dir)
+        if cfg.canary:
+            records = canary_records(records, len(page_results), state.get("total_pages") or 0, cfg.canary)
+            log.info("%s: CANARY -- extracting record(s) 1-%d only (pages %s); the file stays "
+                     "unfinished and in the source folder.", file_name, len(records),
+                     ", ".join(f"{min(r['page_numbers'])}-{max(r['page_numbers'])}" for r in records) or "none")
+            with STATE_LOCK:
+                state["canary_record_count"] = len(records)
+                save_state(state, cfg.state_dir)
+        else:
+            with STATE_LOCK:
+                # records above this index are left over from an older grouping
+                state["record_count"] = len(records)
+                save_state(state, cfg.state_dir)
 
         with ThreadPoolExecutor(max_workers=cfg.record_workers) as record_executor:
             record_futures = {
@@ -1570,8 +1627,15 @@ def process_one_file(
                     log.exception("Unexpected error processing record %d of %s", idx, file_name)
                     r = {"ok": False, "filename": file_name, "file_id": file_id,
                          "record_index": idx, "page_range": None, "error": str(e)}
+                if r is None and cfg.canary:
+                    # done in an earlier run: still one of the canary's records
+                    r = {"ok": True, "filename": file_name, "file_id": file_id, "record_index": idx,
+                         "status": "already_done"}
                 if r is not None:
                     results.append(r)
+
+        if cfg.canary:
+            return results  # never marked done or moved: the full run carries on from here
 
         all_done = len(records) > 0 and all(
             state["records"].get(str(i), {}).get("status") == "done"
@@ -1798,7 +1862,8 @@ def snowflake_docs(cfg: PipelineConfig, file_ids: List[str]) -> List[Dict[str, A
             continue
         with open(path, "r", encoding="utf-8") as f:
             state = json.load(f)
-        count = state.get("record_count")
+        # a canary groups only the file's first pages: its own count applies
+        count = state.get("canary_record_count") if cfg.canary else state.get("record_count")
         for idx_str, rec in sorted(state.get("records", {}).items(), key=lambda kv: int(kv[0])):
             if rec.get("status") not in ("done", "done_with_missing_pages"):
                 continue
@@ -1836,13 +1901,22 @@ def _batches(rows: List[str], max_chars: int) -> List[List[str]]:
     return [b for b in out if b]
 
 
-def load_to_snowflake(cfg: PipelineConfig, file_ids: List[str], sf=None) -> Dict[str, Any]:
+def load_to_snowflake(
+    cfg: PipelineConfig, file_ids: List[str], sf=None, record_keys: Optional[List[str]] = None,
+) -> Dict[str, Any]:
     """Replace these files' rows in the run's Snowflake table. Rows are staged
     as JSON text in a temporary table, then typed per the target's actual
-    columns in one DELETE + INSERT transaction."""
+    columns in one DELETE + INSERT transaction.
+
+    record_keys (a canary): load only these records, replacing just their own
+    rows -- the files' other rows, from an earlier full load, are kept."""
     database, schema, table = cfg.snowflake_target
     fq = f"{database}.{schema}.{table}"
     docs = snowflake_docs(cfg, file_ids)
+    if record_keys is not None:
+        wanted = set(record_keys)
+        docs = [d for d in docs if d["record_key"] in wanted]
+    reload_key = "record_key" if record_keys is not None else "file_id"
     if not docs:
         log.info("Snowflake: no extracted records for %d file(s) -- nothing to load.", len(file_ids))
         return {"table": fq, "rows": 0, "files": 0}
@@ -1871,8 +1945,8 @@ def load_to_snowflake(cfg: PipelineConfig, file_ids: List[str], sf=None) -> Dict
 
         sf.execute("BEGIN")
         deleted = sf.execute(
-            f"DELETE FROM {fq} WHERE FILE_ID IN "
-            f"(SELECT DISTINCT PARSE_JSON(DOC):file_id::VARCHAR FROM {tmp})"
+            f"DELETE FROM {fq} WHERE {reload_key.upper()} IN "
+            f"(SELECT DISTINCT PARSE_JSON(DOC):{reload_key}::VARCHAR FROM {tmp})"
         )
         inserted = sf.execute(
             f"INSERT INTO {fq} ({', '.join(c for c, _ in targets)}) "
@@ -1897,6 +1971,108 @@ def load_to_snowflake(cfg: PipelineConfig, file_ids: List[str], sf=None) -> Dict
         fq, deleted, inserted, files,
     )
     return {"table": fq, "rows": inserted, "replaced": deleted, "files": files}
+
+
+# ==========================================================================
+# CANARY -- the first N records of each file, extracted, loaded and checked
+# ==========================================================================
+def _canary_module():
+    """canary.py from the repo root: $PIPELINES_DIR in the containers, else
+    the folder above dags/ (a checkout)."""
+    for root in (os.getenv("PIPELINES_DIR"), str(DAGS_DIR.parent)):
+        if root and (Path(root) / "canary.py").is_file() and root not in sys.path:
+            sys.path.append(root)
+    import canary
+    return canary
+
+
+def canary_record_keys(cfg: PipelineConfig, file_ids: List[str]) -> Tuple[List[str], Dict[str, str]]:
+    """(record keys a canary extracted, {record key or file id: what went wrong})
+    for these files, from their state files -- records 1..canary_record_count."""
+    keys: List[str] = []
+    problems: Dict[str, str] = {}
+    for file_id in file_ids:
+        path = _state_path(file_id, cfg.state_dir)
+        if not path.exists():
+            problems[file_id] = "no state file -- the file task did not run"
+            continue
+        with open(path, "r", encoding="utf-8") as f:
+            state = json.load(f)
+        if state.get("file_done") and "canary_record_count" not in state:
+            problems[file_id] = "file already finished by an earlier full run -- nothing for a canary to do"
+            continue
+        n = state.get("canary_record_count")
+        if not n:
+            problems[file_id] = "no complete record in the canary's pages"
+            continue
+        for idx in range(1, int(n) + 1):
+            key = f"{file_id}:{idx}"
+            rec = state.get("records", {}).get(str(idx)) or {}
+            if rec.get("status") in ("done", "done_with_missing_pages"):
+                keys.append(key)
+            else:
+                problems[key] = f"extraction {rec.get('status') or 'missing'}: {str(rec.get('error') or '')[:300]}"
+    return keys, problems
+
+
+def verify_snowflake_canary(cfg: PipelineConfig, file_ids: List[str], sf=None):
+    """The canary's verdict for these files (a canary.CanaryReport): every
+    record it extracted must be in the Snowflake table exactly once, with each
+    schema field that has a value in the extraction also set in its typed
+    column (sf_cast turns a value that doesn't fit the column into NULL --
+    this is where that shows)."""
+    canary = _canary_module()
+    keys, problems = canary_record_keys(cfg, file_ids)
+    report = canary.CanaryReport("document_pipeline", cfg.canary)
+    target_name = ".".join(cfg.snowflake_target) if cfg.push_to_snowflake else "extraction"
+    res = report.add(canary.TargetResult(target_name, expected=len(keys), ids=list(keys)))
+    for key, why in sorted(problems.items()):
+        if ":" in key:                      # a record that failed extraction
+            res.errors.append(f"record {key}: {why}")
+        else:                               # a file that gave the canary nothing
+            res.notes.append(f"file {key}: {why}")
+    if not keys:
+        res.untested = res.untested or "no record was extracted"
+        return report
+    if not cfg.push_to_snowflake:
+        res.landed = len(keys)
+        res.notes.append("push_to_snowflake is off -- extraction checked, Snowflake not")
+        return report
+
+    database, schema, table = cfg.snowflake_target
+    columns = schema_columns(cfg.schema)
+    docs = {d["record_key"]: d for d in snowflake_docs(cfg, file_ids) if d["record_key"] in set(keys)}
+    own = sf is None
+    sf = sf or SnowflakeClient(database)
+    try:
+        in_list = ", ".join(_sql_str(k) for k in keys)
+        rows = sf.fetchall(
+            f"SELECT RECORD_KEY, COUNT(*) OVER (PARTITION BY RECORD_KEY), "
+            + ", ".join(f"{col} IS NULL" for col, _, _ in columns or [("RECORD_KEY", "", "")])
+            + f" FROM {database}.{schema}.{table} WHERE RECORD_KEY IN ({in_list})"
+        )
+    finally:
+        if own:
+            sf.close()
+    stored = {}
+    for r in rows:
+        stored[r[0]] = (int(r[1]), list(r[2:]))
+    for key in keys:
+        if key not in stored:
+            res.missing.append(key)
+            continue
+        res.landed += 1
+        count, nulls = stored[key]
+        if count > 1:
+            res.duplicates.append(key)
+        extraction = (docs.get(key) or {}).get("extraction") or {}
+        for (col, name, _), is_null in zip(columns, nulls):
+            if is_null and canary.normalise(extraction.get(name)) is not None:
+                res.mismatch(name, key)
+    if res.mismatched:
+        res.notes.append("a field \"not stored as sent\" has a value in the extraction but is NULL in its "
+                         "column: the value did not fit the column's type")
+    return report
 
 
 # ==========================================================================
@@ -2015,6 +2191,13 @@ def dag_params() -> Dict[str, Any]:
             description=f"Empty = {SNOWFLAKE_DEFAULT_TABLE}. Created from the extraction schema's "
                         "properties when missing; an existing table is kept and only gains missing columns.",
         ),
+        # -- canary --------------------------------------------------------
+        "canary": Param(
+            0, type="integer", minimum=0, title="Canary records per file", section="Canary",
+            description="Extract only the first N records of each file (one file unless Max files is set), "
+                        "load them into the table above, read them back and fail the run if any did not "
+                        "land intact. Files are never moved or marked done. 0 = full run.",
+        ),
     }
 
 
@@ -2050,7 +2233,8 @@ if AIRFLOW_AVAILABLE:
             # Each file task rebuilds the config rather than pulling the
             # schemas through XCom once per file.
             cfg = config_from_params(get_current_context()["params"])
-            dest = (cfg.dest_folder_id or get_dest_folder_id()) if cfg.move_processed else None
+            # a canary leaves the file where it is: the full run still needs it
+            dest = (cfg.dest_folder_id or get_dest_folder_id()) if cfg.move_processed and not cfg.canary else None
             return process_one_file(get_drive_service(), file_meta, dest, cfg)
 
         @task
@@ -2102,12 +2286,32 @@ if AIRFLOW_AVAILABLE:
             if not cfg.push_to_snowflake:
                 log.info("push_to_snowflake is off -- skipping the Snowflake load.")
                 return {}
-            return load_to_snowflake(cfg, [f["id"] for f in files])
+            file_ids = [f["id"] for f in files]
+            if cfg.canary:
+                # only the canary's records, replacing just their own rows
+                keys, _ = canary_record_keys(cfg, file_ids)
+                return load_to_snowflake(cfg, file_ids, record_keys=keys)
+            return load_to_snowflake(cfg, file_ids)
+
+        @task(trigger_rule="all_done")
+        def verify_canary() -> Dict[str, Any]:
+            # Canary runs only. Fails (-> Sentry via the central failure
+            # callback) when a canary record failed extraction, is missing
+            # from Snowflake, is there twice, or lost a value to its column type.
+            context = get_current_context()
+            cfg = config_from_params(context["params"])
+            if not cfg.canary:
+                from airflow.exceptions import AirflowSkipException
+                raise AirflowSkipException("not a canary run")
+            files = context["ti"].xcom_pull(task_ids="list_files") or []
+            report = verify_snowflake_canary(cfg, [f["id"] for f in files])
+            report.facility = sf_identifier(cfg.snowflake_schema or str(cfg.schema.get("title") or "")).lower()
+            return _canary_module().finish_in_airflow(report, context)
 
         files = list_files()
         per_file_results = process_file.expand(file_meta=files)
         summarize_run(per_file_results)
-        per_file_results >> load_snowflake()
+        per_file_results >> load_snowflake() >> verify_canary()
 
     gdrive_landingai_extract()
 
@@ -2147,4 +2351,4 @@ if __name__ == "__main__":
         sys.exit(_inspect(sys.argv[2]))
     print(__doc__)
     print("usage: python gdrive_landingai_extract_dag.py --inspect state/<file_id>.json")
-    sys.exit(1)
+    sys.exit(1)

@@ -54,6 +54,22 @@ USAGE
   python snowflake_to_v3_migration.py --facility afya_api_auth
   python snowflake_to_v3_migration.py --facility afya_api_auth --table evaluation_prescriptions
   python snowflake_to_v3_migration.py --facility afya_api_auth --workers 4 --batch-size 100
+  python snowflake_to_v3_migration.py --facility afya_api_auth --canary 3
+
+CANARY  (--canary N, alias --record-limit; DAG param canary; see CANARY_README.md)
+  At most N not-yet-migrated records per table are posted to the real V3 org,
+  tier by tier (parents first). Within a table the canary takes records whose
+  parents are already in V3 — the parents the canary itself just posted
+  included — and passes over the rest, reading at most CANARY_SCAN_PAGES
+  pages (default 10) looking for them. Every record posted is then read back
+  from the gateway (the newest CANARY_VERIFY_PAGES pages of the model,
+  default 4, or the whole model when it is that small) and compared field by
+  field with the payload sent. A record missing, a field stored differently,
+  dropped (sent but not returned), or a dead-letter fails the table.
+  CANARY_SKIP_FIELDS (default "id,updated_at") names fields V3 is expected
+  to rewrite. Canary records stay in V3 and are marked migrated, so the full
+  run skips them; jobs are left open for it. Report:
+  output/canary/snowflake_to_v3_migration/.
 
 ENV VARS  (same .env as the rest of the repo)
   # Snowflake (key-pair auth)
@@ -733,6 +749,48 @@ _canary_sent: dict[str, int] = {}
 def _canary_key(job_key: str) -> str:
     return job_key.split("::")[0]          # vitals' ::inpatient / ::outpatient share their table's limit
 
+
+# Canary: pages of a table read at most while looking for records whose
+# parents are in V3; pages of a V3 model read back to find the canary's
+# records (the newest pages — or all of a model this small); fields V3 is
+# expected to rewrite, never compared.
+CANARY_SCAN_PAGES = int(os.getenv("CANARY_SCAN_PAGES", "10"))
+CANARY_VERIFY_PAGES = int(os.getenv("CANARY_VERIFY_PAGES", "4"))
+CANARY_SKIP_FIELDS = {f.strip() for f in os.getenv("CANARY_SKIP_FIELDS", "id,updated_at").split(",") if f.strip()}
+
+# canary key -> [{"key", "v3_id", "payload", "alias", "service"}] posted this run
+_canary_posted: dict[str, list[dict]] = defaultdict(list)
+# canary key -> records passed over because a required parent isn't in V3
+_canary_unresolvable: Counter = Counter()
+# source table -> canary.TargetResult.to_dict(), for run_one_table / the report
+_canary_results: dict[str, dict] = {}
+_canary_lock = threading.Lock()
+
+
+def _canary_pick(pending: list[dict], *, transform_key: str, v3_namespace: str, job_key: str) -> list[dict]:
+    """A canary's records out of one page: those whose required parents are
+    already in V3, fewest unresolved optional links first, up to the room left
+    in this table's limit. Records that would be held back are passed over
+    (counted in _canary_unresolvable) so the canary tests what can go in now."""
+    ck = _canary_key(job_key)
+    room = max(RECORD_LIMIT - _canary_sent.get(ck, 0), 0)
+    if not room:
+        return []
+    critical = set(_CRITICAL_FK_FIELDS.get(transform_key, []))
+    ranked = []
+    for i, rec in enumerate(pending):
+        _, unresolved = _remap_fks_via_uuid(rec, transform_key, v3_namespace, report_all=True)
+        if critical & set(unresolved):
+            continue
+        ranked.append((len(unresolved), i, rec))
+    with _canary_lock:
+        _canary_unresolvable[ck] += len(pending) - len(ranked)
+    picked = [rec for _, _, rec in sorted(ranked, key=lambda t: t[:2])][:room]
+    if len(picked) < len(pending):
+        log.info("  Canary — posting %d of %d pending records (limit %d per table, %d passed over: "
+                 "parent not in V3 yet)", len(picked), len(pending), RECORD_LIMIT, len(pending) - len(ranked))
+    return picked
+
 # job_key -> records held back (parent not in V3 yet) by the last post of that job
 _held_back: dict[str, int] = {}
 
@@ -964,7 +1022,8 @@ def _table_for_alias(alias: str) -> str | None:
     return next((_alias_to_table[a] for a in _alias_variants(alias) if a in _alias_to_table), None)
 
 
-def _remap_fks_via_uuid(record: dict, transform_key: str, v3_namespace: str) -> tuple[dict, list[str]]:
+def _remap_fks_via_uuid(record: dict, transform_key: str, v3_namespace: str,
+                        report_all: bool = False) -> tuple[dict, list[str]]:
     """Like v2v3._remap_fks, but resolves each declared FK field through the
     parent's uuid instead of assuming the raw V2 id is a safe id-map key.
 
@@ -980,6 +1039,8 @@ def _remap_fks_via_uuid(record: dict, transform_key: str, v3_namespace: str) -> 
     Returns (record_with_resolved_fks, unresolved_critical_fields) — the
     second element lists any field named in _CRITICAL_FK_FIELDS that
     couldn't be resolved, for the caller to hold the record back on.
+    report_all: list EVERY unresolved field instead, and log nothing (the
+    canary ranks candidate records with it).
     """
     fk_config = {
         **({} if v3pt.is_passthrough(transform_key) else v2v3._NS_FK_REMAP.get(v3_namespace, {})),
@@ -1020,6 +1081,8 @@ def _remap_fks_via_uuid(record: dict, transform_key: str, v3_namespace: str) -> 
             out[field] = v3_id
         elif field in _NULL_IF_UNRESOLVED.get(transform_key, ()):
             out[field] = None
+        elif report_all:
+            unresolved.append(field)
         else:
             log.warning("  No V3 ID mapping for %s id=%s (via %s) — %s will fail FK constraint",
                         alias, raw_id, parent_table or "no Snowflake table for this facility", field)
@@ -1126,11 +1189,7 @@ def post_table_to_v3(v3_namespace: str, org_cfg: dict, records: list[dict],
                                       job_key=job_key)
     if RECORD_LIMIT:
         ck = _canary_key(job_key)
-        room = max(RECORD_LIMIT - _canary_sent.get(ck, 0), 0)
-        if len(pending) > room:
-            log.info("  Canary — posting %d of %d pending records (limit %d per table)",
-                     room, len(pending), RECORD_LIMIT)
-            pending = pending[:room]
+        pending = _canary_pick(pending, transform_key=transform_key, v3_namespace=v3_namespace, job_key=job_key)
         _canary_sent[ck] = _canary_sent.get(ck, 0) + len(pending)
 
     done_count = 0
@@ -1173,6 +1232,7 @@ def post_table_to_v3(v3_namespace: str, org_cfg: dict, records: list[dict],
         post_kwargs = dict(alias_override=_ALIAS_OVERRIDE.get(transform_key),
                            service_override=_SERVICE_OVERRIDE.get(transform_key),
                            match_on=_MATCH_ON_OVERRIDE.get(transform_key))
+        sent = payload
         try:
             try:
                 v3_id = v2v3._post_to_v3_batch(v3_namespace, org_cfg, payload, **post_kwargs)
@@ -1182,11 +1242,20 @@ def post_table_to_v3(v3_namespace: str, org_cfg: dict, records: list[dict],
                 # V3 refused the nulled garbled field(s) — retry once encoded
                 log.info("  id=%s refused with garbled %s as null — retrying with encoded values",
                          rec_key, ", ".join(sorted(garbled)))
-                v3_id = v2v3._post_to_v3_batch(v3_namespace, org_cfg, {**payload, **garbled}, **post_kwargs)
+                sent = {**payload, **garbled}
+                v3_id = v2v3._post_to_v3_batch(v3_namespace, org_cfg, sent, **post_kwargs)
         except v2v3.RecordDeadLettered:
             with progress_lock:
                 dead_letter_count += 1
         else:
+            if RECORD_LIMIT:
+                # what went in, under the alias / service _post_to_v3_batch used — for the read-back
+                used = post_kwargs["alias_override"] or v2v3._v3_alias(v3_namespace)
+                with _canary_lock:
+                    _canary_posted[_canary_key(job_key)].append({
+                        "key": rec_key, "v3_id": v3_id, "alias": used,
+                        "service": post_kwargs["service_override"] or v2v3._alias_to_service.get(used, "core"),
+                        "payload": {k: v for k, v in sent.items() if k != v2v3.GARBLED_KEY}})
             # mapping first: a progress flush always writes the id map before
             # the inserted-ids, so no record is ever saved as inserted while
             # its V3 id is only in memory (see v2v3._flush_record_progress)
@@ -1481,13 +1550,19 @@ def _run_table_job(entry: dict, facility: str, org_cfg: dict, dry_run: bool) -> 
 
     if job_key in v2v3._permanently_done:
         log.info("⊘ %s — already migrated in a previous run", label)
+        if RECORD_LIMIT:
+            _canary_untested(table, "already migrated in a previous run (job marked done)")
         return True
     try:
         ensure_clean_view(facility, table)
     except Exception as e:                           # the read below reports the real problem
         log.warning("  %s: couldn't build its missing CLEAN view: %s", label, str(e)[:200])
 
-    _canary_sent[_canary_key(job_key)] = 0
+    ck = _canary_key(job_key)
+    _canary_sent[ck] = 0
+    with _canary_lock:
+        _canary_posted.pop(ck, None)
+        _canary_unresolvable.pop(ck, None)
     vitals = transform_key == "inpatient_vital"
     # once per table, not per page
     parent_sets = []
@@ -1501,6 +1576,9 @@ def _run_table_job(entry: dict, facility: str, org_cfg: dict, dry_run: bool) -> 
             parent_sets.append((field, parent_table, parent_col, ids))
     except Exception as e:
         log.error("✗ Snowflake fetch FAILED %s: %s", label, e)
+        if RECORD_LIMIT and not dry_run:
+            _finish_canary(table, job_key, org_cfg, label, total=0, failed=0, waiting=0,
+                           error=f"Snowflake fetch failed: {str(e)[:300]}")
         return False
     if not vitals and not dry_run:
         if transform_key == "evaluation_visit_destination":
@@ -1557,14 +1635,24 @@ def _run_table_job(entry: dict, facility: str, org_cfg: dict, dry_run: bool) -> 
                     posted += len(transformed) - problems
             log.info("  %s — page %d: %d rows read so far (%d posted, %d skipped, %d held, %d failed)",
                      label, pages, total, posted, skipped, held + n_dropped, failed)
-            if RECORD_LIMIT and _canary_sent.get(_canary_key(job_key), 0) >= RECORD_LIMIT:
+            if RECORD_LIMIT and (_canary_sent.get(ck, 0) >= RECORD_LIMIT or pages >= CANARY_SCAN_PAGES):
                 break
     except v2v3.GatewayModelNotRegistered as e:
         log.warning("⊘ %s — model not registered in gateway: %s", label, e)
+        if RECORD_LIMIT:
+            _canary_untested(table, f"model not registered in the gateway: {str(e)[:200]}")
         return True
     except Exception as e:
         log.error("✗ %s FAILED on page %d: %s", label, pages + 1, e)
+        if RECORD_LIMIT and not dry_run:
+            _finish_canary(table, job_key, org_cfg, label, total=total, failed=failed, waiting=held + n_dropped,
+                           error=f"failed on page {pages + 1}: {str(e)[:300]}")
         return False
+
+    if RECORD_LIMIT and not dry_run:
+        # a canary table's verdict is the read-back of what it posted
+        return _finish_canary(table, job_key, org_cfg, label, total=total - skipped, failed=failed,
+                              waiting=held + n_dropped)
 
     elapsed = time.perf_counter() - t0
     if unresolved_links:
@@ -1597,6 +1685,139 @@ def _run_table_job(entry: dict, facility: str, org_cfg: dict, dry_run: bool) -> 
     if not dry_run:
         v2v3._mark_done(_run_id, job_key)
     return True
+
+
+# ─── CANARY READ-BACK ────────────────────────────────────────────────────────
+
+def _gateway_rows(service: str, alias: str, org_cfg: dict, page: int, per_page: int = 500) -> tuple[list[dict], dict]:
+    """One page of a V3 model through the gateway read action: (rows, meta).
+    Raises on an HTTP error — a canary must not mistake "couldn't read" for "not there"."""
+    body = {"action": "read", "model": alias, "source_tenant_id": org_cfg.get("organization_id"),
+            "per_page": per_page, "page": page}
+    r = v2v3._gateway_post(service, body, timeout=120)
+    if not r.ok:
+        raise RuntimeError(f"gateway read {service}/{alias} page {page}: HTTP {r.status_code} {r.text[:200]}")
+    payload = r.json()
+    rows = payload.get("data") or []
+    if isinstance(rows, dict):
+        rows = rows.get("data") or list(rows.values())
+    return rows, (payload.get("meta") or {})
+
+
+def _read_back_v3(service: str, alias: str, org_cfg: dict, want_ids: set[str], want_uuids: set[str],
+                  max_pages: int = CANARY_VERIFY_PAGES) -> list[dict]:
+    """V3 rows holding the canary's records: the whole model when it is at
+    most `max_pages` pages, else its newest `max_pages` pages (fresh inserts
+    get the highest ids, so they sit at the end), stopping once every wanted
+    id / uuid has been seen."""
+    _, meta = _gateway_rows(service, alias, org_cfg, 1, per_page=1)
+    total = int(meta.get("total") or 0)
+    last = max(1, -(-total // 500))
+    rows, left_ids, left_uuids = [], set(want_ids), set(want_uuids)
+    for page in range(last, max(0, last - max_pages), -1):
+        batch, _ = _gateway_rows(service, alias, org_cfg, page)
+        rows.extend(batch)
+        for r in batch:
+            left_ids.discard(str(r.get("id")))
+            left_uuids.discard(str(r.get("uuid") or "").lower())
+        if not left_ids and not left_uuids:
+            break
+    return rows
+
+
+def _verify_canary(table: str, job_key: str, org_cfg: dict) -> "canary.TargetResult":
+    """Read every record the canary posted for this table back from V3 and
+    compare it with the payload sent (canary.compare_record), skipping
+    CANARY_SKIP_FIELDS and the facility column the gateway sets itself.
+    Records are found by V3 id, else uuid; a uuid on several rows is a duplicate."""
+    import canary
+
+    with _canary_lock:
+        posted = _canary_posted.pop(_canary_key(job_key), [])
+    res = canary.TargetResult(table, expected=len(posted), ids=[str(p["key"]) for p in posted])
+    by_model: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    for p in posted:
+        by_model[(p["service"], p["alias"])].append(p)
+    for (service, alias), group in sorted(by_model.items()):
+        want_ids = {str(p["v3_id"]) for p in group if p["v3_id"] is not None}
+        want_uuids = {str(p["payload"].get("uuid")).lower() for p in group if p["payload"].get("uuid")}
+        try:
+            rows = _read_back_v3(service, alias, org_cfg, want_ids, want_uuids)
+        except Exception as e:
+            res.errors.append(f"{alias}: read-back failed: {type(e).__name__}: {str(e)[:300]}")
+            continue
+        by_id = {str(r.get("id")): r for r in rows if r.get("id") is not None}
+        uuids = Counter(str(r.get("uuid")).lower() for r in rows if r.get("uuid"))
+        by_uuid = {str(r.get("uuid")).lower(): r for r in rows if r.get("uuid")}
+        skip = set(CANARY_SKIP_FIELDS)
+        facility_col = (v2v3._gateway_model_meta.get(alias) or {}).get("facility")
+        if facility_col:
+            skip.add(facility_col)
+        for p in group:
+            key = str(p["key"])
+            u = str(p["payload"].get("uuid") or "").lower()
+            got = (by_id.get(str(p["v3_id"])) if p["v3_id"] is not None else None) or by_uuid.get(u)
+            if got is None:
+                res.missing.append(key)
+                continue
+            res.landed += 1
+            if u and uuids[u] > 1:
+                res.duplicates.append(key)
+            mismatched, absent = canary.compare_record(p["payload"], got, skip=skip)
+            for f in mismatched + absent:
+                res.mismatch(f, key)
+    if res.mismatched:
+        res.notes.append("a field \"not stored as sent\" was stored with another value, left empty, or "
+                         "not returned by the gateway read; add V3-rewritten fields to CANARY_SKIP_FIELDS")
+    return res
+
+
+def _finish_canary(table: str, job_key: str, org_cfg: dict, label: str, *, total: int, failed: int,
+                   waiting: int, error: str | None = None) -> bool:
+    """A canary table's verdict: read back what was posted, add what went wrong
+    while posting, keep the result for the report (_canary_results) and say
+    whether the table passed. Held-back records don't fail a canary — the
+    ones it chose went in or not; jobs are left open for the full run."""
+    import canary
+
+    res = _verify_canary(table, job_key, org_cfg)
+    if error:
+        res.errors.append(error)
+    if failed:
+        res.errors.append(f"{failed} record(s) dead-lettered — error_ids in the task log / dead-letter file")
+    passed_over = _canary_unresolvable.pop(_canary_key(job_key), 0)
+    if not res.expected and not res.errors:
+        res.untested = ("0 rows in Snowflake" if not total else
+                        f"no record has its parents in V3 yet ({passed_over} passed over in the first "
+                        f"{CANARY_SCAN_PAGES} page(s)) — run the parent tables first" if passed_over else
+                        "nothing left to post — every record is already in V3 or held back")
+    if waiting:
+        res.notes.append(f"{waiting} record(s) held back (parent / user not in V3 yet)")
+    with _canary_lock:
+        _canary_results[table] = res.to_dict()
+    (log.error if res.status == canary.FAILED else log.info)("%s %s — canary: %s",
+                                                            "✗" if res.status == canary.FAILED else "✓",
+                                                            label, res.summary())
+    return res.status != canary.FAILED
+
+
+def _canary_untested(table: str, why: str) -> None:
+    """Keep a canary result for a table that was not run at all, and why."""
+    import canary
+
+    with _canary_lock:
+        _canary_results[table] = canary.TargetResult(table, untested=why).to_dict()
+
+
+def canary_report(facility: str, run_id: str | None = None) -> "canary.CanaryReport":
+    """This process's canary results (every table run so far) as one report."""
+    import canary
+
+    report = canary.CanaryReport("snowflake_to_v3_migration", RECORD_LIMIT, facility=facility,
+                                 **({"run_id": run_id} if run_id else {}))
+    for table in sorted(_canary_results):
+        report.add(canary.TargetResult.from_dict(_canary_results[table]))
+    return report
 
 
 # ─── ORCHESTRATOR ────────────────────────────────────────────────────────────
@@ -1753,7 +1974,27 @@ def run_one_table(facility: str, table: str, *, dry_run: bool) -> dict:
     the shared state files are merged on write, never overwritten.
     Returns {"table", "status": ok | waiting | failed | error | skipped, "detail"}
     — "error" is a crash (worth a retry), "failed" means records were
-    dead-lettered (a retry would only repeat them)."""
+    dead-lettered (a retry would only repeat them), or a canary's records did
+    not land intact. Under a canary (RECORD_LIMIT) also "canary": the table's
+    canary.TargetResult.to_dict()."""
+    import canary
+
+    _canary_results.pop(table, None)
+    result = _run_one_table(facility, table, dry_run=dry_run)
+    if RECORD_LIMIT and not dry_run:
+        target = (canary.TargetResult.from_dict(_canary_results[table]) if table in _canary_results
+                  else canary.TargetResult(table, untested=result["detail"] or result["status"]))
+        if result["status"] == "error":
+            target.untested = None
+            target.errors.append(f"crashed: {result['detail'][:300]}")
+        result["canary"] = target.to_dict()
+        if target.status == canary.FAILED and result["status"] in ("ok", "failed", "waiting"):
+            result.update(status="failed", detail=target.summary())
+    return result
+
+
+def _run_one_table(facility: str, table: str, *, dry_run: bool) -> dict:
+    """run_one_table without the canary bookkeeping."""
     org_cfg, available_models = _start(facility)
     runnable, unmapped, no_insert = _select_entries(facility, [table], None, available_models)
     if not runnable:
@@ -1832,6 +2073,12 @@ def run_migration(facility: str, only_tables: list[str] | None,
         f"  FAILED: {', '.join(failures)}\n" if failures else "",
         "".join(f"  WAITING: {t} — {_waiting[t]}\n" for t in waiting),
     )
+    if RECORD_LIMIT and not dry_run:
+        report = canary_report(facility, _run_id)
+        print("\n" + report.summary())
+        report.save()
+        if not report.ok and not failures:
+            failures.append("(canary: nothing could be checked)")
     return failures
 
 
@@ -1947,10 +2194,16 @@ def main() -> None:
                              "that duplicates another table posts only the ids that table lacks")
     parser.add_argument("--list-tables", action="store_true",
                         help="Print discovered tables, their tier and V3 mapping, and exit")
-    parser.add_argument("--record-limit", type=int, default=RECORD_LIMIT, metavar="N",
-                        help="Canary: post at most N new records per table and leave the job open")
+    parser.add_argument("--canary", "--record-limit", dest="canary", type=int, default=RECORD_LIMIT, metavar="N",
+                        help="Canary: post at most N new records per table (parents first), read them back "
+                             "from V3, exit 1 if any did not land intact; jobs are left open for the full run")
     args = parser.parse_args()
-    RECORD_LIMIT = args.record_limit
+    import canary
+
+    try:
+        RECORD_LIMIT = canary.canary_size(args.canary)
+    except ValueError as e:
+        sys.exit(f"error: {e}")
 
     if args.reprocess:
         # Re-posting is only an update when the gateway has a key to match on;
@@ -1977,8 +2230,10 @@ def main() -> None:
         list_tables(args.facility)
         return
 
-    run_migration(args.facility, args.table, workers=args.workers, dry_run=args.dry_run,
-                  exclude_tables=args.exclude, include_history=args.include_history)
+    failures = run_migration(args.facility, args.table, workers=args.workers, dry_run=args.dry_run,
+                             exclude_tables=args.exclude, include_history=args.include_history)
+    if RECORD_LIMIT and failures:
+        sys.exit(1)                         # a failed canary must stop whatever runs next
 
 
 if __name__ == "__main__":

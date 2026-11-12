@@ -42,8 +42,14 @@ Trigger form options:
                   list_tables — log each table's tier and V3 target, then stop
   record_workers  parallel POSTs within one table (RECORD_WORKERS, default 8).
   post_throttle   seconds to pause after each POST (V3_POST_THROTTLE, 0 = none).
-  record_limit    canary: post at most N not-yet-migrated records per table
-                  and leave each job open; run again with 0 for the rest.
+  canary          N > 0: post at most N not-yet-migrated records per table
+                  (parents first: forces order=by_tier), read every one back
+                  from V3 and compare it field by field with what was sent.
+                  A table whose records did not land intact fails (→ Sentry);
+                  `canary_report` then fails with every table's result
+                  (output/canary/snowflake_to_v3_migration/). Jobs are left
+                  open; run again with 0 for the rest. See CANARY_README.md.
+  record_limit    the older name for canary (the larger of the two is used).
   allow_history_tables
                   old-system-history tables (reception_patients,
                   evaluation_prescriptions, ...) are left out unless ticked.
@@ -60,6 +66,7 @@ a table stops before posting anything if they disagree.
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import sys
@@ -99,8 +106,31 @@ def _setup_modules(p: dict, facility: str):
     # already imported in this process.
     s2v3.RECORD_WORKERS = v2v3.RECORD_WORKERS = int(p["record_workers"])
     v2v3.V3_POST_THROTTLE = float(p.get("post_throttle") or 0)
-    s2v3.RECORD_LIMIT = int(p["record_limit"])
+    s2v3.RECORD_LIMIT = _canary(p)
     return s2v3
+
+
+def _canary(p: dict) -> int:
+    """Records per table for a canary run (0 = full run): the canary param,
+    or the older record_limit — whichever is larger."""
+    try:
+        return max(int(p.get("canary") or 0), int(p.get("record_limit") or 0))
+    except (TypeError, ValueError):
+        raise AirflowFailException(f"canary must be a whole number, got {p.get('canary')!r}") from None
+
+
+def _order(p: dict) -> str:
+    """A canary always runs parents first, so child tables find their parents in V3."""
+    return "by_tier" if _canary(p) else p["order"]
+
+
+CANARY_PARTS = Path("output") / "canary" / "snowflake_to_v3_migration" / "parts"
+
+
+def _parts_dir(run_id: str) -> Path:
+    """Where this DAG run's per-table canary results are collected (shared by every worker)."""
+    from pipelines_common import PIPELINES_DIR
+    return PIPELINES_DIR / CANARY_PARTS / "".join(c if c.isalnum() or c in "-_" else "_" for c in run_id)
 
 
 @dag(
@@ -130,9 +160,12 @@ def _setup_modules(p: dict, facility: str):
                                title="Pause after each POST (seconds)",
                                description="0 = no pause (fastest). Set e.g. 0.2 to ease off V3 without "
                                            "dropping workers."),
-        "record_limit": Param(0, type="integer", minimum=0, title="Record limit (canary)",
-                              description="Post at most this many new records per table and leave the "
-                                          "job open, to check a table before the full load. 0 = no limit."),
+        "canary": Param(0, type="integer", minimum=0, title="Canary records",
+                        description="Post at most this many new records per table (parents first), read them "
+                                    "back from V3 and fail if any did not land intact. Jobs stay open for the "
+                                    "full run, which skips them. 0 = full run."),
+        "record_limit": Param(0, type="integer", minimum=0, title="Record limit (old name for canary)",
+                              description="Same as Canary records; kept for existing triggers."),
         "allow_history_tables": Param(False, type="boolean", title="Include old-system-history tables",
                                       description="With tables empty: the whole schema, history tables included "
                                                   "(a second copy of a table only posts the ids that table lacks)."),
@@ -202,8 +235,8 @@ def snowflake_to_v3_migration():
         if jobs is None:
             raise AirflowSkipException("plan didn't produce a table list")
         if tier == 0:   # the all_at_once path: every table in one mapped task
-            return jobs if ctx["params"]["order"] == "all_at_once" else []
-        if ctx["params"]["order"] != "by_tier":
+            return jobs if _order(ctx["params"]) == "all_at_once" else []
+        if _order(ctx["params"]) != "by_tier":
             return []
         return [j for j in jobs if j["tier"] == tier]
 
@@ -225,6 +258,12 @@ def snowflake_to_v3_migration():
             raise RuntimeError(f"setup failed (exit {e.code}); see log")   # retried once
         status, detail = result["status"], result["detail"]
         log.info("[%s] %s → %s %s", job["facility"], job["table"], status.upper(), detail)
+        if result.get("canary"):
+            # kept on shared storage, not XCom: a failed task's XCom is gone,
+            # and canary_report needs the failures most
+            part = _parts_dir(ctx["run_id"]) / f"{job['facility']}__{job['table']}.json"
+            part.parent.mkdir(parents=True, exist_ok=True)
+            part.write_text(json.dumps({"facility": job["facility"], **result["canary"]}, default=str))
         if status == "error":
             raise RuntimeError(detail)                                     # crash: retried once
         if status == "failed":
@@ -242,6 +281,46 @@ def snowflake_to_v3_migration():
         """Runs only if no table failed — so the DAG run's own state says
         whether everything went in (skipped = waiting tables)."""
         log.info("No table failed.")
+
+    @task(trigger_rule=TriggerRule.ALL_DONE)
+    def canary_report() -> dict:
+        """Canary runs only: every table's canary result in one report, one
+        per facility (saved under output/canary/snowflake_to_v3_migration/,
+        pushed as `pipeline_reconciliation`); fails when any table's records
+        did not land intact or nothing could be checked."""
+        ctx = get_current_context()
+        p = ctx["params"]
+        if not _canary(p) or p["mode"] != "migrate":
+            raise AirflowSkipException("not a canary run")
+        use_pipelines_dir()
+        import canary
+
+        parts = sorted(_parts_dir(ctx["run_id"]).glob("*.json"))
+        jobs = ctx["ti"].xcom_pull(task_ids="plan") or []
+        reported = {path.stem for path in parts}
+        reports: dict[str, canary.CanaryReport] = {}
+        for path in parts:
+            d = json.loads(path.read_text())
+            rep = reports.setdefault(d["facility"], canary.CanaryReport(
+                "snowflake_to_v3_migration", _canary(p), facility=d["facility"], run_id=ctx["run_id"]))
+            rep.add(canary.TargetResult.from_dict(d))
+        for j in jobs:      # a table whose task crashed before reporting
+            if f"{j['facility']}__{j['table']}" not in reported:
+                reports.setdefault(j["facility"], canary.CanaryReport(
+                    "snowflake_to_v3_migration", _canary(p), facility=j["facility"], run_id=ctx["run_id"])
+                ).add(canary.TargetResult(j["table"], errors=["the table's task failed before its canary "
+                                                              "result was saved — see its log"]))
+        if not reports:
+            raise AirflowFailException("canary: no table reported a result")
+        failed = []
+        for facility, rep in sorted(reports.items()):
+            try:
+                canary.finish_in_airflow(rep, ctx)
+            except AirflowFailException as e:
+                failed.append(str(e))
+        if failed:
+            raise AirflowFailException("\n\n".join(failed))
+        return {f: r.to_dict() for f, r in reports.items()}
 
     planned = plan()
 
@@ -261,6 +340,7 @@ def snowflake_to_v3_migration():
         tier_tasks.append(ran)
         previous = ran
     [planned, all_at_once, *tier_tasks] >> done()
+    [planned, all_at_once, *tier_tasks] >> canary_report()
 
 
 snowflake_to_v3_migration()

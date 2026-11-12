@@ -1,8 +1,13 @@
-"""Create / update the "HMIS Support Chat (RAG)" workflow on an n8n instance.
+"""Build the "HMIS Support Chat (RAG)" n8n workflow + its credentials as import files.
 
-    N8N_BASE=https://host/n8n N8N_API_KEY=... GROQ_API_KEY=... LLM_INTERNAL_TOKEN=... \
-    SUPPORT_KB_DB_PASSWORD=... SUPPORT_CHAT_PASSWORD=... SUPPORT_WEBHOOK_TOKEN=... \
-    python support_kb/n8n_support_chat.py
+On a server (secrets from ~/dashboard/.env), see support_kb/install_n8n_support_chat.sh:
+    set -a; . ~/dashboard/.env; set +a
+    python3 support_kb/n8n_support_chat.py /tmp/n8n-support
+    docker cp /tmp/n8n-support n8n-container:/tmp/ && docker exec n8n-container sh -c \
+      'n8n import:credentials --input=/tmp/n8n-support/credentials.json &&
+       n8n import:workflow --input=/tmp/n8n-support/workflow.json &&
+       n8n publish:workflow --id=afyaSupportChat1'
+    docker restart n8n-container
 
 Pipeline (all free: Groq free tier + local fastembed in the Django web container):
   hosted chat (basic auth) / POST webhook (X-Support-Token)
@@ -11,8 +16,7 @@ Pipeline (all free: Groq free tier + local fastembed in the Django web container
      rerank) -> Groq answers from the numbered sources only, citing [n] -> save both turns
   -> reply {output, sources}
 
-Credentials are created once and their ids kept in support_kb/.n8n_credentials.<host>.json
-(git-ignored) so re-running only updates the workflow.
+Ids are fixed, so re-importing updates the same credentials and workflow in place.
 """
 from __future__ import annotations
 
@@ -21,9 +25,6 @@ import os
 import sys
 import uuid
 from pathlib import Path
-from urllib.parse import urlparse
-
-import requests
 
 NAME = "HMIS Support Chat (RAG)"
 WEB = os.getenv("SUPPORT_WEB_URL", "http://web:8000")
@@ -168,57 +169,40 @@ return [{ json: { output: r.output, answer: r.answer, sources: r.sources, sessio
                          "saveDataErrorExecution": "all", "timezone": "Africa/Nairobi"}}
 
 
-# ── API ──────────────────────────────────────────────────────────────────────
+# ── export for `n8n import:*` (the public API needs a per-instance key) ─────
 
-def main():
-    base = os.environ["N8N_BASE"].rstrip("/")
-    s = requests.Session()
-    s.headers.update({"X-N8N-API-KEY": os.environ["N8N_API_KEY"], "Content-Type": "application/json"})
-    api = base + "/api/v1"
-    state_f = Path(__file__).with_name(f".n8n_credentials.{urlparse(base).hostname}.json")
-    state = json.loads(state_f.read_text()) if state_f.exists() else {}
+WORKFLOW_ID = "afyaSupportChat1"
+CRED_IDS = {"groq": "afyaSuppGroqApi1", "internal": "afyaSuppInternal1", "webhook": "afyaSuppWebhook1",
+            "chat_basic": "afyaSuppChatAuth1", "pg": "afyaSuppKbDb0001"}
+CHAT_WEBHOOK_ID = "5b7e3c1a-9f4d-4a8e-b1c2-afya5upp0rt1"
 
-    def cred(key, name, typ, data):
-        if state.get(key):
-            r = s.patch(f"{api}/credentials/{state[key]}", json={"name": name, "type": typ, "data": data})
-            if r.ok:
-                return
-        r = s.post(f"{api}/credentials", json={"name": name, "type": typ, "data": data})
-        if not r.ok:
-            sys.exit(f"credential {name}: {r.status_code} {r.text[:400]}")
-        state[key] = r.json()["id"]
 
-    cred("groq", "Groq API", "httpHeaderAuth",
-         {"name": "Authorization", "value": "Bearer " + os.environ["GROQ_API_KEY"]})
-    cred("internal", "Afya internal LLM", "httpHeaderAuth",
-         {"name": "Authorization", "value": "Bearer " + os.environ["LLM_INTERNAL_TOKEN"]})
-    cred("webhook", "Support API token", "httpHeaderAuth",
-         {"name": "X-Support-Token", "value": os.environ["SUPPORT_WEBHOOK_TOKEN"]})
-    cred("chat_basic", "Support chat login", "httpBasicAuth",
-         {"user": "support", "password": os.environ["SUPPORT_CHAT_PASSWORD"]})
-    cred("pg", "Support KB DB", "postgres",
-         {"host": "support-kb-db", "port": 5432, "database": "support_kb", "user": "support_kb",
-          "password": os.environ["SUPPORT_KB_DB_PASSWORD"], "ssl": "disable",
-          "allowUnauthorizedCerts": False, "sshTunnel": False})
-    state.setdefault("chat_webhook_id", str(uuid.uuid4()))
-    state_f.write_text(json.dumps(state, indent=1))
-
-    wf = build(state, state["chat_webhook_id"])
-    existing = [w for w in s.get(f"{api}/workflows", params={"limit": 250}).json().get("data", []) if w["name"] == NAME]
-    if existing:
-        wid = existing[0]["id"]
-        r = s.put(f"{api}/workflows/{wid}", json=wf)
-    else:
-        r = s.post(f"{api}/workflows", json=wf)
-        wid = r.json().get("id") if r.ok else None
-    if not r.ok:
-        sys.exit(f"workflow: {r.status_code} {r.text[:800]}")
-    r = s.post(f"{api}/workflows/{wid}/activate")
-    print("activate:", r.status_code, r.text[:300] if not r.ok else "ok")
-    print(json.dumps({"workflow_id": wid,
-                      "chat_url": f"{base}/webhook/{state['chat_webhook_id']}/chat",
-                      "api_url": f"{base}/webhook/support-chat"}, indent=1))
+def export(out_dir: str) -> None:
+    """Write credentials.json + workflow.json for `n8n import:credentials/import:workflow`.
+    Secrets come from the environment (the server's ~/dashboard/.env)."""
+    e = os.environ
+    creds = [
+        {"id": CRED_IDS["groq"], "name": "Groq API", "type": "httpHeaderAuth",
+         "data": {"name": "Authorization", "value": "Bearer " + e["GROQ_API_KEY"]}},
+        {"id": CRED_IDS["internal"], "name": "Afya internal LLM", "type": "httpHeaderAuth",
+         "data": {"name": "Authorization", "value": "Bearer " + e["LLM_INTERNAL_TOKEN"]}},
+        {"id": CRED_IDS["webhook"], "name": "Support API token", "type": "httpHeaderAuth",
+         "data": {"name": "X-Support-Token", "value": e["SUPPORT_WEBHOOK_TOKEN"]}},
+        {"id": CRED_IDS["chat_basic"], "name": "Support chat login", "type": "httpBasicAuth",
+         "data": {"user": "support", "password": e["SUPPORT_CHAT_PASSWORD"]}},
+        {"id": CRED_IDS["pg"], "name": "Support KB DB", "type": "postgres",
+         "data": {"host": "support-kb-db", "port": 5432, "database": "support_kb", "user": "support_kb",
+                  "password": e["SUPPORT_KB_DB_PASSWORD"], "ssl": "disable", "allowUnauthorizedCerts": False,
+                  "sshTunnel": False, "maxConnections": 5}},
+    ]
+    wf = build(CRED_IDS, CHAT_WEBHOOK_ID)
+    wf.update({"id": WORKFLOW_ID, "active": False, "pinData": {}})
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "credentials.json").write_text(json.dumps(creds))
+    (out / "workflow.json").write_text(json.dumps(wf, indent=1))
+    print(f"wrote {out}/credentials.json ({len(creds)}) and {out}/workflow.json ({len(wf['nodes'])} nodes)")
 
 
 if __name__ == "__main__":
-    main()
+    export(sys.argv[1] if len(sys.argv) > 1 else "/tmp/n8n-support")

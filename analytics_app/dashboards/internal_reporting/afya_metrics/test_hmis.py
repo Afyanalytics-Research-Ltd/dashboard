@@ -90,6 +90,15 @@ class Facilities(unittest.TestCase):
         self.assertEqual(v["on_warehouse"], {})
         self.assertIn("KSH · Level6 Hospital", names(v))       # a different KSH: matched on the organisation too
 
+    def test_demo_and_probe_set_ups_never_appear(self):
+        feed = [row("latest", 1, "Hill Wood Health Care Limited", 1, "HILL WOOD HEALTH CARE LIMITED", 326)] + [
+            row("latest", o, name, o, fac, 0) for o, name, fac in (
+                (6, "Demo Facility", "HILL WOOD HEALTH CARE LIMITED"), (15, "demo9", "HILL WOOD HEALTH CARE LIMITED"),
+                (16, "demo 2", "HILL WOOD HEALTH CARE LIMITED"), (17, "demo", "HILL WOOD HEALTH CARE LIMITED"),
+                (14, "demo-probe2-1789299052", "Demo Facility Probe2"), (40, "Demola Clinic", "Demola Clinic"))]
+        self.assertEqual(sorted(names(H.build(feed, "prod", [], NOW))),
+                         ["Demola Clinic", "Hill Wood Health Care Limited"])
+
     def test_rows_without_a_facility_id_are_dropped(self):
         feed = FEED + [row("latest", 30, "Other", None, "Somewhere", 6)]
         v = H.build(feed, "migrate", WAREHOUSE_SOURCES, NOW)

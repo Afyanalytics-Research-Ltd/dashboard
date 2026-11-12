@@ -10,7 +10,8 @@ join the warehouse patient counts. It is pure logic; the Snowflake reads are dat
 - Rows: the latest whole run; facility rows with a facility ID only (organization rows are their totals, and
   unassigned rows have no facility); the agreed counting method. Facilities with no patients yet are posted with 0
   and listed, so every facility on the HMIS appears.
-- Facilities: test organisations (IGNORE_ORGS) are dropped entirely. Facilities the warehouse already counts
+- Facilities: test organisations (IGNORE_ORGS) and demo or probe set-ups (IGNORE_NAMES) are dropped entirely.
+  Facilities registered twice are listed as posted, empty copies included, until the HMIS merges them. Facilities the warehouse already counts
   (WAREHOUSE, or an exact name match with a warehouse source) are not added again: their HMIS figure is shown on the
   warehouse row instead, so nobody is counted twice. Every other facility is a row of its own.
 - HMIS facilities add PATIENT_COUNT to UPDs (patients) and VISIT_COUNT to Patient Records (visits), once posted.
@@ -39,6 +40,9 @@ EAT = timezone(timedelta(hours=3), "EAT")
 
 # Test organisations: never shown or counted (matched on the organisation name, any environment).
 IGNORE_ORGS = {"STAGING", "LIVE DB MIGRATE", "DEMO FACILITY 6", "DRY RUN HOSPITAL"}
+# ...and any organisation or facility named like a demo or probe set-up ("demo", "demo 2", "demo9", "Demo Facility21",
+# "demo-probe2-...", "probe-hosp-..."): copies of real facilities (Hill Wood) with no patients. "Demola" is not one.
+IGNORE_NAMES = re.compile(r"^(DEMO(\b|\d)|PROBE-)")
 # (organisation, facility) names -> the warehouse source that already counts it (migrate posts names).
 WAREHOUSE = {
     ("KISUMU SPECIALIST", "KSH"): "Kisumu Specialist Hospital (KSH)",
@@ -135,7 +139,7 @@ def build(rows, environment, warehouse_sources, now=None):
         if r["FACILITY_ID"] is None:                       # no facility (the unassigned rows): not shown or counted
             continue
         org, fac = norm(r["ORGANIZATION_NAME"]), norm(r["FACILITY_NAME"])
-        if org in IGNORE_ORGS:                             # test organisations never reach the dashboard
+        if org in IGNORE_ORGS or IGNORE_NAMES.match(org) or IGNORE_NAMES.match(fac):   # test set-ups: never shown
             continue
         ids = (r["ORGANIZATION_ID"], r["FACILITY_ID"])
         if ids in DUPLICATES.get(choice, set()):           # a second copy of another facility: never counted

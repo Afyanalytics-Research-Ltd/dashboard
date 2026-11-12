@@ -53,8 +53,34 @@ services:
     networks:
       - dashboard-net
 
+  # Vector store for the HMIS support chatbot (RAG): kb_chunks (pgvector + full
+  # text) and chat_history. Filled by `manage.py build_support_kb` in the web
+  # container; read by the web container's /api/llm/v1/kb/search and by n8n
+  # (chat history). Internal only: no host port. Start it on its own with
+  #   docker compose -f docker-compose.n8n.yaml up -d support-kb-db
+  # so n8n itself is not recreated.
+  support-kb-db:
+    restart: always
+    image: pgvector/pgvector:0.8.0-pg17
+    container_name: support-kb-db
+    environment:
+      POSTGRES_DB: support_kb
+      POSTGRES_USER: support_kb
+      POSTGRES_PASSWORD: ${SUPPORT_KB_DB_PASSWORD:-}
+    command: ["postgres", "-c", "shared_buffers=64MB", "-c", "max_connections=30"]
+    volumes:
+      - support-kb-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U support_kb -d support_kb"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    networks:
+      - dashboard-net
+
 volumes:
   n8n-data:
+  support-kb-data:
 
 networks:
   dashboard-net:

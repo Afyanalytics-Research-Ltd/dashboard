@@ -13,6 +13,8 @@ from drf_spectacular.views import (
     SpectacularRedocView,
 )
 
+from core import llm_api as core_llm_api
+
 urlpatterns = [
     # Landing page (unauthenticated users)
     path('', TemplateView.as_view(template_name='landing.html'), name='landing'),
@@ -38,6 +40,12 @@ urlpatterns = [
     path('models/', include('wandb_ui.urls', namespace='wandb_ui')),
     # Automation Studio (n8n UI). Not /n8n/: nginx proxies that path to n8n itself.
     path('automations/', include('n8n_studio.urls', namespace='n8n_studio')),
+
+    # Internal model endpoints (free local embeddings / rerank / support-KB search)
+    # for n8n and Airflow on dashboard-net; bearer LLM_INTERNAL_TOKEN.
+    path('api/llm/v1/embeddings', core_llm_api.embeddings, name='llm-embeddings'),
+    path('api/llm/v1/rerank', core_llm_api.rerank, name='llm-rerank'),
+    path('api/llm/v1/kb/search', core_llm_api.kb_search, name='llm-kb-search'),
 
     # REST API v1
     path('api/v1/', include([

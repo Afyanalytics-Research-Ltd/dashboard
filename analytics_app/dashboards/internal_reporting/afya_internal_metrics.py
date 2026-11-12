@@ -36,23 +36,29 @@ try:
 except Exception as exc:
     pc_rows, pc_updated, pc_receipts, pc_error = [], None, [], exc
 
-# HMIS counts. The environment switch (Patient counts tab) is read here, before the totals, so both tabs follow it:
-# the chosen environment's facilities join the sources table and the totals (patients into UPDs).
+# HMIS counts: every HMIS environment with runs is loaded; the Environment filter on the Patient counts tab picks
+# which of Warehouse / Production / Migrate feed the table and the totals. It is read here, before the totals, so
+# the Overview follows it too.
+hmis_parts = {}                          # {environment label: (view, dated arrivals)}
 try:
     hmis_envs = D.read_hmis_environments()
-    # first visit: production if it has runs, else test; a click on the selected option (which clears it) keeps it
-    last = st.session_state.get("_hmis_last")
-    if st.session_state.get(hmis.SWITCH_KEY) not in hmis.CHOICES:
-        default = hmis.pick_environment(hmis_envs)
-        st.session_state[hmis.SWITCH_KEY] = last or (str(default).lower() if default else hmis.PRODUCTION)
-    hmis_choice = st.session_state["_hmis_last"] = st.session_state[hmis.SWITCH_KEY]
-    hmis_env = hmis.resolve(hmis_choice, hmis_envs)
-    hmis_view = hmis.build(D.read_hmis(hmis_env), hmis_env, [r["SOURCE"] for r in pc_rows]) if hmis_env else None
+    for choice, label in hmis.CHOICES.items():
+        env = hmis.resolve(choice, hmis_envs)
+        view = hmis.build(D.read_hmis(env), env, [r["SOURCE"] for r in pc_rows]) if env else None
+        if view:
+            hmis_parts[label] = (view, hmis.receipts(view, D.read_hmis_daily(env)))
     hmis_error = None
 except Exception as exc:
-    hmis_choice, hmis_view, hmis_error = hmis.PRODUCTION, None, exc
+    hmis_parts, hmis_error = {}, exc
+env_options = hmis.env_options(hmis_parts)
+# first visit, or nothing (or something no longer available) selected: Warehouse and Production
+if not set(st.session_state.get(hmis.ENV_KEY) or []) & set(env_options) or \
+        not set(st.session_state.get(hmis.ENV_KEY) or []) <= set(env_options):
+    st.session_state[hmis.ENV_KEY] = hmis.default_envs(hmis_parts)
+env_selected = list(st.session_state[hmis.ENV_KEY])
+env_overlap = []
 if pc_error is None:
-    pc_rows = pc_rows + hmis.counted_rows(hmis_view)
+    pc_rows, pc_receipts, env_overlap = hmis.combine(pc_rows, pc_receipts, hmis_parts, env_selected)
 upds = sum(r["UPDS"] for r in pc_rows) if pc_rows else None
 patient_records = sum(r["PATIENT_RECORDS"] for r in pc_rows) if pc_rows else None
 
@@ -95,6 +101,6 @@ with tab_patients:
     if pc_error is not None:
         _unavailable(pc_error)
     else:
-        patients.render(pc_rows, pc_updated, pc_receipts, hmis_view, hmis_error, hmis_choice)
+        patients.render(pc_rows, pc_updated, pc_receipts, hmis_parts, hmis_error, env_options, env_overlap)
 with tab_discovery:
     discovery.render()

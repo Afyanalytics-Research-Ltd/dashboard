@@ -109,9 +109,21 @@ html, body, .stApp, button, input, label, p, li, td, th,
 /* Patient counts tab: HMIS facilities in the sources table */
 .x-flag-t {{ color:{AMBER}; font-weight:700; }}
 .x-table .x-disc-chip {{ margin-left:6px; color:{NAVY}; background:#E8EFF7; vertical-align:1px; }}
-.x-src-sub {{ font-size:11.5px; color:{MUTED}; font-weight:500; margin-top:2px; }}
 .pc-asof {{ justify-content:flex-end; margin:-6px 2px 12px; min-height:0; flex-wrap:wrap; gap:0 4px; }}
 .st-key-pc_filter {{ margin-bottom:4px; }}
+.st-key-pc_tbl_filters {{ margin:4px 0 2px; }}
+.st-key-pc_tbl_filters label p {{ color:{LABEL} !important; font-size:11px !important; font-weight:700 !important;
+    text-transform:uppercase; letter-spacing:.08em; }}
+.st-key-pc_tbl_filters [data-baseweb="input"] {{ background:#fff !important; border:1px solid {BORDER} !important;
+    border-radius:8px !important; }}
+.st-key-pc_tbl_filters input {{ background:#fff !important; color:{NAVY} !important; font-size:13px !important; }}
+.st-key-pc_tbl_filters [data-baseweb="tag"] {{ background:#E8EFF7 !important; border-radius:6px !important; }}
+.st-key-pc_tbl_filters [data-baseweb="tag"] span {{ color:{NAVY} !important; font-weight:600 !important; }}
+.st-key-pc_tbl {{ border:1px solid {BORDER}; border-radius:12px; overflow:hidden; box-shadow:{SHADOW}; background:#fff; }}
+.x-tbl-total {{ display:flex; flex-wrap:wrap; gap:6px 28px; justify-content:space-between; align-items:center;
+    background:#FAFCFE; border:1px solid {BORDER}; border-radius:10px; padding:10px 20px; margin:8px 0 4px;
+    font-size:13px; font-weight:700; color:{NAVY}; font-variant-numeric:tabular-nums; }}
+.x-tbl-total span:first-child {{ flex:1 1 auto; }}
 
 /* tabs */
 [data-testid="stTabs"] {{ margin-top:12px; }}

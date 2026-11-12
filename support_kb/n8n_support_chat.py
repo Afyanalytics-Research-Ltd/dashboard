@@ -136,7 +136,8 @@ return [{ json: { ...p, answerBody, sourceList } }];"""}),
                   onError="continueRegularOutput"),
         node("Format reply", "n8n-nodes-base.code", 2, [2400, 100], {"jsCode": r"""
 const p = $('Build answer request').first().json;
-let text = String($json.choices?.[0]?.message?.content ?? '').trim();
+let text = String($json.choices?.[0]?.message?.content ?? '').trim()
+  .replace(/【\s*(\d+)\s*(?:†[^】]*)?】/g, '[$1]');  // gpt-oss sometimes cites as 【2】 or 【2†L1】
 if (!text) text = "Sorry — I couldn't answer right now (the AI service didn't respond). Please try again in a minute, or contact your system administrator.";
 const cited = new Set([...text.matchAll(/\[(\d+)\]/g)].map(m => Number(m[1])));
 const used = p.sourceList.filter(s => cited.has(s.n));

@@ -106,6 +106,12 @@ html, body, .stApp, button, input, label, p, li, td, th,
 .x-chart-t {{ font-size:14px; font-weight:700; color:{NAVY}; }}
 .x-sub {{ font-size:12px; color:{MUTED}; margin-top:3px; }}
 .x-note {{ font-size:12px; color:{MUTED}; margin:8px 2px 0; }}
+/* Patient counts tab: HMIS facilities in the sources table */
+.x-flag-t {{ color:{AMBER}; font-weight:700; }}
+.x-table .x-disc-chip {{ margin-left:6px; color:{NAVY}; background:#E8EFF7; vertical-align:1px; }}
+.x-src-sub {{ font-size:11.5px; color:{MUTED}; font-weight:500; margin-top:2px; }}
+.pc-asof {{ justify-content:flex-end; margin:-6px 2px 12px; min-height:0; flex-wrap:wrap; gap:0 4px; }}
+.st-key-pc_filter {{ margin-bottom:4px; }}
 
 /* tabs */
 [data-testid="stTabs"] {{ margin-top:12px; }}

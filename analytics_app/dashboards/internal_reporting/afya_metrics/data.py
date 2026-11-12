@@ -12,6 +12,8 @@ SF_FQN = f"{SF_DATABASE}.{SF_SCHEMA}.AFYA_WEEKLY_METRICS"
 # Published by the AFYA_REFRESH_PATIENT_COUNTS procedure (snowflake_patient_counts.sql); read-only here.
 PC_FQN = f"{SF_DATABASE}.{SF_SCHEMA}.AFYA_PATIENT_COUNTS"
 RC_FQN = f"{SF_DATABASE}.{SF_SCHEMA}.AFYA_PATIENT_RECORD_RECEIPTS"
+# Posted by the HMIS (one row per facility per run); read-only here. See hmis.py.
+HM_FQN = f"{SF_DATABASE}.{SF_SCHEMA}.AFYA_HMIS_PATIENT_COUNTS"
 SF_TTL = int(os.environ.get("AFYA_METRICS_TTL", "600"))
 
 DASH_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -133,6 +135,35 @@ def read_patient_counts():
              "UPDS": _num(r["UPDS"]), "COUNTED_AT": _date(r["COUNTED_AT"])} for r in recs]
     stamps = [r["COUNTED_AT"] for r in rows if r["COUNTED_AT"]]
     return rows, max(stamps) if stamps else None
+
+
+@st.cache_data(ttl=SF_TTL, show_spinner=False)
+def read_hmis_environments():
+    """{environment: last captured} in the HMIS counts table."""
+    return {r["ENVIRONMENT"]: r["LAST"] for r in _fetch(f"SELECT ENVIRONMENT, MAX(CAPTURED_AT) AS LAST FROM {HM_FQN} "
+                                                        f"GROUP BY 1")}
+
+
+@st.cache_data(ttl=SF_TTL, show_spinner=False)
+def read_hmis(env):
+    """The latest run of environment `env` and the last run at least a day older (WHICH = 'latest' | 'previous'),
+    facility and unassigned rows only. `env` must be a name returned by hmis.resolve / pick_environment."""
+    from . import hmis as H
+    if not env or not H._SAFE.match(str(env)):
+        return []
+    recs = _fetch(f"""
+        WITH runs AS (SELECT RUN_ID, MAX(CAPTURED_AT) AS AT FROM {HM_FQN} WHERE ENVIRONMENT = '{env}' GROUP BY 1),
+        latest AS (SELECT RUN_ID, AT FROM runs QUALIFY ROW_NUMBER() OVER (ORDER BY AT DESC) = 1),
+        previous AS (SELECT r.RUN_ID FROM runs r JOIN latest l ON r.AT <= DATEADD('hour', -24, l.AT)
+                     QUALIFY ROW_NUMBER() OVER (ORDER BY r.AT DESC) = 1)
+        SELECT IFF(t.RUN_ID IN (SELECT RUN_ID FROM latest), 'latest', 'previous') AS WHICH, t.CAPTURED_AT,
+               t.ORGANIZATION_ID, t.ORGANIZATION_NAME, t.FACILITY_ID, t.FACILITY_NAME, t.PATIENT_COUNT, t.SCOPE,
+               t.COUNT_METHOD
+        FROM {HM_FQN} t
+        WHERE t.ENVIRONMENT = '{env}' AND t.SCOPE IN ('facility', 'unassigned')
+          AND t.RUN_ID IN (SELECT RUN_ID FROM latest UNION ALL SELECT RUN_ID FROM previous)""")
+    return [{**r, "PATIENT_COUNT": _num(r["PATIENT_COUNT"]), "SCOPE": str(r["SCOPE"]).lower(),
+             "COUNT_METHOD": str(r["COUNT_METHOD"]).strip()} for r in recs]
 
 
 @st.cache_data(ttl=SF_TTL, show_spinner=False)

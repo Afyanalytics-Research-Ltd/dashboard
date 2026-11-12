@@ -19,7 +19,7 @@ if _HERE not in sys.path:
 for _m in [m for m in sys.modules if m == "afya_metrics" or m.startswith("afya_metrics.")]:
     del sys.modules[_m]
 
-from afya_metrics import data as D, discovery, overview, patients, theme as T, update
+from afya_metrics import data as D, discovery, hmis, overview, patients, theme as T, update
 
 T.inject_css()
 
@@ -35,6 +35,24 @@ try:
     pc_error = None
 except Exception as exc:
     pc_rows, pc_updated, pc_receipts, pc_error = [], None, [], exc
+
+# HMIS counts. The environment switch (Patient counts tab) is read here, before the totals, so both tabs follow it:
+# the chosen environment's facilities join the sources table and the totals (patients into UPDs).
+try:
+    hmis_envs = D.read_hmis_environments()
+    # first visit: production if it has runs, else test; a click on the selected option (which clears it) keeps it
+    last = st.session_state.get("_hmis_last")
+    if st.session_state.get(hmis.SWITCH_KEY) not in hmis.CHOICES:
+        default = hmis.pick_environment(hmis_envs)
+        st.session_state[hmis.SWITCH_KEY] = last or (str(default).lower() if default else hmis.PRODUCTION)
+    hmis_choice = st.session_state["_hmis_last"] = st.session_state[hmis.SWITCH_KEY]
+    hmis_env = hmis.resolve(hmis_choice, hmis_envs)
+    hmis_view = hmis.build(D.read_hmis(hmis_env), hmis_env, [r["SOURCE"] for r in pc_rows]) if hmis_env else None
+    hmis_error = None
+except Exception as exc:
+    hmis_choice, hmis_view, hmis_error = hmis.PRODUCTION, None, exc
+if pc_error is None:
+    pc_rows = pc_rows + hmis.counted_rows(hmis_view)
 upds = sum(r["UPDS"] for r in pc_rows) if pc_rows else None
 patient_records = sum(r["PATIENT_RECORDS"] for r in pc_rows) if pc_rows else None
 
@@ -77,6 +95,6 @@ with tab_patients:
     if pc_error is not None:
         _unavailable(pc_error)
     else:
-        patients.render(pc_rows, pc_updated, pc_receipts)
+        patients.render(pc_rows, pc_updated, pc_receipts, hmis_view, hmis_error, hmis_choice)
 with tab_discovery:
     discovery.render()

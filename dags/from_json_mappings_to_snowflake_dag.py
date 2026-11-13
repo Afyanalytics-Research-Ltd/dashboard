@@ -22,6 +22,10 @@ Trigger form options:
             the connection's name in the extraction tool.
   tables    only these source tables (one per line). Empty = all in the file.
   dry_run   extract and map, write nothing
+  canary    N > 0: a canary run — only the first N records per V3 table,
+            upserted into the same EVENTS_RAW and read back; `report` fails
+            (→ Sentry, via the central failure callback) if any record did
+            not land intact. See CANARY_README.md.
 
 Credentials: Variables AFYA_EXTRACTION_USERNAME / _PASSWORD (/ _BASE_URL),
 else Connection afya_extraction (host = API base URL, login, password).
@@ -81,6 +85,16 @@ def _mappings_path(value) -> Path:
     return path
 
 
+def _canary(params: dict) -> int:
+    """The run's `canary` param as a record count (0 = full run); a bad value fails the run."""
+    import canary
+
+    try:
+        return canary.canary_size(params.get("canary"))
+    except ValueError as e:
+        raise AirflowFailException(str(e)) from None
+
+
 def _save_inline(doc: dict) -> Path:
     text = json.dumps(doc, ensure_ascii=False, sort_keys=True, indent=1)
     path = PIPELINES_DIR / INLINE_DIR / f"{hashlib.sha256(text.encode('utf-8')).hexdigest()[:16]}.json"
@@ -113,6 +127,10 @@ def _save_inline(doc: dict) -> Path:
         "tables": Param([], type="array", items={"type": "string"}, title="Source tables",
                         description="Only these source tables (one per line). Empty = all in the file."),
         "dry_run": Param(False, type="boolean", title="Dry run", description="Extract and map; write nothing."),
+        "canary": Param(0, type="integer", minimum=0, title="Canary records",
+                        description="Land only the first N records per V3 table into the same EVENTS_RAW "
+                                    "(upsert — nothing else is touched), read them back, and fail the run if "
+                                    "any did not land intact. 0 = full run."),
     },
 )
 def from_json_mappings_to_snowflake():
@@ -144,10 +162,12 @@ def from_json_mappings_to_snowflake():
             with fj.SnowflakeClient() as sf:
                 wh.ensure(sf)
         run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        log.info("connection %s (%s) → %s / %s · %d source tables · run %s%s", spec.connection_id, name,
-                 wh.raw, wh.clean, len(tables), run_id, " (dry run)" if p["dry_run"] else "")
+        size = _canary(p)
+        log.info("connection %s (%s) → %s / %s · %d source tables · run %s%s%s", spec.connection_id, name,
+                 wh.raw, wh.clean, len(tables), run_id, " (dry run)" if p["dry_run"] else "",
+                 f" · CANARY {size} record(s) per V3 table" if size else "")
         return [{"mappings": str(path), "name": name, "run_id": run_id, "source_table": t,
-                 "dry_run": bool(p["dry_run"])} for t in tables]
+                 "dry_run": bool(p["dry_run"]), "canary": size} for t in tables]
 
     @task(max_active_tis_per_dagrun=int_env("EXTRACTION_PARALLEL_TABLES", 6))
     def extract_load(item: dict) -> dict:
@@ -157,7 +177,8 @@ def from_json_mappings_to_snowflake():
         spec = fj.Mappings.load(Path(item["mappings"]))
         client = fj.ExtractionClient(spec.connection_id, page_workers=int_env("EXTRACTION_PAGE_WORKERS", 4))
         result = fj.process_table(spec, fj.Warehouse(item["name"]), client, item["source_table"],
-                                  run_id=item["run_id"], dry_run=item["dry_run"])
+                                  run_id=item["run_id"], dry_run=item["dry_run"],
+                                  canary=int(item.get("canary") or 0))
         return asdict(result)
 
     @task
@@ -165,8 +186,18 @@ def from_json_mappings_to_snowflake():
         use_pipelines_dir()
         import from_json_mappings_to_snowflake as fj
 
+        ctx = get_current_context()
         results = [fj.TableResult(**r) for r in results]
         fj.print_report(results)
+        size = _canary(ctx["params"])
+        if size and results and not ctx["params"]["dry_run"]:
+            # every table's checks in one report; a failed canary fails here,
+            # naming each V3 table / field / record id behind it
+            import canary
+
+            first = ctx["ti"].xcom_pull(task_ids="plan")[0]
+            canary.finish_in_airflow(fj.canary_report(results, name=first["name"], run_id=first["run_id"],
+                                                      size=size), ctx)
         failed = [r.source_table for r in results if r.status == "failed"]
         if failed:
             raise AirflowFailException(f"{len(failed)} source table(s) failed: {failed}")

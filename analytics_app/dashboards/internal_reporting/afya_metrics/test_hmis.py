@@ -99,6 +99,24 @@ class Facilities(unittest.TestCase):
         self.assertEqual(sorted(names(H.build(feed, "prod", [], NOW))),
                          ["Demola Clinic", "Hill Wood Health Care Limited"])
 
+    def test_a_facility_registered_more_than_once_is_listed_once(self):
+        feed = [row("latest", 54, "Lofty", 53, "PROGRESSIVE LOFTY HEALTH CENTRE", 81),       # most patients
+                row("latest", 26, "Lofty", 25, "Progressive  Lofty Health Centre", 7),
+                row("latest", 113, "Kegonga", 111, "KEGONGA MEDICAL CENTER", 75),
+                row("latest", 70, "Zen", 111, "KEGONGA MEDICAL CENTER", 2),
+                row("latest", 20, "Kegonga", 19, "KEGONGA MEDICAL CENTER", 0),
+                row("latest", 145, "Aroha", 143, "AROHA CANCER CENTRE LIMITED", 7),          # tie: newest IDs
+                row("latest", 100, "Kaptono", 143, "AROHA CANCER CENTRE LIMITED", 7),
+                row("latest", 296, "Ebenezzer", 295, "EBENEZZER MEDICAL CENTRE", 0),         # both empty: newest
+                row("latest", 297, "Ebenezzer", 296, "EBENEZZER MEDICAL CENTRE", 0),
+                row("latest", 66, "Afyastar", 64, "AFYASTAR MEDICAL CENTRE LTD", 412),
+                row("latest", 4, "Kisumu Specialist", 4, "Ksh", 50),                         # short names: never grouped
+                row("latest", 5, "Level6 Hospital", 7, "KSH", 170)]
+        v = H.build(feed, "prod", [], NOW)
+        self.assertEqual(sorted(f["ids"] for f in v["facilities"]),
+                         [(4, 4), (5, 7), (54, 53), (66, 64), (113, 111), (145, 143), (297, 296)])
+        self.assertEqual(v["merged"], 5)
+
     def test_rows_without_a_facility_id_are_dropped(self):
         feed = FEED + [row("latest", 30, "Other", None, "Somewhere", 6)]
         v = H.build(feed, "migrate", WAREHOUSE_SOURCES, NOW)

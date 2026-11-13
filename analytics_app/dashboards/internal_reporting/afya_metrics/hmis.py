@@ -11,7 +11,8 @@ join the warehouse patient counts. It is pure logic; the Snowflake reads are dat
   unassigned rows have no facility); the agreed counting method. Facilities with no patients yet are posted with 0
   and listed, so every facility on the HMIS appears.
 - Facilities: test organisations (IGNORE_ORGS) and demo or probe set-ups (IGNORE_NAMES) are dropped entirely.
-  Facilities registered twice are listed as posted, empty copies included, until the HMIS merges them. Facilities the warehouse already counts
+  A facility registered more than once (same full name) is listed once: the registration with the most patients,
+  or on a tie the most recent facility ID; the other registrations are dropped until the HMIS merges them. Facilities the warehouse already counts
   (WAREHOUSE, or an exact name match with a warehouse source) are not added again: their HMIS figure is shown on the
   warehouse row instead, so nobody is counted twice. Every other facility is a row of its own.
 - HMIS facilities add PATIENT_COUNT to UPDs (patients) and VISIT_COUNT to Patient Records (visits), once posted.
@@ -63,9 +64,8 @@ WAREHOUSE_IDS = {PRODUCTION: {
 # Warehouse sources the HMIS replaces: when the chosen environment has the facility, its HMIS figures (under the
 # HMIS facility name) are used and the warehouse source is dropped from the table, the totals and the dated arrivals.
 HMIS_WINS = {"Kisumu Specialist Hospital (KSH)", "Medhanit", "Portbell", "Silverwood", "Wema Medical"}
-# environment -> HMIS facilities that duplicate another one and are never counted. KSH sits under two organisations
-# with the same May 2024 load and near-identical months since; organisation 284 is the live one (new patients in
-# November 2026), 250 stopped in October.
+# environment -> HMIS facilities that duplicate another one and are never counted. KSH sits under two organisations:
+# 250 was deactivated during the migration and 284 created in its place (284 is the one in use).
 DUPLICATES = {PRODUCTION: {(250, 247)}}
 # environment -> {(organisation id, facility id): name}, for facilities posted without one. The Eagle branches
 # carry the same IDs' patient counts as the named migrate rows (65,849 / 46,970 / 18,817).
@@ -165,10 +165,26 @@ def build(rows, environment, warehouse_sources, now=None):
         flags = [f"{change:+.0%} since {prev_at:%d %b}"] if change is not None and abs(change) > JUMP else []
         visits = r.get("VISIT_COUNT")
         facilities.append(dict(name=name, patients=n, visits=None if visits is None else int(visits), flags=flags,
-                               ids=ids))
+                               ids=ids, key=fac))
+    # A facility registered more than once (same full name) is listed once: the registration with the most patients,
+    # or on a tie the most recent (highest) facility ID. Its other registrations are dropped, so nobody is counted
+    # twice. Short names ("KSH") are never grouped: different facilities can share them.
+    best = {}
+    for f in facilities:
+        if _groupable(f["key"]):
+            rank = (f["patients"], f["ids"][1] or 0, f["ids"][0] or 0)
+            if f["key"] not in best or rank > best[f["key"]][0]:
+                best[f["key"]] = (rank, f["ids"])
+    copies = [f for f in facilities if f["key"] in best and f["ids"] != best[f["key"]][1]]
+    facilities = [f for f in facilities if f not in copies]
     return dict(environment=environment, captured=captured, previous_at=prev_at,
                 stale=captured < now - timedelta(hours=STALE_HOURS), facilities=facilities,
-                on_warehouse=on_warehouse, replaced=replaced, dropped=dropped)
+                on_warehouse=on_warehouse, replaced=replaced, dropped=dropped, merged=len(copies))
+
+
+def _groupable(name):
+    """A facility name specific enough that two registrations carrying it are the same facility."""
+    return bool(name) and len(name) >= 10 and len(name.split()) >= 2
 
 
 def receipts(view, daily):

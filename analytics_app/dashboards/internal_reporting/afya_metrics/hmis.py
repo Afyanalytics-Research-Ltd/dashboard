@@ -1,21 +1,21 @@
 """Patient counts posted by the HMIS: HOSPITALS.ANALYTICS.AFYA_HMIS_PATIENT_COUNTS (one row per facility per run).
 
-The HMIS posts PATIENT_COUNT, the patients registered at each facility, every hour or so, from one of its
-environments (migrate now, production soon). This module decides which run feeds the dashboard and how its facilities
-join the warehouse patient counts. It is pure logic; the Snowflake reads are data.read_hmis_environments/read_hmis.
+The HMIS pipeline posts each facility's PATIENT_COUNT (patients registered) and VISIT_COUNT every 15 minutes, per
+environment. This module decides which run feeds the dashboard and how its facilities join the warehouse patient
+counts. It is pure logic; the Snowflake reads are data.read_hmis_environments / read_hmis / read_hmis_daily.
 
 - Environment: every HMIS environment with runs is loaded; the dashboard's Environment filter (session key ENV_KEY)
   picks which of Warehouse / Production / Migrate feed the table and the totals (combine). Default: Warehouse and
   Production (else Migrate). Selecting two HMIS environments together is flagged: they can hold the same facilities.
 - Rows: the latest whole run; facility rows with a facility ID only (organization rows are their totals, and
-  unassigned rows have no facility); the agreed counting method. Facilities with no patients yet are posted with 0
-  and listed, so every facility on the HMIS appears.
+  unassigned rows have no facility); the agreed counting method. Facilities with no patients are listed with 0.
 - Facilities: test organisations (IGNORE_ORGS) and demo or probe set-ups (IGNORE_NAMES) are dropped entirely.
-  A facility registered more than once (same full name) is listed once: the registration with the most patients,
-  or on a tie the most recent facility ID; the other registrations are dropped until the HMIS merges them. Facilities the warehouse already counts
-  (WAREHOUSE, or an exact name match with a warehouse source) are not added again: their HMIS figure is shown on the
-  warehouse row instead, so nobody is counted twice. Every other facility is a row of its own.
-- HMIS facilities add PATIENT_COUNT to UPDs (patients) and VISIT_COUNT to Patient Records (visits), once posted.
+  A facility registered more than once under the same name (name_key: suffixes like Ltd and spellings like Center /
+  Centre ignored) is listed by its registrations in use: empty ones (no patients, no visits) are dropped while
+  another registration of that name has patients. Facilities the warehouse already counts (WAREHOUSE,
+  WAREHOUSE_IDS, or an exact name match with a warehouse source) are not added again: their HMIS figure is shown on
+  the warehouse row instead, so nobody is counted twice. Every other facility is a row of its own.
+- HMIS facilities add PATIENT_COUNT to UPDs (patients) and VISIT_COUNT to Patient Records (visits).
 - HMIS_WINS: warehouse sources the HMIS replaces (the HMIS row keeps the HMIS facility name; the warehouse row
   goes). DUPLICATES: HMIS facilities that are a second copy of another one, never counted.
 - Dated arrivals (for the period filters): each day's change in a facility's counts, from the run history, with
@@ -42,9 +42,9 @@ EAT = timezone(timedelta(hours=3), "EAT")
 # Test organisations: never shown or counted (matched on the organisation name, any environment).
 IGNORE_ORGS = {"STAGING", "LIVE DB MIGRATE", "DEMO FACILITY 6", "DRY RUN HOSPITAL"}
 # ...and any organisation or facility named like a demo or probe set-up ("demo", "demo 2", "demo9", "Demo Facility21",
-# "demo-probe2-...", "probe-hosp-..."): copies of real facilities (Hill Wood) with no patients. "Demola" is not one.
+# "demo-probe2-...", "probe-hosp-..."). A name that only starts with the letters ("Demola") is not one.
 IGNORE_NAMES = re.compile(r"^(DEMO(\b|\d)|PROBE-)")
-# (organisation, facility) names -> the warehouse source that already counts it (migrate posts names).
+# (organisation, facility) names -> the warehouse source that already counts it, matched by name.
 WAREHOUSE = {
     ("KISUMU SPECIALIST", "KSH"): "Kisumu Specialist Hospital (KSH)",
     ("WEMA MEDICAL CENTER", "WEMA MEDICAL CENTER"): "Wema Medical",
@@ -64,11 +64,10 @@ WAREHOUSE_IDS = {PRODUCTION: {
 # Warehouse sources the HMIS replaces: when the chosen environment has the facility, its HMIS figures (under the
 # HMIS facility name) are used and the warehouse source is dropped from the table, the totals and the dated arrivals.
 HMIS_WINS = {"Kisumu Specialist Hospital (KSH)", "Medhanit", "Portbell", "Silverwood", "Wema Medical"}
-# environment -> HMIS facilities that duplicate another one and are never counted. KSH sits under two organisations:
-# 250 was deactivated during the migration and 284 created in its place (284 is the one in use).
+# environment -> HMIS facilities that duplicate another one and are never counted. KSH organisation 250 was
+# deactivated during the migration and replaced by 284, the one in use.
 DUPLICATES = {PRODUCTION: {(250, 247)}}
-# environment -> {(organisation id, facility id): name}, for facilities posted without one. The Eagle branches
-# carry the same IDs' patient counts as the named migrate rows (65,849 / 46,970 / 18,817).
+# environment -> {(organisation id, facility id): display name}, used in place of the posted facility name.
 NAMES_IDS = {PRODUCTION: {
     (199, 329): "Kangemi · Eagle Nursing Home",
     (199, 328): "Kawangware · Eagle Nursing Home",
@@ -130,7 +129,17 @@ def build(rows, environment, warehouse_sources, now=None):
     choice = choice_of(environment)
     by_id, names_by_id = WAREHOUSE_IDS.get(choice, {}), NAMES_IDS.get(choice, {})
 
-    facilities, on_warehouse, dropped, seen, replaced = [], {}, 0, set(), set()
+    # Patients posted against an organisation with no facility belong to its facility when it has exactly one; more
+    # than one such patient is required, since nearly every organisation carries a single one from its set-up.
+    no_facility = {r["ORGANIZATION_ID"]: int(r["PATIENT_COUNT"] or 0) for r in latest
+                   if r["SCOPE"] == "unassigned" and r["COUNT_METHOD"] in METHODS}
+    facility_rows = {}
+    for r in latest:
+        if r["SCOPE"] == "facility" and r["FACILITY_ID"] is not None:
+            facility_rows[r["ORGANIZATION_ID"]] = facility_rows.get(r["ORGANIZATION_ID"], 0) + 1
+    attributed = {org: n for org, n in no_facility.items() if n > 1 and facility_rows.get(org) == 1}
+
+    facilities, on_warehouse, dropped, seen, replaced, with_no_facility = [], {}, 0, set(), set(), {}
     for r in latest:
         n = int(r["PATIENT_COUNT"] or 0)
         if r["COUNT_METHOD"] not in METHODS:
@@ -144,6 +153,8 @@ def build(rows, environment, warehouse_sources, now=None):
         ids = (r["ORGANIZATION_ID"], r["FACILITY_ID"])
         if ids in DUPLICATES.get(choice, set()):           # a second copy of another facility: never counted
             continue
+        extra = attributed.get(r["ORGANIZATION_ID"], 0)
+        n += extra
         if ids in names_by_id:
             name = names_by_id[ids]
         elif fac:
@@ -161,46 +172,62 @@ def build(rows, environment, warehouse_sources, now=None):
             name = f"{name} (#{r['FACILITY_ID']})"
         seen.add(name)
         before = prev.get(key(r))
+        if before is not None and extra:
+            before += prev.get((r["ORGANIZATION_ID"], "unassigned"), 0)
         change = (n - before) / before if before else None
         flags = [f"{change:+.0%} since {prev_at:%d %b}"] if change is not None and abs(change) > JUMP else []
         visits = r.get("VISIT_COUNT")
         facilities.append(dict(name=name, patients=n, visits=None if visits is None else int(visits), flags=flags,
-                               ids=ids, key=fac))
-    # A facility registered more than once (same full name) is listed once: the registration with the most patients,
-    # or on a tie the most recent (highest) facility ID. Its other registrations are dropped, so nobody is counted
-    # twice. Short names ("KSH") are never grouped: different facilities can share them.
-    best = {}
-    for f in facilities:
-        if _groupable(f["key"]):
-            rank = (f["patients"], f["ids"][1] or 0, f["ids"][0] or 0)
-            if f["key"] not in best or rank > best[f["key"]][0]:
-                best[f["key"]] = (rank, f["ids"])
-    copies = [f for f in facilities if f["key"] in best and f["ids"] != best[f["key"]][1]]
-    facilities = [f for f in facilities if f not in copies]
+                               ids=ids, key=name_key(r["FACILITY_NAME"]), no_facility=extra))
+        if extra:
+            with_no_facility[r["ORGANIZATION_ID"]] = ids
+    # A facility registered more than once under the same name: registrations with no patients and no visits
+    # are dropped when another registration of that name is in use. All-used or all-empty names stay as posted.
+    in_use = {f["key"] for f in facilities if f["patients"] > 0 and _specific(f["key"])}
+    empty = [f for f in facilities if f["key"] in in_use and f["patients"] == 0 and not f["visits"]]
+    facilities = [f for f in facilities if f not in empty]
     return dict(environment=environment, captured=captured, previous_at=prev_at,
                 stale=captured < now - timedelta(hours=STALE_HOURS), facilities=facilities,
-                on_warehouse=on_warehouse, replaced=replaced, dropped=dropped, merged=len(copies))
+                on_warehouse=on_warehouse, replaced=replaced, dropped=dropped, empty_copies=len(empty),
+                with_no_facility=with_no_facility)
 
 
-def _groupable(name):
-    """A facility name specific enough that two registrations carrying it are the same facility."""
+_LEGAL = {"LTD", "LIMITED", "CO", "COMPANY", "PLC", "LLC", "INC"}
+
+
+def name_key(name):
+    """A facility name for matching registrations: case, punctuation, '&' / 'and', 'Center' / 'Centre' and a trailing
+    legal suffix (Ltd, Limited, Co, ...) are ignored."""
+    words = re.sub(r"[^A-Z0-9 ]", " ", norm(name).replace("&", " AND ")).split()
+    words = ["CENTRE" if w == "CENTER" else w for w in words]
+    while words and words[-1] in _LEGAL:
+        words.pop()
+    return " ".join(words)
+
+
+def _specific(name):
+    """A facility name specific enough that two registrations carrying it are the same facility ("KSH" is not)."""
     return bool(name) and len(name) >= 10 and len(name.split()) >= 2
 
 
 def receipts(view, daily):
     """Dated arrivals for the HMIS facilities in the table, in the shape of the warehouse receipts: the patients
     each facility gained on each day it was posted (the whole count on its first day). Facilities left to the
-    warehouse, test organisations and rows without a facility never appear, as in the table."""
+    warehouse, test organisations and rows without a facility never appear, as in the table, except an
+    organisation's no-facility patients counted on its only facility, which arrive with that facility."""
     if not view:
         return []
     names = {f["ids"]: f["name"] for f in view["facilities"]}
+    for org, ids in view.get("with_no_facility", {}).items():
+        if ids in names:
+            names[(org, None)] = names[ids]
     return [{"SOURCE": names[(d["ORGANIZATION_ID"], d["FACILITY_ID"])], "DATE": d["DATE"],
              "RECORDS": d.get("VISITS_ADDED", 0), "UPDS": d["ADDED"]} for d in daily
             if (d["ORGANIZATION_ID"], d["FACILITY_ID"]) in names and (d["ADDED"] or d.get("VISITS_ADDED"))]
 
 
 def counted_rows(view):
-    """The HMIS facilities as patient-count rows: patients into UPDs, no Patient Records."""
+    """The HMIS facilities as patient-count rows: patients into UPDs, visits into Patient Records."""
     if not view:
         return []
     day = view["captured"].date() if hasattr(view["captured"], "date") else view["captured"]

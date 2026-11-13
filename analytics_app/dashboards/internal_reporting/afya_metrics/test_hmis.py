@@ -18,7 +18,7 @@ def row(which, org_id, org, fac_id, fac, n, scope="facility", at=datetime(2026, 
                 FACILITY_NAME=fac, PATIENT_COUNT=n, SCOPE=scope, COUNT_METHOD=method)
 
 
-# shaped like the migrate runs (facility and unassigned rows; organization rows are filtered in SQL)
+# A run with facility and unassigned rows (organization rows are filtered in SQL)
 FEED = [
     row("latest", 1, "Staging", 1, "Collabmed", 179334),
     row("latest", 13, "EAGLE NURSING HOME", 16, "Kangemi", 65849),
@@ -27,7 +27,7 @@ FEED = [
     row("latest", 16, "Medhanit", 20, "Medhanit", 2739),
     row("latest", 7, "Portbell", 9, "Portbell", 736),
     row("latest", 5, "Level6 Hospital", 7, "KSH", 170),
-    row("latest", 13, "EAGLE NURSING HOME", None, "(unassigned)", 4, scope="unassigned"),
+    row("latest", 13, "EAGLE NURSING HOME", None, "(unassigned)", 1, scope="unassigned"),
     row("latest", 20, "demo facility 6", 24, "demo facility 6", 3),
 ]
 # Kangemi, Gyno, Level6's KSH, and Medhanit, KSH and Portbell (the HMIS replaces the warehouse for these)
@@ -99,23 +99,45 @@ class Facilities(unittest.TestCase):
         self.assertEqual(sorted(names(H.build(feed, "prod", [], NOW))),
                          ["Demola Clinic", "Hill Wood Health Care Limited"])
 
-    def test_a_facility_registered_more_than_once_is_listed_once(self):
-        feed = [row("latest", 54, "Lofty", 53, "PROGRESSIVE LOFTY HEALTH CENTRE", 81),       # most patients
-                row("latest", 26, "Lofty", 25, "Progressive  Lofty Health Centre", 7),
-                row("latest", 113, "Kegonga", 111, "KEGONGA MEDICAL CENTER", 75),
-                row("latest", 70, "Zen", 111, "KEGONGA MEDICAL CENTER", 2),
-                row("latest", 20, "Kegonga", 19, "KEGONGA MEDICAL CENTER", 0),
-                row("latest", 145, "Aroha", 143, "AROHA CANCER CENTRE LIMITED", 7),          # tie: newest IDs
-                row("latest", 100, "Kaptono", 143, "AROHA CANCER CENTRE LIMITED", 7),
-                row("latest", 296, "Ebenezzer", 295, "EBENEZZER MEDICAL CENTRE", 0),         # both empty: newest
+    def test_empty_registrations_of_a_facility_in_use_are_dropped(self):
+        feed = [row("latest", 66, "Afyastar", 64, "AFYASTAR MEDICAL CENTRE LTD", 412),
+                row("latest", 332, "Afyastar", 339, "Afyastar  Medical Centre Ltd", 0),       # empty copy: dropped
+                row("latest", 66, "Afyastar", 337, "AFYASTAR MEDICAL CENTRE", 0),             # no "Ltd": same facility
+                row("latest", 259, "Kamukuywa", 257, "KAMUKUYWA MEDICAL CENTRE & NURSING HOME", 25),
+                row("latest", 259, "Kamukuywa", 333, "Kamukuywa Medical Center and Nursing Home", 0),
+                row("latest", 54, "Lofty", 53, "PROGRESSIVE LOFTY HEALTH CENTRE", 81),       # both in use: both stay
+                row("latest", 26, "Lofty", 25, "PROGRESSIVE LOFTY HEALTH CENTRE", 7),
+                row("latest", 296, "Ebenezzer", 295, "EBENEZZER MEDICAL CENTRE", 0),         # both empty: both stay
                 row("latest", 297, "Ebenezzer", 296, "EBENEZZER MEDICAL CENTRE", 0),
-                row("latest", 66, "Afyastar", 64, "AFYASTAR MEDICAL CENTRE LTD", 412),
-                row("latest", 4, "Kisumu Specialist", 4, "Ksh", 50),                         # short names: never grouped
-                row("latest", 5, "Level6 Hospital", 7, "KSH", 170)]
+                row("latest", 4, "Kisumu Specialist", 4, "Ksh", 50),                         # short name: not matched
+                row("latest", 5, "Level6 Hospital", 7, "KSH", 0)]
         v = H.build(feed, "prod", [], NOW)
         self.assertEqual(sorted(f["ids"] for f in v["facilities"]),
-                         [(4, 4), (5, 7), (54, 53), (66, 64), (113, 111), (145, 143), (297, 296)])
-        self.assertEqual(v["merged"], 5)
+                         [(4, 4), (5, 7), (26, 25), (54, 53), (66, 64), (259, 257), (296, 295), (297, 296)])
+        self.assertEqual(v["empty_copies"], 3)
+
+    def test_no_facility_patients_count_on_an_organisations_only_facility(self):
+        from datetime import date
+        feed = [row("latest", 71, "Medhanit Healthcare Limited", 69, "Medhanit Healthcare Limited", 234),
+                row("latest", 71, "Medhanit Healthcare Limited", None, "(unassigned)", 2510, scope="unassigned"),
+                row("previous", 71, "Medhanit Healthcare Limited", 69, "Medhanit Healthcare Limited", 230,
+                    at=datetime(2026, 11, 11, 8, 0)),
+                row("previous", 71, "Medhanit Healthcare Limited", None, "(unassigned)", 2510, scope="unassigned",
+                    at=datetime(2026, 11, 11, 8, 0)),
+                row("latest", 3, "Aldai", 3, "ALDAI DOCTORS CLINIC", 172),                   # set-up record: 1 only
+                row("latest", 3, "Aldai", None, "(unassigned)", 1, scope="unassigned"),
+                row("latest", 199, "Eagle", 329, "Kangemi", 65849),                         # several facilities
+                row("latest", 199, "Eagle", 328, "Kawangware", 46970),
+                row("latest", 199, "Eagle", None, "(unassigned)", 4, scope="unassigned")]
+        v = H.build(feed, "prod", [], NOW)
+        got = {f["ids"]: (f["patients"], f["flags"]) for f in v["facilities"]}
+        self.assertEqual(got[(71, 69)], (2744, []))          # no false jump: yesterday counted the same way
+        self.assertEqual(got[(3, 3)][0], 172)
+        self.assertEqual(got[(199, 329)][0] + got[(199, 328)][0], 65849 + 46970)
+        daily = [dict(ORGANIZATION_ID=71, FACILITY_ID=69, DATE=date(2026, 11, 12), ADDED=234),
+                 dict(ORGANIZATION_ID=71, FACILITY_ID=None, DATE=date(2026, 11, 12), ADDED=2510),
+                 dict(ORGANIZATION_ID=3, FACILITY_ID=None, DATE=date(2026, 11, 12), ADDED=1)]
+        self.assertEqual(sum(x["UPDS"] for x in H.receipts(v, daily)), 2744)
 
     def test_rows_without_a_facility_id_are_dropped(self):
         feed = FEED + [row("latest", 30, "Other", None, "Somewhere", 6)]
@@ -124,7 +146,7 @@ class Facilities(unittest.TestCase):
 
 
 class Production(unittest.TestCase):
-    """Production posts no organisation names and few facility names: exceptions and labels go by ID."""
+    """Production rows: warehouse matches, exceptions and display names go by organisation and facility ID."""
     PROD = [
         row("latest", 199, None, 329, None, 65849),
         row("latest", 284, None, 283, "KISUMU SPECIALISTS HOSPITAL", 53771),
@@ -132,7 +154,7 @@ class Production(unittest.TestCase):
         row("latest", 159, None, 157, "THE GYNO SOLUTIONS CENTER LIMITED", 24681),
         row("latest", 258, None, 256, "WEMA MEDKIN MEDICAL CENTER LTD", 5342),
         row("latest", 53, None, 52, None, 2265),
-        row("latest", 199, None, None, "(unassigned)", 4, scope="unassigned"),
+        row("latest", 199, None, None, "(unassigned)", 1, scope="unassigned"),
         row("latest", 12, None, None, "(unassigned)", 2506, scope="unassigned"),
     ]
 

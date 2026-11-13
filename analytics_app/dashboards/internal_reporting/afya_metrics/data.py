@@ -196,9 +196,10 @@ def read_hmis(env):
 
 @st.cache_data(ttl=SF_TTL, show_spinner=False)
 def read_hmis_daily(env):
-    """Each facility's patients as of the end of each day (East Africa Time) it was posted (the day's last run), with the change since
-    its previous day: the first day carries the whole count. Summed over the days, the changes give the latest
-    count, so dated arrivals and the running total agree."""
+    """Each facility's patients as of the end of each day (East Africa Time) it was posted (the day's last run), with
+    the change since its previous day: the first day carries the whole count. Summed over the days, the changes give
+    the latest count, so dated arrivals and the running total agree. Each organisation's patients with no facility
+    come as a row with FACILITY_ID None."""
     from . import hmis as H
     if not env or not H._SAFE.match(str(env)):
         return []
@@ -208,7 +209,7 @@ def read_hmis_daily(env):
             SELECT ORGANIZATION_ID, FACILITY_ID, CONVERT_TIMEZONE('UTC', '{H.TZ}', CAPTURED_AT)::DATE AS DAY, MAX_BY(PATIENT_COUNT, CAPTURED_AT) AS N,
                    COALESCE(MAX_BY(VISIT_COUNT, CAPTURED_AT), 0) AS V
             FROM {HM_FQN}
-            WHERE ENVIRONMENT = '{env}' AND SCOPE = 'facility' AND FACILITY_ID IS NOT NULL
+            WHERE ENVIRONMENT = '{env}' AND SCOPE IN ('facility', 'unassigned')
               AND COUNT_METHOD IN ({methods})
             GROUP BY 1, 2, 3)
         SELECT ORGANIZATION_ID, FACILITY_ID, DAY,

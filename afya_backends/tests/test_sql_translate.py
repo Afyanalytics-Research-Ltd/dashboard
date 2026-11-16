@@ -60,7 +60,7 @@ def test_information_schema_goes_to_compat_views():
     ("TO_DOUBLE(x)", "TO_FLOAT64(\"X\")"),
     ("TRY_TO_DOUBLE(x)", "TRY_TO_FLOAT64(\"X\")"),
     ("TO_TIMESTAMP_NTZ(x)", "TO_TIMESTAMP(\"X\")"),
-    ("TRY_TO_TIMESTAMP_NTZ(x)", "TRY_TO_TIMESTAMP(\"X\")"),
+    ("TRY_TO_TIMESTAMP_NTZ(x)", "TRY_TO_TIMESTAMP(CAST(\"X\" AS VARCHAR))"),
     ("TRY_TO_NUMBER(x)", "TRY_CAST(\"X\" AS DECIMAL(38, 0))"),
     ("TRY_TO_NUMBER(x, 10, 2)", "TRY_CAST(\"X\" AS DECIMAL(10, 2))"),
     ("SYSDATE()", "NOW()"),
@@ -229,3 +229,62 @@ def test_identifier_function_inlined():
 def test_context_changes_mapping():
     ctx = tr.Context(database="AFYA_PROD", schema="X", primary_database="HOSPITALS")
     assert sql("select * from raw.t", ctx) == 'SELECT * FROM "AFYA_PROD__RAW"."T"'
+
+
+# -- constructs found failing in HOSPITALS views (2026-11-16) ----------------
+
+def test_try_to_timestamp_one_arg_accepts_timestamps():
+    # Databend's TRY_TO_TIMESTAMP rejects a TIMESTAMP argument; Snowflake returns it.
+    assert sql("select try_to_timestamp(created_at) from t") == \
+        'SELECT TRY_TO_TIMESTAMP(CAST("CREATED_AT" AS VARCHAR)) FROM "T"'
+    # the formatted form is unchanged
+    assert "TRY_TO_TIMESTAMP(\"X\", '%Y-%m-%d')" in sql("select try_to_timestamp(x, 'YYYY-MM-DD') from t")
+
+
+def test_regexp_substr_group_becomes_regexp_extract():
+    out = sql("select regexp_substr(v, '([0-9]+)x', 1, 1, 'e', 1) from t")
+    assert out == "SELECT NULLIF(REGEXP_EXTRACT(\"V\", '([0-9]+)x', 1), '') FROM \"T\""
+    assert "REGEXP_EXTRACT(\"V\", '(?i)(a)(b)', 2)" in sql("select regexp_substr(v, '(a)(b)', 1, 1, 'ie', 2) from t")
+    # plain forms and other positions/occurrences keep REGEXP_SUBSTR
+    assert sql("select regexp_substr(v, '^[0-9]+') from t") == "SELECT REGEXP_SUBSTR(\"V\", '^[0-9]+') FROM \"T\""
+    assert "REGEXP_SUBSTR" in sql("select regexp_substr(v, '(a)', 1, 2, 'e', 1) from t")
+
+
+def test_filter_runs_on_native_array():
+    out = sql("select get(filter(split(s, ' '), t -> length(t) > 1), 0)::string from t")
+    assert "CAST(ARRAY_FILTER(SPLIT(\"S\", ' '), " in out and "AS VARIANT)" in out
+    assert "FILTER(CAST(SPLIT" not in out
+
+
+def test_trim_casts_non_text():
+    assert sql("select lower(trim(type)) from t") == 'SELECT LOWER(TRIM(CAST("TYPE" AS VARCHAR))) FROM "T"'
+    assert sql("select trim('  a ') from t") == "SELECT TRIM('  a ') FROM \"T\""
+    assert "CAST(\"X\" AS VARCHAR)" in sql("select ltrim(x, 'a') from t")
+
+
+def test_timestamp_from_parts_date_and_time():
+    out = sql("select timestamp_from_parts(d, try_to_time(t)) from x")
+    assert out.startswith("SELECT TRY_CAST(CONCAT(CAST(CAST(\"D\" AS DATE) AS VARCHAR), ' ', ")
+    assert "()" not in out
+
+
+def test_view_ctes_get_view_specific_names():
+    out = sql("create or replace view staging.v as with deduped as (select id from raw.t) "
+              "select deduped.id from deduped join raw.u u on u.id = deduped.id")
+    name = out.split('WITH "')[1].split('"')[0]
+    assert name.startswith("DEDUPED_V") and len(name) == len("DEDUPED_V") + 8
+    assert f'FROM "{name}" AS "DEDUPED"' in out and '"DEDUPED"."ID"' in out
+    # a different view gets a different name; plain queries are untouched
+    other = sql("create or replace view staging.w as with deduped as (select 1 as id) select * from deduped")
+    assert name not in other
+    assert 'WITH "DEDUPED" AS' in sql("with deduped as (select 1 as id) select * from deduped")
+
+
+def test_coerce_text_aggregates_is_opt_in():
+    q = "select sum(amount), sum(case when c is not null then amount else 0 end), avg(x) from t"
+    assert "TRY_CAST" not in sql(q)
+    out = sql(q, tr.Context(database="HOSPITALS", schema="RAW", primary_database="HOSPITALS",
+                            coerce_text_aggregates=True))
+    assert 'SUM(TRY_CAST("AMOUNT" AS DECIMAL(38, 6)))' in out
+    assert 'WHEN NOT "C" IS NULL THEN TRY_CAST("AMOUNT" AS DECIMAL(38, 6)) ELSE 0 END' in out
+    assert 'AVG(TRY_CAST("X" AS DECIMAL(38, 6)))' in out

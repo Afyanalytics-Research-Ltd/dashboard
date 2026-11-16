@@ -101,6 +101,12 @@ class Context:
     database: str = "HOSPITALS"        # current Snowflake database
     schema: Optional[str] = None       # current Snowflake schema
     primary_database: str = "HOSPITALS"
+    # Snowflake silently casts VARCHAR to NUMBER inside SUM/AVG; Databend
+    # refuses ("sum does not support type 'String'"). Without column types
+    # the translator can't tell when that's needed, so it is opt-in: a
+    # caller that hit that error re-translates with this on, and SUM/AVG
+    # values are wrapped in TRY_CAST(... AS DECIMAL(38, 6)).
+    coerce_text_aggregates: bool = False
 
     def databend_db(self, sf_db: Optional[str], sf_schema: Optional[str]) -> Optional[str]:
         return map_database(sf_db or self.database, sf_schema, self.primary_database)
@@ -174,6 +180,12 @@ def _anonymous_sql(self, e: exp.Anonymous) -> str:
     if name in ("TO_TIMESTAMP_NTZ", "TO_TIMESTAMP_LTZ", "TO_TIMESTAMP_TZ"):
         return self.func("TO_TIMESTAMP", *args)
     if name in ("TRY_TO_TIMESTAMP_NTZ", "TRY_TO_TIMESTAMP_LTZ", "TRY_TO_TIMESTAMP_TZ", "TRY_TO_TIMESTAMP"):
+        if len(args) == 1:
+            # Snowflake accepts a TIMESTAMP/DATE here (and returns it); Databend's
+            # TRY_TO_TIMESTAMP only takes strings and numbers. Going through
+            # VARCHAR covers all of them: strings are unchanged, timestamps and
+            # dates round-trip, and numeric epochs still parse.
+            return f"TRY_TO_TIMESTAMP(CAST({a[0]} AS VARCHAR))"
         return self.func("TRY_TO_TIMESTAMP", *args)
     if name == HASH_STAR_MARKER:
         return f"{HASH_STAR_MARKER}({a[0]})"
@@ -403,6 +415,11 @@ def _date_from_parts_sql(self, e: exp.DateFromParts) -> str:
 
 
 def _timestamp_from_parts_sql(self, e: exp.TimestampFromParts) -> str:
+    if e.args.get("year") is None and e.this is not None:
+        # TIMESTAMP_FROM_PARTS(date_expr, time_expr). TRY_CAST: a bad/NULL time
+        # (e.g. from TRY_TO_TIME) gives NULL, as in Snowflake.
+        return (f"TRY_CAST(CONCAT(CAST(CAST({self.sql(e, 'this')} AS DATE) AS VARCHAR), ' ', "
+                f"CAST({self.sql(e, 'expression')} AS VARCHAR)) AS TIMESTAMP)")
     y, mo, d = (self.sql(e, k) for k in ("year", "month", "day"))
     h = self.sql(e, "hour") or "0"
     mi = self.sql(e, "min") or "0"
@@ -512,6 +529,67 @@ def _split_sql(self, e: exp.Split) -> str:
     # Snowflake SPLIT returns a 0-indexed (variant) ARRAY; Databend's SPLIT
     # returns a 1-indexed native array.  Convert so [0] still means "first".
     return f"CAST(SPLIT({self.sql(e, 'this')}, {self.sql(e, 'expression')}) AS VARIANT)"
+
+
+def _array_filter_sql(self, e: exp.ArrayFilter) -> str:
+    # Snowflake FILTER(array, lambda). Databend's ARRAY_FILTER needs a native
+    # array - on a VARIANT it silently returns [] - so filter SPLIT's native
+    # array (not the VARIANT _split_sql makes) and turn the result into a
+    # 0-indexed VARIANT afterwards, like every other Snowflake array here.
+    arr = e.this
+    if isinstance(arr, exp.Split):
+        arr_sql = f"SPLIT({self.sql(arr, 'this')}, {self.sql(arr, 'expression')})"
+    elif isinstance(arr, exp.Cast) and arr.to.is_type("variant"):
+        arr_sql = self.sql(arr, "this")
+    else:
+        arr_sql = f"CAST({self.sql(arr)} AS ARRAY(VARIANT))"
+    return f"CAST(ARRAY_FILTER({arr_sql}, {self.sql(e, 'expression')}) AS VARIANT)"
+
+
+def _trim_sql(self, e: exp.Trim) -> str:
+    # Snowflake TRIM/LTRIM/RTRIM cast their input to text; Databend's only
+    # accept strings (TRIM of a NUMBER column fails). CAST of a VARIANT
+    # string gives the bare text, as in Snowflake.
+    x = e.this
+    if not ((isinstance(x, exp.Literal) and x.is_string)
+            or (isinstance(x, exp.Cast) and x.to.is_type(*exp.DataType.TEXT_TYPES))):
+        e = e.copy()
+        e.set("this", exp.cast(x.copy(), exp.DataType.build("VARCHAR")))
+    return self.trim_sql(e)
+
+
+_SF_REGEXP_EXTRACT = Snowflake.Generator.TRANSFORMS[exp.RegexpExtract]
+
+
+def _regexp_extract_sql(self, e: exp.RegexpExtract) -> str:
+    # REGEXP_SUBSTR(s, pattern, position, occurrence, parameters, group).
+    # Databend's REGEXP_SUBSTR has no group argument; REGEXP_EXTRACT(s,
+    # pattern, group) does, but returns '' (not NULL) when nothing matches.
+    params = e.args.get("parameters")
+    group = e.args.get("group")
+    flags = params.name.lower() if isinstance(params, exp.Literal) else ""
+
+    def is_one(x):
+        return x is None or (isinstance(x, exp.Literal) and x.name.strip() == "1")
+
+    # sqlglot fills in group 0 (= the whole match) even for plain 2-argument
+    # calls, so only an explicit 'e' flag or a non-zero group means "extract".
+    if isinstance(group, exp.Literal) and group.name.strip() == "0":
+        group = None
+    wants_group = group is not None or "e" in flags
+    if wants_group and is_one(e.args.get("position")) and is_one(e.args.get("occurrence")) \
+            and (params is None or isinstance(params, exp.Literal)):
+        inline = "".join(f for f in "ims" if f in flags)
+        pat = e.expression
+        if inline and isinstance(pat, exp.Literal):
+            pat_sql = self.sql(exp.Literal.string(f"(?{inline})" + pat.name))
+        elif inline:
+            pat_sql = f"CONCAT('(?{inline})', {self.sql(pat)})"
+        else:
+            pat_sql = self.sql(pat)
+        g = self.sql(group) if group is not None else "1"
+        return f"NULLIF(REGEXP_EXTRACT({self.sql(e, 'this')}, {pat_sql}, {g}), '')"
+    return _SF_REGEXP_EXTRACT(self, e)
 
 
 def _initcap_sql(self, e) -> str:
@@ -705,6 +783,9 @@ class Databend(Snowflake):
             exp.ArrayContains: _array_contains_sql,
             exp.ArrayToString: _array_to_string_sql,
             exp.Split: _split_sql,
+            exp.ArrayFilter: _array_filter_sql,
+            exp.Trim: _trim_sql,
+            exp.RegexpExtract: _regexp_extract_sql,
             exp.Initcap: _initcap_sql,
             exp.Corr: _corr_sql,
             exp.RegexpCount: _regexp_count_sql,
@@ -1433,12 +1514,78 @@ def _translate_one(stmt: str, ctx: Context) -> list[Statement]:
             for s in special:
                 s.original = stmt
             return special
+    if isinstance(tree, exp.Create) and (tree.args.get("kind") or "").upper() == "VIEW":
+        _uniquify_view_ctes(tree)
+    if ctx.coerce_text_aggregates:
+        _coerce_text_aggregates(tree)
     tree = _rewrite_delete_using(tree)
     tree = _rewrite_union_ordinal_order(tree)
     _rewrite_merge_set(tree)
     _normalize_and_map(tree, ctx)
     sql = tree.sql(dialect=Databend, identify=True)
     return [Statement("sql", sql, original=stmt)]
+
+
+def _uniquify_view_ctes(tree: exp.Create) -> None:
+    """Give a view's CTEs names unique to that view.
+
+    Databend expands views into the query that reads them, and then rejects
+    the query ("Duplicate common table expression: X") when the view and a
+    view it reads both define a CTE called X - common with names like
+    DEDUPED. Each CTE becomes X_V<hash of the view name>; a FROM/JOIN that
+    referred to it gets the old name as its alias so X.column still works.
+    """
+    import hashlib
+
+    ctes = list(tree.find_all(exp.CTE))
+    if not ctes:
+        return
+    target = tree.this.this if isinstance(tree.this, exp.Schema) else tree.this
+    suffix = "_V" + hashlib.md5(target.sql("snowflake").upper().encode()).hexdigest()[:8].upper()
+    names = {}
+    for cte in ctes:
+        ident = cte.args["alias"].this
+        names[ident.name.upper()] = ident.name + suffix
+        ident.set("this", ident.name + suffix)
+    for t in tree.find_all(exp.Table):
+        if t is target or t.args.get("db") or t.args.get("catalog") or t.name.upper() not in names:
+            continue
+        old = t.this
+        if not t.args.get("alias"):
+            t.set("alias", exp.TableAlias(this=exp.to_identifier(old.name, quoted=old.quoted)))
+        t.set("this", exp.to_identifier(names[old.name.upper()], quoted=old.quoted))
+
+
+def _coerce_text_aggregates(tree: exp.Expression) -> None:
+    """SUM/AVG over text (see Context.coerce_text_aggregates): cast the
+    values - not the conditions - to DECIMAL(38, 6)."""
+    dec = exp.DataType.build("DECIMAL(38, 6)")
+
+    def value(node):
+        if isinstance(node, exp.Case):
+            for branch in node.args.get("ifs") or []:
+                branch.set("true", value(branch.args["true"]))
+            if node.args.get("default") is not None:
+                node.set("default", value(node.args["default"]))
+            return node
+        if isinstance(node, exp.Paren):
+            node.set("this", value(node.this))
+            return node
+        if isinstance(node, (exp.Add, exp.Sub, exp.Mul, exp.Div)):
+            node.set("this", value(node.this))
+            node.set("expression", value(node.expression))
+            return node
+        if isinstance(node, exp.Literal) and not node.is_string:
+            return node
+        # requires_string: without it sqlglot renders a TryCast as plain CAST
+        return exp.TryCast(this=node, to=dec.copy(), safe=True, requires_string=True)
+
+    for agg in list(tree.find_all(exp.Sum, exp.Avg)):
+        arg = agg.this
+        if isinstance(arg, exp.Distinct):
+            arg.set("expressions", [value(x) for x in arg.expressions])
+        elif arg is not None and not isinstance(arg, exp.Star):
+            agg.set("this", value(arg))
 
 
 def _normalize_and_map(tree: exp.Expression, ctx: Context) -> None:

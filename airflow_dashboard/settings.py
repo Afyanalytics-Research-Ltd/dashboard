@@ -103,6 +103,7 @@ INSTALLED_APPS = [
     'warehouse_studio',
     'wandb_ui',
     'n8n_studio',
+    'connect_studio',
 ]
 
 # ---------------------------------------------------------------------------

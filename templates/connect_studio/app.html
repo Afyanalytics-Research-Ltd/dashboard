@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Connect Studio{% endblock %}
+{% block page_title %}Connect Studio{% endblock %}
+
+{% block extra_css %}
+{{ block.super }}
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap" />
+<link rel="stylesheet" href="{% static 'ui/css/ui.css' %}" />
+<link rel="stylesheet" href="{% static 'connect_studio/css/studio.css' %}" />
+<link rel="modulepreload" href="{% static 'connect_studio/js/app.js' %}" />
+{% endblock %}
+
+{% block breadcrumbs %}{% endblock %}
+
+{% block content %}
+{% csrf_token %}
+<div id="cs-root" class="cs-root">
+  <noscript>Connect Studio needs JavaScript enabled.</noscript>
+  <div class="cs-boot">
+    <div class="cs-boot-mark"><i class="bi bi-bezier2"></i></div>
+    <div class="cs-boot-text">Loading Connect Studio…</div>
+  </div>
+</div>
+{{ studio_config|json_script:"cs-config" }}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  window.APP_UI = JSON.parse(document.getElementById('cs-config').textContent);
+</script>
+<script type="module" src="{% static 'connect_studio/js/app.js' %}"></script>
+{% endblock %}

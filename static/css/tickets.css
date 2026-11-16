@@ -12,7 +12,19 @@
   flex-direction: column;
   align-items: flex-end;
   gap: 12px;
+  /* The closed dial still takes up room above the button; don't let that
+     invisible area swallow clicks meant for the page behind it. */
+  pointer-events: none;
 }
+.ticket-fab-wrap .ticket-fab { pointer-events: auto; }
+
+/* Draggable (static/js/draggable-fabs.js): open the dial away from the edges */
+.ticket-fab-wrap.fab-at-top { flex-direction: column-reverse; }
+.ticket-fab-wrap.fab-at-top .ticket-dial { flex-direction: column-reverse; }
+.ticket-fab-wrap.fab-at-left,
+.ticket-fab-wrap.fab-at-left .ticket-dial { align-items: flex-start; }
+.ticket-fab-wrap.fab-at-left .ticket-dial-item { flex-direction: row-reverse; }
+.ticket-fab-wrap.fab-dragging .ticket-fab { cursor: grabbing; animation: none; }
 
 .ticket-fab {
   position: relative;

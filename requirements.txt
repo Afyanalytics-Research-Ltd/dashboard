@@ -152,3 +152,10 @@ xlsxwriter>=3.2         # .xlsx writing for export_table
 Markdown>=3.6           # renders the model's Markdown answers
 bleach>=6.1             # sanitises that Markdown output — required, not optional
 graphql-core==3.2.5     # parses GraphQL for the Model Studio (W&B) proxy allowlist
+
+# Connect Studio (connectors · schema extraction · Groq mapping · syncs).
+# dbatlas is not on PyPI — pinned to a commit archive (no git needed in the image).
+dbatlas @ https://github.com/jordansgoodman/dbatlas/archive/6d84634cd92ed4a83b4231f8912887afb8e6b585.zip
+duckdb>=1.0.0               # staging + profiling for files / APIs / sampled tables
+duckdb-engine==0.17.0       # DuckDB as a SQLAlchemy source / sync destination
+snowflake-sqlalchemy==1.11.1  # Snowflake via SQLAlchemy (keeps snowflake-connector-python 4.x)

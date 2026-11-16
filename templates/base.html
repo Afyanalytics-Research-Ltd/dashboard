@@ -252,6 +252,40 @@
       </div>
       {% endif %}
     -->
+      <!-- Connect Studio: connectors, schema mapping, syncs (superuser only) -->
+      {% if request.user.is_superuser %}
+      <a href="#"
+         data-submenu-toggle="submenuConnectStudio"
+         class="sidebar-item {% if sidebar_section == 'connect_studio' %}active{% endif %}">
+        <i class="bi bi-bezier2 sidebar-item-icon"></i>
+        <span class="sidebar-item-label">Connect Studio</span>
+        <i class="bi bi-chevron-right sidebar-chevron"></i>
+      </a>
+      <div id="submenuConnectStudio"
+           class="sidebar-submenu {% if sidebar_section == 'connect_studio' %}open{% endif %}">
+        <a href="{% url 'connect_studio:home' %}"
+           class="sidebar-subitem {% if request.path == '/connect/' %}active{% endif %}">
+          <i class="bi bi-grid-1x2"></i> Overview
+        </a>
+        <a href="{% url 'connect_studio:home' %}sources"
+           class="sidebar-subitem {% if '/connect/sources' in request.path %}active{% endif %}">
+          <i class="bi bi-database"></i> Sources
+        </a>
+        <a href="{% url 'connect_studio:home' %}mappings"
+           class="sidebar-subitem {% if '/connect/mappings' in request.path %}active{% endif %}">
+          <i class="bi bi-stars"></i> Mappings
+        </a>
+        <a href="{% url 'connect_studio:home' %}syncs"
+           class="sidebar-subitem {% if '/connect/syncs' in request.path %}active{% endif %}">
+          <i class="bi bi-arrow-repeat"></i> Syncs
+        </a>
+        <a href="{% url 'connect_studio:home' %}activity"
+           class="sidebar-subitem {% if '/connect/activity' in request.path %}active{% endif %}">
+          <i class="bi bi-activity"></i> Activity
+        </a>
+      </div>
+      {% endif %}
+
       <!-- Automation Studio: n8n (superuser only) -->
       {% if request.user.is_superuser %}
       <a href="#"

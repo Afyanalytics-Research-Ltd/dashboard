@@ -324,3 +324,47 @@ def test_airflow_hook_on_databend(monkeypatch):
         assert hook.get_first("SELECT 1 + 1") == (2,)
         assert hook.get_records("SELECT number FROM numbers(3) ORDER BY 1") == [(0,), (1,), (2,)]
         assert list(hook.get_pandas_df("SELECT 1 AS a").columns) == ["A"]
+
+
+def test_view_constructs_found_failing_in_hospitals(conn):
+    """The Snowflake constructs that kept 52 HOSPITALS views off Databend (2026-11-16)."""
+    q(conn, "create table src (id number, created_at timestamp_ntz, type number, age varchar, "
+            "names varchar, d date, t varchar)")
+    q(conn, "insert into src values (1, '2026-01-02 03:04:05', 7, '57 years 12 months', 'AB C DEF', "
+            "'2026-03-04', '08:30:00')")
+    row = q(conn, """
+        select try_to_timestamp(created_at) as ts,
+               lower(trim(type)) as ty,
+               try_to_number(trim(regexp_substr(age, '([0-9]+)\\s*[Mm]onth', 1, 1, 'e', 1))) as months,
+               regexp_substr(age, '([0-9]+)\\s*[Dd]ay', 1, 1, 'e', 1) as no_days,
+               get(array_sort(filter(split(names, ' '), x -> length(x) > 1)), 0)::string as first_long,
+               timestamp_from_parts(d, try_to_time(t)) as at
+        from src""").fetchall()[0]
+    assert str(row[0]).startswith("2026-01-02 03:04:05")
+    assert str(row[1]) == "7"
+    assert int(row[2]) == 12
+    assert row[3] is None                      # no match -> NULL, as in Snowflake
+    assert row[4] == "AB"
+    assert str(row[5]).startswith("2026-03-04 08:30:00")
+
+
+def test_views_with_same_cte_name_can_read_each_other(conn):
+    s = f"HOSPITALS.{conn.test_schema}"   # fully qualified, as HOSPITALS views are
+    q(conn, f"create table {s}.base (id number)")
+    q(conn, f"insert into {s}.base values (1), (1), (2)")
+    q(conn, f"create or replace view {s}.v1 as with deduped as (select distinct id from {s}.base) select * from deduped")
+    q(conn, f"create or replace view {s}.v2 as with deduped as (select id from {s}.v1) select deduped.id from deduped")
+    assert sorted(int(r[0]) for r in q(conn, f"select id from {s}.v2").fetchall()) == [1, 2]
+    # and an ad-hoc query with that CTE name over the view
+    assert len(q(conn, f"with deduped as (select * from {s}.v2) select * from deduped").fetchall()) == 2
+
+
+def test_coerced_text_sum(conn):
+    from afya_backends.warehouse import sql_translate as tr
+    q(conn, "create table pay (invoice_id number, amount varchar)")
+    q(conn, "insert into pay values (1, '10.50'), (1, '2'), (2, 'n/a')")
+    ctx = tr.Context(database="HOSPITALS", schema=conn.test_schema, primary_database="HOSPITALS",
+                     coerce_text_aggregates=True)
+    sql = tr.translate("select invoice_id, sum(amount) from pay group by invoice_id order by 1", ctx)[0].sql
+    rows = conn._t.run(sql).rows
+    assert float(rows[0][1]) == 12.5 and rows[1][1] in (None, "NULL")

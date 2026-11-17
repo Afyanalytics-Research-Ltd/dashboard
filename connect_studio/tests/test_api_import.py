@@ -111,6 +111,40 @@ class ParseTests(SimpleTestCase):
         self.assertEqual([e["selected"] for e in down["endpoints"]], [e["selected"] for e in p["endpoints"]])
 
 
+def _gw(name, url, body):
+    return {"name": name, "request": {"method": "POST", "url": {"raw": url}, "body": {"mode": "raw", "raw": body}}}
+
+
+GATEWAY = {
+    "info": {"name": "Model Gateway", "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"},
+    "variable": [{"key": "core_url", "value": "http://localhost:8001"}, {"key": "source_tenant_id", "value": "1"}],
+    "item": [
+        {"name": "Auth", "item": [_gw("Login", "{{core_url}}/api/v1/login", '{"username": "u", "password": "p"}')]},
+        {"name": "core-service", "item": [
+            _gw("List", "{{core_url}}/api/v1/gateway", '{"action": "list"}'),
+            _gw("Read departments", "{{core_url}}/api/v1/gateway",
+                '{"model": "departments", "action": "read", "source_tenant_id": {{source_tenant_id}}, "filters": {"status": "active"}}'),
+            _gw("Copy insurers", "{{core_url}}/api/v1/gateway", '{"model": "insurance_companies", "action": "copy", "ids": [1]}')]},
+        {"name": "🧪 patient-evaluation-service", "item": [
+            _gw("Read visits", "{{evaluation_url}}/api/v1/gateway", '{"model": "visits", "action": "read"}')]},
+        {"name": "migrate", "item": [
+            _gw("Read wards", "https://inpatientmigrate.afyaanalytics.ai/api/v1/gateway", '{"model": "ward", "action": "read"}')]},
+    ],
+}
+
+
+class V3PostmanTests(SimpleTestCase):
+    def test_model_gateway_collection(self):
+        r = api_import.v3_from_postman(json.dumps(GATEWAY), "g.json")
+        got = {m["id"]: m["selected"] for m in r["models"]}
+        self.assertEqual(got, {"core:departments": True, "core:insurance_companies": False,
+                               "evaluation:visits": True, "inpatient:ward": True})
+        self.assertEqual(r["services"], ["core", "evaluation", "inpatient"])
+        self.assertEqual(r["url_template"], "https://{service}migrate.afyaanalytics.ai/api/")
+        with self.assertRaises(api_import.ImportError_):
+            api_import.v3_from_postman(json.dumps({"item": [_gw("x", "{{core_url}}/api/v1/login", "{}")]}), "x.json")
+
+
 class RestPostAndLoginTests(SimpleTestCase):
     def test_post_body_paging_and_login(self):
         calls = []

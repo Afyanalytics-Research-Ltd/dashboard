@@ -5,7 +5,7 @@ import { href, navigate } from '../../../ui/js/router.js';
 import { toast, toastError } from '../../../ui/js/ui.js';
 import { api } from '../api.js';
 import { confetti, connectorForm, dropzone, fmtBytes, jobTracker, kv, logo, n, seg } from '../kit.js';
-import { importPanel } from './rest_import.js';
+import { importPanel, v3ImportPanel } from './rest_import.js';
 
 const GUIDES = {
   Databases: [
@@ -188,6 +188,7 @@ export default async function render(ctx) {
             !ctx.query.get('locked') && h('button.cs-btn.cs-btn-sm.cs-btn-ghost', { type: 'button', onclick: () => { ctx.setQuery({ kind: null }); stepChoose(); } }, icon('arrow-left-right'), 'Change')),
           h('div.cs-card-body.cs-col.cs-gap-lg',
             spec.key === 'rest_api' && importPanel({ form, meta, onApplied: () => form.el.querySelector('textarea.code')?.scrollIntoView({ behavior: 'smooth', block: 'center' }) }),
+            spec.key === 'afya_platform' && v3ImportPanel({ form, onApplied: () => form.el.querySelector('input')?.scrollIntoView({ behavior: 'smooth', block: 'center' }) }),
             form.el, uploads, resultBox)),
         h('aside.cs-card.cs-card-pad.cs-guide',
           h('div.cs-row', logo(spec, { size: 'sm' }), h('b', 'How it works')),

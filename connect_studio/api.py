@@ -96,10 +96,17 @@ def import_api(request):
             raise ApiError("That file is over 20 MB — export just the API definition.")
         content, filename = f.read(), f.name
         use_ai = request.POST.get("ai", "1") not in ("0", "false", "")
+        kind = request.POST.get("kind") or "rest_api"
     else:
         data = body(request)
         content, filename = data.get("text") or "", data.get("filename") or ""
         use_ai = data.get("ai", True) not in (False, 0, "0", "false")
+        kind = data.get("kind") or "rest_api"
+    if kind == "afya_platform":                      # Model Gateway collection → V3 connector settings
+        try:
+            return ok(api_import.v3_from_postman(content, filename))
+        except api_import.ImportError_ as e:
+            raise ApiError(str(e)) from None
     try:
         proposal = api_import.parse(content, filename)
     except api_import.ImportError_ as e:

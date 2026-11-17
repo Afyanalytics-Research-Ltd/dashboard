@@ -855,3 +855,8 @@ body.cs-dark .af-modal .cs-root, body.cs-dark .af-drawer .cs-root { color: #e7ec
 .cs-field.cs-flash { animation: cs-flash 1.6s ease-out; border-radius: 10px; }
 @keyframes cs-flash { 0% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--cs-ai) 45%, transparent); background: var(--cs-ai-soft); } 100% { box-shadow: 0 0 0 3px transparent; background: transparent; } }
 @media (max-width: 640px) { .cs-ep { grid-template-columns: auto auto minmax(0, 1fr); } .cs-ep-side { display: none; } }
+.cs-v3-groups { display: flex; flex-direction: column; gap: 10px; max-height: 360px; overflow: auto; }
+.cs-v3-group { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 11px; background: var(--cs-surface); border: 1px solid var(--cs-border); }
+.cs-v3-svc { font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--cs-text-2); }
+.cs-v3-model { cursor: pointer; font-family: var(--cs-mono, ui-monospace, monospace); opacity: .7; }
+.cs-v3-model.on { opacity: 1; color: var(--cs-primary); background: var(--cs-primary-soft); border-color: color-mix(in srgb, var(--cs-primary) 30%, transparent); }

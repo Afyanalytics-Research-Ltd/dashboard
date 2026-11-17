@@ -622,9 +622,17 @@ def resolve_sources(names: Iterable[str], client_factory=None) -> tuple[list[Sou
     ok: list[Source] = []
     problems, notes, mismatched = [], [], []
     owner: dict[int, str] = {}
+    prod = re.compile((os.getenv("V3_SYNC_URL_PATTERN") or DEFAULT_SOURCE_URL_PATTERN).replace(r"\{service\}", "core"))
     for name in names:
         try:
             client = client_factory(name)
+            core = (getattr(client, "urls", None) or {}).get("core", "")
+            if core and not prod.match(core):
+                # a key without its own URL template falls back to the client's migrate default — this
+                # warehouse is fed from production only, so refuse rather than silently mix in migrate data
+                problems.append(f"{name}: not a production login ({core}) — set AFYA_{name.upper()}_URL_TEMPLATE "
+                                f"to https://{{service}}.afyaanalytics.ai/api/ or drop it from the sources")
+                continue
             client.token()
             tenant = int(client.organization_id)
         except Exception as e:

@@ -661,3 +661,24 @@ def test_client_does_not_retry_a_schema_error_500(monkeypatch):
     c.post("finance", {}, retry_500=True, retries=3)
     assert len(calls) == 3                                  # an ordinary 500 is still retried
     assert C.schema_error("Base table or view not found: 1146") and not C.schema_error("timeout")
+
+
+def test_explicit_sources_must_still_be_production_logins():
+    """Even a source named by hand is refused when it would read migrate / staging (e.g. a key with no
+    URL template falls back to the client's migrate default)."""
+    logged_in = []
+
+    class C:
+        def __init__(self, name):
+            self.name, self.facility_id, self.organization_id = name, 1, None
+            host = {"wema_prod": "", "gyno": "migrate", "oroko": "staging"}[name]
+            self.urls = {"core": f"https://core{host}.afyaanalytics.ai/api/"}
+
+        def token(self):
+            logged_in.append(self.name)
+            self.organization_id = {"wema_prod": 258}.get(self.name, 1)
+            return "t"
+    ok, problems, _ = S.resolve_sources(["wema_prod", "gyno", "oroko"], C)
+    assert [s.name for s in ok] == ["wema_prod"] and logged_in == ["wema_prod"]      # never even logged in
+    assert len(problems) == 2 and all("not a production login" in p for p in problems)
+    assert "coremigrate.afyaanalytics.ai" in problems[0]

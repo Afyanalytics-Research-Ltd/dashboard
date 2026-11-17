@@ -28,6 +28,10 @@
 | Installing and deploying the application | 22 |
 | Setup checklists by type of client | 23 |
 | Troubleshooting questions and answers | 24 |
+| POS serial numbers and lab test templates | 26 |
+| Support runbook: severity, triage, service map, platform-wide faults | 27 and 28 |
+| Support runbook: symptom tables for each module | 29 |
+| Support runbook: control plane, smoke test, escalation | 30 to 32 |
 | Glossary | 25 |
 
 ---
@@ -2369,3 +2373,593 @@ If this guide does not solve the problem, contact your organization's system adm
 | Triage | Assessing urgency from vitals; sets the queue colour |
 | Visit | One attendance by a patient, from check-in to checkout |
 | Waiver | An approved reduction of a patient's bill |
+
+---
+
+## 26. More frequently asked questions (POS and laboratory setup)
+
+### Cannot sell a product at the POS because "Track Serial Numbers" is ticked
+
+**Question:** I am not able to sell a product when the **Track Serial Numbers** setting is ticked in the product settings. To sell the drug or product I have to key in the tracked serial number at the POS station.
+
+**Answer:** Untick serial-number tracking on the product, then re-add it to the cart.
+
+1. Go to **Inventory → Products** (the Products Catalogue).
+2. Search for the product (for example, a Pregnancy Test Kit).
+3. On its row, open the **⋮** actions menu and choose **Edit**.
+4. In the form, find the row of tick boxes (**Track Expiry**, **Track Batch**, …) and untick **Track Serial Numbers**. Leave **Track Expiry** and **Track Batch** as they are.
+5. Click **Update**.
+6. Back at the Pharmacy POS, remove the product line from the cart and add it again. A line already in the cart still carries the old setting.
+7. The serial-numbers box should be gone. Save the sale as normal.
+
+### How to set up a lab test template
+
+**Question:** How can I set up a lab test template for my lab tests?
+
+**Answer:**
+
+1. Go to **SETUP > Procedures > View services**.
+2. Search for the procedure in the search procedure bar. When the procedure appears, click the purple **Template** tab.
+3. The templates page opens.
+4. In **Create or edit procedure template**, search for the subtest, add it, then save.
+5. Keep adding the subtests that belong to the test.
+
+### How to create a lab test or subtest that does not exist yet
+
+**Question:** The lab test or subtest I need for a template does not exist. How do I create it?
+
+**Answer:**
+
+1. Go to **SETUP > Procedures > Add service**.
+2. The add service page opens. Fill in the required fields as the test requires.
+3. Under **Pick category**, choose the **Lab** category.
+4. In the **Lab details** section, fill in the details as the test requires.
+5. Click **Save procedure**.
+6. The test is now available in the system when you search for it under **View services**, and can be added to a lab test template.
+
+---
+
+## 27. Technical support runbook: introduction
+
+| Field | Value |
+|---|---|
+| Owner | Head of Technical Support |
+| Version | 1.0 (draft for review) |
+| Date | 14 November 2026 |
+| Audience | L1/L2 support, implementation and deployment staff, on-call engineers |
+| Basis | HMIS Full System Audit, MANAGE Full Audit and Full Platform Audit (all dated 9 November 2026) |
+| Scope | 24 HMIS modules, plus platform-wide procedures and control-plane (manage) incidents |
+
+### How to use this runbook
+
+Each module chapter has the same shape: the services behind it, a symptom table (symptom, likely cause, first response), the known limitations support must be able to explain to users, and the escalation point. Known limitations come directly from the audits and are cited as such. First-response steps are support practice built on the behaviours the audits documented; confirm any step against production before it becomes standard procedure.
+
+Three facts from the audits shape every chapter:
+
+1. **The automated test suites cannot be relied on.** Roughly 830 of 2,829 tests are broken platform-wide, and CI does not gate deployment. After any release, run a manual smoke test of the affected module. Do not assume a release was regression-tested.
+2. **There is no central logging, error tracking or uptime monitoring.** Each service writes local log files. Support must check health endpoints proactively and diagnose cross-service failures by hand.
+3. **Realtime is built but switched off.** Queue boards, ward boards and the dialysis floor poll. "Not updating" is often a refresh delay, not a fault.
+
+---
+
+## 28. Technical support runbook: platform-wide procedures
+
+### A1. Severity and response (proposed, to be agreed)
+
+| Severity | Definition | Examples | Target first response |
+|---|---|---|---|
+| P1 | Clinical or revenue flow stopped at a live facility | Nobody can log in; no check-ins; cannot dispense; cannot bill; SHA claims blocked | 15 minutes |
+| P2 | Module degraded, workaround exists | One report failing; one printer template blank; one analyser unmapped | 1 hour |
+| P3 | How-to, cosmetic, single-user issue | Password reset; wrong label wording | 1 business day |
+
+### A2. Standard triage
+
+1. **Scope it.** One user, one facility, one tenant, or everyone? Everyone usually means core-service or the proxy.
+2. **Capture.** Tenant (organisation), facility, username, module and screen, exact time, what the user clicked, screenshot. User-facing messages deliberately never name a service, so the time and action are your only trace.
+3. **Check health.** Every HMIS service exposes a health endpoint. Check the implicated service and core-service first: every other service validates the bearer token by calling core, so a core fault surfaces as failures everywhere.
+4. **Check logs on the host.** Logs are local per service. Sanitised errors carry a correlation id, but it is not propagated across services, so follow the failing request service by service.
+5. **Apply the module playbook** in section 29.
+6. **Escalate** with the capture from step 2 and what you already tried.
+
+### A3. Service map
+
+| Service | Port | Owns |
+|---|---|---|
+| core-service | 8001 | Auth, RBAC, tenancy, users, settings, POS config, catalogues, insurance master data |
+| finance-service | 8002 | Billing, payments, cashiering, claims, ledger |
+| patient-evaluation-service | 8003 | Triage, consultation, lab, radiology, pharmacy, specialties, MCH, SHA |
+| reception-service | 8004 | Patient master index, visits, queues, appointments |
+| inventory-service | 8005 | Products, procurement, stock, POS sales |
+| hr-ess-service | 8006 | Empty scaffold, not a working service |
+| theatre-service | 8007 | Theatre bookings and operations |
+| inpatient-service | 8008 | Admissions, wards, nursing, discharge, labour care guide |
+| reports-service | 8009 | Cross-service reports |
+| dialysis-service | 8010 | Renal unit |
+| oncology-service | 8011 | Cancer care |
+| morgue-service | 8012 | Mortuary |
+| integration-service | 8013 | Per-tenant integrations |
+| psychiatry-service | 8014 | Mental health |
+
+Dialysis, oncology, morgue and integration services are missing from docker-compose.yml. On Docker-based installs they will not start with the rest of the stack, with no error. Check them explicitly after any rebuild.
+
+### A4. Platform-wide symptoms
+
+| Symptom | Likely cause | First response |
+|---|---|---|
+| User logged out unexpectedly | Core genuinely rejected the token (the frontend re-verifies with core before logging out) | Check the user is active in Users, check core health, have the user log in again |
+| "Permission denied" or missing menu | User role lacks the permission; route-level enforcement is uneven | Check role and permissions in Users; compare with a working colleague on the same role |
+| Wrong facility data or empty lists | Active facility selected at login or switched in session | Confirm facility with the user; use the facility switcher; check facility assignment |
+| Screen slow, or several unrelated screens degrade together | No retry or timeout policy between services; one slow service stalls others | Identify the slow service by health checks; escalate with times |
+| Queue or board not updating | Realtime disabled; screens poll | Refresh; wait one polling cycle before escalating |
+| Blank or unbranded print | Letterhead readiness defect on print preview | Reload the page and reprint; if repeated, escalate with document type |
+| Planned downtime | Maintenance window feature exists but is off by default | Enable through maintenance.json in the served site root, no rebuild needed |
+
+---
+
+## 29. Technical support runbook: module playbooks
+
+### 1. Reception and Registration
+
+**Services:** reception-service (8004); core-service for auth and tenancy; finance-service for billing; SHA integration for eligibility. **Verdict (audit):** Working, the most complete module.
+
+| Symptom | Likely cause | First response |
+|---|---|---|
+| Cannot save a new patient | Validation failure, or reception-service unavailable | Search first for an existing record; read the on-screen message; check reception health |
+| Duplicate patient records | Registration without searching the master index | Escalate to the data owner for a merge decision; do not delete |
+| Patient not in the department queue after check-in | Wrong destination chosen, or board still polling | Confirm the visit exists and its destination; refresh the queue |
+| Scheme or insurer not applied downstream | Patient insurance assignment missing or inactive | Check the patient's insurance and scheme assignment; correct at the desk |
+| Old visits left open | Auto-checkout of stale visits not running | Escalate; confirm the scheduled auto-checkout is running |
+| SHA eligibility lookup fails | See runbook chapter 21 in section 29 | Follow the SHA playbook |
+
+**Known limitations:** The reception test suite is effectively non-functional (198 of 229 tests errored), so the patient master index, where a defect propagates into every bill and claim, is untested in practice. After every reception release, smoke test: register, check in, appear in queue, print chit. One migration reads erp_core_db directly, so databases must be co-located.
+
+**Escalate:** Reception engineering. P1 if no check-ins are possible at a facility.
+
+### 2. Point of Sale (POS)
+
+**Services:** inventory-service (sales); core-service (POS config, devices, shifts, cafeteria POS). **Verdict:** Working.
+
+| Symptom | Likely cause | First response |
+|---|---|---|
+| Terminal will not open | Device or station not registered, or no open shift | Check device and station registration in Setup; open a shift |
+| Item cannot be sold | No stock in the station's store, or product inactive | Check stock and store binding (runbook chapter 20 in section 29) |
+| Item asks for a serial number at the POS | Track Serial Numbers is ticked on the product | Untick it on the product and re-add the line (see section 26) |
+| Shift will not close or does not balance | Open or held sales, or cash count mismatch | List held sales; resolve or void; recount before closing |
+| Walk-in customer cannot be selected | Walk-in setting off for the facility | Check the walk-in enable setting |
+| Receipt without branding | Receipt branding not configured | Check receipt branding in Setup |
+
+**Known limitations:** Pharmacy POS checkout calls the evaluation service to mark dispensed items; if dispensing and payment disagree, check both services (runbook chapter 5 in section 29).
+
+**Escalate:** Inventory engineering; finance for cash-up disputes.
+
+### 3. Triage
+
+**Services:** patient-evaluation-service (RequireTriage gate); frontend triage gate. **Verdict:** Working, tested on both sides.
+
+| Symptom | Likely cause | First response |
+|---|---|---|
+| Clinician cannot prescribe, order or document | **By design:** triage not yet recorded blocks downstream clinical actions | Confirm vitals were saved for this visit; have triage complete and save |
+| Vital flagged abnormal unexpectedly | Age-banded reference ranges applied | Confirm patient age and the unit entered; ranges are configured per age band |
+| Triage entries lost | Draft autosave not flushed | Reopen the visit; drafts autosave; check connection |
+| Queue order looks wrong | Queue is triage-ordered | Explain the ordering; check recorded priority |
+
+**Known limitations:** patient-evaluation-service has the thinnest test coverage in the platform (0.89 tests per controller). Treat every release touching triage as untested and smoke test.
+
+**Escalate:** Clinical systems engineering.
+
+### 4. Consultation Room
+
+**Services:** patient-evaluation-service; DHA terminology service (ICD-11, ICHI, LOINC). **Verdict:** Working overall; clinician notes and printing partially working.
+
+| Symptom | Likely cause | First response |
+|---|---|---|
+| Clinician notes misbehave (gate, save, draft) | Known defect: the clinician notes gate test is failing | Capture visit and note type; reload to recover the draft; escalate |
+| ICD-11 or procedure code search empty | Terminology sync from DHA not run or failed | Escalate; the sync can be re-run |
+| Specialty form (dental, ENT, ortho) not visible | Module not enabled for the hospital | Check module toggles in Setup (runbook chapter 23 in section 29) |
+| Referral or clinical document prints blank or unbranded | Letterhead readiness idempotency defect | Reload and reprint; escalate if repeated |
+| Follow-up date not appearing | TCA period calculation or follow-up not saved | Check the follow-up record on the visit |
+
+**Known limitations:** Letterhead print readiness is a documented failing test and can cause a double-resolve and an unbranded or blank print. Disease flagging (IDSR) and MOH 705 variations are in place; report problems with them as P2.
+
+**Escalate:** Clinical systems engineering.
+
+### 5. Pharmacy
+
+**Services:** patient-evaluation-service (prescribing, dispensing); inventory-service (stock, reservation); finance-service (billing). **Verdict:** Working; pharmacy board tabs have a failing test.
+
+| Symptom | Likely cause | First response |
+|---|---|---|
+| Cannot dispense | Dispense payment gate: bill unpaid | Check payment status in Finance; direct patient to the cashier |
+| Dispensing from the wrong store | Operating store session bound to the login token | Re-select the dispensing store, or log out and in |
+| Drug not found or quantity wrong | Catalogue or quantity calculation, or no stock | Check product, packing and stock (runbook chapter 20 in section 29) |
+| Dispensed but not billed, or billed but not dispensed | The prescribe, reserve, dispense, bill loop spans three services and a callback failed | Check the visit in evaluation, inventory and finance; escalate with the visit id |
+| Drug label will not print or wrong template | Per-drug, per-organisation label template | Check the label template for that drug and organisation |
+| Pharmacy board tabs behave oddly | Known failing frontend test | Capture the tab and action; escalate |
+
+**Known limitations:** SHA e-prescriptions are supported (runbook chapter 21 in section 29). Adverse drug reactions are recorded in the same module.
+
+**Escalate:** Clinical systems engineering; inventory engineering for stock.
+
+### 6. Laboratory
+
+**Services:** patient-evaluation-service; finance-service (billing callback); reports-service (turnaround time). **Verdict:** Working, the strongest clinical sub-module.
+
+| Symptom | Likely cause | First response |
+|---|---|---|
+| Request not reaching the lab worklist | Unpaid or unbilled request, or wrong destination | Check billing status; check the request destination |
+| Analyser results not arriving or showing wrong tests | Analyser code mapping missing or incorrect | Open the machine and map codes in Setup |
+| Reference range missing or wrong | Bio reference ranges not configured or imported | Check the range for age and sex; re-import the CSV |
+| Critical value not escalating | Critical value definition missing | Check critical value configuration |
+| Result cannot be amended | Amend and withdraw have separate permissions from creating an order | Check the user's permissions |
+| Walk-in request fails | No-visit route group | Confirm walk-in lab is enabled; capture the error |
+| Turnaround report empty | Reports service failure | See runbook chapter 24 in section 29 |
+| Test has no subtests or template | Lab test template not set up | Set up the template (see section 26) |
+
+**Known limitations:** MOH 405 is generated from the register engine (runbook chapter 24 in section 29).
+
+**Escalate:** Clinical systems engineering.
+
+### 7. Radiology
+
+**Services:** patient-evaluation-service (imaging as a destination in the investigation pipeline). **Verdict:** Partially working.
+
+| Symptom | Likely cause | First response |
+|---|---|---|
+| User asks for images or a viewer | **No PACS or DICOM integration and no image store** | Explain the limitation; reports are text only |
+| Approval of an ultrasound or imaging report fails | Documented open defects in the radiology approval path | Capture the order and approver; escalate; the defects are catalogued in two issue documents |
+| Card payment for imaging fails | Documented card payment defects | Take payment by another method; escalate |
+| Order not on the radiology worklist | Destination or billing status | Check destination and payment |
+
+**Known limitations:** Only ophthalmology has an image store. Do not promise imaging storage.
+
+**Escalate:** Clinical systems engineering; finance engineering for card payments.
+
+### 8. Inpatient (admissions, wards, nursing, discharge)
+
+**Services:** inpatient-service (8008); patient-evaluation-service; finance-service. **Verdict:** Working, with the WHO Labour Care Guide a standout.
+
+| Symptom | Likely cause | First response |
+|---|---|---|
+| Cannot admit | No bed available or bed type and ward charge not configured | Check beds, bed types and ward charges in Setup |
+| Admission authorisation quote differs | The authorisation modal re-quotes the quote taken when the request was raised | Review the re-quoted amount with the clinician before authorising |
+| Admission attributed to the wrong entity | Known hazard: an admission request path falls back to entity 1 | Verify organisation and facility on the record; escalate any mismatch immediately |
+| Charge sheet or invoice totals look wrong | Charges, rebates or interim invoices | Compare the charge sheet with finance; escalate with admission id |
+| Discharge blocked | Discharge request not approved, or unsettled bill | Check discharge request status and the bill |
+| Background tasks not running | inpatient-service has no queue configuration | Escalate; confirm a queue worker exists |
+| Labour Care Guide alert not showing | Alert layer or episode not started | Confirm the labour episode is open; capture the observations |
+
+**Known limitations:** The inpatient test suite did not complete in the audit window and must be treated as unverified. MCCOD (cause of death certificate) is generated from this module.
+
+**Escalate:** Inpatient engineering. P1 for any suspected record misattribution.
+
+### 9. Antenatal Care (ANC)
+
+**Services:** patient-evaluation-service (MCH registers and schedules). **Verdict:** Working. The visit schedule is gestation-driven, not fixed-interval.
+
+| Symptom | Likely cause | First response |
+|---|---|---|
+| Patient not in the Enroll to ANC queue | LMP or EDD not captured | Check LMP and EDD on the visit; correct and save |
+| ANC visit dates look wrong | Schedule calculated from gestational age | Verify LMP and EDD first; the schedule follows them |
+| ANC profile, obstetric history or examination will not save | Validation or service fault | Capture the field and message; check patient-evaluation health |
+| MOH 333 register blank or wrong | Register engine output depends on recorded ANC data | Confirm the period and facility filters; see runbook chapter 24 in section 29 |
+| Labour episode needed | Labour is handled in inpatient | Use the Labour Care Guide (runbook chapter 8 in section 29) |
+
+**Known limitations:** MOH 333 is produced by the shared register engine. Pregnancy dating and family planning methods are unit tested.
+
+**Escalate:** Clinical systems engineering.
+
+### 10. Child Welfare Clinic (CWC)
+
+**Services:** patient-evaluation-service. **Verdict:** Working.
+
+| Symptom | Likely cause | First response |
+|---|---|---|
+| Child cannot be enrolled | Date of birth or guardian details missing | Check date of birth and guardian on the patient record |
+| Growth monitoring schedule wrong | Schedule follows the child's age | Confirm date of birth; correct and re-open |
+| Immunisation not appearing in MOH 510 | Vaccination not recorded in the visit | Check the vaccination entry and date; see runbook chapter 24 in section 29 |
+| CWC register (MOH 511) incomplete | Register engine depends on recorded data | Check filters and period |
+| Age group or family planning option missing | Age group or method configuration | Check age groups in Setup |
+
+**Known limitations:** The MOH 405, 510 and 511 pages are thin wrappers over the shared register engine, so a register fault affects all of them together.
+
+**Escalate:** Clinical systems engineering.
+
+### 11. Postnatal Care (PNC)
+
+**Services:** patient-evaluation-service; inpatient-service for the inpatient postnatal record. **Verdict:** Working.
+
+| Symptom | Likely cause | First response |
+|---|---|---|
+| Mother not in PNC enrolment | Delivery not recorded or not linked | Confirm the delivery record and enrol manually if needed |
+| PNC visit schedule wrong | Schedule calculated from the postnatal date | Check the recorded delivery date |
+| Postnatal assessment will not save | Validation or service fault | Capture the field and message; escalate |
+| Newborn record missing | Newborn recorded through the labour record | Check the labour episode in inpatient |
+
+**Known limitations:** Inpatient postnatal notes and outpatient PNC are separate records. Confirm which the user means before troubleshooting.
+
+**Escalate:** Clinical systems engineering.
+
+### 12. Dental
+
+**Services:** patient-evaluation-service (extension module, 6 controllers). **Verdict:** Working.
+
+| Symptom | Likely cause | First response |
+|---|---|---|
+| Dental forms not visible | Module not enabled for this hospital | Check module toggles in Setup (runbook chapter 23 in section 29) |
+| Tooth chart or periodontal chart will not save | Service fault or validation | Capture the tooth and action; check health |
+| Insurance breakdown wrong | Dental insurance calculation engine uses scheme pricing | Verify scheme pricing and exclusions in Setup |
+| Dental claim not submitting | Claim depends on insurer and scheme setup | Check the claim record and scheme; escalate |
+| Clearance for a procedure missing | Fitness clearance not recorded | Check the clearance form on the visit |
+
+**Known limitations:** The dental insurance engine is specific to this module; pricing disputes are usually data, not code.
+
+**Escalate:** Clinical systems engineering.
+
+### 13. Ear, Nose and Throat (ENT)
+
+**Services:** patient-evaluation-service (21 controllers). **Verdict:** Working, the deepest specialty build.
+
+| Symptom | Likely cause | First response |
+|---|---|---|
+| ENT forms not visible | Module not enabled | Check module toggles in Setup |
+| Audiogram or tympanometry will not save | Service fault or validation | Capture the form and values; escalate |
+| Body region selector misbehaves | Frontend helper fault | Capture browser and steps; escalate |
+| Consent or pre-op form missing | Form not part of the visit workflow | Check the visit's ENT sections |
+
+**Known limitations:** ENT covers intake through procedure record. Orthopaedics follows the same extension pattern and the same playbook.
+
+**Escalate:** Clinical systems engineering.
+
+### 14. Optical (Ophthalmology)
+
+**Services:** patient-evaluation-service (refraction, notes, images). **Verdict:** Partially working.
+
+| Symptom | Likely cause | First response |
+|---|---|---|
+| Counselling section empty or does nothing | **Stub:** ophthalmology counselling is not implemented and returns empty | Explain the limitation; record counselling in the notes instead |
+| Eyewear prescription missing pupillary distance | Stored as JSON in the refraction record | Check the refraction record; re-enter |
+| Eye images missing | Ophthalmic image controller is the only image store | Re-upload; confirm file type |
+| Slit-lamp exam not saving | Service fault | Capture the exam and error; escalate |
+
+**Known limitations:** Counselling is a documented stub. Do not tell users it is working.
+
+**Escalate:** Clinical systems engineering.
+
+### 15. Renal (Dialysis)
+
+**Services:** dialysis-service (8010). Missing from docker-compose.yml. **Verdict:** Working; realtime off.
+
+| Symptom | Likely cause | First response |
+|---|---|---|
+| Dialysis screens fail after a rebuild | Service not started: absent from compose | Start dialysis-service and check its health endpoint |
+| Dialysis floor board not updating | Realtime disabled; the floor polls | Refresh; wait one polling cycle |
+| Session will not start | Chair, machine or schedule not assigned | Check chair, machine and schedule for the patient |
+| Machine readings out of range | Configured machine ranges | Check range configuration; confirm clinical entry |
+| Session medication or consumable not saving | Service fault | Capture the session and error; escalate |
+| Deposit or charge mismatch | Dialysis finance mirrors into finance-service | Compare dialysis and finance records |
+| Queue or background work not running | No queue configuration in this service | Escalate |
+
+**Known limitations:** The test suite cannot run because a migration defect breaks every test (109 of 114 error). Treat every release as untested. Setup for renal sits under core setup (14 screens).
+
+**Escalate:** Renal engineering.
+
+### 16. Oncology
+
+**Services:** oncology-service (8011) plus an oncology namespace in patient-evaluation-service. Missing from docker-compose.yml. **Verdict:** Working; the suite is clean (111 tests).
+
+| Symptom | Likely cause | First response |
+|---|---|---|
+| Cannot open a cycle or administer a drug (HTTP 422 with a list of checks) | **By design:** a safety gate failed | Read the listed checks with the clinician; resolve each; never bypass |
+| Two-person verification will not complete | Second verifier lacks the dedicated permission | Check the permission of the second user |
+| Observations, vitals or notes blocked | Should never happen: gates must not block these | Treat as a defect; P1 escalation |
+| Wrong behaviour on benefit, MDT, summary or screening | Logic lives in two services with overlapping controller names | State which service and screen; escalate with both |
+| Service down after a rebuild | Absent from compose | Start it; check health |
+
+**Known limitations:** The backend owns every clinical calculation, so never advise manual dose workarounds. Oncology is not in CI's test list.
+
+**Escalate:** Oncology engineering. P1 for any gate that blocks documentation or fails to block administration.
+
+### 17. Psychiatry
+
+**Services:** psychiatry-service (8014). **Verdict:** Working; the benchmark service (265 tests pass).
+
+| Symptom | Likely cause | First response |
+|---|---|---|
+| Access refused to a patient's record | **By design:** a per-record policy decides and logs every refusal | Confirm the user's clinical relationship and role; do not grant access on request |
+| Emergency access needed | Break-glass: scoped to one patient, time-limited, reviewed | Use break-glass with a reason a reviewer can act on |
+| Signed form cannot be edited | **By design:** signed forms are append-only, enforced by database triggers | Correct through the correction workflow, not by editing |
+| Detention or admission decision cannot be set | Decisions use action endpoints (sign, decide, accept, escalate) | Use the action buttons |
+| Care plan version looks wrong | Care plans are versioned | Open the version history |
+| Access log request | Access log screen per patient | Provide only through the governance process |
+
+**Known limitations:** Psychiatry is not in CI's test loop. Its tenant context file carries a docblock that describes oncology; this is harmless drift.
+
+**Escalate:** Psychiatry engineering and the governance lead for any access dispute.
+
+### 18. Theatre
+
+**Services:** theatre-service (8007). **Verdict:** Working.
+
+| Symptom | Likely cause | First response |
+|---|---|---|
+| Cannot book a theatre | Theatre or type not configured, or slot taken | Check theatres, types and the availability endpoint |
+| Booking awaiting approval | Booking approval step | Route to the approver |
+| Pre-operative check will not complete | Doctor, nurse and anaesthetist each sign separately, by design | Identify which role has not signed |
+| WHO checklist incomplete | Checklist stage not signed | Complete the missing stage |
+| Deposit or daily charge mismatch | Theatre finance mirrors into finance-service | Compare theatre and finance records |
+| Cataract or ICL discharge will not print | Specialty print template | Reload; capture the template; escalate |
+
+**Known limitations:** 73 of 87 tests are broken. Two of those auth tests can never pass because the test harness authenticates every request; this is a test defect, not a production bypass. Treat every release as untested.
+
+**Escalate:** Theatre engineering.
+
+### 19. Finance
+
+**Services:** finance-service (8002); core-service (insurance master data, POS shifts); inventory-service (supplier invoices). **Verdict:** Core ledger, billing, cashiering and insurance working; refunds, some reports and Dynamics sync not working.
+
+| Symptom | Likely cause | First response |
+|---|---|---|
+| Refund fails with a generic server error | **Not implemented:** the refund path throws an exception | Do not retry. Use a credit note for the accounting entry and raise the cash return with the finance manager; escalate |
+| Cash revenue, outstanding invoices or reconciliation report is empty | **Stubs:** these three return HTTP 200 with empty data, so empty does not mean no revenue | Tell finance not to rely on them; use cashier collections, revenue summary or day close |
+| Company statement or voucher points wrong | Placeholder implementations | Explain the limitation; escalate for manual statement |
+| Card payment fails | Documented card payment defects | Take payment by another method; escalate |
+| M-Pesa or PesaPal payment not reflected | Provider callback or reference mismatch | Check the transaction reference; escalate with the reference |
+| Dynamics sync of items or receipts fails | Two named operations are not implemented | Escalate; do not promise sync |
+| Invoice and ledger totals disagree | Multi-step money operations are not demonstrably atomic (11 of 88 controllers use transactions) | Freeze further edits to that invoice; escalate with invoice id |
+| Amount rejected or truncated on one screen only | Money columns have inconsistent precision across tables | Capture the amount and screen; escalate |
+| Split bill or payer change wrong | Payer split settings | Check invoice payers and scheme on the invoice |
+| Cashier cannot close the day | Open shift or unreconciled payments | Check shift status and unposted payments |
+
+**Known limitations:** 162 of 221 finance tests error, so finance releases are effectively untested. Treat any invoice or payment defect as high priority and capture evidence before correcting anything.
+
+**Escalate:** Finance engineering. P1 for any case where money was taken and not recorded.
+
+### 20. Inventory and Procurement
+
+**Services:** inventory-service (8005). **Verdict:** Working. The only service tested against MySQL, as production is.
+
+| Symptom | Likely cause | First response |
+|---|---|---|
+| Product not found or duplicate | Catalogue, variant or packing configuration | Search by name and variant; check packing |
+| Stock level wrong | Unposted GRN, transfer, adjustment or stock take | Review stock movements for the product and store |
+| Expired or near-expiry stock | Batch and expiry tracking | Check the batch; use stock expiry report |
+| Purchase order cannot be approved | Approval chain not configured or approver missing | Check approval levels in Setup |
+| Requisition stuck | Requisition approval chain | Find the pending approval level |
+| GRN will not post | Missing PO or batch details | Check PO status and required batch fields |
+| Supplier invoice or payment missing | Supplier invoices feed from GRN or direct order receipt | Check the GRN is received |
+| Product not mapped for SHA | DHA product mapping missing | Check the DHA product mapping |
+| Satellite store dispensing wrong stock | Store session | See runbook chapter 5 in section 29 |
+
+**Known limitations:** Stock adjustments can also be made by clinical dispensing roles; check who adjusted before assuming an error. The top-level requisitions route is a near-empty shell: real screens are under inventory procurement. A FieldMatch integration lives here and is documented in the FieldMatch guides.
+
+**Escalate:** Inventory engineering.
+
+### 21. SHA (Social Health Authority and DHA)
+
+**Services:** patient-evaluation-service (SHA controllers); core-service (ShaHieService, logs); reception-service (eligibility); finance-service (claim build); integration-service (tenant toggles). **Verdict:** Working, the most commercially critical module: it is the hospital's revenue.
+
+| Symptom | Likely cause | First response |
+|---|---|---|
+| Member eligibility lookup fails | DHA or SHA unavailable, credentials, or SHA switched off | Check the global SHA switch and tenant toggle; check the HIE transaction log |
+| Biometric enrolment or verification fails | Reader hardware or driver, or SHA inventory mismatch | Check the fingerprint reader and local hardware server; retry finger by finger |
+| Pre-authorisation rejected or missing | Elective service needs pre-authorisation | Check the pre-authorisation record and diagnosis |
+| Claim will not open or build | Claim opens after check-in; lines or documents missing | Check the visit check-in, claim lines and required documents |
+| Claim rejected for documents | System printouts map to required DOC codes (for example DOC-008, 012, 015) | Check the required document codes are attached |
+| Claim stuck in a status | Claim tracker states ST-01 to ST-12 | Look up the state; check the callback log |
+| Status updates not arriving | DHA callback surface | Open the callbacks dashboard; check delivery records |
+| ICD-11, ICHI or LOINC search empty | Terminology sync | Escalate to re-run the sync |
+| Emergency claim | ECCIF scenarios 7 and 8 | Follow the ECCIF procedure |
+| Shared Health Record bundle fails | SHR workbench submission | Check the submission in the SHR workbench; escalate with visit id |
+| Unbilled lines need moving from insurer to patient | Selective line transfer exists | Use the transfer function |
+
+**Known limitations:** The callback endpoints are unauthenticated by necessity and not rate limited, so an unusual burst of callbacks should be reported to security. Every HIE exchange is logged: the HIE transactions report and the callbacks dashboard are your first evidence. SHA knowledge is concentrated in a small team, so escalate early.
+
+**Escalate:** SHA integration team. P1 if claims cannot be submitted at a facility.
+
+### 22. Users and Staff
+
+**Services:** core-service (8001). **Verdict:** Working, with authorisation gaps.
+
+| Symptom | Likely cause | First response |
+|---|---|---|
+| User cannot log in | Wrong password, lockout, inactive account, or wrong facility | Check active status and login history; the lockout is per account and per device |
+| Locked out after failed attempts | Per-account, per-device lockout | Wait for the lockout window or reset; do not share passwords |
+| Password reset email or OTP not arriving | Mail or SMS delivery | Check the mail or SMS service; use forced reset if needed |
+| Two-factor code not received | Resend 2FA | Resend; check contact details |
+| User sees the wrong menu or lacks access | Role and permission assignment | Compare roles and permissions with a working colleague |
+| User sees no facility or the wrong one | Facility and region assignment | Check facility and region facilities on the user |
+| Staff signature missing on documents | User signature not captured | Capture the signature on the user's profile |
+| Practitioner not found in SHA | Practitioner record or specialty | Check employee category and speciality |
+| Generate API credential returns success but the key does not work | **Stub:** the key is not stored | Do not issue it; escalate |
+
+**Known limitations:** Route-level permission coverage in core-service is 3%, and the facility access check is disabled, so never assume a permission screen alone confines a user. Access tokens last 365 days by default: for a leaving or compromised user, deactivate the account, do not wait for expiry. Core has 102 broken tests of 241. The tenant-token second factor exists but defaults to off.
+
+**Escalate:** Core engineering. Security for suspected account compromise.
+
+### 23. Setup
+
+**Services:** core-service (44 setup pages, business setup wizard); every service consumes the settings. **Verdict:** Working.
+
+| Symptom | Likely cause | First response |
+|---|---|---|
+| A module or specialty is missing for a hospital | Module toggled off | Check Modules in Setup |
+| Setting change not taking effect | Settings cache, lock, or wrong scope | Check the setting scope (organisation or facility) and any lock; reload |
+| New hospital catalogue empty | Catalogue not replicated or reference data not seeded | Run catalogue replication or reference data seeding; check the seeding run status |
+| Procedure or price import fails | CSV format | Check against the business setup CSV guide; correct and re-import |
+| Scheme price missing | Scheme pricing or exclusions | Check scheme pricing and exclusions |
+| Destination or purpose of visit missing | Destination configuration | Check destinations and purpose of visit |
+| Machine, bed, ward, charge or discharge type missing | Setup screens in each module | Use that module's setup screens |
+| Branding wrong on prints | Organisation branding or letterhead | Check organisation branding versions |
+| Audit question | Audit trail | Use the audit trail screen |
+| Planned downtime | Maintenance window | Enable via maintenance.json in the served site root |
+
+**Known limitations:** Catalogue replication copies from a reference tenant and is the standard onboarding route. A mistake in settings affects every module that reads them, so record the before and after for every change.
+
+**Escalate:** Core engineering; the deployment lead for onboarding.
+
+### 24. Reports
+
+**Services:** reports-service (8009), a definition engine that fans out to finance, inventory and settings; the frontend renders any catalogued report generically. **Verdict:** Partially working.
+
+| Symptom | Likely cause | First response |
+|---|---|---|
+| Report returns 401 or fails | Known: 21 failing report tests with 401 where 200 is expected, not a SQLite issue | Capture the report, filters and user; check the user's report permissions; escalate |
+| Cashier cannot see finance reports | Reports accept any of several permission names | Check reports and financial reports permissions |
+| Report empty when data should exist | Wrong period or facility, or a stub in finance | Check filters; see runbook chapter 19 in section 29 for stubbed cash reports |
+| MOH 333, 405, 510, 511, 105 or 717 wrong | Shared register engine | Check period, facility and underlying data |
+| Lab turnaround or SHA reports empty | Source service failure | Check the source service health |
+| Report slow or timing out | Fan-out across services | Narrow the period; retry; escalate with times |
+| Needed report not in the catalogue | Report definitions live in the service layer | Raise a request with module and key |
+
+**Known limitations:** A failure mid fan-out is hard to diagnose because logs are local per service. Always record the exact report key and filters.
+
+**Escalate:** Reports engineering.
+
+---
+
+## 30. Technical support runbook: control plane (manage) incidents
+
+The vendor control plane provisions hospitals into the HMIS. It is separate from the HMIS but a fault there blocks onboarding.
+
+| Symptom | Likely cause | First response |
+|---|---|---|
+| Hospital provisioning fails | Partial provisioning with core-service | Use retry provisioning; do not recreate the hospital |
+| Administrator already exists in core | Duplicate account detection | Use the link to existing core account option |
+| Hospital admin never received credentials | Invite or credentials email | Resend credentials |
+| Document upload fails or is slow | Deployment documents upload limits | Capture file type and size; escalate |
+| Scheduled nudges or recurring test runs stop | Cron or scheduler stopped; both jobs fail silently | Check the host scheduler is running |
+| Control plane unreachable | No health endpoint exists | Test by attempting a login; escalate |
+
+**Security rules for support:** Never share or paste values from environment backup files. Do not create hospital administrators outside an approved deployment. Report any unexpected hospital or administrator creation immediately.
+
+---
+
+## 31. Technical support runbook: post-release smoke test
+
+Because CI does not gate deployment and most suites are red, run this after every release that touches the module:
+
+1. Log in as a test user and switch facility.
+2. Register a TEST patient, check in, and confirm the queue entry.
+3. Record triage; consult; order a lab test; enter and review the result.
+4. Prescribe, pay, dispense, and confirm stock reduced and the bill is correct.
+5. Admit, record a nursing note, discharge.
+6. Raise an invoice, take a cash payment, close the day.
+7. Open one report and one MOH register.
+8. For SHA tenants: eligibility lookup and claim build for a test visit.
+
+Use TEST-prefixed patient names so no real record is touched.
+
+---
+
+## 32. Technical support runbook: escalation contacts and known gaps
+
+### Escalation contacts
+
+Contacts and channels are still to be completed for: core, users and setup; reception and registration; clinical systems (evaluation); inpatient, theatre, renal, oncology, psychiatry and morgue; finance; inventory; SHA integration; reports; security; control plane (manage).
+
+### Gaps this runbook exposes
+
+- Morgue (mortuary) is in the platform but has no chapter in this runbook.
+- There is no central logging or uptime monitoring, so the procedures in section 28 rely on manual checks.
+- Refunds, three cash reports, Dynamics sync, ophthalmology counselling and PACS are not implemented. Support must not promise them.
+- Escalation contacts and response targets are placeholders and need agreeing before this runbook is issued.

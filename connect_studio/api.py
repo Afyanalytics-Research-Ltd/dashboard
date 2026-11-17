@@ -19,10 +19,10 @@ from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
-from . import crypto, services
+from . import crypto, services, storage
 from .engine import connectors, document, llm, rules, sync as sync_engine
 from .engine.snapshot import diff as snapshot_diff
-from .models import Connection, Job, Mapping, Snapshot, Source, SourceFile
+from .models import ChunkedUpload, Connection, Job, Mapping, Snapshot, Source, SourceFile
 
 logger = logging.getLogger(__name__)
 MAX_UPLOAD = 100 * 1024 * 1024  # nginx client_max_body_size is 100M — larger requests never reach Django
@@ -215,10 +215,10 @@ def source_detail(request, pk):
     if request.method == "DELETE":
         if Connection.objects.filter(destination=s).exists():
             raise ApiError("This source is the destination of a sync connection — delete that first.", 409, "in_use")
-        for f in s.files.all():
-            f.file.delete(save=False)
+        _not_busy(s)
+        freed = services.purge_source(s)   # uploads (S3 / disk), unfinished uploads, cached restores, leftovers
         s.delete()
-        return ok({"deleted": pk})
+        return ok({"deleted": pk, "freed_bytes": freed})
     data = body(request)
     if "name" in data:
         s.name = (data["name"] or s.name)[:200]
@@ -239,41 +239,149 @@ def source_detail(request, pk):
 @endpoint("POST")
 def source_files(request, pk):
     s = get_object_or_404(Source, pk=pk)
+    _not_busy(s)
     spec = connectors.get_spec(s.kind)
     uploaded = request.FILES.getlist("files") or request.FILES.getlist("file")
     if not uploaded:
         raise ApiError("No files in the upload.")
+    for up in uploaded:
+        _check_upload_name(spec, up.name)
+        if up.size > MAX_UPLOAD:
+            raise ApiError(f"{up.name} is larger than {MAX_UPLOAD // (1024 * 1024)} MB — the studio uploads big files "
+                           f"in chunks; reload the page if you see this.")
     if not spec.multi_upload:
         for f in s.files.all():
-            f.file.delete(save=False)
-            f.delete()
+            services.delete_file(f)
         uploaded = uploaded[:1]
     added = []
     for up in uploaded:
-        ext = Path(up.name).suffix.lower()
-        if spec.uploads and ext not in spec.uploads:
-            raise ApiError(f"{up.name}: {spec.label} accepts {', '.join(spec.uploads)}")
-        if up.size > MAX_UPLOAD:
-            raise ApiError(f"{up.name} is larger than {MAX_UPLOAD // (1024 * 1024)} MB.")
-        sf = SourceFile(source=s, original_name=up.name[:300], size=up.size)
-        sf.file.save(up.name, up, save=True)
+        if storage.enabled():           # straight to S3 — nothing kept on this server
+            key = storage.upload_key(s.pk, uuid.uuid4().hex, up.name)
+            storage.put_fileobj(up, key)
+            sf = SourceFile.objects.create(source=s, storage="s3", key=key, original_name=up.name[:300], size=up.size)
+        else:
+            sf = SourceFile(source=s, original_name=up.name[:300], size=up.size)
+            sf.file.save(up.name, up, save=True)
         added.append(sf.id)
-    s.status = "untested" if s.status == "ok" else s.status
-    s.save(update_fields=["status", "updated_at"])
+    _files_changed(s)
     return ok({"source": services.source_dict(s, detail=True), "added": added}, status=201)
+
+
+def _check_upload_name(spec, name: str) -> None:
+    ext = Path(name).suffix.lower()
+    if spec.uploads and ext not in spec.uploads:
+        raise ApiError(f"{name}: {spec.label} accepts {', '.join(spec.uploads)}")
+
+
+def _files_changed(s: Source) -> None:
+    services.clear_work(s)              # derived data (incl. the S3 restore cache) belonged to the old uploads
+    s.status = "untested" if s.status == "ok" else s.status
+    s.config = {k: v for k, v in (s.config or {}).items() if k not in ("freed_at", "freed_files")}
+    s.save(update_fields=["status", "config", "updated_at"])
+
+
+# ─── chunked, resumable uploads (any size; each request stays small) ──────
+
+@endpoint("POST")
+def source_upload_start(request, pk):
+    """{name, size, last_modified} → the upload (new, or the unfinished one for this same file) and the chunks it
+    already has, so the browser sends only the rest."""
+    s = get_object_or_404(Source, pk=pk)
+    _not_busy(s)
+    spec = connectors.get_spec(s.kind)
+    data = body(request)
+    name, size = str(data.get("name") or "").strip(), int(data.get("size") or 0)
+    if not name:
+        raise ApiError("name is required.")
+    _check_upload_name(spec, name)
+    fingerprint = f"{name}|{size}|{data.get('last_modified') or ''}"
+    try:
+        u = services.start_upload(s, name, size, fingerprint, request.user)
+    except services.UploadError as e:
+        raise ApiError(str(e)) from None
+    except storage.StorageError as e:
+        raise ApiError(str(e), 502, "storage") from None
+    return ok({"upload": _upload_dict(u)}, status=201)
+
+
+@endpoint("PUT")
+def upload_chunk(request, uid, index):
+    """The raw bytes of chunk `index`; X-Chunk-SHA256 (hex) is checked when sent."""
+    u = get_object_or_404(ChunkedUpload, pk=uid, source__isnull=False)
+    data = request.read(u.chunk_size + 1)
+    try:
+        res = services.put_chunk(u, int(index), data, request.headers.get("X-Chunk-SHA256"))
+    except services.UploadError as e:
+        raise ApiError(str(e), 422, "chunk") from None
+    except storage.StorageError as e:
+        raise ApiError(str(e), 502, "storage") from None
+    return ok(res)
+
+
+@endpoint("POST", "DELETE")
+def upload_finish(request, uid):
+    u = get_object_or_404(ChunkedUpload, pk=uid)
+    s = u.source
+    if request.method == "DELETE":
+        services.abort_upload(u)
+        return ok({"aborted": str(uid)})
+    _not_busy(s)
+    spec = connectors.get_spec(s.kind)
+    try:
+        sf = services.finish_upload(u)
+    except services.UploadError as e:
+        raise ApiError(str(e), 409, "incomplete") from None
+    except storage.StorageError as e:
+        raise ApiError(str(e), 502, "storage") from None
+    if not spec.multi_upload:
+        for f in s.files.exclude(pk=sf.pk):
+            services.delete_file(f)
+    _files_changed(s)
+    return ok({"source": services.source_dict(s, detail=True), "added": [sf.id]}, status=201)
+
+
+def _upload_dict(u: ChunkedUpload) -> dict:
+    return {"id": str(u.id), "name": u.name, "size": u.size, "chunk_size": u.chunk_size, "total": u.total_parts,
+            "received": sorted(int(k) for k in (u.parts or {})), "storage": u.storage}
 
 
 @endpoint("DELETE")
 def source_file_delete(request, pk, fid):
     sf = get_object_or_404(SourceFile, pk=fid, source_id=pk)
-    sf.file.delete(save=False)
-    sf.delete()
+    _not_busy(sf.source)
+    source = sf.source
+    services.delete_file(sf)
+    services.clear_work(source)
     return ok({"deleted": fid})
+
+
+@endpoint("POST")
+def source_free_space(request, pk):
+    """Delete a source's uploads and everything derived from them (e.g. a restored SQL dump); snapshots and
+    mappings stay, so the migration's mapping work isn't lost."""
+    s = get_object_or_404(Source, pk=pk)
+    _not_busy(s)
+    try:
+        res = services.free_space(s)
+    except RuntimeError as e:
+        raise ApiError(str(e), 409, "busy") from None
+    s.refresh_from_db()
+    return ok({**res, "source": services.source_dict(s, detail=True)})
+
+
+def _not_busy(s: Source) -> None:
+    job = services.source_busy(s)
+    if job:
+        raise ApiError(f"Job #{job.id} ({job.get_kind_display().lower()}) is using {s.name} — wait for it to finish or "
+                       f"cancel it first.", 409, "busy")
 
 
 @endpoint("POST")
 def source_test(request, pk):
     s = get_object_or_404(Source, pk=pk)
+    if (s.config or {}).get("freed_at") and not s.files.exists() and not (s.config or {}).get("path"):
+        raise ApiError(f"This source's files were deleted on {s.config['freed_at'][:10]} to free space — its snapshots and "
+                       f"mappings were kept. Upload the file(s) again to test, extract or sync it.", 400, "freed")
     problems = connectors.validate_config(s.kind, s.config, has_files=s.files.exists(),
                                           existing_secrets={k for k, v in crypto.decrypt(s.secrets).items() if v})
     if problems:
@@ -527,12 +635,11 @@ def mapping_preview(request, pk):
     if f["kind"] == "looked up in another table" and f["rule"].get("table"):
         r = f["rule"]
         try:
-            conn = services.connector_for(m.source)
             found = {}
-            for batch in conn.read(r["table"], columns=[r["key"], r["value"]], batch_size=5000, limit=20000):
-                for row in batch:
-                    found[str(row.get(r["key"]))] = row.get(r["value"])
-            conn.close()
+            with services.opened(m.source, "preview") as conn:
+                for batch in conn.read(r["table"], columns=[r["key"], r["value"]], batch_size=5000, limit=20000):
+                    for row in batch:
+                        found[str(row.get(r["key"]))] = row.get(r["value"])
             lookups[(r["table"], r["key"], r["value"])] = found
         except Exception as e:
             note = f"Lookup preview unavailable: {str(e)[:160]}"

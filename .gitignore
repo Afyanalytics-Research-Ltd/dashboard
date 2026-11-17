@@ -181,6 +181,11 @@ celerybeat.pid
 
 # Environments
 .env
+# copies/backups of .env (e.g. .env.bak-20261111) hold secrets too; templates stay committable
+.env.*
+!.env.example
+!.env.sample
+!.env.template
 .envrc
 .venv
 env/

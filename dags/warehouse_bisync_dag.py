@@ -10,6 +10,12 @@ the matching Databend databases (HOSPITALS.<SCHEMA> <-> Databend <SCHEMA>):
     changed on both / unknown   -> keyed tables (ID/UUID/_ID): missing rows inserted both ways
                                    no key: reported as a conflict, left alone
     a copy never shrinks the target unless allow_shrink=true (it is reconciled instead)
+    append-only tables (bisync.APPEND_KEYS, e.g. patient counts by RUN_ID)
+                                -> always reconciled by that key: new rows only, never re-copied
+
+Then views, Snowflake -> Databend only (DDL, no data): missing ones created,
+changed ones replaced, each compile-checked; untranslatable views are logged
+as warnings and never fail the run.
 
 While Snowflake refuses connections (the 2026-11-10 lock / invalid JWT) the
 run is SKIPPED, not failed. State (fingerprints after the last sync):
@@ -68,6 +74,8 @@ def _snowflake_conn(database: str):
         "allow_shrink": Param(False, type="boolean", title="Allow a copy to shrink the target",
                               description="Off: a copy that would leave the target with fewer rows is reconciled instead."),
         "dry_run": Param(False, type="boolean", title="Dry run (plan only, no writes)"),
+        "sync_views": Param(True, type="boolean", title="Also create/refresh Databend views from Snowflake",
+                            description="DDL only. Views that can't be translated are logged, never fail the run."),
     },
 )
 def warehouse_bisync():
@@ -101,11 +109,14 @@ def warehouse_bisync():
             min_rows=int(os.getenv("BISYNC_BULK_MIN_ROWS", "200000")))
         try:
             report = bisync.run(sf, db, STATE_FILE, allow_shrink=bool(params.get("allow_shrink")),
-                                dry_run=bool(params.get("dry_run")), only=only, log=log.info, bulk=bulk)
+                                dry_run=bool(params.get("dry_run")), only=only, log=log.info, bulk=bulk,
+                                sync_views=bool(params.get("sync_views", True)))
         finally:
             sf_conn.close()
         for c in report["conflicts"]:
             log.warning("conflict: %s", c)
+        for v in report.get("views_failed", [])[:50]:
+            log.warning("view not on Databend: %s", v)
         if report["failed"]:
             raise RuntimeError(f"{len(report['failed'])} table(s) failed: {report['failed'][:10]}")
         return report

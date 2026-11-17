@@ -43,6 +43,7 @@ cryptography==46.0.6
 cycler==0.12.1
 daphne==4.2.3
 databricks-sdk==0.156.0
+dbatlas @ https://github.com/jordansgoodman/dbatlas/archive/6d84634cd92ed4a83b4231f8912887afb8e6b585.zip
 decorator==5.2.1
 defusedxml==0.7.1
 deprecation==2.1.0
@@ -57,6 +58,8 @@ djangorestframework_simplejwt==5.5.1
 docker==7.2.0
 docstring_parser==0.18.0
 drf-spectacular==0.28.0
+duckdb==2.0.0
+duckdb_engine==0.17.0
 dynaconf==3.3.5
 et_xmlfile==2.0.0
 evidently==0.4.36
@@ -142,6 +145,7 @@ multidict==7.2.1
 multipart==2.0.1
 mypy_extensions==1.2.0
 narwhals==2.19.0
+networkx==3.7
 nltk==3.10.4
 numpy==2.4.3
 nvidia-nccl-cu12==2.30.4
@@ -214,6 +218,7 @@ skops==0.16.0
 smmap==5.0.3
 sniffio==1.3.1
 snowflake-connector-python==4.8.0
+snowflake-sqlalchemy==1.11.1
 sortedcontainers==2.4.0
 SQLAlchemy==2.0.48
 sqlglot==30.17.0

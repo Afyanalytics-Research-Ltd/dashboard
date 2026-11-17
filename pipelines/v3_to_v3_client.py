@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import random
+import re
 import threading
 import time
 from collections import deque
@@ -33,6 +34,16 @@ MAX_PER_PAGE = 500                       # the gateway's validation cap
 # connections kept open per host: a model's POST workers and page readers
 # share them, so this bounds the useful concurrency of one client
 HTTP_POOL = int(os.getenv("V3V3_HTTP_POOL") or 96)
+
+
+_SCHEMA_ERROR_RE = re.compile(r'"sqlstate"\s*:\s*"42S(02|22)"|Base table or view not found|Unknown column '
+                              r"|Table '[^']+' doesn't exist")
+
+
+def schema_error(text: str) -> bool:
+    """V3's database is missing the model's table (42S02) or a column (42S22) — a permanent fault on V3's
+    side (a model the gateway lists but whose service DB was never migrated), not a transient 500."""
+    return bool(_SCHEMA_ERROR_RE.search(text or ""))
 
 
 class GatewayError(RuntimeError):
@@ -148,6 +159,8 @@ class V3Client:
                     self._token = None
                 continue
             if r.status_code in transient and attempt < retries:
+                if r.status_code == 500 and schema_error(r.text):
+                    return r                          # a missing table / column on V3: retrying can't fix it
                 time.sleep(wait * random.uniform(0.5, 1.5))
                 wait = min(wait * 2, 60)
                 continue

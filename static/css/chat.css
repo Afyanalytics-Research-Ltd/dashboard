@@ -28,6 +28,8 @@
   outline: none;
 }
 
+.chatbot-fab.fab-dragging { cursor: grabbing; transition: none; }
+
 .chatbot-fab:hover,
 .chatbot-fab:focus-visible {
   transform: scale(1.1);

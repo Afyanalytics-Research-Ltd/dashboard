@@ -24,6 +24,17 @@ RUN python -c "from fastembed import TextEmbedding; TextEmbedding('BAAI/bge-smal
 # Cross-encoder re-ranker for the support chatbot's retrieval (~80 MB).
 RUN python -c "from fastembed.rerank.cross_encoder import TextCrossEncoder as T; T('Xenova/ms-marco-MiniLM-L-6-v2', cache_dir='/opt/fastembed')"
 
+# pg_restore for Connect Studio's SQL-dump connector (PostgreSQL custom / tar format dumps, ~4 MB). From the
+# PostgreSQL project's apt repository: pg_restore only reads archives from its own major version or older, and
+# Debian's client lags behind the servers people dump from. After the pip / model layers, so those stay cached.
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
+    && install -d /usr/share/postgresql-common/pgdg \
+    && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+    && . /etc/os-release \
+    && echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
+    && apt-get update && apt-get install -y --no-install-recommends postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY . .
 
 CMD ["/bin/bash", "+x", "/entrypoint.sh"]

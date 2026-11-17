@@ -212,6 +212,10 @@ def v3_to_snowflake_sync():
                      sorted({m.service for m in models}))
         if not jobs:
             raise AirflowFailException("no source could be planned: " + "; ".join(problems or ["no models"]))
+        # models the gateway doesn't scope to an organisation are kept once (tenant 0), by one source per run
+        owner = synced[0]["source"] if synced else None
+        for j in jobs:
+            j["global_owner"] = owner
         return {"jobs": jobs, "problems": problems, "notes": notes, "sources": synced}
 
     @task
@@ -232,7 +236,7 @@ def v3_to_snowflake_sync():
         opts = S.SyncOptions(full_refresh=p["full_refresh"], lookback=timedelta(minutes=p["lookback_minutes"]),
                              batch_size=p["batch_size"], detect_deletes=p["detect_deletes"],
                              max_delete_fraction=p["max_delete_fraction"], page_workers=p["page_workers"],
-                             limit=p["limit"], dry_run=p["dry_run"])
+                             limit=p["limit"], dry_run=p["dry_run"], global_source=job.get("global_owner"))
         results = S.sync(job["source"], [S.parse_model(m) for m in job["models"]], opts=opts,
                          workers=p["workers"], database=database, schema=schema)
         log.info("%s\n%s", ctx["job_label"], S.summarize(results))

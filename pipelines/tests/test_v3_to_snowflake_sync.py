@@ -682,3 +682,56 @@ def test_explicit_sources_must_still_be_production_logins():
     assert [s.name for s in ok] == ["wema_prod"] and logged_in == ["wema_prod"]      # never even logged in
     assert len(problems) == 2 and all("not a production login" in p for p in problems)
     assert "coremigrate.afyaanalytics.ai" in problems[0]
+
+
+# ── models the gateway doesn't scope to an organisation ───────────────────
+
+class ScopedFake(FakeV3Client):
+    """A fake whose page-1 probe answers like prod: scoped models carry organization_id and total < table_total;
+    unscoped ones carry no organization_id and total == table_total."""
+    def __init__(self, *a, unscoped=(), **kw):
+        super().__init__(*a, **kw)
+        self.unscoped = set(unscoped)
+
+    def read_page(self, service, alias, page, per_page=500):
+        rows = self.rows(service, alias)[:per_page]
+        if (service, alias) in self.unscoped:
+            rows = [{k: v for k, v in r.items() if k != "organization_id"} for r in rows]
+            return rows, {"total": 50, "table_total": 50}
+        return rows, {"total": len(self.rows(service, alias)), "table_total": 10_000}
+
+
+RESULTS = S.Model("evaluation", "investigation_result_details")
+
+
+def test_unscoped_model_is_kept_once_under_tenant_0_by_the_owner_only():
+    rows = [{"id": i, "value": str(i), "updated_at": "2026-10-01T00:00:00Z"} for i in range(1, 6)]
+    sink = FakeSink()
+    owner = ScopedFake({("evaluation", "investigation_result_details"): rows}, organization_id=145,
+                       unscoped={("evaluation", "investigation_result_details")})
+    other = ScopedFake({("evaluation", "investigation_result_details"): rows}, organization_id=199,
+                       unscoped={("evaluation", "investigation_result_details")})
+    r1 = S.sync_model(owner, sink, RESULTS, source="aroha_prod", opts=S.SyncOptions(global_source="aroha_prod"), clock=lambda: NOW)
+    r2 = S.sync_model(other, sink, RESULTS, source="eagle_prod", opts=S.SyncOptions(global_source="aroha_prod"), clock=lambda: NOW)
+    t = RESULTS.table
+    assert r1.status == "ok" and r1.tenant_id == S.GLOBAL_TENANT and r1.inserted == 5
+    assert r2.status == "global" and r2.read == 0 and other.reads == []          # never even read
+    assert {k[0] for k in sink.tables[t]} == {S.GLOBAL_TENANT}                    # nothing under 145 / 199
+    assert (S.GLOBAL_TENANT, RESULTS.name) in sink.state and (199, RESULTS.name) not in sink.state
+    assert "1 unscoped" in S.summarize([r1, r2]) and "0 failed" in S.summarize([r1, r2])
+
+
+def test_scoped_model_still_lands_under_its_own_tenant():
+    client = ScopedFake({("reception", "patient"): [patient(1), patient(2)]}, organization_id=6)
+    sink = FakeSink()
+    r = S.sync_model(client, sink, PATIENT, source="gyno", opts=S.SyncOptions(global_source="someone_else"), clock=lambda: NOW)
+    assert r.status == "ok" and r.tenant_id == 6 and sink.live_keys(T) == {"1", "2"}
+
+
+def test_model_scope_rules():
+    c = ScopedFake({("evaluation", "visits"): [patient(1)], ("evaluation", "subprocedures"): [{"id": 1}],
+                    ("evaluation", "empty"): []}, unscoped={("evaluation", "subprocedures")})
+    assert S.model_scope(c, S.Model("evaluation", "visits")) == "tenant"
+    assert S.model_scope(c, S.Model("evaluation", "subprocedures")) == "global"
+    assert S.model_scope(c, S.Model("evaluation", "empty")) == "tenant"
+    assert S.model_scope(FakeV3Client(), PATIENT) == "tenant"                    # no probe available

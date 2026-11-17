@@ -580,6 +580,109 @@ def _schema_fields(schema, records, ref) -> list[str]:
     return list(props)[:40]
 
 
+# --------------------------------------------------------------------------- Afya V3 (model gateway)
+
+V3_SERVICES = ("core", "reception", "evaluation", "inventory", "finance", "theatre", "inpatient", "dialysis")
+_V3_ALIASES = {"patient-evaluation": "evaluation", "patient_evaluation": "evaluation"}
+_V3_HOST = re.compile(r"^https?://(" + "|".join(V3_SERVICES) + r")([a-z0-9-]*)\.([a-z0-9.-]+)(/[^?#]*)?", re.I)
+
+
+def _v3_service(text: str) -> str | None:
+    t = (text or "").lower()
+    for k, v in _V3_ALIASES.items():
+        if k in t:
+            return v
+    for s in V3_SERVICES:
+        if re.search(rf"(^|[^a-z]){s}([^a-z]|$)", t):
+            return s
+    return None
+
+
+def v3_from_postman(content: str | bytes, filename: str = "") -> dict:
+    """Read a Model Gateway Postman collection into Afya Platform (V3) connector settings.
+
+    Models in `read` requests are proposed (selected); models that only appear in copy / insert /
+    describe requests are offered unselected. Filters, tenant ids and placeholder credentials are
+    ignored: the connector reads every row of the logged-in account's organization."""
+    doc = _load(content, filename)
+    if isinstance(doc, dict) and isinstance(doc.get("collection"), dict):
+        doc = doc["collection"]
+    if not isinstance(doc, dict) or "item" not in doc:
+        raise ImportError_("Not a Postman collection (no “item”).")
+    variables = {v.get("key"): v.get("value") for v in doc.get("variable") or [] if v.get("key")}
+    found: dict[tuple[str, str], dict] = {}
+    hosts: list[str] = []
+    notes: list[str] = []
+    unknown_service = 0
+
+    def walk(items, folders):
+        nonlocal unknown_service
+        for it in items or []:
+            if isinstance(it.get("item"), list):
+                walk(it["item"], folders + [it.get("name") or ""])
+                continue
+            req = it.get("request")
+            if not isinstance(req, dict):
+                continue
+            url = req.get("url")
+            raw = url if isinstance(url, str) else (url or {}).get("raw") or ""
+            if "gateway" not in raw:
+                continue
+            text = re.sub(r'(?<!")\{\{([^{}]+)\}\}(?!")', r'"{{\1}}"', ((req.get("body") or {}).get("raw") or ""))
+            try:
+                body = json.loads(text) if text.strip() else {}
+            except ValueError:
+                continue
+            model, action = body.get("model"), str(body.get("action") or "").lower()
+            if not model or not isinstance(model, str):
+                continue
+            # service: the URL variable ({{reception_url}}), else the host, else the folder name
+            m = re.match(r"^\{\{\s*([a-z_]+?)_url\s*\}\}", raw, re.I)
+            service = _v3_service(m.group(1)) if m else None
+            resolved = VAR.sub(lambda mm: str(variables.get(mm.group(1)) or mm.group(0)), raw)
+            hm = _V3_HOST.match(resolved)
+            if hm:
+                hosts.append(resolved)
+                service = service or hm.group(1).lower()
+            service = service or _v3_service(" ".join(folders))
+            if not service:
+                unknown_service += 1
+                continue
+            entry = found.setdefault((service, model), {"service": service, "alias": model, "actions": set(),
+                                                        "names": []})
+            entry["actions"].add(action)
+            entry["names"].append(it.get("name") or "")
+
+    walk(doc.get("item"), [])
+    if not found:
+        raise ImportError_("No Model Gateway requests found (POST …/gateway with a “model” in the body).")
+    if unknown_service:
+        notes.append(f"{unknown_service} gateway request(s) skipped: their service could not be told from the URL or folder.")
+
+    # URL template: only from real afyaanalytics-style hosts (localhost dev URLs are ignored)
+    for v in variables.values():
+        if isinstance(v, str) and _V3_HOST.match(v):
+            hosts.append(v)
+    template = None
+    if hosts:
+        hm = _V3_HOST.match(hosts[0])
+        template = f"https://{{service}}{hm.group(2)}.{hm.group(3)}{(hm.group(4) or '/api/').split('/v1')[0].rstrip('/') + '/'}"
+    elif any(isinstance(v, str) and re.match(r"https?://(localhost|127\.0\.0\.1)", v) for v in variables.values()):
+        notes.append("The collection points at localhost (a dev setup) — the production URL template is kept.")
+
+    models = []
+    for (service, alias), e in sorted(found.items()):
+        reads = "read" in e["actions"]
+        models.append({"service": service, "alias": alias, "id": f"{service}:{alias}", "selected": reads,
+                       "actions": sorted(e["actions"]),
+                       "why": "read in the collection" if reads else f"only used to {', '.join(sorted(e['actions']))}"})
+    services = sorted({m["service"] for m in models}, key=V3_SERVICES.index)
+    notes.append("Filters, tenant ids and the login placeholders in the collection are not used: the connector reads "
+                 "every row of the organization your account belongs to.")
+    return {"format": "Postman · Model Gateway", "title": (doc.get("info") or {}).get("name") or "Model Gateway",
+            "models": models, "services": services, "url_template": template, "notes": notes}
+
+
 # --------------------------------------------------------------------------- AI
 
 AI_SYSTEM = """You configure a REST API source for a data-integration tool (like Airbyte's connector builder).

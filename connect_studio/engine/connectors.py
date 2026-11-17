@@ -1323,24 +1323,33 @@ class AfyaPlatformConnector(StagedConnector):
         streams = [s for s in self.streams() if not wanted or s in wanted][: o["max_tables"]]
         if not streams:
             raise ConnectorError("No models to extract.")
+        # describe first: a model this gateway doesn't have is skipped, not fatal
+        described, missing = {}, []
+        for i, s in enumerate(streams, start=1):
+            service, alias = self._catalog()[s]
+            progress(pct=2 + 28 * i / len(streams), msg=f"Describing {service}:{alias}", phase="describe")
+            try:
+                described[s] = self.describe(s)
+            except ConnectorError as e:
+                missing.append(f"{service}:{alias}")
+                progress(msg=f"{e} — skipped", level="warning")
+        if not described:
+            raise ConnectorError(f"None of the models exist on this gateway ({', '.join(missing[:8])}).")
         sampled = {}
         if o.get("profile", True) and self.cfg("sample_data", True) not in (False, "false", "0", 0):
             try:
-                base = super().discover({**o, "tables": streams}, progress=progress)
+                base = StagedConnector.discover(self, {**o, "tables": list(described)},
+                                                progress=lambda pct=None, **kw: progress(pct=None if pct is None else 30 + pct * .65, **kw))
                 sampled = {t["key"].lower(): t for t in base["tables"]}
             except ConnectorError as e:
                 progress(msg=f"Row samples unavailable ({e}) — structure only.", level="warning")
         snap = snap_mod.empty_snapshot(dialect="mysql", database=self.database_label(),
                                        extractor="Afya V3 gateway describe" + (" + dbatlas profiles" if sampled else ""))
+        if missing:
+            snap["warnings"].append(f"Not on this gateway (skipped): {', '.join(missing)}")
         rels = []
-        for i, s in enumerate(streams, start=1):
+        for s, desc in described.items():
             service, alias = self._catalog()[s]
-            progress(pct=50 + 45 * i / len(streams), msg=f"Describing {service}:{alias}", phase="describe")
-            try:
-                desc = self.describe(s)
-            except ConnectorError as e:
-                progress(msg=str(e), level="warning")
-                continue
             cols = self._v3_columns(desc)
             prof = {c["name"]: c for c in (sampled.get(s.lower()) or {}).get("columns", [])}
             known = {c["name"] for c in cols}

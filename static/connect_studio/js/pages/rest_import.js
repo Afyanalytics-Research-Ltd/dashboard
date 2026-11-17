@@ -20,6 +20,78 @@ export function streamLine(ep) {
 
 const slug = (s) => String(s || '').toLowerCase().replace(/[^0-9a-z]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 60) || 'stream';
 
+// Afya Platform (V3): a Model Gateway Postman collection → Models list (+ URL template when it names real hosts).
+export function v3ImportPanel({ form, onApplied }) {
+  const el = h('div.cs-import');
+  let result = null;
+
+  function intro() {
+    mount(el,
+      h('div.cs-import-head',
+        h('span.cs-import-icon', icon('box-arrow-in-down')),
+        h('div.cs-grow', h('div.cs-import-title', 'Import a Model Gateway Postman collection'),
+          h('div.cs-muted', 'Picks up the models the collection reads, per service — structure still comes live from describe.'))),
+      dropzone({ accept: ['.json'], multiple: false, title: 'Drop the ModelGateway …postman_collection.json',
+        sub: 'Postman v2.0 / v2.1', onFiles: ([f]) => run(f) }));
+  }
+
+  async function run(file) {
+    mount(el, h('div.cs-import-busy', h('span.spinner-border.spinner-border-sm'), h('div', h('b', `Reading ${file.name}`))));
+    try {
+      result = await api.importApi({ text: await file.text(), filename: file.name, kind: 'afya_platform' });
+      review();
+    } catch (e) { toastError(e, 'Import failed'); intro(); }
+  }
+
+  function review() {
+    const countEl = h('span');
+    const applyBtn = h('button.cs-btn.cs-btn-brand', { type: 'button', onclick: apply }, icon('magic'), 'Apply to form');
+    const drawCount = () => {
+      const n = result.models.filter((m) => m.selected).length;
+      mount(countEl, h('b', String(n)), ` of ${result.models.length} models selected`);
+      applyBtn.disabled = !n;
+    };
+    const groups = result.services.map((svc) => {
+      const ms = result.models.filter((m) => m.service === svc);
+      return h('div.cs-v3-group',
+        h('div.cs-v3-svc', svc, h('span.cs-muted', ` · ${ms.length}`)),
+        h('div.cs-chips', ms.map((m) => {
+          const chip = h('button.cs-chip.cs-v3-model', { type: 'button', class: m.selected && 'on', title: m.why,
+            onclick: () => { m.selected = !m.selected; chip.classList.toggle('on', m.selected); drawCount(); } },
+          icon(m.selected ? 'check2-square' : 'square'), m.alias);
+          chip.addEventListener('click', () => { chip.querySelector('i').className = `bi bi-${m.selected ? 'check2-square' : 'square'}`; });
+          return chip;
+        })));
+    });
+    mount(el,
+      h('div.cs-import-head',
+        h('span.cs-import-icon.ok', icon('check2-circle')),
+        h('div.cs-grow', h('div.cs-import-title', result.title), h('div.cs-muted', h('span.cs-badge.cs-badge-outline', result.format))),
+        h('button.cs-btn.cs-btn-sm.cs-btn-ghost', { type: 'button', onclick: intro }, icon('arrow-counterclockwise'), 'Another file')),
+      h('div.cs-import-facts',
+        h('div', h('span.cs-muted', 'Services'), h('b.cs-ellipsis', result.services.join(', '))),
+        h('div', h('span.cs-muted', 'URL template'), h('b.cs-ellipsis', result.url_template || 'production (kept)'))),
+      result.notes?.length ? h('details.cs-import-notes', { open: true }, h('summary', icon('info-circle'), `${result.notes.length} notes`),
+        h('ul', result.notes.map((nt) => h('li', nt)))) : null,
+      h('div.cs-muted', { style: { fontSize: '12px' } }, 'Ticked = read in the collection. Unticked models only appear in copy / insert / describe requests (reference data) — tick them to include.'),
+      h('div.cs-v3-groups', groups),
+      h('div.cs-row.cs-wrap.cs-import-foot', h('span.cs-muted', countEl), h('span.cs-grow'), applyBtn));
+    drawCount();
+  }
+
+  function apply() {
+    const chosen = result.models.filter((m) => m.selected);
+    const vals = { models: chosen.map((m) => m.id).join(', '), services: [...new Set(chosen.map((m) => m.service))].join(', ') };
+    if (result.url_template) vals.url_template = result.url_template;
+    form.set(vals);
+    toast(`${chosen.length} models filled in — add the account’s username and password, then test.`, 'success', { title: 'Imported' });
+    onApplied?.(result);
+  }
+
+  intro();
+  return el;
+}
+
 export function importPanel({ form, meta, onApplied }) {
   const aiAvailable = !!meta.llm?.available;
   let useAi = aiAvailable;

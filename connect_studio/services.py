@@ -212,9 +212,11 @@ def merge_human_decisions(old: dict, new: dict, src_columns: dict[str, set[str]]
         np_ = new_pairs.get(target)
         if not np_:
             continue
-        if op.get("made_by") == "human" and (op.get("source") is None or op.get("source") in src_columns) \
-                and np_.get("source") != op.get("source"):
-            np_.update(source=op.get("source"), made_by="human", confidence=op.get("confidence", 1.0))
+        human_choice = op.get("made_by") == "human" and (op.get("source") is None or op.get("source") in src_columns)
+        # a weaker run (AI off, AI failed) must never un-match a table the previous document had matched
+        lost_match = not np_.get("source") and op.get("source") in src_columns
+        if (human_choice or lost_match) and np_.get("source") != op.get("source"):
+            np_.update(source=op.get("source"), made_by=op.get("made_by") or "human", confidence=op.get("confidence", 1.0))
             new["fields"] = [f for f in new["fields"] if f["target_table"] != target]
             new["unmapped_fields"] = [u for u in new.get("unmapped_fields", []) if u["target_table"] != target]
             restored.add(target)

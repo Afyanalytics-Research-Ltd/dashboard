@@ -110,6 +110,21 @@ class MergeHumanDecisionsTests(SimpleTestCase):
         self.assertNotIn("bill::no", f)   # its source column no longer exists
         self.assertEqual(kept, 2)
 
+    def test_weaker_run_never_unmatches_a_table(self):
+        # prod: rules-only regenerate matched 1 of 5 tables and wiped the other 4 AI-matched ones (and their human edits)
+        old = {"tables": [{"target": "client", "source": "patients", "made_by": "ai"}, {"target": "bill", "source": "invoices", "made_by": "ai"}],
+               "fields": [{"id": "client::mrn", "target_table": "client", "target": "mrn", "source_table": "patients", "source": "patient_no",
+                           "kind": "copied", "rule": {}, "made_by": "ai"},
+                          {"id": "client::sex", "target_table": "client", "target": "sex", "source_table": "patients", "source": "gender",
+                           "kind": "codes converted", "rule": {"map": {"M": "male"}}, "made_by": "human"}]}
+        new = {"tables": [{"target": "client", "source": None, "made_by": "rule"}, {"target": "bill", "source": "invoices", "made_by": "rule"}],
+               "fields": [], "unmapped_fields": [{"target_table": "client", "target": "mrn", "reason": "target table has no source"}]}
+        services.merge_human_decisions(old, new, {"patients": {"patient_no", "gender"}, "invoices": {"no"}})
+        client = next(p for p in new["tables"] if p["target"] == "client")
+        self.assertEqual((client["source"], client["made_by"]), ("patients", "ai"))
+        self.assertEqual({f["id"] for f in new["fields"]}, {"client::mrn", "client::sex"})
+        self.assertFalse(any(u["target_table"] == "client" for u in new["unmapped_fields"]))
+
 
 class GroqJsonRetryTests(SimpleTestCase):
     def test_json_validate_failed_is_retried(self):

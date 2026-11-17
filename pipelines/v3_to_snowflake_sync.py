@@ -659,6 +659,24 @@ def resolve_sources(names: Iterable[str], client_factory=None) -> tuple[list[Sou
 # ── one model ─────────────────────────────────────────────────────────────
 
 _READ_STATUS_RE = re.compile(r" read p1: (\d{3}) ")
+GLOBAL_TENANT = 0                  # _TENANT_ID of rows the gateway doesn't scope to an organisation
+
+
+def model_scope(client, model: Model) -> str:
+    """'tenant' or 'global'. Scoped models carry organization_id and the gateway's `total` (this org's rows) is
+    below `table_total` (every org's). A model whose rows have no organization_id and whose total equals
+    table_total is returned whole to every organisation — e.g. evaluation:investigation_result_details on prod."""
+    probe = getattr(client, "read_page", None)
+    if probe is None:
+        return "tenant"
+    try:
+        rows, meta = probe(model.service, model.alias, 1, per_page=1)
+    except Exception:
+        return "tenant"                 # the full read reports the real error
+    if not rows or "organization_id" in rows[0]:
+        return "tenant"
+    total, table_total = meta.get("total"), meta.get("table_total")
+    return "global" if total is not None and table_total is not None and total == table_total else "tenant"
 
 
 def unreadable(error: Exception | str, rows_read: int) -> bool:
@@ -684,6 +702,7 @@ class SyncOptions:
     page_workers: int = 4
     limit: int = 0                 # stop after N rows read (canary): no deletes, watermark not moved
     dry_run: bool = False          # read and count only; nothing written
+    global_source: str | None = None   # the one source that keeps unscoped models (tenant 0); others skip them
 
 
 @dataclass
@@ -752,6 +771,19 @@ def sync_model(client, sink, model: Model, *, source: str, opts: SyncOptions = S
     try:
         client.token()
         tenant = res.tenant_id = client.organization_id
+        if model_scope(client, model) == "global":
+            # the gateway returns this model's WHOLE table to every organisation (no organization_id on its rows,
+            # total == table_total): storing it per tenant would copy every org's rows under each org's id. It is
+            # kept once, under GLOBAL_TENANT, by one source per run.
+            if opts.global_source and source != opts.global_source:
+                res.status, res.tenant_id = "global", GLOBAL_TENANT
+                res.note = f"not scoped to an organisation by the gateway — kept once under tenant {GLOBAL_TENANT} " \
+                           f"by {opts.global_source}"
+                res.seconds = round((clock() - started).total_seconds(), 1)
+                log.info("%-40s %s", model.name, res.note)
+                return res
+            tenant = res.tenant_id = GLOBAL_TENANT
+            res.note = f"not scoped to an organisation by the gateway — kept under tenant {GLOBAL_TENANT}"
         stored = sink.get_watermark(tenant, model.name)
         since = None if (opts.full_refresh or stored is None) else stored - opts.lookback
         res.watermark_before = _fmt(stored)
@@ -873,7 +905,9 @@ def summarize(results: list[ModelResult | dict]) -> str:
                      + (f"  NOTE {r['note']}" if r.get("note") else ""))
     failed = sum(r["status"] == "failed" for r in rows)
     refused = sum(r["status"] == "unreadable" for r in rows)
-    lines.append(f"{len(rows)} model(s), {failed} failed" + (f", {refused} unreadable on V3" if refused else "") + "; "
+    shared = sum(r["status"] == "global" for r in rows)
+    lines.append(f"{len(rows)} model(s), {failed} failed" + (f", {refused} unreadable on V3" if refused else "")
+                 + (f", {shared} unscoped (kept once under tenant {GLOBAL_TENANT})" if shared else "") + "; "
                  f"{sum(r['inserted'] for r in rows)} inserted, {sum(r['updated'] for r in rows)} updated, "
                  f"{sum(r['deleted'] for r in rows)} flagged deleted")
     return "\n".join(lines)

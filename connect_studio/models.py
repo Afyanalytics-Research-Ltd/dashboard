@@ -51,8 +51,12 @@ class Source(models.Model):
     def file_paths(self) -> list[Path]:
         return [Path(f.file.path) for f in self.files.all() if f.file]
 
+    def work_path(self) -> Path:
+        """Where derived data lives (staged samples, a restored SQL dump …) — not created here."""
+        return Path(django_settings.MEDIA_ROOT) / "connect_studio" / "work" / str(self.pk)
+
     def workdir(self) -> Path:
-        path = Path(django_settings.MEDIA_ROOT) / "connect_studio" / "work" / str(self.pk)
+        path = self.work_path()
         path.mkdir(parents=True, exist_ok=True)
         return path
 

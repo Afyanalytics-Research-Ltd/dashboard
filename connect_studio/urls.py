@@ -16,6 +16,7 @@ api_patterns = [
     path("api/sources/<int:pk>/", api.source_detail, name="api_source"),
     path("api/sources/<int:pk>/files/", api.source_files, name="api_source_files"),
     path("api/sources/<int:pk>/files/<int:fid>/", api.source_file_delete, name="api_source_file"),
+    path("api/sources/<int:pk>/free-space/", api.source_free_space, name="api_source_free_space"),
     path("api/sources/<int:pk>/test/", api.source_test, name="api_source_test"),
     path("api/sources/<int:pk>/extract/", api.source_extract, name="api_source_extract"),
     path("api/sources/<int:pk>/snapshots/", api.source_snapshots, name="api_source_snapshots"),

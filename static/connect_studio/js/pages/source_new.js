@@ -27,6 +27,13 @@ const GUIDES = {
     ['Pagination', 'Page number, offset, cursor or next-link pagination is handled for you; set the parameter names your API uses.'],
     ['Nested JSON', 'Nested objects are flattened one level (address__city); deeper values are kept as JSON text.'],
   ],
+  sql_dump: [
+    ['Any engine', 'MySQL / MariaDB (mysqldump, phpMyAdmin), PostgreSQL (pg_dump), SQL Server (SSMS ▸ Tasks ▸ Generate Scripts ▸ Schema and data), SQLite (.dump) and Oracle (SQL Developer export). The engine is detected; pick it under “Dump from” if it guesses wrong.'],
+    ['No database server needed', 'The dump is restored into a private DuckDB copy on this server. Tables, row counts, declared keys, foreign keys, comments and enum values come from the dump itself; columns get their declared types when every value fits (otherwise they stay text and the test lists why).'],
+    ['Big dumps', 'Upload .gz / .zip to stay under the 100 MB upload limit (dumps compress ~10×), or copy the file to the server and give its path. “Only these tables” restores just what you need.'],
+    ['Not accepted', 'Binary backups: SQL Server .bak and Oracle .dmp — script them out first. PostgreSQL custom-format (-Fc) dumps work only where pg_restore is installed; otherwise export with pg_dump --format=plain.'],
+    ['After the migration', 'Source ▸ “Free … MB” deletes the upload and the restored copy but keeps snapshots and mappings. Deleting the source removes everything it stored.'],
+  ],
   afya_platform: [
     ['Account = tenant', 'Log in with a V3 account of the organization you want to read (e.g. its superadmin). Every read is scoped to that account’s organization — there is no tenant id to type.'],
     ['Models', 'List them as service:alias — reception:patient, evaluation:visits, evaluation:vitals, finance:invoice. Leave blank to discover every readable model on the chosen services (a few hundred on production: slow to extract).'],

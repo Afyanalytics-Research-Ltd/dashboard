@@ -9,6 +9,7 @@ import threading
 import time
 
 from django.db import close_old_connections, transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from . import crypto, jobs
@@ -20,9 +21,86 @@ logger = logging.getLogger(__name__)
 
 # ─── connectors ───────────────────────────────────────────────────────────
 
-def connector_for(source: Source):
+def connector_for(source: Source, progress=None):
     config = {**(source.config or {}), **crypto.decrypt(source.secrets)}
-    return connectors.create(source.kind, config, files=source.file_paths(), workdir=source.workdir())
+    spec = connectors.get_spec(source.kind)
+    if spec.uploads and source.config.get("freed_at") and not source.files.exists() and not config.get("path"):
+        raise connectors.ConnectorError(
+            f"{source.name}'s files were deleted on {source.config['freed_at'][:10]} to free space — its snapshots and "
+            f"mappings were kept. Upload the file(s) again to test, extract or sync it.")
+    conn = connectors.create(source.kind, config, files=source.file_paths(), workdir=source.workdir())
+    if progress is not None and hasattr(conn, "progress_hook"):
+        conn.progress_hook = progress          # long one-off work inside test / read (a SQL dump's restore)
+    return conn
+
+
+# ─── storage: uploads + derived data on disk ──────────────────────────────
+
+def _tree_bytes(path) -> int:
+    total = 0
+    if path.exists():
+        for f in path.rglob("*"):
+            try:
+                if f.is_file():
+                    total += f.stat().st_size
+            except OSError:
+                pass
+    return total
+
+
+def source_storage(source: Source) -> dict:
+    uploads = 0
+    for f in source.files.all():
+        try:
+            uploads += os.path.getsize(f.file.path) if f.file else 0
+        except OSError:
+            pass
+    work = _tree_bytes(source.work_path())
+    return {"uploads": uploads, "work": work, "total": uploads + work, "freed_at": (source.config or {}).get("freed_at")}
+
+
+def source_busy(source: Source) -> Job | None:
+    """A queued / running job that reads or writes this source's data (then its files must stay)."""
+    return (Job.objects.filter(status__in=("queued", "running"))
+            .filter(Q(source=source) | Q(mapping__source=source) | Q(connection__destination=source))
+            .exclude(heartbeat_at__lt=timezone.now() - timezone.timedelta(minutes=5))
+            .order_by("-created_at").first())
+
+
+def clear_work(source: Source) -> int:
+    """Delete derived data (staged samples, a restored dump). It's rebuilt from the uploads when next needed."""
+    import shutil
+
+    path = source.work_path()
+    freed = _tree_bytes(path)
+    if path.exists():
+        shutil.rmtree(path, ignore_errors=True)
+    return freed
+
+
+def free_space(source: Source) -> dict:
+    """After a migration: delete the uploads and everything derived from them, keep snapshots and mappings."""
+    job = source_busy(source)
+    if job:
+        raise RuntimeError(f"Job #{job.id} ({job.get_kind_display().lower()}) is using {source.name} — wait for it or cancel it first.")
+    before = source_storage(source)
+    names = []
+    for f in source.files.all():
+        names.append(f.original_name)
+        f.file.delete(save=False)
+        f.delete()
+    clear_work(source)
+    cfg = dict(source.config or {})
+    if names:
+        cfg["freed_at"] = timezone.now().isoformat(timespec="seconds")
+        cfg["freed_files"] = names[:50]
+    Source.objects.filter(pk=source.pk).update(
+        config=cfg, status="untested" if names else source.status, updated_at=timezone.now(),
+        last_test={"ok": False, "message": f"Files deleted to free {before['total'] / 1e6:,.1f} MB — upload them again to "
+                                           f"test, extract or sync."} if names else source.last_test)
+    logger.info("connect-studio: freed %s bytes of source %s (%s file(s))", before["total"], source.pk, len(names))
+    return {"freed_bytes": before["total"], "files_deleted": names, "kept": {"snapshots": source.snapshots.count(),
+            "mappings": source.mappings_as_source.count() + source.mappings_as_target.count()}}
 
 
 def split_config(kind: str, values: dict, existing_secrets: dict | None = None) -> tuple[dict, dict]:
@@ -61,6 +139,8 @@ def source_dict(s: Source, *, detail: bool = False) -> dict:
         "files": [{"id": f.id, "name": f.original_name, "size": f.size, "uploaded_at": f.uploaded_at} for f in s.files.all()],
         "mappings": s.mappings_as_source.count() + s.mappings_as_target.count(),
     }
+    if detail:
+        d["storage"] = source_storage(s)
     if detail:
         d["config"] = s.config
         d["secrets_set"] = sorted(k for k, v in secrets.items() if v)
@@ -137,7 +217,12 @@ def run_test(source: Source, user=None) -> Job:
 
     def work(ctx):
         ctx(pct=10, msg=f"Connecting to {source.name}…", phase="connect")
-        conn = connector_for(source)
+        try:
+            conn = connector_for(source, progress=lambda **k: (ctx.check(), ctx(**k)))
+        except connectors.ConnectorError as e:
+            Source.objects.filter(pk=source.pk).update(status="error", last_error=str(e), last_tested_at=timezone.now(),
+                                                       last_test={"ok": False, "message": str(e)})
+            raise
         try:
             res = conn.test()
         except connectors.ConnectorError as e:
@@ -332,7 +417,7 @@ def run_sync(c: Connection, user=None, trigger: str = "manual") -> Job:
         if not m.source_snapshot or not m.target_snapshot or not m.document.get("fields"):
             raise ValueError("The mapping has no reviewed fields yet — generate and review it first.")
         ctx(pct=2, msg=f"{m.source.name} → {c.destination.name} · {dict(Connection.MODES)[c.mode]}", phase="connect")
-        src = connector_for(m.source)
+        src = connector_for(m.source, progress=lambda **k: (ctx.check(), ctx(**k)))
         dst = connector_for(c.destination)
         try:
             report = sync.run(source=src, destination=dst, doc=m.document, source_snap=m.source_snapshot.data,

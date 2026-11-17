@@ -41,12 +41,50 @@ templates/connect_studio/app.html
 | SQL (SQLAlchemy) | PostgreSQL, MySQL, MariaDB, SQL Server*, Oracle*, Redshift, Snowflake, SQLite, DuckDB, any SQLAlchemy URL |
 | Staged → DuckDB | Files (CSV/TSV/Excel/JSON/NDJSON/Parquet), REST API (declarative streams, auth incl. login requests, pagination, POST-body reads), Afya Extraction API |
 | Afya Platform (V3) | `{service}.afyaanalytics.ai` gateways: structure from `describe` (types, PKs, FKs, enums, comments; complete even for empty models), optional row samples for profiles. Source and target |
+| SQL dump → DuckDB | `.sql` scripts from MySQL / MariaDB, PostgreSQL, SQL Server, SQLite and Oracle — plain, `.gz` / `.bz2` / `.xz` or zipped (see below) |
 | Schema only | schema.json (many shapes), JSON Schema, SQL DDL (any sqlglot dialect), dbatlas.json, mappings.json (target side) |
 
 \* needs a driver that isn't installed here (`pyodbc` + msodbcsql18, `oracledb`). The catalog shows "driver missing".
 
 SQL connectors can also be **sync destinations**. To add a connector, call `register(ConnectorSpec(...), cls)` in
 `engine/connectors.py`. The UI builds its form from the spec: groups, advanced fields, `show_if` and secrets.
+
+### SQL dumps
+
+`engine/sqldump.py` restores a dump without its database server: it streams the script, splits statements with
+each engine's quoting rules, and loads every table into `work/<source>/dump.duckdb`. From there the source is an
+ordinary DuckDB database (test, dbatlas extraction, full-table reads for syncs).
+
+| Engine | What it reads |
+|---|---|
+| MySQL / MariaDB | mysqldump and phpMyAdmin: backtick names, `\` escapes, extended INSERTs, `/*!…*/` code comments, keys added later with `ALTER TABLE`, `DELIMITER` blocks, `_binary` / `X''` values |
+| PostgreSQL | pg_dump plain: `COPY … FROM stdin` or `--inserts`, `E''` strings, `$$` bodies, `\connect` lines, `COMMENT ON`. Custom / tar format (`-Fc`, `-Ft`) goes through `pg_restore` (installed in the web image) |
+| SQL Server | SSMS "Generate Scripts" / sqlcmd: UTF-16, `GO` batches, statements without `;`, `[dbo].[x]`, `N''`, `CAST(N'…' AS DateTime)` and the old binary `CAST(0x… AS DateTime)`, `sp_addextendedproperty` descriptions |
+| SQLite | `.dump` (its `sqlite_sequence` bookkeeping is skipped) |
+| Oracle | SQL Developer exports: `TO_DATE` / `TO_TIMESTAMP` with their format masks, `/` terminators, PL/SQL blocks skipped |
+
+- Every table is loaded as text first, then each column gets its declared type if every value converts.
+  `0000-00-00` becomes NULL. Columns that don't convert stay text, and the warning names the column with sample values.
+- The DuckDB copy has no constraints, because dumps routinely break their own keys. Declared primary keys, foreign
+  keys, uniques, comments, defaults and enum values go into `dump.meta.json` and from there into the snapshot.
+- Routines, triggers and views are skipped and counted. So are `INSERT … SELECT` statements and system tables.
+- **Not supported, with a clear error:** SQL Server `.bak` and Oracle `.dmp` (binary backups: script them out),
+  and SQLite database files (use the SQLite connector).
+- **Re-use and rebuilds:** a restore is reused until the uploads or the restore options change. Options are engine,
+  tables, rows per table and typing. A file lock keeps parallel jobs from restoring the same source twice.
+- **Large dumps:** compress them (they shrink ~10×) to stay under the 100 MB upload limit, or put the file on the
+  server and set *…or a dump already on the server*.
+
+### Disk clean-up
+
+- Everything a source stores lives in its uploads and its work directory, `work/<id>`.
+  Staged samples and restored dumps are rebuilt from the uploads when needed.
+- **Free up space** (source page, `POST /connect/api/sources/<id>/free-space/`) deletes the uploads and the work
+  directory. Snapshots and mappings are kept.
+- **Deleting a source** removes its uploads and its work directory too.
+- Uploading or removing a file clears the work directory, because its contents belonged to the old files.
+- None of these touch data a sync has already written to a destination.
+- They are all refused while a job is reading or writing the source.
 
 ### Importing Postman / OpenAPI
 

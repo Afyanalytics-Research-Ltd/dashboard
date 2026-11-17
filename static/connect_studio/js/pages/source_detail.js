@@ -40,7 +40,12 @@ export default async function render(ctx) {
             h('button.cs-btn', { type: 'button', onclick: test }, icon('plug'), 'Test'),
             h('button.cs-btn.cs-btn-primary', { type: 'button', onclick: extract }, icon('arrow-clockwise'), snapshot ? 'Re-extract' : 'Extract schema'),
             h('a.cs-btn.cs-btn-ai', { href: href(`/mappings/new?${source.kind === 'schema_file' ? 'target' : 'source'}=${id}`) }, icon('stars'), 'Map with AI'),
+            source.storage?.total ? h('button.cs-btn', { type: 'button', onclick: freeSpace,
+              title: 'Delete the uploads and the data restored from them; keep snapshots and mappings' }, icon('hdd'), `Free ${fmtBytes(source.storage.total)}`) : null,
             h('button.cs-icon-btn', { type: 'button', title: 'Delete source', onclick: remove }, icon('trash3')))),
+        source.storage?.freed_at && !source.files.length ? h('div.cs-callout.cs-callout-info', icon('hdd'),
+          h('div', `Files deleted ${ago(source.storage.freed_at)} to free space (${(source.config?.freed_files || []).join(', ')}). `,
+            'Snapshots and mappings are kept. Upload the files again (Settings) to test, re-extract or sync.')) : null,
         st ? kv([
           ['Tables', n(st.tables)], ['Columns', n(st.columns)],
           ['Relationships', `${n(st.relationships)} (${n(st.declared_relationships)} declared)`],
@@ -183,7 +188,9 @@ export default async function render(ctx) {
     const filesEl = h('div.cs-files');
     const drawFiles = () => mount(filesEl, source.files.map((f) => h('div.cs-file', icon('file-earmark-check'), h('span.cs-grow.cs-ellipsis', f.name),
       h('span.cs-muted.cs-mono', fmtBytes(f.size)), h('span.cs-muted', { style: { fontSize: '12px' } }, ago(f.uploaded_at)),
-      h('button.cs-icon-btn.cs-icon-btn-sm.bad', { type: 'button', title: 'Remove', onclick: async () => { await api.deleteFile(id, f.id); ({ source } = await api.source(id)); drawFiles(); } }, icon('x-lg')))));
+      h('button.cs-icon-btn.cs-icon-btn-sm.bad', { type: 'button', title: 'Remove', onclick: async () => {
+        try { await api.deleteFile(id, f.id); ({ source } = await api.source(id)); drawFiles(); renderHeader(); } catch (e) { toastError(e, 'Remove failed'); }
+      } }, icon('x-lg')))));
     drawFiles();
     const save = h('button.cs-btn.cs-btn-primary', { type: 'button', onclick: async () => {
       save.disabled = true;
@@ -196,7 +203,7 @@ export default async function render(ctx) {
       form.el,
       spec.uploads.length ? h('div.cs-field', h('label', 'Files'),
         dropzone({ accept: spec.uploads, multiple: spec.multi_upload, onFiles: async (files) => {
-          try { ({ source } = await api.uploadFiles(id, files)); drawFiles(); toast('Uploaded — re-extract to refresh the snapshot.', 'success'); } catch (e) { toastError(e, 'Upload failed'); }
+          try { ({ source } = await api.uploadFiles(id, files)); drawFiles(); renderHeader(); toast('Uploaded — re-extract to refresh the snapshot.', 'success'); } catch (e) { toastError(e, 'Upload failed'); }
         } }), filesEl) : null,
       h('div.cs-row', save, h('button.cs-btn', { type: 'button', onclick: test }, icon('plug'), 'Test connection'))));
   }
@@ -257,8 +264,23 @@ export default async function render(ctx) {
     } catch (e) { toastError(e, 'Extraction failed'); }
   }
 
+  async function freeSpace() {
+    const st = source.storage || {};
+    if (!(await confirmDialog({
+      title: `Free ${fmtBytes(st.total)} from ${source.name}?`,
+      message: `Deletes the uploaded file(s) (${fmtBytes(st.uploads)}) and the data restored or staged from them (${fmtBytes(st.work)}). `
+        + 'Snapshots, mappings and anything already synced to a destination are kept. To test, re-extract or sync again, upload the files again.',
+      confirmLabel: 'Delete files', danger: true }))) return;
+    try {
+      const res = await api.freeSpace(id);
+      source = res.source;
+      toast(`${fmtBytes(res.freed_bytes)} freed`, 'success', { title: 'Files deleted' });
+      renderHeader(); renderContent();
+    } catch (e) { toastError(e, 'Could not free space'); }
+  }
+
   async function remove() {
-    if (!(await confirmDialog({ title: `Delete ${source.name}?`, message: 'Its snapshots, uploads and the mappings that use it are deleted too.', confirmLabel: 'Delete', danger: true }))) return;
+    if (!(await confirmDialog({ title: `Delete ${source.name}?`, message: 'Its snapshots, uploads, data restored from them and the mappings that use it are deleted too. Data already synced to a destination stays there.', confirmLabel: 'Delete', danger: true }))) return;
     try { await api.deleteSource(id); toast('Source deleted', 'success'); navigate('/sources'); } catch (e) { toastError(e, 'Delete failed'); }
   }
 

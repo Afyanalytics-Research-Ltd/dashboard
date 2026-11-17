@@ -109,6 +109,7 @@ export const api = {
   importApi: (b, o) => post('import-api/', b, o),
   importApiFile: (file, fields) => postFile('import-api/', file, fields),
   deleteFile: (id, fid) => del(`sources/${id}/files/${fid}/`),
+  freeSpace: (id) => post(`sources/${id}/free-space/`, {}),
   testSource: (id) => post(`sources/${id}/test/`),
   extract: (id, b) => post(`sources/${id}/extract/`, b),
   snapshots: (id) => get(`sources/${id}/snapshots/`),

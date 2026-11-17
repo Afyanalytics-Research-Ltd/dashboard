@@ -349,16 +349,25 @@ class SQLConnector(Connector):
     can_write = True
     _engine = None
 
+    @property
+    def db_kind(self) -> str:
+        """Which database this really is (the SQL-dump connector is a DuckDB file underneath)."""
+        return self.spec.key
+
+    def local_path(self) -> str | None:
+        """The database file of a file-based kind (sqlite / duckdb): the upload, else the server path."""
+        return str(self.files[0]) if self.files else self.cfg("path")
+
     # URL per kind
     def url(self):
         from sqlalchemy.engine import URL
 
-        k = self.spec.key
+        k = self.db_kind
         c = self.cfg
         if k == "sqlalchemy":
             return c("url")
         if k in ("sqlite", "duckdb"):
-            path = str(self.files[0]) if self.files else c("path")
+            path = self.local_path()
             if not path:
                 raise ConnectorError("Upload a database file or give its path on the server.")
             return f"{k}:///{path}"
@@ -425,7 +434,7 @@ class SQLConnector(Connector):
                      "mysql": "select version()", "mariadb": "select version()",
                      "mssql": "select @@version", "oracle": "select banner from v$version",
                      "snowflake": "select current_version()", "sqlite": "select sqlite_version()",
-                     "duckdb": "select version()"}.get(self.spec.key)
+                     "duckdb": "select version()"}.get(self.db_kind)
                 if q:
                     try:
                         version = str(conn.execute(text(q)).scalar())[:120]
@@ -446,13 +455,13 @@ class SQLConnector(Connector):
 
         o = _options(options)
         schemas = o.get("schemas") or self._schemas()
-        if not schemas and self.spec.key not in ("sqlite", "duckdb"):
+        if not schemas and self.db_kind not in ("sqlite", "duckdb"):
             with self.engine().connect() as conn:
                 schemas = [s for s in inspect(conn).get_schema_names()
                            if s.lower() not in SYSTEM_SCHEMAS and not s.lower().startswith(("pg_", "crdb_"))]
         tables = o.get("tables") or _csv_list(self.cfg("tables"))
-        conn_type = {"sqlite": "sqlite", "duckdb": "duckdb"}.get(self.spec.key, "sqlalchemy")
-        kwargs = {"database": str(self.files[0]) if self.files else self.cfg("path")} if conn_type != "sqlalchemy" else {"url": self.url_string()}
+        conn_type = {"sqlite": "sqlite", "duckdb": "duckdb"}.get(self.db_kind, "sqlalchemy")
+        kwargs = {"database": self.local_path()} if conn_type != "sqlalchemy" else {"url": self.url_string()}
         if self.spec.key == "snowflake" and self.cfg("private_key"):
             # dbatlas builds its own engine from a URL; key-pair auth needs ours
             return self._discover_with_engine(o, schemas, tables, progress)
@@ -580,7 +589,7 @@ class SQLConnector(Connector):
     def read(self, table, *, columns=None, cursor_column=None, cursor_value=None, batch_size=1000, limit=None):
         from sqlalchemy import text
 
-        schema, _, name = table.rpartition(".") if "." in table and self.spec.key not in ("sqlite", "duckdb") else ("", "", table)
+        schema, _, name = table.rpartition(".") if "." in table and self.db_kind not in ("sqlite", "duckdb") else ("", "", table)
         eng = self.engine()
         cols = ", ".join(_qi(eng, c) for c in columns) if columns else "*"
         sql = f"select {cols} from {_q(eng, schema or None, name)}"
@@ -607,6 +616,200 @@ class SQLConnector(Connector):
 
     def writer(self) -> "SQLWriter":
         return SQLWriter(self.engine(), schema=(self._schemas() or [None])[0])
+
+
+class SQLDumpConnector(SQLConnector):
+    """A database dump (.sql script from MySQL / MariaDB, PostgreSQL, SQL Server, SQLite or Oracle — plain,
+    compressed or zipped) restored into a DuckDB file in the source's work directory. From then on it is a DuckDB
+    database: tests, dbatlas extraction, profiling, mapping and full reads for syncs. The restore runs once and is
+    reused until the uploads or the restore options change (engine/sqldump.py does the parsing)."""
+
+    can_write = False
+    DB_NAME = "dump.duckdb"
+    META_NAME = "dump.meta.json"
+    progress_hook: Progress = staticmethod(_noop)
+
+    @property
+    def db_kind(self) -> str:
+        return "duckdb"
+
+    # the dump files: uploads, else a file already on the server
+    def dump_paths(self) -> list[Path]:
+        if self.files:
+            return list(self.files)
+        p = self.cfg("path")
+        return [Path(p)] if p else []
+
+    def _restore_key(self) -> dict:
+        from . import sqldump
+
+        files = []
+        for p in self.dump_paths():
+            st = p.stat() if p.exists() else None
+            files.append([p.name, st.st_size if st else None, st.st_mtime_ns if st else None])
+        return {"version": sqldump.VERSION, "files": files, "dialect": self.cfg("dialect") or "",
+                "tables": sorted(t.lower() for t in _csv_list(self.cfg("tables"))),
+                "max_rows": int(self.cfg("max_rows") or 0), "typed": bool(self.cfg("typed", True))}
+
+    def restored(self, progress: Progress | None = None) -> dict:
+        """Restore the dump into DuckDB (or reuse the last restore). Returns the restore report."""
+        from . import sqldump
+
+        progress = progress or self.progress_hook
+        if not self.dump_paths():
+            raise ConnectorError("Upload a SQL dump (or give its path on the server).")
+        missing = [p.name for p in self.dump_paths() if not p.exists()]
+        if missing:
+            raise ConnectorError(f"Not found on the server: {', '.join(missing)}.")
+        db, meta_path = self.workdir / self.DB_NAME, self.workdir / self.META_NAME
+        key = self._restore_key()
+        with _file_lock(self.workdir / ".restore.lock"):
+            if db.exists() and meta_path.exists():
+                try:
+                    meta = json.loads(meta_path.read_text())
+                    if meta.get("key") == key:
+                        return meta
+                except (OSError, ValueError):
+                    pass
+            self.close()                      # an open engine on the old file must not survive its replacement
+            for f in (db, meta_path):
+                if f.exists():
+                    f.unlink()
+            try:
+                meta = sqldump.restore(self.dump_paths(), db, dialect=self.cfg("dialect") or None,
+                                       tables=_csv_list(self.cfg("tables")), max_rows=int(self.cfg("max_rows") or 0),
+                                       typed=bool(self.cfg("typed", True)), progress=progress, workdir=self.workdir)
+            except sqldump.DumpError as e:
+                raise ConnectorError(str(e)) from None
+            meta["key"] = key
+            meta["restored_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            meta_path.write_text(json.dumps(meta, default=str))
+            s = meta
+            progress(msg=f"Restored {len(s['tables'])} tables · {s['rows']:,} rows from a "
+                         f"{sqldump.DIALECT_LABELS.get(s['dialect'], s['dialect'])} dump in {s['seconds']:.0f}s"
+                         + (f" — skipped: {', '.join(f'{v} {k}' for k, v in s['skipped'].items())}" if s["skipped"] else ""))
+            for w in s["warnings"][:25]:
+                progress(msg=w, level="warning")
+            return meta
+
+    def local_path(self) -> str:
+        self.restored()
+        return str(self.workdir / self.DB_NAME)
+
+    def test(self) -> dict:
+        from . import sqldump
+
+        meta = self.restored()
+        biggest = sorted(meta["tables"].items(), key=lambda kv: -kv[1]["rows"])
+        label = sqldump.DIALECT_LABELS.get(meta["dialect"], meta["dialect"])
+        msg = (f"{label} dump → {len(meta['tables'])} tables, {meta['rows']:,} rows"
+               + (f" ({len(meta['warnings'])} warning(s))" if meta["warnings"] else ""))
+        return {"ok": True, "message": msg, "dialect": meta["dialect"], "streams": [n for n, _ in biggest[:200]],
+                "tables": {n: t["rows"] for n, t in biggest[:50]}, "skipped": meta["skipped"],
+                "warnings": meta["warnings"][:50], "restored_at": meta.get("restored_at")}
+
+    def discover(self, options: dict | None = None, progress: Progress = _noop) -> dict:
+        meta = self.restored(progress)
+        snapshot = super().discover(options, progress)
+        _merge_dump_meta(snapshot, meta)
+        return snapshot
+
+    def writer(self) -> "SQLWriter":
+        raise ConnectorError("A SQL dump is read-only — it can't be a sync destination.")
+
+    def cleanup(self) -> list[str]:
+        """Delete what the restore made (the DuckDB copy, its report, pg_restore's SQL). Returns what was removed."""
+        self.close()
+        removed = []
+        for f in self.workdir.glob("*"):
+            if f.is_file() and (f.name.startswith(("dump.", ".restore")) or f.name.endswith((".plain.sql", ".restoring.duckdb",
+                                                                                              ".restoring.duckdb.wal"))):
+                f.unlink()
+                removed.append(f.name)
+        return removed
+
+
+def _merge_dump_meta(snapshot: dict, meta: dict) -> None:
+    """Put what the dump declared — types, keys, foreign keys, comments, defaults, enums, exact row counts — into the
+    snapshot dbatlas made from the DuckDB copy (which has no constraints: dumps routinely break their own keys)."""
+    from . import sqldump
+
+    by_name = {t["name"]: t for t in snapshot["tables"]}
+    rels = [r for r in snapshot.get("relationships", [])]
+    declared_from = set()
+    for name, m in meta["tables"].items():
+        t = by_name.get(name)
+        if not t:
+            continue
+        t["rows"] = m["rows"]
+        t["rows_sampled"] = False
+        if m.get("comment"):
+            t["comment"] = m["comment"]
+        if m.get("source_name") and m["source_name"] != name:
+            t["source_name"] = f"{m['source_schema']}.{m['source_name']}" if m.get("source_schema") else m["source_name"]
+        if m["primary_key"]:
+            t["primary_key"] = list(m["primary_key"])
+        for c in t["columns"]:
+            cm = m["columns"].get(c["name"])
+            if not cm:
+                continue
+            physical = c.get("type") or ""
+            if cm.get("declared"):
+                c["declared_type"] = cm["declared"]
+                # the declared type, unless the values didn't fit it and the column stayed text
+                kept_as_text = physical.upper().startswith("VARCHAR") and \
+                    sqldump.duck_type(cm["declared"], meta["dialect"]) != "VARCHAR"
+                if not kept_as_text:
+                    c["type"] = cm["declared"]
+                    c["family"] = None
+            c["pk"] = c["name"] in (m["primary_key"] or [])
+            c["nullable"] = bool(cm.get("nullable", True)) and not c["pk"]
+            if cm.get("default") is not None:
+                c["default"] = cm["default"]
+            if cm.get("comment"):
+                c["comment"] = cm["comment"]
+            if cm.get("enum"):
+                c["allowed_values"] = cm["enum"]
+            if cm.get("unique") or [c["name"]] in (m.get("uniques") or []):
+                c["unique"] = True
+        for fk in m.get("foreign_keys", []):
+            if fk["table"] in by_name:
+                declared_from.add((name, tuple(fk["columns"])))
+                rels.append({"from": name, "from_columns": fk["columns"], "to": fk["table"], "to_columns": fk["ref_columns"],
+                             "confidence": 1.0, "kind": "foreign_key"})
+    # a declared foreign key replaces an inferred guess about the same columns
+    snapshot["relationships"] = [r for r in rels if r["kind"] == "foreign_key"
+                                 or (r["from"].split(".")[-1], tuple(r["from_columns"])) not in declared_from]
+    snapshot["extractor"] = f"SQL dump ({sqldump.DIALECT_LABELS.get(meta['dialect'], meta['dialect'])}) restored to DuckDB + dbatlas"
+    snapshot["database"] = ", ".join(meta.get("files", [])[:3]) + (" …" if len(meta.get("files", [])) > 3 else "")
+    snapshot["dump"] = {k: meta.get(k) for k in ("dialect", "dialects", "files", "bytes", "seconds", "rows", "skipped",
+                                                   "statements", "restored_at")}
+    snapshot.setdefault("warnings", []).extend(meta.get("warnings", [])[:100])
+    snap_mod.finalize(snapshot, infer=False)
+
+
+class _file_lock:
+    """An exclusive lock on a file (Linux / macOS); a no-op where fcntl doesn't exist."""
+
+    def __init__(self, path: Path):
+        self.path = path
+        self.fh = None
+
+    def __enter__(self):
+        try:
+            import fcntl
+        except ImportError:
+            return self
+        self.fh = open(self.path, "w")
+        fcntl.flock(self.fh, fcntl.LOCK_EX)
+        return self
+
+    def __exit__(self, *exc):
+        if self.fh:
+            import fcntl
+            fcntl.flock(self.fh, fcntl.LOCK_UN)
+            self.fh.close()
+        return False
 
 
 def _snowflake_private_key(pem: str, passphrase: str | None):
@@ -1657,6 +1860,29 @@ register(ConnectorSpec(
     "Anything with a SQLAlchemy dialect installed — BigQuery, Databricks, Trino, ClickHouse, Db2…",
     [FieldSpec("url", "SQLAlchemy URL", required=True, secret=True, placeholder="dialect+driver://user:pass@host:port/db"),
      SCHEMA_FIELD(), TABLES_FIELD], tagline="Bring your own dialect"), SQLConnector)
+
+register(ConnectorSpec(
+    "sql_dump", "SQL dump", "Files", "file-earmark-code", "#7C3AED",
+    "A database dump from MySQL / MariaDB, PostgreSQL, SQL Server, SQLite or Oracle — restored without the database "
+    "server, then mapped and synced like any database. .sql, .gz, .bz2, .xz or a .zip of .sql files.",
+    [FieldSpec("dialect", "Dump from", type="select", default="", group="Dump",
+               options=[{"value": "", "label": "Detect automatically"},
+                        {"value": "mysql", "label": "MySQL / MariaDB (mysqldump, phpMyAdmin)"},
+                        {"value": "postgres", "label": "PostgreSQL (pg_dump)"},
+                        {"value": "tsql", "label": "SQL Server (SSMS Generate Scripts)"},
+                        {"value": "sqlite", "label": "SQLite (.dump)"},
+                        {"value": "oracle", "label": "Oracle (SQL Developer export)"}]),
+     FieldSpec("tables", "Only these tables", placeholder="patients, visits", group="Dump", advanced=True,
+               help="Comma-separated. Blank = every table in the dump. Fewer tables restore faster."),
+     FieldSpec("max_rows", "Rows per table", type="number", default=0, group="Dump", advanced=True,
+               help="0 = all. A cap makes a quick look at a huge dump possible."),
+     FieldSpec("typed", "Convert columns to their declared types", type="checkbox", default=True, group="Dump",
+               advanced=True, help="Off = every column stays text, exactly as written in the dump."),
+     FieldSpec("path", "…or a dump already on the server", placeholder="/data/dumps/hospital.sql.gz", group="Dump",
+               advanced=True, help="For dumps bigger than the upload limit: copy the file to the server and give its path.")],
+    roles=("source", "target"), uploads=(".sql", ".gz", ".bz2", ".xz", ".zip", ".dump", ".txt", ".ddl"),
+    multi_upload=True, driver="duckdb_engine", pip="duckdb-engine",
+    tagline="MySQL · PostgreSQL · SQL Server · SQLite · Oracle"), SQLDumpConnector)
 
 register(ConnectorSpec(
     "files", "Files", "Files", "file-earmark-spreadsheet", "#10B981",

@@ -215,10 +215,13 @@ def source_detail(request, pk):
     if request.method == "DELETE":
         if Connection.objects.filter(destination=s).exists():
             raise ApiError("This source is the destination of a sync connection — delete that first.", 409, "in_use")
+        _not_busy(s)
+        freed = services.source_storage(s)["total"]
         for f in s.files.all():
             f.file.delete(save=False)
+        services.clear_work(s)          # staged samples, a restored dump … — nothing is left on disk
         s.delete()
-        return ok({"deleted": pk})
+        return ok({"deleted": pk, "freed_bytes": freed})
     data = body(request)
     if "name" in data:
         s.name = (data["name"] or s.name)[:200]
@@ -239,6 +242,7 @@ def source_detail(request, pk):
 @endpoint("POST")
 def source_files(request, pk):
     s = get_object_or_404(Source, pk=pk)
+    _not_busy(s)
     spec = connectors.get_spec(s.kind)
     uploaded = request.FILES.getlist("files") or request.FILES.getlist("file")
     if not uploaded:
@@ -258,22 +262,50 @@ def source_files(request, pk):
         sf = SourceFile(source=s, original_name=up.name[:300], size=up.size)
         sf.file.save(up.name, up, save=True)
         added.append(sf.id)
+    services.clear_work(s)              # derived data belonged to the old uploads
     s.status = "untested" if s.status == "ok" else s.status
-    s.save(update_fields=["status", "updated_at"])
+    s.config = {k: v for k, v in (s.config or {}).items() if k not in ("freed_at", "freed_files")}
+    s.save(update_fields=["status", "config", "updated_at"])
     return ok({"source": services.source_dict(s, detail=True), "added": added}, status=201)
 
 
 @endpoint("DELETE")
 def source_file_delete(request, pk, fid):
     sf = get_object_or_404(SourceFile, pk=fid, source_id=pk)
+    _not_busy(sf.source)
     sf.file.delete(save=False)
     sf.delete()
+    services.clear_work(sf.source)
     return ok({"deleted": fid})
+
+
+@endpoint("POST")
+def source_free_space(request, pk):
+    """Delete a source's uploads and everything derived from them (e.g. a restored SQL dump); snapshots and
+    mappings stay, so the migration's mapping work isn't lost."""
+    s = get_object_or_404(Source, pk=pk)
+    _not_busy(s)
+    try:
+        res = services.free_space(s)
+    except RuntimeError as e:
+        raise ApiError(str(e), 409, "busy") from None
+    s.refresh_from_db()
+    return ok({**res, "source": services.source_dict(s, detail=True)})
+
+
+def _not_busy(s: Source) -> None:
+    job = services.source_busy(s)
+    if job:
+        raise ApiError(f"Job #{job.id} ({job.get_kind_display().lower()}) is using {s.name} — wait for it to finish or "
+                       f"cancel it first.", 409, "busy")
 
 
 @endpoint("POST")
 def source_test(request, pk):
     s = get_object_or_404(Source, pk=pk)
+    if (s.config or {}).get("freed_at") and not s.files.exists() and not (s.config or {}).get("path"):
+        raise ApiError(f"This source's files were deleted on {s.config['freed_at'][:10]} to free space — its snapshots and "
+                       f"mappings were kept. Upload the file(s) again to test, extract or sync it.", 400, "freed")
     problems = connectors.validate_config(s.kind, s.config, has_files=s.files.exists(),
                                           existing_secrets={k for k, v in crypto.decrypt(s.secrets).items() if v})
     if problems:

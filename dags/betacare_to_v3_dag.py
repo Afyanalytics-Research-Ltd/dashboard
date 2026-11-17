@@ -23,6 +23,7 @@ one stopped. Rows are matched by stable uuid5s, so nothing is duplicated either 
 from __future__ import annotations
 
 import logging
+import os
 import re
 import sys
 from datetime import datetime, timedelta
@@ -57,6 +58,9 @@ def step_names(raw) -> list[str]:
 def run_steps(steps: list[str], *, target: str, only_missing: bool, dry_run: bool, workers: int, limit: int,
               patients: list[str]) -> dict:
     """One betacare_to_v3 Run, the steps in order; an errored step fails the task."""
+    # the mirror lives in Snowflake only: the run's warehouse is Snowflake unless the trigger form's
+    # warehouse_backend explicitly says otherwise (the cluster policy exports that choice before the task starts)
+    os.environ.setdefault("AFYA_WAREHOUSE_BACKEND", "snowflake")
     use_pipelines_dir([target])
     import betacare_to_v3 as B
     unknown = [s for s in steps if s not in B.STEPS]

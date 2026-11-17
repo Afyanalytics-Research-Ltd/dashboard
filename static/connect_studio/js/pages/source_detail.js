@@ -268,7 +268,8 @@ export default async function render(ctx) {
     const st = source.storage || {};
     if (!(await confirmDialog({
       title: `Free ${fmtBytes(st.total)} from ${source.name}?`,
-      message: `Deletes the uploaded file(s) (${fmtBytes(st.uploads)}) and the data restored or staged from them (${fmtBytes(st.work)}). `
+      message: `Deletes the uploaded file(s) (${fmtBytes(st.uploads)}) and the data restored from them (${fmtBytes(st.work)})`
+        + `${st.where === 's3' ? ' from cloud storage (S3)' : ''}${st.pending_uploads ? `, plus ${fmtBytes(st.pending_uploads)} of unfinished uploads` : ''}. `
         + 'Snapshots, mappings and anything already synced to a destination are kept. To test, re-extract or sync again, upload the files again.',
       confirmLabel: 'Delete files', danger: true }))) return;
     try {

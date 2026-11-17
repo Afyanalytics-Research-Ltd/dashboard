@@ -72,19 +72,41 @@ ordinary DuckDB database (test, dbatlas extraction, full-table reads for syncs).
   and SQLite database files (use the SQLite connector).
 - **Re-use and rebuilds:** a restore is reused until the uploads or the restore options change. Options are engine,
   tables, rows per table and typing. A file lock keeps parallel jobs from restoring the same source twice.
-- **Large dumps:** compress them (they shrink ~10×) to stay under the 100 MB upload limit, or put the file on the
-  server and set *…or a dump already on the server*.
+- **Large dumps:** upload them directly. Chunked uploads go up to 20 GB, and compressing first (~10× smaller) only
+  makes it faster. A file already on the server works too, via *…or a dump already on the server*.
 
-### Disk clean-up
+### Storage and clean-up
 
-- Everything a source stores lives in its uploads and its work directory, `work/<id>`.
-  Staged samples and restored dumps are rebuilt from the uploads when needed.
-- **Free up space** (source page, `POST /connect/api/sources/<id>/free-space/`) deletes the uploads and the work
-  directory. Snapshots and mappings are kept.
-- **Deleting a source** removes its uploads and its work directory too.
-- Uploading or removing a file clears the work directory, because its contents belonged to the old files.
-- None of these touch data a sync has already written to a destination.
-- They are all refused while a job is reading or writing the source.
+With `CONNECT_STUDIO_S3_BUCKET` set, S3 is the only durable copy of an upload, and the server's disk is scratch
+space for one job at a time:
+
+- **Uploads:** files of any size, up to `CONNECT_STUDIO_MAX_UPLOAD_GB`, go up in 16 MB chunks as an S3 multipart
+  upload, so they never touch the server's disk.
+  - The browser sends 3 chunks at a time. Each carries a SHA-256 that the server checks, and S3 checks the part's
+    Content-MD5.
+  - A failed chunk is retried with backoff. If it keeps failing, the upload stops and the error says so.
+  - Choosing the same file again (same name, size and modified time) resumes the upload and sends only the missing
+    chunks.
+  - API: `POST sources/<id>/uploads/` → `PUT uploads/<uuid>/chunks/<n>/` → `POST uploads/<uuid>/` (`DELETE` aborts).
+- **Jobs** (test, extract, sync, and the mapping lookup preview) run in `work/<source>/<job>-…/`, via
+  `services.opened`.
+  - The job downloads the uploads it needs into that folder, and the folder is deleted when the job ends, whether it
+    succeeded, failed or was cancelled.
+  - A restored SQL dump is cached in S3, under `…/sources/<id>/cache/`, so the next job downloads it instead of
+    parsing the dump again.
+  - An uploaded SQLite or DuckDB file used as a sync destination is uploaded back after a successful sync.
+- **Janitor:** runs every 15 min in the scheduler, or with `manage.py connect_studio_cleanup`. It deletes workspaces
+  idle for more than 6 h (left by a crashed job) and uploads abandoned for more than 24 h.
+- **Moving older uploads:** `connect_studio_cleanup --move-to-s3` moves uploads made before S3 was configured into
+  S3 and deletes the local copies.
+- **Free up space** (source page, `POST sources/<id>/free-space/`) deletes the uploads, unfinished uploads and the S3
+  cache. Snapshots and mappings are kept. **Deleting a source** removes all of that too.
+- Uploading or removing a file clears the cache, because its contents belonged to the old files.
+- None of this touches data a sync has already written to a destination, and all of it is refused while a job is
+  using the source.
+
+Without a bucket, uploads stay in the media folder. Jobs still use a scratch workspace that is deleted afterwards,
+but there's no cache, so every job restores the dump again.
 
 ### Importing Postman / OpenAPI
 
@@ -104,6 +126,11 @@ parameter names. You review the picker, then **Apply to form**. The same parser 
 | `CONNECT_STUDIO_KEY` | derived from `SECRET_KEY` | Fernet key for stored secrets (passwords/tokens/keys) |
 | `CONNECT_STUDIO_SCHEDULER` | `1` | in-process scheduler for scheduled syncs (web server only) |
 | `AFYA_EXTRACTION_*` | | default credentials for the Afya Extraction API connector |
+| `CONNECT_STUDIO_S3_BUCKET` | (unset = local) | private bucket for uploads and cached restores (see *Storage*) |
+| `CONNECT_STUDIO_S3_PREFIX` | `connect-studio` | key prefix in the bucket |
+| `CONNECT_STUDIO_S3_REGION` / `_ENDPOINT_URL` | SDK default | region; an S3-compatible endpoint for local testing |
+| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | instance role | needs `s3:PutObject`, `GetObject`, `DeleteObject`, `ListBucket`, `AbortMultipartUpload`, `ListMultipartUploadParts` on the bucket / prefix |
+| `CONNECT_STUDIO_MAX_UPLOAD_GB` | `20` | largest single upload |
 
 Scheduled syncs claim their slot atomically, so several web workers never double-run one. With the in-process
 scheduler off, run `python manage.py connect_studio_run_due` from cron or Airflow.

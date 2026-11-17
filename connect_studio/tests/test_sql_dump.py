@@ -309,7 +309,7 @@ class CleanupApiTests(TestCase):
         s = self.source_with_dump()
         upload = Path(s.files.get().file.path)
         storage = self.api("GET", f"sources/{s.pk}/").json()["source"]["storage"]
-        self.assertGreater(storage["work"], 0)                              # the restored DuckDB
+        self.assertEqual(storage["local"], 0)                               # the job's workspace is already gone
         self.assertGreater(storage["uploads"], 0)
         r = self.api("POST", f"sources/{s.pk}/free-space/", {})
         self.assertEqual(r.status_code, 200, r.content)
@@ -335,7 +335,7 @@ class CleanupApiTests(TestCase):
     def test_delete_source_leaves_nothing_on_disk(self):
         s = self.source_with_dump()
         upload, work = Path(s.files.get().file.path), s.work_path()
-        self.assertTrue(work.exists())
+        (work / "leftover").mkdir(parents=True, exist_ok=True)              # e.g. from a crashed job
         r = self.api("DELETE", f"sources/{s.pk}/")
         self.assertEqual(r.status_code, 200, r.content)
         self.assertGreater(r.json()["freed_bytes"], 0)
@@ -348,12 +348,8 @@ class CleanupApiTests(TestCase):
         for method, path in (("POST", f"sources/{s.pk}/free-space/"), ("DELETE", f"sources/{s.pk}/")):
             r = self.api(method, path, {} if method == "POST" else None)
             self.assertEqual(r.status_code, 409, r.content)
-        self.assertTrue(s.work_path().exists())
         self.assertTrue(Path(s.files.get().file.path).exists())
 
-    def test_new_upload_drops_stale_restore(self):
-        s = self.source_with_dump()
-        self.assertTrue((s.work_path() / "dump.duckdb").exists())
-        self.client.post(f"/connect/api/sources/{s.pk}/files/",
-                         {"files": SimpleUploadedFile("more.sql", (DUMPS / "sqlite_dump.sql").read_bytes())})
-        self.assertFalse((s.work_path() / "dump.duckdb").exists())
+    def test_jobs_leave_no_workspace_behind(self):
+        s = self.source_with_dump()                                          # ran an extraction
+        self.assertEqual([p for p in s.work_path().rglob("*") if p.is_file()] if s.work_path().exists() else [], [])

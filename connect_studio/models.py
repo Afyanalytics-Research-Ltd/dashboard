@@ -49,7 +49,8 @@ class Source(models.Model):
         return self.snapshots.order_by("-created_at").first()
 
     def file_paths(self) -> list[Path]:
-        return [Path(f.file.path) for f in self.files.all() if f.file]
+        """Local uploads only — S3 ones are downloaded per job (services.opened)."""
+        return [Path(f.file.path) for f in self.files.all() if f.storage == "local" and f.file]
 
     def work_path(self) -> Path:
         """Where derived data lives (staged samples, a restored SQL dump …) — not created here."""
@@ -62,14 +63,49 @@ class Source(models.Model):
 
 
 class SourceFile(models.Model):
+    """An upload. storage="s3": the bytes are only in S3 at `key` (jobs download them into a scratch workspace);
+    storage="local": in the media folder (no bucket configured, or uploaded before S3 was set up)."""
+
     source = models.ForeignKey(Source, on_delete=models.CASCADE, related_name="files")
-    file = models.FileField(upload_to=_upload_to, max_length=500)
+    file = models.FileField(upload_to=_upload_to, max_length=500, blank=True)
+    storage = models.CharField(max_length=10, default="local")
+    key = models.CharField(max_length=600, blank=True, default="")
     original_name = models.CharField(max_length=300)
     size = models.BigIntegerField(default=0)
     uploaded_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ["uploaded_at"]
+
+
+class ChunkedUpload(models.Model):
+    """A big file arriving in chunks (S3 multipart upload, or a local .part file). Survives a dropped connection:
+    choosing the same file again resumes at the first missing chunk. Finished → a SourceFile; abandoned ones are
+    aborted by the janitor after a day."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    source = models.ForeignKey(Source, on_delete=models.CASCADE, related_name="uploads")
+    name = models.CharField(max_length=300)
+    size = models.BigIntegerField()
+    fingerprint = models.CharField(max_length=400, blank=True, default="")   # name|size|lastModified from the browser
+    chunk_size = models.IntegerField()
+    storage = models.CharField(max_length=10, default="local")
+    key = models.CharField(max_length=600, blank=True, default="")
+    s3_upload_id = models.CharField(max_length=300, blank=True, default="")
+    parts = models.JSONField(default=dict, blank=True)                      # "0": {"etag", "size"}
+    created_by = models.ForeignKey(django_settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-updated_at"]
+
+    @property
+    def total_parts(self) -> int:
+        return max(1, -(-self.size // self.chunk_size))
+
+    def local_part_path(self) -> Path:
+        return Path(django_settings.MEDIA_ROOT) / "connect_studio" / "uploads" / f"{self.id}.part"
 
 
 class Snapshot(models.Model):

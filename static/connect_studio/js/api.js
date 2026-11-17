@@ -90,6 +90,84 @@ export function upload(path, files, { onProgress } = {}) {
   });
 }
 
+async function sha256hex(buf) {
+  if (!globalThis.crypto?.subtle) return null;          // not a secure context: the server skips the check
+  const d = new Uint8Array(await crypto.subtle.digest('SHA-256', buf));
+  return Array.from(d, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+function putChunk(uploadId, index, buf, sha, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', `${API}uploads/${uploadId}/chunks/${index}/`);
+    xhr.setRequestHeader('X-CSRFToken', csrf());
+    xhr.setRequestHeader('Accept', 'application/json');
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+    if (sha) xhr.setRequestHeader('X-Chunk-SHA256', sha);
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable) onProgress?.(e.loaded / e.total); };
+    xhr.onload = () => {
+      let data = null;
+      try { data = JSON.parse(xhr.responseText); } catch { data = null; }
+      if (xhr.status >= 200 && xhr.status < 300) resolve(data);
+      else reject(new ApiError(data?.error?.message || `Chunk ${index} failed (HTTP ${xhr.status})`, { status: xhr.status, code: data?.error?.code || 'http' }));
+    };
+    xhr.onerror = () => reject(new ApiError('network error', { status: 0, code: 'network' }));
+    xhr.send(buf);
+  });
+}
+
+const RETRYABLE = (e) => !e.status || e.status >= 500 || e.status === 429 || e.status === 408 || e.code === 'chunk';
+
+/** Any-size upload: 16 MB chunks (3 in flight, each retried with backoff and checked with SHA-256), straight to
+ * S3 when the server has a bucket. Choosing the same file again resumes at the first missing chunk. */
+export async function uploadChunked(sourceId, files, { onProgress, parallel = 3 } = {}) {
+  const list = [...files];
+  const total = list.reduce((s, f) => s + f.size, 0) || 1;
+  let done = 0;
+  let last = null;
+  listeners.forEach((fn) => fn('start'));
+  try {
+    for (const file of list) {
+      const { upload: u } = await request(`sources/${sourceId}/uploads/`, { method: 'POST', body: { name: file.name, size: file.size, last_modified: file.lastModified } });
+      const have = new Set(u.received);
+      const partSize = (i) => Math.min(u.chunk_size, file.size - i * u.chunk_size);
+      done += [...have].reduce((s, i) => s + partSize(i), 0);
+      const inflight = new Map();
+      const report = () => onProgress?.(Math.min(1, (done + [...inflight.values()].reduce((s, v) => s + v, 0)) / total));
+      report();
+      const todo = Array.from({ length: u.total }, (_, i) => i).filter((i) => !have.has(i));
+      const worker = async () => {
+        while (todo.length) {
+          const i = todo.shift();
+          const buf = await file.slice(i * u.chunk_size, i * u.chunk_size + partSize(i)).arrayBuffer();
+          const sha = await sha256hex(buf);
+          for (let attempt = 1; ; attempt++) {
+            try {
+              await putChunk(u.id, i, buf, sha, (p) => { inflight.set(i, p * buf.byteLength); report(); });
+              break;
+            } catch (e) {
+              inflight.delete(i);
+              if (attempt >= 6 || !RETRYABLE(e)) {
+                const pct = Math.round((done / total) * 100);
+                throw new ApiError(`${file.name}: upload stopped at ${pct}% (${e.message}). Choose the same file again to resume where it stopped.`, { status: e.status, code: 'upload_paused' });
+              }
+              await new Promise((r) => setTimeout(r, Math.min(30000, 1000 * 2 ** (attempt - 1))));
+            }
+          }
+          inflight.delete(i);
+          done += buf.byteLength;
+          report();
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(parallel, Math.max(1, todo.length)) }, worker));
+      last = await request(`uploads/${u.id}/`, { method: 'POST', body: {} });
+    }
+    return last;
+  } finally {
+    listeners.forEach((fn) => fn('end'));
+  }
+}
+
 const get = (p, q, o) => request(p, { ...o, query: q });
 const post = (p, b, o) => request(p, { ...o, method: 'POST', body: b ?? {} });
 const patch = (p, b, o) => request(p, { ...o, method: 'PATCH', body: b ?? {} });
@@ -105,7 +183,8 @@ export const api = {
   createSource: (b) => post('sources/', b),
   updateSource: (id, b) => patch(`sources/${id}/`, b),
   deleteSource: (id) => del(`sources/${id}/`),
-  uploadFiles: (id, files, opts) => upload(`sources/${id}/files/`, files, opts),
+  uploadFiles: (id, files, opts) => uploadChunked(id, files, opts),
+  uploadFilesSingle: (id, files, opts) => upload(`sources/${id}/files/`, files, opts),
   importApi: (b, o) => post('import-api/', b, o),
   importApiFile: (file, fields) => postFile('import-api/', file, fields),
   deleteFile: (id, fid) => del(`sources/${id}/files/${fid}/`),

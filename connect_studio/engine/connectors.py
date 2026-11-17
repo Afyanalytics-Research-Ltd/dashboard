@@ -25,6 +25,7 @@ Families:
 from __future__ import annotations
 
 import base64
+import hashlib
 import importlib.util
 import json
 import logging
@@ -628,6 +629,8 @@ class SQLDumpConnector(SQLConnector):
     DB_NAME = "dump.duckdb"
     META_NAME = "dump.meta.json"
     progress_hook: Progress = staticmethod(_noop)
+    file_fingerprints: list | None = None    # [name, size, storage key] per upload — stable across workspaces
+    artifacts = None                         # cache with fetch(name, {file: path}) / store(name, {file: path}) (S3)
 
     @property
     def db_kind(self) -> str:
@@ -644,9 +647,12 @@ class SQLDumpConnector(SQLConnector):
         from . import sqldump
 
         files = []
-        for p in self.dump_paths():
-            st = p.stat() if p.exists() else None
-            files.append([p.name, st.st_size if st else None, st.st_mtime_ns if st else None])
+        if self.file_fingerprints and self.files:
+            files = [list(x) for x in self.file_fingerprints]
+        else:
+            for p in self.dump_paths():
+                st = p.stat() if p.exists() else None
+                files.append([p.name, st.st_size if st else None, st.st_mtime_ns if st else None])
         return {"version": sqldump.VERSION, "files": files, "dialect": self.cfg("dialect") or "",
                 "tables": sorted(t.lower() for t in _csv_list(self.cfg("tables"))),
                 "max_rows": int(self.cfg("max_rows") or 0), "typed": bool(self.cfg("typed", True))}
@@ -675,6 +681,17 @@ class SQLDumpConnector(SQLConnector):
             for f in (db, meta_path):
                 if f.exists():
                     f.unlink()
+            cache_name = "dump-" + hashlib.sha1(json.dumps(key, sort_keys=True).encode()).hexdigest()[:20]
+            if self.artifacts is not None:
+                try:
+                    if self.artifacts.fetch(cache_name, {self.DB_NAME: db, self.META_NAME: meta_path}):
+                        meta = json.loads(meta_path.read_text())
+                        if meta.get("key") == key:
+                            progress(msg=f"Reused the restored copy from the last run ({len(meta['tables'])} tables, "
+                                         f"{meta['rows']:,} rows) — no need to parse the dump again.")
+                            return meta
+                except Exception as e:     # a broken cache entry is rebuilt, never fatal
+                    progress(msg=f"Cached restore unusable ({str(e)[:120]}) — restoring the dump again.", level="warning")
             try:
                 meta = sqldump.restore(self.dump_paths(), db, dialect=self.cfg("dialect") or None,
                                        tables=_csv_list(self.cfg("tables")), max_rows=int(self.cfg("max_rows") or 0),
@@ -684,6 +701,13 @@ class SQLDumpConnector(SQLConnector):
             meta["key"] = key
             meta["restored_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
             meta_path.write_text(json.dumps(meta, default=str))
+            if self.artifacts is not None:
+                try:
+                    self.artifacts.store(cache_name, {self.DB_NAME: db, self.META_NAME: meta_path})
+                    progress(msg="Saved the restored copy to storage — the next job reuses it.", level="debug")
+                except Exception as e:
+                    progress(msg=f"Could not cache the restored copy ({str(e)[:120]}) — the next job restores again.",
+                             level="warning")
             s = meta
             progress(msg=f"Restored {len(s['tables'])} tables · {s['rows']:,} rows from a "
                          f"{sqldump.DIALECT_LABELS.get(s['dialect'], s['dialect'])} dump in {s['seconds']:.0f}s"
@@ -1879,7 +1903,7 @@ register(ConnectorSpec(
      FieldSpec("typed", "Convert columns to their declared types", type="checkbox", default=True, group="Dump",
                advanced=True, help="Off = every column stays text, exactly as written in the dump."),
      FieldSpec("path", "…or a dump already on the server", placeholder="/data/dumps/hospital.sql.gz", group="Dump",
-               advanced=True, help="For dumps bigger than the upload limit: copy the file to the server and give its path.")],
+               advanced=True, help="Instead of uploading: a dump file already on this server (e.g. copied in with scp).")],
     roles=("source", "target"), uploads=(".sql", ".gz", ".bz2", ".xz", ".zip", ".dump", ".txt", ".ddl"),
     multi_upload=True, driver="duckdb_engine", pip="duckdb-engine",
     tagline="MySQL · PostgreSQL · SQL Server · SQLite · Oracle"), SQLDumpConnector)

@@ -507,3 +507,178 @@ def test_missing_state_table_means_no_watermark():
                     pass
             return Cur()
     assert S.SnowflakeSink(Boom()).get_watermark(6, "reception:patient") is None
+
+
+# ── sources: discovery, isolation, one sync per organisation ──────────────
+
+PROD_T = "https://{service}.afyaanalytics.ai/api/"
+
+
+def test_discover_sources_takes_only_production_logins_and_honours_exclude():
+    env = {
+        "AFYA_ORG284_USERNAME": "a", "AFYA_ORG284_PASSWORD": "x", "AFYA_ORG284_URL_TEMPLATE": PROD_T,
+        "AFYA_WEMA_PROD_USERNAME": "b", "AFYA_WEMA_PROD_PASSWORD": "x", "AFYA_WEMA_PROD_URL_TEMPLATE": PROD_T,
+        "AFYA_GYNO_USERNAME": "c", "AFYA_GYNO_PASSWORD": "x",
+        "AFYA_GYNO_URL_TEMPLATE": "https://{service}migrate.afyaanalytics.ai/api/",          # migrate: never
+        "AFYA_OROKO_USERNAME": "d", "AFYA_OROKO_PASSWORD": "x",
+        "AFYA_OROKO_URL_TEMPLATE": "https://{service}staging.afyaanalytics.ai/api/",          # staging: never
+        "AFYA_ORG70_USERNAME": "e", "AFYA_ORG70_PASSWORD": "x",                              # no template → migrate default
+        "AFYA_NOPW_USERNAME": "f", "AFYA_NOPW_URL_TEMPLATE": PROD_T,                          # no password
+        "AFYA_SILVERWOOD_USERNAME": "g", "AFYA_SILVERWOOD_PASSWORD": "x", "AFYA_SILVERWOOD_URL_TEMPLATE": PROD_T,
+        "V3_SYNC_EXCLUDE": "silverwood",
+    }
+    assert S.discover_sources(env) == ["org284", "wema_prod"]
+
+
+@pytest.mark.parametrize("chosen, configured, expected", [
+    (["gyno159"], "org284", ["gyno159"]),                 # the param wins
+    ([], "org284, gyno159", ["org284", "gyno159"]),       # then V3_SYNC_SOURCES
+    ([], "", ["org284", "wema_prod"]),                    # empty → discover
+    ([], "auto", ["org284", "wema_prod"]),
+    ([], "extra,auto", ["extra", "org284", "wema_prod"]),
+    ([], "org284,ORG284,silverwood", ["org284"]),         # deduped, excluded
+])
+def test_configured_sources(chosen, configured, expected):
+    env = {"AFYA_ORG284_USERNAME": "a", "AFYA_ORG284_PASSWORD": "x", "AFYA_ORG284_URL_TEMPLATE": PROD_T,
+           "AFYA_WEMA_PROD_USERNAME": "b", "AFYA_WEMA_PROD_PASSWORD": "x", "AFYA_WEMA_PROD_URL_TEMPLATE": PROD_T,
+           "V3_SYNC_SOURCES": configured, "V3_SYNC_EXCLUDE": "silverwood"}
+    assert S.configured_sources(chosen, env) == expected
+
+
+def _client_factory(orgs: dict[str, object]):
+    class C:
+        def __init__(self, name):
+            self.name, self.facility_id = name, 1
+            self.organization_id = None
+
+        def token(self):
+            outcome = orgs[self.name]
+            if isinstance(outcome, Exception):
+                raise outcome
+            self.organization_id = outcome
+            return "t"
+    return C
+
+
+def test_resolve_sources_isolates_bad_logins_and_collapses_one_organisation():
+    factory = _client_factory({
+        "org284": 284,
+        "org250": RuntimeError("org250: account belongs to organization 284, expected 250"),   # merged into 284
+        "silverwood": RuntimeError('silverwood: login failed 422 {"message":"Invalid credentials."}'),
+        "kisumu": 284,                                                                      # second login, same org
+        "wema_prod": 258,
+        "orphan": RuntimeError("orphan: account belongs to organization 999, expected 1"),  # moved somewhere unsynced
+    })
+    ok, problems, notes = S.resolve_sources(["org284", "org250", "silverwood", "kisumu", "wema_prod", "orphan"], factory)
+    assert [(s.name, s.tenant_id) for s in ok] == [("org284", 284), ("wema_prod", 258)]
+    assert len(problems) == 2 and problems[0].startswith("silverwood:") and "organization 999" in problems[1]
+    assert any(n.startswith("kisumu: organization 284 is already synced by org284") for n in notes)
+    assert any(n.startswith("org250: login now lands in organization 284") for n in notes)
+
+
+def test_unreadable_models_are_not_failures():
+    e = RuntimeError('org284 core/category_filters read p1: 422 {"message":"Unknown column organization_id"}')
+    assert S.unreadable(e, 0)
+    assert not S.unreadable(e, 10)                                           # rows came first: a real failure
+    assert not S.unreadable(RuntimeError("org284 core/x read p1: 429 slow down"), 0)
+    assert not S.unreadable(RuntimeError("org284 core/x read p1: 500 boom"), 0)
+    assert not S.unreadable(RuntimeError("org284 core/x read p7: 422 boom"), 0)
+
+    class Refuses(FakeV3Client):
+        def read_all(self, service, alias, per_page=500, workers=1):
+            raise RuntimeError('gyno core/category_filters read p1: 422 {"message":"Unknown column"}')
+            yield  # pragma: no cover
+    sink = FakeSink()
+    res = run(Refuses(), sink, S.Model("core", "category_filters"))
+    assert res.status == "unreadable" and res.error is None and "refuses" in res.note
+    assert sink.state[(6, "core:category_filters")]["status"] == "unreadable"
+    assert "1 unreadable on V3" in S.summarize([res]) and "0 failed" in S.summarize([res])
+
+
+# ── duplicates ────────────────────────────────────────────────────────────
+
+def test_check_duplicates_counts_and_repairs_only_tables_that_have_them(monkeypatch):
+    conn = RecordingConn(answers=[[("RECEPTION__PATIENT",), ("FINANCE__INVOICE",)],   # sync_tables
+                                  [(0,)],                                            # patient: clean
+                                  [(3,)], []])                                       # invoice: 3 extra → overwrite
+    sink = S.SnowflakeSink(conn, "hospitals", "v3_sync")
+    assert S.check_duplicates(sink) == {"FINANCE__INVOICE": 3}
+    sqls = [s for s, _ in conn.sql]
+    assert "LEFT(TABLE_NAME, 1) <> '_'" in sqls[0]                    # never _SYNC_STATE / staging
+    assert sqls[1] == "SELECT COUNT(*) - COUNT(DISTINCT _TENANT_ID, _KEY) FROM HOSPITALS.V3_SYNC.RECEPTION__PATIENT"
+    assert sqls[3].startswith("INSERT OVERWRITE INTO HOSPITALS.V3_SYNC.FINANCE__INVOICE SELECT * FROM "
+                              "HOSPITALS.V3_SYNC.FINANCE__INVOICE QUALIFY ROW_NUMBER() OVER (PARTITION BY _TENANT_ID, _KEY")
+    assert len(sqls) == 4                                             # clean table: no rewrite
+
+
+def test_check_duplicates_report_only(monkeypatch):
+    conn = RecordingConn(answers=[[(2,)]])
+    assert S.check_duplicates(S.SnowflakeSink(conn), ["T"], repair=False) == {"T": 2}
+    assert not any("OVERWRITE" in s for s, _ in conn.sql)
+
+
+def test_one_key_per_tenant_survives_overlapping_runs_and_page_repeats():
+    """The end-to-end no-duplicates contract on the fakes: a row read twice in one run (offset paging over a
+    table being written), re-sent by the lookback overlap, and re-run in full keeps exactly one row."""
+    client = tenant_with(3)
+    client.rows("reception", "patient").append(dict(client.rows("reception", "patient")[0]))   # page repeat
+    sink = FakeSink()
+    run(client, sink)
+    run(client, sink, now=NOW + timedelta(minutes=5))
+    run(client, sink, now=NOW + timedelta(hours=3), full_refresh=True)
+    assert sorted(sink.live_keys(T)) == ["1", "2", "3"]
+    assert len(sink.tables[T]) == 3
+
+
+def test_a_500_that_is_a_missing_table_on_v3_is_unreadable_not_failed():
+    missing = ('aroha_prod inpatient/clinic read p1: 500 {"success":false,"message":"the database refused the row: '
+               "Table 'erp_inpatient_db.clinics' doesn't exist\",\"error\":{\"type\":\"QueryException\",\"sqlstate\":\"42S02\"")
+    assert S.unreadable(RuntimeError(missing), 0)
+    assert not S.unreadable(RuntimeError("x inpatient/clinic read p1: 500 Server Error"), 0)     # plain 500: transient
+
+
+def test_client_does_not_retry_a_schema_error_500(monkeypatch):
+    import v3_to_v3_client as C
+    calls = []
+
+    class Resp:
+        def __init__(self, code, text):
+            self.status_code, self.text, self.ok = code, text, code < 400
+
+    class Sess:
+        def post(self, url, **kw):
+            calls.append(url)
+            return Resp(500, '{"error":{"type":"QueryException","sqlstate":"42S02"}}' if "inpatient" in url else "boom")
+
+        def mount(self, *a):
+            pass
+
+    monkeypatch.setattr(C.time, "sleep", lambda s: None)
+    c = C.V3Client("t", urls={s: f"https://{s}.x/api/" for s in C.SERVICES}, username="u", password="p", session=Sess())
+    monkeypatch.setattr(c, "_headers", lambda service: {})
+    assert c.post("inpatient", {}, retry_500=True, retries=8).status_code == 500 and len(calls) == 1
+    calls.clear()
+    c.post("finance", {}, retry_500=True, retries=3)
+    assert len(calls) == 3                                  # an ordinary 500 is still retried
+    assert C.schema_error("Base table or view not found: 1146") and not C.schema_error("timeout")
+
+
+def test_explicit_sources_must_still_be_production_logins():
+    """Even a source named by hand is refused when it would read migrate / staging (e.g. a key with no
+    URL template falls back to the client's migrate default)."""
+    logged_in = []
+
+    class C:
+        def __init__(self, name):
+            self.name, self.facility_id, self.organization_id = name, 1, None
+            host = {"wema_prod": "", "gyno": "migrate", "oroko": "staging"}[name]
+            self.urls = {"core": f"https://core{host}.afyaanalytics.ai/api/"}
+
+        def token(self):
+            logged_in.append(self.name)
+            self.organization_id = {"wema_prod": 258}.get(self.name, 1)
+            return "t"
+    ok, problems, _ = S.resolve_sources(["wema_prod", "gyno", "oroko"], C)
+    assert [s.name for s in ok] == ["wema_prod"] and logged_in == ["wema_prod"]      # never even logged in
+    assert len(problems) == 2 and all("not a production login" in p for p in problems)
+    assert "coremigrate.afyaanalytics.ai" in problems[0]

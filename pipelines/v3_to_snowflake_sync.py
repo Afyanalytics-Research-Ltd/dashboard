@@ -530,7 +530,149 @@ class SnowflakeSink:
         return flagged, int(restored[0][0]) if restored else 0, skipped
 
 
+    # duplicates ---------------------------------------------------------------
+    def sync_tables(self) -> list[str]:
+        """Every model table in the schema (not the state table, not staging)."""
+        rows = self._exec(f"""
+            SELECT TABLE_NAME FROM {self.database}.INFORMATION_SCHEMA.TABLES
+            WHERE TABLE_SCHEMA = %(s)s AND TABLE_TYPE = 'BASE TABLE' AND LEFT(TABLE_NAME, 1) <> '_'
+            ORDER BY 1""", {"s": self.schema})
+        return [r[0] for r in rows]
+
+    def duplicate_keys(self, table: str) -> int:
+        """Rows beyond the first per (_TENANT_ID, _KEY). Snowflake doesn't enforce PRIMARY KEY, so this is
+        the check that the MERGE contract held."""
+        (extra,), = self._exec(f"SELECT COUNT(*) - COUNT(DISTINCT _TENANT_ID, _KEY) FROM {self.fq}.{table}")
+        return int(extra or 0)
+
+    def remove_duplicates(self, table: str) -> int:
+        """Keep the most recently loaded row per key (a live one over a deleted one on ties). INSERT OVERWRITE
+        rewrites the rows atomically and keeps the table's definition. Returns the rows removed."""
+        before = self.duplicate_keys(table)
+        if before:
+            self._exec(f"""
+                INSERT OVERWRITE INTO {self.fq}.{table}
+                SELECT * FROM {self.fq}.{table}
+                QUALIFY ROW_NUMBER() OVER (PARTITION BY _TENANT_ID, _KEY
+                                           ORDER BY _LAST_LOADED_AT DESC NULLS LAST, _IS_DELETED, _ROW_HASH) = 1""")
+        return before
+
+
+def check_duplicates(sink, tables: Iterable[str] | None = None, *, repair: bool = True) -> dict[str, int]:
+    """{table: duplicate rows found} for every table that had any (repaired unless repair=False)."""
+    found = {}
+    for table in (list(tables) if tables is not None else sink.sync_tables()):
+        n = sink.remove_duplicates(table) if repair else sink.duplicate_keys(table)
+        if n:
+            found[table] = n
+            log.warning("%s: %d duplicate row(s) by (_TENANT_ID, _KEY)%s", table, n, " — removed" if repair else "")
+    return found
+
+
+# ── sources: which V3 logins to sync ──────────────────────────────────────
+
+# the production gateways; migrate / staging logins in the same .env must never feed this warehouse
+DEFAULT_SOURCE_URL_PATTERN = r"^https://\{service\}\.afyaanalytics\.ai/"
+
+
+def _env_list(value) -> list[str]:
+    items = value if isinstance(value, (list, tuple, set)) else re.split(r"[\s,;]+", str(value or ""))
+    return [str(s).strip().lower() for s in items if str(s).strip()]
+
+
+def discover_sources(env=None) -> list[str]:
+    """Every AFYA_<KEY>_* login (username + password) whose URL template is a production gateway —
+    so a facility added to the .env is synced without touching this DAG. V3_SYNC_EXCLUDE drops keys;
+    V3_SYNC_URL_PATTERN overrides which gateways count."""
+    env = os.environ if env is None else env
+    pattern = re.compile(env.get("V3_SYNC_URL_PATTERN") or DEFAULT_SOURCE_URL_PATTERN)
+    exclude = set(_env_list(env.get("V3_SYNC_EXCLUDE")))
+    keys = sorted({m.group(1) for k in env if (m := re.match(r"^AFYA_([A-Z0-9_]+)_USERNAME$", k))})
+    return [k.lower() for k in keys
+            if env.get(f"AFYA_{k}_PASSWORD") and pattern.match((env.get(f"AFYA_{k}_URL_TEMPLATE") or "").strip())
+            and k.lower() not in exclude]
+
+
+def configured_sources(chosen=None, env=None) -> list[str]:
+    """`chosen` (a param), else V3_SYNC_SOURCES; empty or "auto" (alone or in the list) means discover."""
+    env = os.environ if env is None else env
+    names = _env_list(chosen) or _env_list(env.get("V3_SYNC_SOURCES"))
+    if not names or "auto" in names:
+        names = [n for n in names if n != "auto"] + discover_sources(env)
+    exclude = set(_env_list(env.get("V3_SYNC_EXCLUDE")))
+    return list(dict.fromkeys(n for n in names if n not in exclude))
+
+
+@dataclass
+class Source:
+    name: str
+    tenant_id: int
+    facility_id: int | None = None
+
+
+_MISMATCH_RE = re.compile(r"belongs to organization (\d+), expected (\d+)")
+
+
+def resolve_sources(names: Iterable[str], client_factory=None) -> tuple[list[Source], list[str], list[str]]:
+    """Log every source in, alone: one bad login doesn't stop the others. Two logins that land in the same
+    organisation would sync the same rows twice (and race each other's MERGEs), so the first one wins.
+    Returns (sources to sync, problems — failed logins, notes — duplicates skipped)."""
+    if client_factory is None:
+        from v3_to_v3_client import V3Client as client_factory
+    ok: list[Source] = []
+    problems, notes, mismatched = [], [], []
+    owner: dict[int, str] = {}
+    prod = re.compile((os.getenv("V3_SYNC_URL_PATTERN") or DEFAULT_SOURCE_URL_PATTERN).replace(r"\{service\}", "core"))
+    for name in names:
+        try:
+            client = client_factory(name)
+            core = (getattr(client, "urls", None) or {}).get("core", "")
+            if core and not prod.match(core):
+                # a key without its own URL template falls back to the client's migrate default — this
+                # warehouse is fed from production only, so refuse rather than silently mix in migrate data
+                problems.append(f"{name}: not a production login ({core}) — set AFYA_{name.upper()}_URL_TEMPLATE "
+                                f"to https://{{service}}.afyaanalytics.ai/api/ or drop it from the sources")
+                continue
+            client.token()
+            tenant = int(client.organization_id)
+        except Exception as e:
+            m = _MISMATCH_RE.search(str(e))
+            if m:                       # e.g. org250's account now lives in org 284 (facilities merged)
+                mismatched.append((name, int(m.group(1)), str(e)))
+            else:
+                problems.append(f"{name}: {type(e).__name__}: {str(e)[:300]}")
+            continue
+        if tenant in owner:
+            notes.append(f"{name}: organization {tenant} is already synced by {owner[tenant]} — skipped (duplicate)")
+            continue
+        owner[tenant] = name
+        ok.append(Source(name, tenant, getattr(client, "facility_id", None)))
+    for name, tenant, error in mismatched:
+        if tenant in owner:
+            notes.append(f"{name}: login now lands in organization {tenant}, already synced by {owner[tenant]} — "
+                         f"skipped (stale AFYA_{name.upper()}_ORGANIZATION_ID; remove the key or exclude it)")
+        else:
+            problems.append(f"{name}: {error[:300]}")
+    return ok, problems, notes
+
+
 # ── one model ─────────────────────────────────────────────────────────────
+
+_READ_STATUS_RE = re.compile(r" read p1: (\d{3}) ")
+
+
+def unreadable(error: Exception | str, rows_read: int) -> bool:
+    """V3 itself can't serve this model — on the very first page, a 4xx (e.g. 422 'Unknown column
+    organization_id') or a 500 that is a schema error (the model's table doesn't exist in that service's
+    database, SQLSTATE 42S02/42S22). A gateway / V3 deployment fault, not ours: retrying every run won't
+    help, so it isn't a sync failure (it's still recorded, and picked up the day V3 is fixed)."""
+    from v3_to_v3_client import schema_error
+    m = _READ_STATUS_RE.search(str(error))
+    if rows_read or not m:
+        return False
+    code = int(m.group(1))
+    return (400 <= code < 500 and code not in (401, 408, 429)) or (code == 500 and schema_error(str(error)))
+
 
 @dataclass
 class SyncOptions:
@@ -654,13 +796,17 @@ def sync_model(client, sink, model: Model, *, source: str, opts: SyncOptions = S
             sink.save_state(tenant, model, source, watermark=wm, status="ok", error=res.note,
                             started=started, counts=res.as_dict())
     except Exception as e:
-        res.status, res.error = "failed", f"{type(e).__name__}: {e}"
         res.watermark_after = res.watermark_before
-        log.error("%s failed after %d rows read: %s", model.name, res.read, res.error)
+        if unreadable(e, res.read):
+            res.status, res.note = "unreadable", f"V3 refuses to read this model: {str(e)[:300]}"
+            log.warning("%s: %s", model.name, res.note)
+        else:
+            res.status, res.error = "failed", f"{type(e).__name__}: {e}"
+            log.error("%s failed after %d rows read: %s", model.name, res.read, res.error)
         if not opts.dry_run and tenant is not None:
             try:
-                sink.save_state(tenant, model, source, watermark=stored, status="failed", error=res.error,
-                                started=started, counts=res.as_dict())
+                sink.save_state(tenant, model, source, watermark=stored, status=res.status,
+                                error=res.error or res.note, started=started, counts=res.as_dict())
             except Exception:
                 log.exception("%s: could not record the failure in %s", model.name, STATE_TABLE)
     res.seconds = round((clock() - started).total_seconds(), 1)
@@ -726,7 +872,8 @@ def summarize(results: list[ModelResult | dict]) -> str:
                      + (f"  ERROR {r['error']}" if r.get("error") else "")
                      + (f"  NOTE {r['note']}" if r.get("note") else ""))
     failed = sum(r["status"] == "failed" for r in rows)
-    lines.append(f"{len(rows)} model(s), {failed} failed; "
+    refused = sum(r["status"] == "unreadable" for r in rows)
+    lines.append(f"{len(rows)} model(s), {failed} failed" + (f", {refused} unreadable on V3" if refused else "") + "; "
                  f"{sum(r['inserted'] for r in rows)} inserted, {sum(r['updated'] for r in rows)} updated, "
                  f"{sum(r['deleted'] for r in rows)} flagged deleted")
     return "\n".join(lines)

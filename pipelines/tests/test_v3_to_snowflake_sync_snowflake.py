@@ -226,3 +226,31 @@ def test_model_with_no_rows_still_gets_a_table(sink):
     r = run(FakeV3Client({("core", "empty_thing"): []}), sink, model=model)
     assert (r.status, r.read) == ("ok", 0)
     assert q(sink, "SELECT COUNT(*) FROM {fq}.CORE__EMPTY_THING") == [(0,)]
+
+
+def test_duplicate_check_and_repair_on_real_snowflake(sink):
+    """Snowflake doesn't enforce PRIMARY KEY: plant duplicates the way a racing MERGE would, then prove the
+    check finds them and INSERT OVERWRITE … QUALIFY keeps exactly the newest row per key."""
+    model = S.Model("finance", "dup_check")
+    client = FakeV3Client({("finance", "dup_check"): [patient(i) for i in (1, 2, 3)]})
+    run(client, sink, model)
+    assert sink.duplicate_keys(model.table) == 0
+    assert model.table in sink.sync_tables() and "_SYNC_STATE" not in sink.sync_tables()
+    # two stale copies of key 1 and one of key 2 (older _LAST_LOADED_AT, different content)
+    q(sink, "INSERT INTO {fq}." + model.table + " SELECT * REPLACE ('stale' AS \"FIRST_NAME\") FROM {fq}."
+          + model.table + " WHERE _KEY IN ('1', '2')")
+    q(sink, "UPDATE {fq}." + model.table + " SET _LAST_LOADED_AT = DATEADD(day, -1, _LAST_LOADED_AT) "
+          "WHERE \"FIRST_NAME\" = 'stale'")
+    q(sink, "INSERT INTO {fq}." + model.table + " SELECT * FROM {fq}." + model.table + " WHERE \"FIRST_NAME\" = 'stale' AND _KEY = '1'")
+    assert sink.duplicate_keys(model.table) == 3
+    assert S.check_duplicates(sink, [model.table], repair=False) == {model.table: 3}
+    assert S.check_duplicates(sink, [model.table]) == {model.table: 3}
+    rows = q(sink, "SELECT _KEY, \"FIRST_NAME\" FROM {fq}." + model.table + " ORDER BY _KEY")
+    assert rows == [("1", "P1"), ("2", "P2"), ("3", "P3")]               # the fresh copy survived, once
+    assert sink.duplicate_keys(model.table) == 0
+    cols = q(sink, "SELECT COUNT(*) FROM HOSPITALS.INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = %(s)s "
+                   "AND TABLE_NAME = %(t)s", {"s": sink.schema, "t": model.table})
+    assert cols[0][0] == len(sink.table_columns(model.table))             # definition untouched by the rewrite
+    # and an incremental run afterwards is still a no-op on the repaired table
+    r = run(client, sink, model, now=NOW + timedelta(hours=1))
+    assert (r.inserted, r.updated) == (0, 0)

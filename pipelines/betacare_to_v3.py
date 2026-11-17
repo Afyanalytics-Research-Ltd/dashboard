@@ -68,8 +68,19 @@ from itertools import islice
 from pathlib import Path
 
 sys.path.insert(0, "/opt/airflow/dags")
-from eagle_to_v3 import (TITLE_CODES, clean, day, gender, num, patient_login, person_name, phone, stamp,  # noqa: E402
-                         text_join, vital, words)
+import eagle_to_v3 as _eagle  # noqa: E402
+from eagle_to_v3 import TITLE_CODES, clean, gender, num, patient_login, person_name, phone, text_join, vital, words  # noqa: E402
+
+
+def day(v) -> str | None:
+    """eagle's day(), minus Smart Hospital's placeholder dates (1970-01-01, 1922-…): V3 timestamps start in 1970."""
+    d = _eagle.day(v)
+    return d if d and d >= "1971-01-01" else None
+
+
+def stamp(d, t=None) -> str | None:
+    s = _eagle.stamp(d, t)
+    return s if s and s >= "1971-01-01" else None
 
 log = logging.getLogger("betacare_to_v3")
 
@@ -195,7 +206,7 @@ def patient_payload(r: dict, patient_no: str, insurer: tuple | None) -> dict:
                       ("Area", area if area and clean(r.get("address")) else None), ("Note", r.get("note")),
                       ("Guardian address", r.get("guardian_address")), ("Old patient", r.get("old_patient")))
     return {"uuid": gid("patients", r["id"]), "patient_no": patient_no, "first_name": first[:100],
-            "middle_name": (middle or "")[:100] or None, "last_name": last[:100], "dob": day(r.get("dob")),
+            "middle_name": (middle or "")[:100] or None, "last_name": last[:100], "dob": _eagle.day(r.get("dob")),
             "gender": gender(r.get("gender")), "marital_status": (clean(r.get("marital_status")) or "").lower() or None,
             "blood_group": clean(r.get("blood_group")), "mobile": phone(r.get("mobileno")),
             "email": email, "address": (clean(r.get("address")) or area or "")[:255] or None,
@@ -262,7 +273,8 @@ def clinical_note_payload(r: dict, visit_id: int, patient_id: int, when: str | N
             "presenting_complaints": text or dx, "history_of_present_illness": text, "diagnosis": dx,
             "primary_diagnosis": dx, "doctor_id": doctor[0] if doctor else None, "user": doctor[0] if doctor else None,
             "doctor_name": doctor[1] if doctor else None, "status": "final",
-            "remarks": text_join(("Note date", d if far else None),
+            "remarks": text_join(("Note date", d if far else "not recorded in Smart Hospital (filed on the patient's latest visit)"
+                                  if not d else None),
                                  ("Filed on", f"the patient's nearest visit ({visit_day}): Smart Hospital has none near the note's date"
                                   if far else None), ("Attached document", r.get("document"))),
             "created_at": when, "updated_at": when}
@@ -410,9 +422,11 @@ class Run:
         if sid(opd_id) and sid(opd_id) in self.by_id("opd_details"):
             return "opd", sid(opd_id)
         d, pid = day(when), sid(patient_id)
+        opd, adm = self.visit_index()
+        if not d and pid and window == "note" and opd.get(pid):     # undated note (placeholder date): latest visit
+            return "opd", opd[pid][-1][1]
         if not d or not pid:
             return None
-        opd, adm = self.visit_index()
         for a_from, a_to, iid in adm.get(pid, []):
             if a_from <= d <= a_to:
                 return "ipd", iid
@@ -589,7 +603,7 @@ class Run:
                              "first_name": first[:100], "middle_name": (middle or "")[:100] or None, "last_name": last[:100],
                              "gender": gender(r.get("gender")), "phone": phone(r.get("contact_no")),
                              "work_email": email if email and "@" in email else None, "staff_number": f"BCH-S-{r['id']}",
-                             "job_description": desig.get(sid(r.get("designation"))), "dob": day(r.get("dob"))})
+                             "job_description": desig.get(sid(r.get("designation"))), "dob": _eagle.day(r.get("dob"))})
         res["profiles"] = dict(self.post("core", "user_profile", profiles))
         return {"staff": len(self.table("staff")), **why, **res}
 

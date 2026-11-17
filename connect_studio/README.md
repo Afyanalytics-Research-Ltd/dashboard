@@ -129,7 +129,7 @@ parameter names. You review the picker, then **Apply to form**. The same parser 
 | `CONNECT_STUDIO_S3_BUCKET` | (unset = local) | private bucket for uploads and cached restores (see *Storage*) |
 | `CONNECT_STUDIO_S3_PREFIX` | `connect-studio` | key prefix in the bucket |
 | `CONNECT_STUDIO_S3_REGION` / `_ENDPOINT_URL` | SDK default | region; an S3-compatible endpoint for local testing |
-| `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | instance role | needs `s3:PutObject`, `GetObject`, `DeleteObject`, `ListBucket`, `AbortMultipartUpload`, `ListMultipartUploadParts` on the bucket / prefix |
+| `CONNECT_STUDIO_AWS_ACCESS_KEY_ID` / `_SECRET_ACCESS_KEY` | AWS_* / instance role | Connect Studio's own key (IAM user `connect-studio-<env>`); needs `s3:PutObject`, `GetObject`, `DeleteObject`, `ListBucket`, `AbortMultipartUpload`, `ListMultipartUploadParts` on the bucket / prefix |
 | `CONNECT_STUDIO_MAX_UPLOAD_GB` | `20` | largest single upload |
 
 Scheduled syncs claim their slot atomically, so several web workers never double-run one. With the in-process

@@ -315,6 +315,27 @@ class JanitorTests(_Base):
         self.assertEqual(self.fake.objects[sf.key], (DUMPS / "sqlite_dump.sql").read_bytes())
 
 
+class CredentialTests(_Base):
+    def test_own_key_is_used_without_touching_aws_env(self):
+        made = {}
+
+        def fake_client(service, **kw):
+            made.update(kw)
+            return self.fake
+        env = {"CONNECT_STUDIO_AWS_ACCESS_KEY_ID": "AKIACS", "CONNECT_STUDIO_AWS_SECRET_ACCESS_KEY": "secret",
+               "AWS_ACCESS_KEY_ID": "AKIAOTHER"}
+        with mock.patch.object(storage, "_client", None), mock.patch.dict(os.environ, env), \
+                mock.patch("boto3.client", side_effect=fake_client):
+            storage.client()
+        self.assertEqual((made["aws_access_key_id"], made["aws_secret_access_key"]), ("AKIACS", "secret"))
+        made.clear()
+        with mock.patch.object(storage, "_client", None), \
+                mock.patch.dict(os.environ, {"CONNECT_STUDIO_AWS_ACCESS_KEY_ID": "", "CONNECT_STUDIO_AWS_SECRET_ACCESS_KEY": ""}), \
+                mock.patch("boto3.client", side_effect=fake_client):
+            storage.client()
+        self.assertNotIn("aws_access_key_id", made)                       # falls back to boto3's own chain
+
+
 class LocalFallbackTests(_Base):
     s3 = False
 

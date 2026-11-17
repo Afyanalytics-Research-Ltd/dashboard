@@ -10,7 +10,8 @@ Settings (environment):
   CONNECT_STUDIO_S3_PREFIX     key prefix inside it (default "connect-studio")
   CONNECT_STUDIO_S3_REGION     region (default: AWS_REGION / AWS_DEFAULT_REGION / the SDK's own lookup)
   CONNECT_STUDIO_S3_ENDPOINT_URL   an S3-compatible endpoint instead of AWS (MinIO, for local testing)
-  AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_PROFILE, or the server's instance role — boto3's usual chain
+  CONNECT_STUDIO_AWS_ACCESS_KEY_ID / CONNECT_STUDIO_AWS_SECRET_ACCESS_KEY   a key for Connect Studio only (preferred);
+                               without them, boto3's usual chain (AWS_* env, AWS_PROFILE, the instance role)
 """
 
 from __future__ import annotations
@@ -46,7 +47,12 @@ def client():
             from botocore.config import Config
 
             region = os.getenv("CONNECT_STUDIO_S3_REGION") or os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION") or None
-            _client = boto3.client("s3", region_name=region,
+            # Connect Studio's own key when set, so it never borrows (or overrides) the AWS_* credentials other
+            # code in the web process uses; else boto3's usual chain
+            own = {"aws_access_key_id": os.getenv("CONNECT_STUDIO_AWS_ACCESS_KEY_ID"),
+                   "aws_secret_access_key": os.getenv("CONNECT_STUDIO_AWS_SECRET_ACCESS_KEY")}
+            creds = own if all(own.values()) else {}
+            _client = boto3.client("s3", region_name=region, **creds,
                                    endpoint_url=(os.getenv("CONNECT_STUDIO_S3_ENDPOINT_URL") or None),
                                    config=Config(retries={"max_attempts": 8, "mode": "adaptive"},
                                                  connect_timeout=15, read_timeout=300))

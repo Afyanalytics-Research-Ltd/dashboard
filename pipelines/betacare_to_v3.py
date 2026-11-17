@@ -79,6 +79,7 @@ TARGETS = ("betacare_prod",)
 CHUNK = 20_000
 EAT = timezone(timedelta(hours=3))                         # Smart Hospital's unix timestamps → Nairobi wall time
 OPEN_ADMISSION_DAYS = 30
+ADMISSION_WINDOW_DAYS = 30        # date-only rows go on an admission up to this long after it began (rehab: to discharge)
 VISIT_WINDOWS = {"note": (7, 1), "lab": (3, 1), "sale": (2, 0), "charge": (3, 1)}   # (days before, days after)
 FACILITY_MODELS = {"patient", "patient_insurance", "visits", "vitals", "doctor_notes", "investigations", "prescriptions",
                    "procedure_prices", "evaluation_payment", "invoice", "admission", "visit_ward", "discharge", "ward",
@@ -95,6 +96,9 @@ NOT_INSURERS = {"cash", "mpesa", "billing error", "credit billing error", "unabl
 WARD_MAP = {"maleward": "maleward", "femalemedicalward": "femaleward", "hdu": "hdu", "nbu": "newbornunit",
             "paediatricward": "paediatricsward", "maternity": "generalmaternity", "privateward": "privaterooms",
             "privateward2": "privaterooms", "rehabilitation2": "rehabilitation"}
+# inventory's uuid column is unindexed on prod: match_on=uuid takes >120 s per call against org 96's 27k products
+# (nginx 502s / read timeouts, as neorao_to_v3 found) — these are matched through a uuid → id map read up front
+NO_MATCH_ON = {"product", "batch", "stock"}
 NO_ALLERGY = {"n a", "na", "none", "nil", "no", "0", "nan"}
 
 
@@ -247,15 +251,21 @@ def vitals_payload(r: dict, kind: str, visit_id: int, patient_id: int) -> dict |
             "notes": notes, "recorded_at": when, "created_at": when, "updated_at": when}
 
 
-def clinical_note_payload(r: dict, visit_id: int, patient_id: int, when: str | None, doctor: tuple | None) -> dict:
+def clinical_note_payload(r: dict, visit_id: int, patient_id: int, when: str | None, doctor: tuple | None,
+                          visit_day: str | None = None) -> dict:
     """A row of Smart Hospital's `diagnosis` table: report_type is the diagnosis, description the consultation notes."""
     text = clean(r.get("description"))
     dx = clean(r.get("report_type"))
+    d = day(r.get("report_date"))
+    far = d and visit_day and abs((date.fromisoformat(d) - date.fromisoformat(visit_day)).days) > VISIT_WINDOWS["note"][0]
     return {"uuid": gid("diagnosis-note", r["id"]), "visit_id": visit_id, "visit": visit_id, "patient_id": patient_id,
             "presenting_complaints": text or dx, "history_of_present_illness": text, "diagnosis": dx,
             "primary_diagnosis": dx, "doctor_id": doctor[0] if doctor else None, "user": doctor[0] if doctor else None,
             "doctor_name": doctor[1] if doctor else None, "status": "final",
-            "remarks": text_join(("Attached document", r.get("document"))), "created_at": when, "updated_at": when}
+            "remarks": text_join(("Note date", d if far else None),
+                                 ("Filed on", f"the patient's nearest visit ({visit_day}): Smart Hospital has none near the note's date"
+                                  if far else None), ("Attached document", r.get("document"))),
+            "created_at": when, "updated_at": when}
 
 
 def diagnosis_payload(r: dict, visit_id: int, patient_id: int, when: str | None, primary: bool, user: int | None) -> dict | None:
@@ -377,10 +387,16 @@ class Run:
                 d = day(r.get("appointment_date"))
                 if d and sid(r.get("patient_id")):
                     opd[sid(r["patient_id"])].append((d, sid(r["id"])))
+            rehab = {sid(g["id"]) for g in self.table("bed_group") if "rehab" in key(g.get("name"))}
             for r in self.table("ipd_details"):
                 d = day(r.get("date"))
                 if d and sid(r.get("patient_id")):
                     out = day(r.get("discharged_date")) if words(r.get("discharged")) == "yes" else None
+                    # Smart Hospital was cleaned up by discharging old admissions in batches months later
+                    # (70 stays > 60 days): only a rehabilitation stay that long is real
+                    cap = (date.fromisoformat(d) + timedelta(days=ADMISSION_WINDOW_DAYS)).isoformat()
+                    if sid(r.get("bed_group_id")) not in rehab:
+                        out = min(out or d, cap)
                     adm[sid(r["patient_id"])].append((d, out or d, sid(r["id"])))
             for v in opd.values():
                 v.sort()
@@ -409,6 +425,9 @@ class Run:
             return "opd", vs[i - 1][1]
         if i < len(vs) and vs[i][0] <= hi:
             return "opd", vs[i][1]
+        if window == "note" and vs:           # a clinical note far from any visit: the patient's nearest one
+            j = min(range(len(vs)), key=lambda n: abs((date.fromisoformat(vs[n][0]) - dd).days))
+            return "opd", vs[j][1]
         return None
 
     # ── V3 lookups ──
@@ -444,6 +463,8 @@ class Run:
     # ── posting (insert with match_on=uuid → an existing uuid is updated) ──
     def post(self, svc: str, alias: str, payloads) -> Counter:
         res = Counter()
+        if alias in NO_MATCH_ON and not self.dry_run:
+            self._known = dict(self.ids_by_uuid(svc, alias, fresh=True))
         have = set(self.ids_by_uuid(svc, alias, fresh=True)) if self.only_missing and not self.dry_run else None
         it, sent = iter(payloads), 0
         while True:
@@ -475,6 +496,15 @@ class Run:
         res, lock = Counter(), threading.Lock()
 
         def send(data):
+            if alias in NO_MATCH_ON:            # uuid → id read up front: update by id, else a plain insert
+                rid = self._known.get(data.get("uuid"))
+                if rid:
+                    r = self.c.post(svc, {"action": "update", "model": alias, "destination_tenant_id": self.c.organization_id,
+                                          "ids": [rid], "data": {k: v for k, v in data.items() if k != "uuid"}}, timeout=120)
+                else:
+                    r = self.c.insert(svc, alias, data, match_on=None)
+                ok = r.ok and (r.json() if r.content else {}).get("success", True)
+                return ok, None if ok else f"{r.status_code} {r.text[:300]}"
             r = self.c.insert(svc, alias, data, match_on="uuid")
             ok = r.ok and (r.json() if r.content else {}).get("success", True)
             return ok, None if ok else f"{r.status_code} {r.text[:300]}"
@@ -808,7 +838,7 @@ class Run:
             self.table("diagnosis"), "evaluation", "doctor_notes",
             lambda r: self.source_visit(r.get("patient_id"), r.get("report_date"), window="note"),
             lambda r, vid, pid, sv: clinical_note_payload(r, vid, pid, self.note_when(r.get("report_date"), sv),
-                                                          self.visit_doctor(sv)))}
+                                                          self.visit_doctor(sv), (self.visit_stamp(sv) or "")[:10] or None))}
         for t in ("lab_request", "rad_request"):
             out[t] = self.per_visit(self.table(t), "evaluation", "doctor_notes",
                                     lambda r: self.source_visit(r.get("patient_id"), r.get("report_date"),
@@ -938,6 +968,7 @@ class Run:
                        "discharge_time": (out or "")[11:] or None, "discharged_by": who, "discharging_doctor_id": who,
                        "discharging_doctor_name": self.staff_name(r.get("cons_doctor")),
                        "discharge_diagnosis": "See the admission's clinical notes", "discharge_summary": text,
+                       "discharge_instructions": text,
                        "patient_condition": "stable", "created_at": out, "updated_at": out})
             why["closed by migration" if closed else "discharged"] += 1
         res = self.post("inpatient", "discharge", pl)

@@ -311,6 +311,38 @@ class ExportAndSyncTests(_Env):
             self.assertEqual(conn.execute(text("select count(*) from patients")).scalar(), 3)
         dest.close()
 
+    def test_append_modes_on_keyed_and_unkeyed_tables(self):
+        # prod regression: append into a table created with the target's PK failed with duplicate key errors
+        from sqlalchemy import text
+        doc = self._doc()
+        dest = connectors.create("duckdb", {"path": str(self.tmp / "append.duckdb")})
+        run = lambda mode, **kw: sync.run(source=self.src, destination=dest, doc=doc, source_snap=self.s_snap,  # noqa: E731
+                                          target_snap=self.t_snap, mode=mode, **kw)
+        self.assertEqual(run("full_refresh_overwrite")["failed"], 0)          # creates patients with PK id
+        rep = run("full_refresh_append")                                      # keyed → merged, not failed
+        self.assertEqual(rep["failed"], 0, rep)
+        with dest.engine().connect() as conn:
+            self.assertEqual(conn.execute(text("select count(*) from patients")).scalar(), 3)
+            conn.execute(text("drop table patients"))
+            conn.execute(text("drop table visits"))
+            conn.commit()
+        self.assertEqual(run("full_refresh_append")["failed"], 0)             # fresh tables: no PK
+        self.assertEqual(run("full_refresh_append")["failed"], 0)             # → every version kept
+        with dest.engine().connect() as conn:
+            self.assertEqual(conn.execute(text("select count(*) from patients")).scalar(), 6)
+        self.assertEqual(run("full_refresh_overwrite", settings={"tables": ["patients"], "row_limit": 2})["rows"], 2)
+        dest.close()
+
+    def test_merge_dedupes_keys_within_one_batch(self):
+        from sqlalchemy import text
+        dest = connectors.create("duckdb", {"path": str(self.tmp / "merge.duckdb")})
+        w = dest.writer()
+        t = w.ensure_table("t", [{"name": "id", "family": "integer"}, {"name": "v", "family": "text"}], primary_key=["id"])
+        w.write(t, [{"id": 1, "v": "old"}, {"id": 1, "v": "new"}, {"id": 2, "v": "x"}], merge_keys=["id"])
+        with dest.engine().connect() as conn:
+            self.assertEqual(conn.execute(text("select v from t where id = 1")).fetchall(), [("new",)])
+        dest.close()
+
     def test_coerce(self):
         self.assertEqual(sync.coerce("12", "integer"), 12)
         self.assertIs(sync.coerce("yes", "boolean"), True)

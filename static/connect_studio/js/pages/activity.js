@@ -23,10 +23,10 @@ export default async function render(ctx) {
         h('div.cs-grow', { style: { minWidth: 0 } }, h('div.cs-li-title.cs-ellipsis', j.title || j.kind_label),
           h('div.cs-li-sub.cs-ellipsis', j.status === 'failed' ? j.error || j.message : j.message || j.kind_label)),
         j.status === 'running' ? h('div', { style: { width: '120px' } }, h('div.cs-bar', h('span', { style: { width: `${j.progress}%` } }))) : null,
-        statusBadge(j.status),
-        h('span.cs-muted.cs-nowrap', { style: { fontSize: '12px', minWidth: '120px', textAlign: 'right' } },
+        h('span.cs-li-status', statusBadge(j.status)),
+        h('span.cs-muted.cs-nowrap.cs-li-time', { style: { fontSize: '12px', textAlign: 'right' } },
           `${ago(j.created_at)}${j.duration ? ` · ${fmtDuration(j.duration)}` : ''}`),
-        j.user && h('span.cs-badge.cs-badge-outline', icon('person'), j.user)))))
+        j.user && h('span.cs-badge.cs-badge-outline.cs-li-user', icon('person'), j.user)))))
       : empty({ icon: 'activity', title: 'No jobs', message: 'Tests, extractions, AI mappings and syncs show up here.' }));
   }
 

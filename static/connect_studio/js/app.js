@@ -55,6 +55,11 @@ const nav = h('nav.cs-nav', { 'aria-label': 'Connect Studio' }, NAV.map((item) =
   navLinks.push({ a, item });
   return a;
 }));
+// "more" = tabs hidden past the right edge (narrow screens) → CSS fades that edge
+const markMore = () => nav.classList.toggle('more', nav.scrollLeft + nav.clientWidth < nav.scrollWidth - 4);
+nav.addEventListener('scroll', markMore, { passive: true });
+window.addEventListener('resize', markMore);
+requestAnimationFrame(markMore);
 const aiChip = h('span.cs-ai-chip.off', { title: 'AI mapping provider' }, h('span.cs-ai-dot'), 'AI');
 const themeBtn = h('button.cs-icon-btn', { type: 'button', title: 'Toggle dark mode', onclick: toggleTheme }, icon(theme === 'dark' ? 'sun' : 'moon-stars'));
 const busy = h('span.spinner-border.spinner-border-sm.text-primary', { style: { visibility: 'hidden', width: '14px', height: '14px' } });
@@ -77,6 +82,12 @@ import('./api.js').then(({ onRequest }) => onRequest((phase) => {
 onRouteChange((found) => {
   const nav = found?.route?.meta?.nav || '/';
   for (const { a, item } of navLinks) a.classList.toggle('active', item.path === nav);
+  // on narrow screens the tab strip scrolls — keep the current tab visible
+  const active = navLinks.find(({ a }) => a.classList.contains('active'))?.a;
+  if (active && active.parentElement.scrollWidth > active.parentElement.clientWidth) {
+    active.parentElement.scrollTo({ left: active.offsetLeft - 8, behavior: 'smooth' });
+  }
+  setTimeout(markMore, 400);
   outlet.firstElementChild?.classList.add('cs-page');
 });
 

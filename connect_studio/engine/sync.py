@@ -97,6 +97,7 @@ def run(*, source, destination, doc: dict, source_snap: dict, target_snap: dict,
         raise ValueError(f"unknown sync mode {mode}")
     state = dict(state or {})
     settings = settings or {}
+    row_limit = row_limit or settings.get("row_limit") or None
     only = set(settings.get("tables") or [])
     cursor_cols = settings.get("cursors") or {}
     src_idx = {t["key"]: t for t in source_snap["tables"]}
@@ -126,7 +127,19 @@ def run(*, source, destination, doc: dict, source_snap: dict, target_snap: dict,
         pk = [c for c in (tt.get("primary_key") or []) if c in {f["target"] for f in fields}]
         progress(msg=f"[{n}/{len(pairs)}] {skey} → {tkey}", phase="sync", pct=100 * (n - 1) / max(len(pairs), 1))
         try:
-            table = writer.ensure_table(tt["name"], out_cols, primary_key=pk, replace=(mode == "full_refresh_overwrite"))
+            append = mode in ("full_refresh_append", "incremental_append")
+            # append modes keep every version of a row, so their tables carry no primary key
+            table = writer.ensure_table(tt["name"], out_cols, primary_key=[] if append else pk,
+                                        replace=(mode == "full_refresh_overwrite"))
+            merge_keys = pk if mode == "incremental_dedupe" else None
+            existing_pk = writer.primary_key(table) if append else []
+            if append and existing_pk:
+                # the table was created with a key by an earlier overwrite/dedupe run — appending would
+                # violate it on the first re-sent row; merge on that key instead of failing the table
+                merge_keys = existing_pk
+                progress(msg=f"{tkey}: the destination table has a primary key ({', '.join(existing_pk)}) — "
+                             f"rows are merged on it instead of appended. Drop the table to keep every version.",
+                         level="warning")
             # lookups: read each referenced source table once
             lookups = {}
             for f in fields:
@@ -172,7 +185,7 @@ def run(*, source, destination, doc: dict, source_snap: dict, target_snap: dict,
                         cv = row.get(cursor_col)
                         if cv is not None and (max_cursor is None or _gt(cv, max_cursor)):
                             max_cursor = cv
-                written += writer.write(table, out, merge_keys=pk if mode == "incremental_dedupe" else None)
+                written += writer.write(table, out, merge_keys=merge_keys)
                 progress(msg=f"{tkey}: {written:,} rows", level="debug", detail={"target": tkey, "rows": written})
             entry["rows"] = written
             report["rows"] += written

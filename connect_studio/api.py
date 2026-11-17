@@ -12,6 +12,7 @@ import uuid
 from collections import Counter
 from pathlib import Path
 
+from django.core.exceptions import RequestDataTooBig
 from django.db import transaction
 from django.db.models import Q, Sum
 from django.http import HttpResponse, JsonResponse
@@ -24,7 +25,7 @@ from .engine.snapshot import diff as snapshot_diff
 from .models import Connection, Job, Mapping, Snapshot, Source, SourceFile
 
 logger = logging.getLogger(__name__)
-MAX_UPLOAD = 200 * 1024 * 1024
+MAX_UPLOAD = 100 * 1024 * 1024  # nginx client_max_body_size is 100M — larger requests never reach Django
 
 
 class ApiError(Exception):
@@ -59,6 +60,13 @@ def endpoint(*methods):
                 return JsonResponse({"error": {"message": str(e), "code": e.code}}, status=e.status)
             except connectors.ConnectorError as e:
                 return JsonResponse({"error": {"message": str(e), "code": "connector"}}, status=400)
+            except RequestDataTooBig:
+                return JsonResponse({"error": {"message": "Request too large — upload the file instead of pasting it.",
+                                               "code": "too_large"}}, status=413)
+            except (ValueError, TypeError) as e:
+                # bad query/body values (int("abc"), float(None)…) are the client's fault, not a server error
+                logger.info("connect-studio bad request: %s", e)
+                return JsonResponse({"error": {"message": f"Invalid value: {e}", "code": "invalid"}}, status=400)
             except Exception as e:  # pragma: no cover - surfaced to the UI
                 if e.__class__.__name__ == "Http404":
                     return JsonResponse({"error": {"message": "Not found.", "code": "not_found"}}, status=404)
@@ -382,7 +390,8 @@ def mapping_fields(request, pk):
     """{updates: [{id, source?, kind?, rule?, transform?, status?, why?}], create: [...], delete: [id]}"""
     data = body(request)
     with transaction.atomic():
-        m = Mapping.objects.select_for_update().select_related("source_snapshot").get(pk=pk)
+        # lock only the mapping row: Postgres refuses FOR UPDATE across the nullable snapshot join
+        m = Mapping.objects.select_for_update(of=("self",)).select_related("source_snapshot").get(pk=pk)
         doc = m.document or {}
         src_tables = {t["key"]: t for t in (m.source_snapshot.data["tables"] if m.source_snapshot else [])}
         by_id = {f["id"]: f for f in doc.get("fields", [])}

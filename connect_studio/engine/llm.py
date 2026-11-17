@@ -78,6 +78,13 @@ def parse_json(text: str) -> dict:
         raise
 
 
+def _json_generation_failed(e: Exception) -> bool:
+    """Groq 400 json_validate_failed — the openai SDK's str(e) shows only the message, the code is in .code/.body."""
+    body = getattr(e, "body", None)
+    code = getattr(e, "code", None) or (body.get("code") if isinstance(body, dict) else None)
+    return code == "json_validate_failed" or "json_validate_failed" in str(e) or "Failed to generate JSON" in str(e)
+
+
 def chat_json(system: str, user: str, *, usage: Usage | None = None, model: str | None = None,
               max_tokens: int = 8000, temperature: float = 0.1, retries: int = 7) -> dict:
     from afya_backends import llm as platform_llm
@@ -109,8 +116,11 @@ def chat_json(system: str, user: str, *, usage: Usage | None = None, model: str 
         except Exception as e:  # rate limits / transient errors
             last = e
             status = getattr(e, "status_code", None) or getattr(getattr(e, "response", None), "status_code", None)
-            if status in (400, 401, 403, 404) and "json_validate_failed" not in str(e):
+            if status in (400, 401, 403, 404) and not _json_generation_failed(e):
                 break
+            if _json_generation_failed(e):
+                # Groq's JSON mode occasionally rejects its own output — retry, deterministically
+                kw["temperature"] = 0.0
             retry_after = None
             try:
                 retry_after = float(e.response.headers.get("retry-after"))  # type: ignore[attr-defined]

@@ -143,8 +143,8 @@ def validate_config(kind: str, config: dict, *, has_files: bool = False, existin
             continue
         if config.get(f.name) in (None, ""):
             problems.append(f"{f.label} is required.")
-    if spec.uploads and not has_files and not config.get("path"):
-        problems.append("Upload at least one file.")
+    if spec.uploads and not has_files and not config.get("path") and not str(config.get("schema_text") or "").strip():
+        problems.append("Upload a file or paste the schema." if kind == "schema_file" else "Upload at least one file.")
     return problems
 
 
@@ -240,12 +240,28 @@ def stage_frames(frames: dict[str, Any], path: Path) -> dict[str, str]:
             if df is None or df.empty and len(df.columns) == 0:
                 con.execute(f'CREATE OR REPLACE TABLE "{staged}" (_empty VARCHAR)')
                 continue
+            if df.empty:  # header only: keep the columns, typed as text
+                cols = ", ".join('"' + str(c).replace('"', '""') + '" VARCHAR' for c in df.columns)
+                con.execute(f'CREATE OR REPLACE TABLE "{staged}" ({cols})')
+                continue
             con.register("_frame", df)
             con.execute(f'CREATE OR REPLACE TABLE "{staged}" AS SELECT * FROM _frame')
             con.unregister("_frame")
     finally:
         con.close()
     return names
+
+
+def _register_sqlalchemy_adapter() -> None:
+    """dbatlas ships a generic SQLAlchemyAdapter but only registers dialect-specific
+    subclasses (postgres, mysql …) that build their own URL. Server databases here
+    hand dbatlas a ready URL, so they go through the generic adapter as "sqlalchemy"."""
+    from dbatlas.adapters import register_adapter
+    from dbatlas.adapters.base import adapter_registry
+    from dbatlas.adapters.sqlalchemy import SQLAlchemyAdapter
+
+    if not adapter_registry.has("sqlalchemy"):
+        register_adapter("sqlalchemy", SQLAlchemyAdapter)
 
 
 def dbatlas_run(conn_type: str, *, url: str | None = None, database: str | None = None,
@@ -257,6 +273,7 @@ def dbatlas_run(conn_type: str, *, url: str | None = None, database: str | None 
     from dbatlas.adapters import create_adapter
     from dbatlas.config import ConnectionConfig, DbAtlasConfig, IncludeConfig, PIIConfig, ProfilingConfig
 
+    _register_sqlalchemy_adapter()
     cfg = DbAtlasConfig(
         connection=ConnectionConfig(type=conn_type, url=url, database=database),
         include=IncludeConfig(schemas=tuple(schemas or ()), tables=tuple(tables or ())),
@@ -446,9 +463,40 @@ class SQLConnector(Connector):
         except Exception as e:
             raise ConnectorError(_clean_db_error(e)) from None
         snapshot = snap_mod.from_dbatlas(db, dialect=self.engine().dialect.name)
+        self._enrich(snapshot, progress)
         if o["profile"]:
             self._profile_samples(snapshot, o, progress)
         return snapshot
+
+    def _enrich(self, snapshot: dict, progress: Progress = _noop) -> None:
+        """dbatlas' generic SQL adapter skips comments and enum values — the mapper leans on both."""
+        from sqlalchemy import inspect
+
+        try:
+            with self.engine().connect() as conn:
+                insp = inspect(conn)
+                for t in snapshot["tables"]:
+                    schema = t.get("schema") or None
+                    try:
+                        if not t.get("comment"):
+                            t["comment"] = (insp.get_table_comment(t["name"], schema=schema) or {}).get("text") or t.get("comment")
+                    except Exception:
+                        pass
+                    try:
+                        reflected = {c["name"]: c for c in insp.get_columns(t["name"], schema=schema)}
+                    except Exception:
+                        continue
+                    for c in t["columns"]:
+                        r = reflected.get(c["name"])
+                        if not r:
+                            continue
+                        if not c.get("comment") and r.get("comment"):
+                            c["comment"] = r["comment"]
+                        enums = list(getattr(r["type"], "enums", None) or [])
+                        if enums and not c.get("allowed_values"):
+                            c["allowed_values"] = enums
+        except Exception as e:  # enrichment is best-effort
+            progress(msg=f"Could not read column comments: {_clean_db_error(e)[:160]}", level="debug")
 
     def _discover_with_engine(self, o, schemas, tables, progress) -> dict:
         """Metadata via SQLAlchemy inspector directly (for engines dbatlas can't build itself)."""
@@ -656,6 +704,18 @@ class SQLWriter:
                         conn.exec_driver_sql(f"ALTER TABLE {_q(self.engine, self.schema, name)} ADD {ddl}")
         return Table(name, MetaData(schema=self.schema), autoload_with=self.engine)
 
+    def primary_key(self, table) -> list[str]:
+        """The destination table's actual primary key (duckdb-engine doesn't reflect it — ask DuckDB's catalog)."""
+        cols = [c.name for c in table.primary_key.columns]
+        if cols or self.engine.dialect.name != "duckdb":
+            return cols
+        from sqlalchemy import text
+        sql = ("select constraint_column_names from duckdb_constraints() "
+               "where table_name = :t and constraint_type = 'PRIMARY KEY'" + (" and schema_name = :s" if self.schema else ""))
+        with self.engine.connect() as conn:
+            row = conn.execute(text(sql), {"t": table.name, "s": self.schema}).first()
+        return list(row[0]) if row else []
+
     def truncate(self, table) -> None:
         with self.engine.begin() as conn:
             conn.execute(table.delete())
@@ -671,6 +731,8 @@ class SQLWriter:
                 from sqlalchemy import and_, tuple_
                 keys = [table.c[k] for k in merge_keys if k in table.c]
                 if keys:
+                    # one row per key within the batch (the last one wins), or the insert duplicates it
+                    clean = list({tuple(r.get(k.name) for k in keys): r for r in clean}.values())
                     values = list({tuple(r.get(k.name) for k in keys) for r in clean})
                     for i in range(0, len(values), 500):
                         chunk = values[i:i + 500]
@@ -689,6 +751,7 @@ class StagedConnector(Connector):
     DuckDB and let dbatlas introspect + profile + infer relationships there."""
 
     dialect = "duckdb"
+    empty_hint = "Check the stream / table name."
 
     def streams(self) -> list[str]:
         raise NotImplementedError
@@ -703,6 +766,7 @@ class StagedConnector(Connector):
         if not streams:
             raise ConnectorError("Nothing to read — no tables/streams were found.")
         frames = {}
+        empty: list[str] = []
         for i, s in enumerate(streams, start=1):
             progress(pct=5 + 45 * i / len(streams), msg=f"Reading a sample of {s}", phase="sample")
             rows: list[dict] = []
@@ -717,8 +781,16 @@ class StagedConnector(Connector):
                 progress(msg=f"Could not read {s}: {str(e)[:200]}", level="warning")
                 continue
             frames[s] = _frame(rows[: o["sample_rows"]])
+            if not rows:  # keep the header of an empty file / sheet / response
+                import pandas as pd
+                frames[s] = pd.DataFrame(columns=self.empty_columns(s))
+                if not len(frames[s].columns):
+                    empty.append(s)
+                    progress(msg=f"{s} returned no rows — nothing to learn its columns from. {self.empty_hint}", level="warning")
         if not frames:
             raise ConnectorError("No stream could be read.")
+        if len(empty) == len(frames):
+            raise ConnectorError(f"Every table came back empty ({', '.join(empty[:8])}) — nothing to extract. {self.empty_hint}")
         path = self.workdir / "stage.duckdb"
         if path.exists():
             path.unlink()
@@ -734,6 +806,10 @@ class StagedConnector(Connector):
 
     def database_label(self) -> str:
         return self.spec.label
+
+    def empty_columns(self, stream: str) -> list[str]:
+        """Column names of a stream that has no rows (e.g. a header-only CSV)."""
+        return []
 
     def read(self, table, *, columns=None, cursor_column=None, cursor_value=None, batch_size=1000, limit=None):
         sent = 0
@@ -753,19 +829,52 @@ class StagedConnector(Connector):
 class FilesConnector(StagedConnector):
     """CSV · TSV · Excel (every sheet) · JSON · NDJSON · Parquet — one table per file/sheet."""
 
+    @staticmethod
+    def _slug(name: str) -> str:
+        import unicodedata
+        ascii_ = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode()
+        return re.sub(r"[^0-9a-zA-Z_]+", "_", ascii_).strip("_").lower()
+
     def _tables(self) -> dict[str, tuple[Path, str | None]]:
+        if getattr(self, "_tables_cache", None) is not None:
+            return self._tables_cache
         out: dict[str, tuple[Path, str | None]] = {}
+
+        def add(name: str, value: tuple[Path, str | None]) -> None:
+            key, n = name, 2
+            while key in out:  # two uploads called patients.csv → patients, patients_2
+                key, n = f"{name}_{n}", n + 1
+            out[key] = value
+
         for f in self.files:
-            stem = re.sub(r"[^0-9a-zA-Z_]+", "_", f.stem).strip("_").lower() or "file"
+            # uploads are stored as "<8 hex>_<original name>" — the table is named after the original
+            stem = self._slug(re.sub(r"^[0-9a-f]{8}_", "", f.stem)) or "file"
             if f.suffix.lower() in (".xlsx", ".xlsm", ".xls"):
-                import openpyxl
-                wb = openpyxl.load_workbook(f, read_only=True)
-                for sheet in wb.sheetnames:
-                    out[f"{stem}__{re.sub(r'[^0-9a-zA-Z_]+', '_', sheet).strip('_').lower()}" if len(wb.sheetnames) > 1 else stem] = (f, sheet)
-                wb.close()
+                sheets = self._sheets(f)
+                for sheet in sheets:
+                    add(f"{stem}__{self._slug(sheet) or 'sheet'}" if len(sheets) > 1 else stem, (f, sheet))
             else:
-                out[stem] = (f, None)
+                add(stem, (f, None))
+        self._tables_cache = out
         return out
+
+    @staticmethod
+    def _sheets(path: Path) -> list[str]:
+        """Sheets with at least one non-empty cell (an empty 'Notes' tab is not a table)."""
+        if path.suffix.lower() == ".xls":
+            import pandas as pd
+            return [s for s, df in pd.read_excel(path, sheet_name=None, nrows=1).items() if len(df.columns)]
+        import openpyxl
+        wb = openpyxl.load_workbook(path, read_only=True)
+        try:
+            keep = []
+            for ws in wb.worksheets:
+                first = next(ws.iter_rows(max_row=5, values_only=True), None) or ()
+                if any(v not in (None, "") for v in first):
+                    keep.append(ws.title)
+            return keep or wb.sheetnames[:1]
+        finally:
+            wb.close()
 
     def streams(self) -> list[str]:
         return list(self._tables())
@@ -780,8 +889,12 @@ class FilesConnector(StagedConnector):
         ext = path.suffix.lower()
         delim = self.cfg("delimiter") or None
         if ext in (".csv", ".tsv", ".txt"):
-            return pd.read_csv(path, sep="\t" if ext == ".tsv" else (delim or None), engine="python", nrows=limit,
-                               encoding=self.cfg("encoding") or "utf-8", encoding_errors="replace")
+            enc = self.cfg("encoding") or "utf-8"
+            if enc.lower().replace("_", "-") in ("utf-8", "utf8"):
+                enc = "utf-8-sig"  # Excel writes a BOM; it must not end up in the first column name
+            df = pd.read_csv(path, sep="\t" if ext == ".tsv" else (delim or None), engine="python", nrows=limit,
+                             encoding=enc, encoding_errors="replace", dtype=str, keep_default_na=False, na_values=[""])
+            return _infer_text_types(df)
         if ext in (".xlsx", ".xlsm", ".xls"):
             return pd.read_excel(path, sheet_name=sheet, nrows=limit)
         if ext == ".parquet":
@@ -796,20 +909,63 @@ class FilesConnector(StagedConnector):
         raise ConnectorError(f"Unsupported file type: {path.name}")
 
     def iter_rows(self, stream, *, limit=None):
-        import numpy as np
-
         df = self._frame_for(stream, limit)
-        df = df.replace({np.nan: None})
+        df = df.astype(object).where(df.notna(), None)  # NaN / NaT / pd.NA → None
         records = df.to_dict(orient="records")
         for i in range(0, len(records), 5000):
             yield records[i:i + 5000]
+
+    def empty_columns(self, stream: str) -> list[str]:
+        try:
+            return [str(c) for c in self._frame_for(stream, 0).columns]
+        except Exception:
+            return []
 
     def test(self) -> dict:
         if not self.files:
             raise ConnectorError("Upload at least one file.")
         streams = self.streams()
+        broken = []
+        for s in streams:  # actually parse a few rows of each, so a corrupt file fails the test
+            try:
+                self._frame_for(s, 5)
+            except Exception as e:
+                broken.append(f"{s}: {str(e).splitlines()[0][:120]}")
+        if broken:
+            raise ConnectorError("Could not read " + "; ".join(broken))
         return {"ok": True, "message": f"{len(self.files)} file(s) → {len(streams)} table(s): {', '.join(streams[:6])}",
                 "streams": streams}
+
+
+_INT_RE = re.compile(r"^-?(0|[1-9]\d{0,17})$")
+_NUM_RE = re.compile(r"^-?(0|[1-9]\d*)\.\d+$")
+_BOOL = {"true": True, "false": False}
+_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}([ T]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$")
+
+
+def _infer_text_types(df):
+    """Type CSV text columns conservatively: a column becomes numeric only when EVERY value
+    looks like a plain number — so phone numbers (+2547…), codes with leading zeros (007)
+    and IDs like 1e5 stay text instead of being silently mangled."""
+    import pandas as pd
+
+    for col in df.columns:
+        s = df[col].dropna()
+        s = s[s.str.strip() != ""] if len(s) else s
+        if not len(s):
+            continue
+        v = s.str.strip()
+        if v.map(lambda x: bool(_INT_RE.match(x))).all():
+            df[col] = pd.to_numeric(df[col].str.strip(), errors="coerce").astype("Int64")
+        elif v.map(lambda x: bool(_INT_RE.match(x) or _NUM_RE.match(x))).all():
+            df[col] = pd.to_numeric(df[col].str.strip(), errors="coerce")
+        elif v.str.lower().isin(_BOOL.keys()).all():
+            df[col] = df[col].str.strip().str.lower().map(_BOOL)
+        elif v.map(lambda x: bool(_DATE_RE.match(x))).all():
+            parsed = pd.to_datetime(df[col].str.strip(), errors="coerce", format="ISO8601", utc=False)
+            if parsed.notna().sum() == len(s):
+                df[col] = parsed.dt.date if (v.str.len() == 10).all() else parsed
+    return df
 
 
 def _dig(data: Any, path: str | None) -> Any:
@@ -1048,6 +1204,8 @@ class AfyaExtractionConnector(StagedConnector):
     """The Afya Extraction API gateway: login, then paged reads per namespace."""
 
     dialect = "afya-extraction"
+    empty_hint = ("The gateway answers an unknown namespace with an empty page instead of an error — "
+                  "check the exact namespace names configured for this connection.")
     _token = None
 
     def database_label(self) -> str:
@@ -1559,8 +1717,9 @@ register(ConnectorSpec(
     "afya_extraction", "Afya Extraction API", "APIs", "hospital", "#0BB99F",
     "Facility data through the Afya Extraction gateway (one namespace = one table).",
     [FieldSpec("connection_id", "Connection id", type="number", required=True, placeholder="59"),
-     FieldSpec("tables", "Tables (namespaces)", type="textarea", rows=2, placeholder="patients, visits, invoices",
-               help="Comma-separated. Blank = whatever the API lists for the connection."),
+     FieldSpec("tables", "Tables (namespaces)", type="textarea", rows=2, placeholder="patient, visit, invoice",
+               help="Comma-separated, exactly as the gateway names them for this connection. Blank = whatever the API "
+                    "lists. An unknown namespace returns no rows (not an error) — extraction warns about it."),
      FieldSpec("base_url", "Base URL", placeholder="https://afyapi.afyaanalytics.ai/api", advanced=True, group="Authentication"),
      FieldSpec("username", "Username", advanced=True, group="Authentication", help="Blank = the platform's AFYA_EXTRACTION_USERNAME."),
      FieldSpec("password", "Password", type="password", secret=True, advanced=True, group="Authentication")],

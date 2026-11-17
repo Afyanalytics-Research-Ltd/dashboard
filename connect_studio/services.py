@@ -201,6 +201,45 @@ def refresh_summary(m: Mapping) -> None:
     m.summary = document.summary(m.document or {}, target)
 
 
+def merge_human_decisions(old: dict, new: dict, src_columns: dict[str, set[str]]) -> int:
+    """Carry review work into a regenerated document: table choices and fields made by a
+    human, and row filters. Only kept while they still fit the new source snapshot."""
+    kept = 0
+    old_pairs = {p["target"]: p for p in old.get("tables", [])}
+    new_pairs = {p["target"]: p for p in new.get("tables", [])}
+    restored = set()  # targets whose human-chosen source table overrides the new suggestion
+    for target, op in old_pairs.items():
+        np_ = new_pairs.get(target)
+        if not np_:
+            continue
+        if op.get("made_by") == "human" and (op.get("source") is None or op.get("source") in src_columns) \
+                and np_.get("source") != op.get("source"):
+            np_.update(source=op.get("source"), made_by="human", confidence=op.get("confidence", 1.0))
+            new["fields"] = [f for f in new["fields"] if f["target_table"] != target]
+            new["unmapped_fields"] = [u for u in new.get("unmapped_fields", []) if u["target_table"] != target]
+            restored.add(target)
+            kept += 1
+        if op.get("where") and np_.get("source") == op.get("source"):
+            np_["where"] = op["where"]
+    by_id = {f["id"]: i for i, f in enumerate(new["fields"])}
+    for f in old.get("fields", []):
+        pair = new_pairs.get(f["target_table"])
+        if (f.get("made_by") != "human" and f["target_table"] not in restored) or not pair \
+                or pair.get("source") != f.get("source_table"):
+            continue
+        if f["kind"] != "constant" and f.get("source") not in src_columns.get(f.get("source_table") or "", set()):
+            continue
+        if f["id"] in by_id:
+            new["fields"][by_id[f["id"]]] = f
+        else:
+            new["fields"].append(f)
+            by_id[f["id"]] = len(new["fields"]) - 1
+        new["unmapped_fields"] = [u for u in new.get("unmapped_fields", [])
+                                  if not (u["target_table"] == f["target_table"] and u["target"] == f["target"])]
+        kept += 1
+    return kept
+
+
 def run_generate(m: Mapping, user=None) -> Job:
     job = _new_job("map", f"AI mapping · {m.name}", user, mapping=m)
     Mapping.objects.filter(pk=m.pk).update(status="generating")
@@ -213,9 +252,18 @@ def run_generate(m: Mapping, user=None) -> Job:
             s_data = snap_mod.subset(src_snap.data, (m.settings or {}).get("source_tables"))
             t_data = snap_mod.subset(tgt_snap.data, (m.settings or {}).get("target_tables"))
             ctx(msg=f"Source: {s_data['stats']['tables']} tables · Target: {len(t_data['tables'])} tables", pct=15)
+            old = Mapping.objects.get(pk=m.pk).document or {}
             doc = mapper.generate(s_data, t_data, use_ai=(m.settings or {}).get("ai", True),
                                   samples=(m.settings or {}).get("samples", "full"),
                                   progress=lambda pct=None, **k: (ctx.check(), ctx(pct=15 + 0.85 * pct if pct is not None else None, **k)))
+            src_keys = {t["key"]: {c["name"] for c in t["columns"]} for t in s_data["tables"]}
+            kept = merge_human_decisions(old, doc, src_keys)
+            if kept:
+                ctx(msg=f"Kept {kept} decision(s) made in review.")
+            had = sum(1 for p in old.get("tables", []) if p.get("source"))
+            if had and not any(p.get("source") for p in doc["tables"]):
+                raise RuntimeError(f"Regeneration matched no tables (AI {'on' if doc['settings'].get('ai') else 'off'}) — "
+                                   f"the previous mapping ({had} tables) was kept unchanged.")
             fresh = Mapping.objects.get(pk=m.pk)
             fresh.document = doc
             fresh.source_snapshot = src_snap
@@ -225,8 +273,12 @@ def run_generate(m: Mapping, user=None) -> Job:
             refresh_summary(fresh)
             fresh.save()
             s = fresh.summary
+            failed_calls = int(doc["usage"].get("failures") or 0)
             ctx(msg=f"{s['matched_tables']}/{s['target_tables']} tables matched · {s['mapped']}/{s['columns']} columns mapped "
-                    f"· {doc['usage'].get('calls', 0)} Groq calls · {doc['usage'].get('total_tokens', 0):,} tokens")
+                    f"· {doc['usage'].get('calls', 0)} Groq calls · {doc['usage'].get('total_tokens', 0):,} tokens"
+                    + (f" · {failed_calls} AI call(s) failed — those parts are rule-based only; generate again to retry"
+                       if failed_calls else ""),
+                level="warning" if failed_calls else "info")
             return {"summary": {k: v for k, v in s.items() if k != "tables"}, "usage": doc["usage"]}
         except Exception:
             Mapping.objects.filter(pk=m.pk).update(status="failed" if not m.document else "review")
@@ -245,6 +297,18 @@ def run_remap(m: Mapping, target_table: str, source_table: str | None, user=None
                                  source_table, use_ai=use_ai, samples=(fresh.settings or {}).get("samples", "full"))
         with transaction.atomic():
             locked = Mapping.objects.select_for_update().get(pk=m.pk)
+            # splice in only this table — edits made to other tables while the AI ran must survive
+            cur = dict(locked.document or {})
+            new_pair = next((p for p in doc["tables"] if p["target"] == target_table), None)
+            cur["tables"] = [new_pair if (p["target"] == target_table and new_pair) else p for p in cur.get("tables", [])]
+            cur["fields"] = [f for f in cur.get("fields", []) if f["target_table"] != target_table] + \
+                [f for f in doc["fields"] if f["target_table"] == target_table]
+            cur["unmapped_fields"] = [u for u in cur.get("unmapped_fields", []) if u["target_table"] != target_table] + \
+                [u for u in doc.get("unmapped_fields", []) if u["target_table"] == target_table]
+            for k in ("usage", "unused_sources", "notes"):
+                if k in doc:
+                    cur[k] = doc[k]
+            doc = cur
             locked.document = doc
             locked.version += 1
             refresh_summary(locked)

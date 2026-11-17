@@ -38,7 +38,8 @@ export function v3ImportPanel({ form, onApplied }) {
   async function run(file) {
     mount(el, h('div.cs-import-busy', h('span.spinner-border.spinner-border-sm'), h('div', h('b', `Reading ${file.name}`))));
     try {
-      result = await api.importApi({ text: await file.text(), filename: file.name, kind: 'afya_platform' });
+      if (file.size > 20 * 1024 * 1024) throw new Error('That file is over 20 MB.');
+      result = await api.importApiFile(file, { kind: 'afya_platform' });
       review();
     } catch (e) { toastError(e, 'Import failed'); intro(); }
   }
@@ -120,8 +121,7 @@ export function importPanel({ form, meta, onApplied }) {
         h('div.cs-muted', useAi ? 'Parsing endpoints, then Groq picks the ones that are tables and names them…' : 'Parsing endpoints…'))));
     try {
       if (file.size > 20 * 1024 * 1024) throw new Error('That file is over 20 MB.');
-      const text = await file.text();
-      result = await api.importApi({ text, filename: file.name, ai: useAi });
+      result = await api.importApiFile(file, { ai: useAi ? '1' : '0' });
       result.file = file.name;
       filter = result.endpoints.some((e) => e.selected) ? 'selected' : 'all';
       review();

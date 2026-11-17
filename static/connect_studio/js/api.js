@@ -44,6 +44,31 @@ export async function request(path, { method = 'GET', query, body, signal } = {}
   }
 }
 
+/** One file + form fields as multipart (no 2.5 MB JSON-body limit), JSON response. */
+export async function postFile(path, file, fields = {}) {
+  const form = new FormData();
+  form.append('file', file, file.name);
+  Object.entries(fields).forEach(([k, v]) => { if (v != null) form.append(k, String(v)); });
+  listeners.forEach((fn) => fn('start'));
+  try {
+    const resp = await fetch(`${API}${path.replace(/^\//, '')}`, {
+      method: 'POST', credentials: 'same-origin', body: form,
+      headers: { Accept: 'application/json', 'X-CSRFToken': csrf() },
+    });
+    const text = await resp.text();
+    let data = null;
+    try { data = text ? JSON.parse(text) : null; } catch { data = null; }
+    if (!resp.ok) {
+      const err = data?.error || {};
+      const fallback = resp.status === 413 ? 'That file is too large for the server.' : `HTTP ${resp.status}`;
+      throw new ApiError(err.message || fallback, { status: resp.status, code: err.code || 'http' });
+    }
+    return data;
+  } finally {
+    listeners.forEach((fn) => fn('end'));
+  }
+}
+
 /** Multipart upload with progress (XHR — fetch has no upload progress). */
 export function upload(path, files, { onProgress } = {}) {
   return new Promise((resolve, reject) => {
@@ -58,7 +83,7 @@ export function upload(path, files, { onProgress } = {}) {
       let data = null;
       try { data = JSON.parse(xhr.responseText); } catch { data = null; }
       if (xhr.status >= 200 && xhr.status < 300) resolve(data);
-      else reject(new ApiError(data?.error?.message || `Upload failed (HTTP ${xhr.status})`, { status: xhr.status }));
+      else reject(new ApiError(data?.error?.message || (xhr.status === 413 ? 'Upload too large — the server accepts up to 100 MB per upload.' : `Upload failed (HTTP ${xhr.status})`), { status: xhr.status }));
     };
     xhr.onerror = () => reject(new ApiError('Upload failed — network error'));
     xhr.send(form);
@@ -82,6 +107,7 @@ export const api = {
   deleteSource: (id) => del(`sources/${id}/`),
   uploadFiles: (id, files, opts) => upload(`sources/${id}/files/`, files, opts),
   importApi: (b, o) => post('import-api/', b, o),
+  importApiFile: (file, fields) => postFile('import-api/', file, fields),
   deleteFile: (id, fid) => del(`sources/${id}/files/${fid}/`),
   testSource: (id) => post(`sources/${id}/test/`),
   extract: (id, b) => post(`sources/${id}/extract/`, b),

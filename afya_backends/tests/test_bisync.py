@@ -197,3 +197,41 @@ def test_bulk_unload_keeps_one_parquet_schema_across_files():
     alter = next(i for i, s in enumerate(sf.sql) if "ENABLE_UNLOAD_PHYSICAL_TYPE_OPTIMIZATION = FALSE" in s)
     copy = next(i for i, s in enumerate(sf.sql) if s.startswith("COPY INTO @"))
     assert alter < copy
+
+
+def test_snowflake_reads_guard_timestamps_outside_the_nanosecond_range():
+    """V3 has dates like LMP '0026-06-10' / EXPIRY_DATE '0229-05-30': the Snowflake connector then returns that
+    result chunk as timestamp[us] next to timestamp[ns] ones and pyarrow fails with 'Schema at index N was different'
+    (V3_SYNC.EVALUATION__PATIENT_META, INVENTORY__BATCH, 2026-11-18). Snowflake reads return such values as NULL."""
+    from afya_backends.warehouse.bisync import Col, Side
+
+    assert bisync._sf_select(Col("LMP", "TIMESTAMP")) == 'IFF(YEAR("LMP") BETWEEN 1678 AND 2261, "LMP", NULL) AS "LMP"'
+    assert bisync._sf_select(Col("ID", "NUMBER", 38, 0)) == '"ID"'
+    assert bisync._sf_select("NAME") == '"NAME"'
+
+    class Cur:
+        def __init__(self, log):
+            self.log = log
+
+        def execute(self, sql, params=None):
+            self.log.append(sql)
+
+        def fetch_pandas_batches(self):
+            return iter(())
+
+    class Conn:
+        def __init__(self):
+            self.sql = []
+
+        def cursor(self):
+            return Cur(self.sql)
+
+    for backend in ("snowflake", "databend"):
+        side = Side.__new__(Side)
+        side.backend, side.database, side.conn = backend, "HOSPITALS", Conn()
+        list(side.read_batches("V3_SYNC", "T", [Col("ID", "NUMBER", 38, 0), Col("LMP", "TIMESTAMP")]))
+        sql = side.conn.sql[0]
+        if backend == "snowflake":
+            assert 'IFF(YEAR("LMP") BETWEEN 1678 AND 2261, "LMP", NULL) AS "LMP"' in sql and sql.startswith('SELECT "ID", ')
+        else:                                   # Databend reads are untouched (names only)
+            assert sql.startswith('SELECT "ID", "LMP" FROM')

@@ -17,6 +17,11 @@ links to), then four groups side by side, each one step after another:
 `steps` (when not empty) runs just those betacare_to_v3 steps, in order, instead. `patients` (Smart Hospital patient ids)
 limits a run to those patients and their visits, orders and money — the canary.
 
+`lab_templates` is never part of base / groups: run it by name (steps = lab_templates; dry_run first). It loads the lab's
+template sheet (dags/jsons/betacare_lab_templates.json, see pipelines/betacare_lab_templates.py) onto Beta Care's
+lab tests and replaces the faulty template import of 2026-11-17. After the sheet changes, run it with only_missing off so
+existing lines / ranges are updated too.
+
 With only_missing (default) every step posts only rows whose uuid V3 doesn't have yet, so a run resumes where the last
 one stopped. Rows are matched by stable uuid5s, so nothing is duplicated either way.
 """

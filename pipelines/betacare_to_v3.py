@@ -45,6 +45,9 @@ Steps (STEPS order):
                        (NHIF / second-insurer columns) is the insurer settling the invoice: on the invoice, not a receipt.
   invoices             invoices an insurer paid part of, and unpaid ones → finance/invoice (totals from master_bill).
   appointments         appointment → reception/appointment.
+  lab_templates        (opt-in, run by name) the lab's template sheet → template lines, sub-tests and reference ranges
+                       on Beta Care's lab tests; replaces the faulty template import of 2026-11-17
+                       (betacare_lab_templates.py).
 
     python betacare_to_v3.py --target betacare_prod --steps users patients --limit 3 --dry-run
     python betacare_to_v3.py --target betacare_prod --patients 9289 9288      # canary on two patients
@@ -97,7 +100,10 @@ FACILITY_MODELS = {"patient", "patient_insurance", "visits", "vitals", "doctor_n
                    "stock", "batch", "product", "appointment"}
 STEPS = ("users", "insurance", "patients", "patient_insurance", "visits", "wards", "admissions", "ward_stays",
          "discharges", "vitals", "doctor_notes", "diagnoses", "catalogue", "procedure_prices", "investigations",
-         "lab_results", "products", "stock", "prescriptions", "payments", "payment_details", "invoices", "appointments")
+         "lab_results", "products", "stock", "prescriptions", "payments", "payment_details", "invoices", "appointments",
+         "lab_templates")
+# run only when named (--steps / the DAG's `steps`): not part of a full migration run
+OPT_IN_STEPS = ("lab_templates",)
 
 # organisation ids patients still carry after Beta Care deleted the organisation: read off what those patients'
 # bills were paid with (org 18: 336 'NHIF Capitation CS' + 81 'NHIF' …, org 21: 'Linda Mama')
@@ -1424,11 +1430,16 @@ class Run:
         res = self.post("reception", "appointment", gen())
         return {**why, **res}
 
+    # ── lab templates (opt-in: Beta Care's template sheet, see betacare_lab_templates.py) ──
+    def lab_templates(self) -> dict:
+        from betacare_lab_templates import lab_templates
+        return lab_templates(self, gid)
+
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--target", default="betacare_prod", choices=TARGETS)
-    ap.add_argument("--steps", nargs="*", default=list(STEPS), choices=STEPS)
+    ap.add_argument("--steps", nargs="*", default=[s for s in STEPS if s not in OPT_IN_STEPS], choices=STEPS)
     ap.add_argument("--limit", type=int, default=0, help="post at most N rows per step (canary)")
     ap.add_argument("--workers", type=int, default=12)
     ap.add_argument("--dry-run", action="store_true")

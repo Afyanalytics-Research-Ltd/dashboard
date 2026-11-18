@@ -166,7 +166,7 @@ def group_by_service(source: str, models, tenant_id: int | None = None) -> list[
 )
 def v3_to_snowflake_sync():
 
-    @task
+    @task(retries=3, retry_delay=timedelta(minutes=5))     # logins only: a short V3 outage shouldn't lose the run
     def resolve() -> dict:
         """Log every source in, alone (a bad login is reported, the rest still sync), list each one's
         models, and collapse logins that land in the same organisation (one sync per tenant — no duplicates)."""
@@ -211,7 +211,10 @@ def v3_to_snowflake_sync():
             log.info("%s (org %s): %d model(s) on %s", src.name, src.tenant_id, len(models),
                      sorted({m.service for m in models}))
         if not jobs:
-            raise AirflowFailException("no source could be planned: " + "; ".join(problems or ["no models"]))
+            why = "no source could be planned: " + "; ".join(problems or ["no models"])
+            if problems and all(re.search(r"Timeout|ConnectionError|Max retries|50[234]", p) for p in problems):
+                raise RuntimeError(why)             # V3 itself unreachable (2026-11-17 21:00): Airflow retries
+            raise AirflowFailException(why)
         # models the gateway doesn't scope to an organisation are kept once (tenant 0), by one source per run
         owner = synced[0]["source"] if synced else None
         for j in jobs:

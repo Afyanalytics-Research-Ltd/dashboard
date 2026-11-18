@@ -307,15 +307,17 @@ class Side:
         else:
             self.run(f"RENAME TABLE {self.fq(schema, staging)} TO {self.fq(schema, table)}")
 
-    def read_batches(self, schema: str, table: str, columns: Optional[list[str]] = None,
+    def read_batches(self, schema: str, table: str, columns: Optional[list] = None,
                      where: str = ""):
-        """``where``: a Snowflake-dialect condition (the Databend cursor translates it)."""
-        cols = ", ".join(_q(c) for c in columns) if columns else "*"
+        """``columns``: names, or Col objects (then Snowflake timestamps are range-guarded, see
+        ``_sf_select``). ``where``: a Snowflake-dialect condition (the Databend cursor translates it)."""
         cond = f" WHERE {where}" if where else ""
         cur = self.conn.cursor()
         if self.backend == "databend":   # dbapi translates Snowflake-dialect SQL to this side's names
+            cols = ", ".join(_q(getattr(c, "name", c)) for c in columns) if columns else "*"
             cur.execute(f"SELECT {cols} FROM {_q(schema)}.{_q(table)}{cond}")
         else:
+            cols = ", ".join(_sf_select(c) for c in columns) if columns else "*"
             cur.execute(f"SELECT {cols} FROM {self.fq(schema, table)}{cond}")
         yield from cur.fetch_pandas_batches()
 
@@ -333,6 +335,24 @@ class Side:
         rows = self.run(f"SELECT DISTINCT {_q(key) if self.backend == 'snowflake' else _bq(key)} "
                         f"FROM {self.fq(schema, table)}")
         return {None if r[0] is None else str(r[0]) for r in rows}
+
+
+# pandas / Arrow nanosecond timestamps span 1677-09-21 .. 2262-04-11. A value outside it (V3 data entry: LMP
+# '0026-06-10', EXPIRY_DATE '0229-05-30', DOB '1657-12-31') makes the Snowflake connector hand that result chunk
+# over as timestamp[us] while the others are timestamp[ns], and pyarrow refuses to join them ("Schema at index N
+# was different", V3_SYNC.EVALUATION__PATIENT_META / INVENTORY__BATCH, 2026-11-18) — one bad row stopped the table.
+# Such values can't be a real date in these tables: they are read as NULL (Snowflake keeps the original).
+TS_SAFE_YEARS = (1678, 2261)
+
+
+def _sf_select(c) -> str:
+    """One column of a Snowflake SELECT; a TIMESTAMP outside the nanosecond range comes back as NULL."""
+    name = getattr(c, "name", c)
+    q = _q(name)
+    if getattr(c, "kind", None) == "TIMESTAMP":
+        lo, hi = TS_SAFE_YEARS
+        return f"IFF(YEAR({q}) BETWEEN {lo} AND {hi}, {q}, NULL) AS {q}"
+    return q
 
 
 # ── copy / reconcile ─────────────────────────────────────────────────────
@@ -370,7 +390,7 @@ def copy_table(src: Side, dst: Side, schema: str, table: str, *, dst_exists: boo
     dst.create_table(d_schema, staging, cols, variant_as_text=sf_variant_fix)
     total = 0
     try:
-        for df in src.read_batches(s_schema, s_table, [c.name for c in src_cols]):
+        for df in src.read_batches(s_schema, s_table, src_cols):
             if df.empty:
                 continue
             dst.write(d_schema, staging, _prepare(df.rename(columns=rename), cols, dst))
@@ -519,7 +539,7 @@ def insert_missing(src: Side, dst: Side, schema: str, table: str, key: str, *, l
 
     rename = {c.name: dst_names[c.name.upper()] for c in src_cols}
     out_cols = [Col(dst_names[c.name.upper()], c.kind) for c in src_cols]
-    names = [c.name for c in src_cols]
+    names = src_cols                     # Col objects: Snowflake timestamps are range-guarded (_sf_select)
     added = 0
 
     def load(batches, wanted):

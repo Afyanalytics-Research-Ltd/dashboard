@@ -10,6 +10,7 @@ written to the AuditLog.
 """
 
 import base64
+import hashlib
 import json
 import logging
 from urllib.parse import urlsplit, urlunsplit
@@ -21,9 +22,10 @@ from django.views.decorators.http import require_GET, require_http_methods, requ
 
 from core.models import AuditLog
 
-from .client import WandbError, get_client
+from .client import WandbError
+from .connection import Connection, client_for, connection_for, shared_connection
 from .gql import check_document, mutation_inputs
-from .models import SavedView
+from .models import SavedView, WandbCredential
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +61,8 @@ def _audit(request: HttpRequest, action: str, resource_id: str, detail: str) -> 
 KEY_OWNER_CACHE = 'wandb_ui:key_owner'
 LOCKOUT_MESSAGE = ('This would disconnect Model Studio: the W&B user and API key in WANDB_API_KEY are what Studio uses '
                    'to talk to W&B. Do it from W&B itself and update .env afterwards.')
+OWN_LOCKOUT_MESSAGE = ('This would disconnect Model Studio for you: it is the W&B user / API key you saved under '
+                       'W&B connection. Change or remove your connection there first.')
 
 
 def public_key_id(key: str) -> str:
@@ -92,17 +96,20 @@ def _mentions(node_id: str, public_id: str) -> bool:
     return public_id in seen
 
 
-def _key_owner() -> dict | None:
-    """{'user_id', 'public_id'} for the configured key. Only viewer.id is asked of W&B
+def _key_owner(conn: Connection | None = None) -> dict | None:
+    """{'user_id', 'public_id'} for the key this request uses. Only viewer.id is asked of W&B
     (viewer.apiKeys needs a recent web-UI login, so it can't be relied on)."""
-    owner = cache.get(KEY_OWNER_CACHE)
+    conn = conn or shared_connection()
+    cache_key = KEY_OWNER_CACHE if conn.source == 'shared' else \
+        f'{KEY_OWNER_CACHE}:{hashlib.sha256((conn.server.api_url + conn.api_key).encode()).hexdigest()[:24]}'
+    owner = cache.get(cache_key)
     if owner is None:
         try:
-            data = get_client().query('{ viewer { id } }')
+            data = client_for(conn).query('{ viewer { id } }')
         except WandbError:
             return None
-        owner = {'user_id': (data.get('viewer') or {}).get('id'), 'public_id': public_key_id(settings.WANDB_API_KEY)}
-        cache.set(KEY_OWNER_CACHE, owner, 3600)
+        owner = {'user_id': (data.get('viewer') or {}).get('id'), 'public_id': public_key_id(conn.api_key)}
+        cache.set(cache_key, owner, 3600)
     return owner
 
 
@@ -110,26 +117,27 @@ def _is_key_in_use(ref: dict, public_id: str) -> bool:
     return any(v and (v == public_id or _mentions(str(v), public_id)) for v in (ref.get('id'), ref.get('apiKeyId')))
 
 
-def _lockout_reason(document: str, variables: dict | None) -> str | None:
-    """Refuse mutations that would revoke Studio's own access (key, user, admin flag)."""
+def _lockout_reason(document: str, variables: dict | None, conn: Connection | None = None) -> str | None:
+    """Refuse mutations that would revoke the access this request runs on (key, user, admin flag)."""
     risky = {'deleteApiKey', 'deleteApiKeys', 'deleteUser', 'updateUser', 'updateUserRole'}
     calls = [(name, args) for name, args in mutation_inputs(document, variables) if name in risky]
     if not calls:
         return None
-    owner = _key_owner()
+    owner = _key_owner(conn)
     if not owner:
         return 'Could not verify that this change is safe (W&B did not answer); try again in a moment.'
     user_id, public_id = owner['user_id'], owner['public_id']
+    message = OWN_LOCKOUT_MESSAGE if conn is not None and conn.source == 'own' else LOCKOUT_MESSAGE
     for name, args in calls:
         inp = args.get('input') if isinstance(args.get('input'), dict) else {}
         if name == 'deleteApiKey' and _is_key_in_use(inp, public_id):
-            return LOCKOUT_MESSAGE
+            return message
         if name == 'deleteApiKeys' and any(_is_key_in_use(r or {}, public_id) for r in inp.get('keys') or []):
-            return LOCKOUT_MESSAGE
+            return message
         if name in ('deleteUser', 'updateUserRole') and inp.get('id') == user_id:
-            return LOCKOUT_MESSAGE
+            return message
         if name == 'updateUser' and inp.get('admin') is False and inp.get('id') in (user_id, None):
-            return LOCKOUT_MESSAGE
+            return message
     return None
 
 
@@ -146,6 +154,7 @@ def graphql_proxy(request: HttpRequest) -> HttpResponse:
     if not batch or len(batch) > 20 or not all(isinstance(p, dict) for p in batch):
         return _error(400, 'Send one GraphQL request object (or a batch of up to 20).')
 
+    conn = connection_for(request.user)
     mutations = []
     for item in batch:
         checked = check_document(item.get('query'))
@@ -153,12 +162,12 @@ def graphql_proxy(request: HttpRequest) -> HttpResponse:
             return _error(403 if 'not available' in checked.error else 400, checked.error)
         mutations.extend(checked.mutations)
         if checked.mutations:
-            lockout = _lockout_reason(item.get('query'), item.get('variables'))
+            lockout = _lockout_reason(item.get('query'), item.get('variables'), conn)
             if lockout:
                 return _error(409, lockout)
 
     try:
-        upstream = get_client().graphql(request.body, read_only=not mutations)
+        upstream = client_for(conn).graphql(request.body, read_only=not mutations)
     except WandbError as exc:
         logger.error('W&B GraphQL proxy failed: %s', exc)
         return JsonResponse(exc.payload, status=exc.status_code)
@@ -166,7 +175,8 @@ def graphql_proxy(request: HttpRequest) -> HttpResponse:
     if mutations:
         action = 'delete' if any(m.startswith(('delete', 'purge')) for m in mutations) else (
             'create' if any(m.startswith('create') for m in mutations) else 'update')
-        _audit(request, action, ','.join(mutations), f'GraphQL {", ".join(mutations)} -> {upstream.status_code}')
+        via = f'own key, {conn.server.key}' if conn.source == 'own' else 'shared key'
+        _audit(request, action, ','.join(mutations), f'GraphQL {", ".join(mutations)} -> {upstream.status_code} ({via})')
 
     resp = HttpResponse(upstream.content, status=upstream.status_code, content_type=upstream.content_type)
     resp['Cache-Control'] = 'no-store'
@@ -187,32 +197,50 @@ def _host_key(parts) -> tuple:
     return ('loopback' if host in LOOPBACK else host, port)
 
 
-def _allowed_file_url(url: str) -> str | None:
-    """Map a W&B file URL (presigned links included) to the internal base URL; None if it isn't a W&B URL."""
+# W&B Cloud hands out signed Google Cloud Storage links (file.directUrl) for run files and artifacts. They are
+# fetched as they are, WITHOUT the W&B key (the signature is the credential); only W&B's own buckets qualify.
+CLOUD_SIGNED_HOSTS = {'storage.googleapis.com'}
+CLOUD_SIGNED_PATH = ('/wandb',)
+
+
+def _resolve_file_url(url: str, conn: Connection | None = None) -> tuple[str, bool] | None:
+    """(URL to fetch, send the W&B key?) for a file URL of the request's W&B; None if it isn't one."""
     try:
         parts = urlsplit(url)
     except ValueError:
         return None
     if parts.scheme not in ('http', 'https') or not parts.netloc:
         return None
-    internal = urlsplit(settings.WANDB_BASE_URL)
-    public = urlsplit(getattr(settings, 'WANDB_HOST_URL', '') or settings.WANDB_BASE_URL)
-    if _host_key(parts) not in {_host_key(internal), _host_key(public)}:
-        return None
-    if not parts.path.startswith(FILE_PATH_PREFIXES):
-        return None
-    return urlunsplit((internal.scheme, internal.netloc, parts.path, parts.query, ''))
+    conn = conn or shared_connection()
+    internal = urlsplit(conn.server.api_url)
+    public = urlsplit(conn.server.host_url)
+    if _host_key(parts) in {_host_key(internal), _host_key(public)}:
+        if not parts.path.startswith(FILE_PATH_PREFIXES):
+            return None
+        return urlunsplit((internal.scheme, internal.netloc, parts.path, parts.query, '')), True
+    if conn.server.key == 'cloud' and parts.scheme == 'https' and (parts.hostname or '').lower() in CLOUD_SIGNED_HOSTS \
+            and parts.path.startswith(CLOUD_SIGNED_PATH) and 'Signature' in parts.query:
+        return url, False
+    return None
+
+
+def _allowed_file_url(url: str, conn: Connection | None = None) -> str | None:
+    """Map a W&B file URL (presigned links included) to the URL fetched server-side; None if it isn't a W&B URL."""
+    resolved = _resolve_file_url(url, conn)
+    return resolved[0] if resolved else None
 
 
 @require_GET
 @_superuser
 def file_proxy(request: HttpRequest) -> HttpResponse:
-    """Stream a run/artifact file (images, logs, tables) through the server-side key."""
-    target = _allowed_file_url(request.GET.get('url', ''))
-    if not target:
+    """Stream a run/artifact file (images, logs, tables) through the request's W&B connection."""
+    conn = connection_for(request.user)
+    resolved = _resolve_file_url(request.GET.get('url', ''), conn)
+    if not resolved:
         return _error(400, 'Only W&B file URLs can be fetched.')
+    target, with_key = resolved
     try:
-        upstream = get_client().get_file(target, range_header=request.headers.get('Range'))
+        upstream = client_for(conn).get_file(target, range_header=request.headers.get('Range'), auth=with_key)
     except WandbError as exc:
         return JsonResponse(exc.payload, status=exc.status_code)
     resp = HttpResponse(upstream.content, status=upstream.status_code, content_type=upstream.content_type)
@@ -224,6 +252,58 @@ def file_proxy(request: HttpRequest) -> HttpResponse:
         resp['Content-Disposition'] = f'attachment; filename="{name}"'
     resp['Cache-Control'] = 'private, max-age=300'
     return resp
+
+
+# ------------------------------------------------------------------ the user's own W&B connection
+
+def connection_state(user) -> dict:
+    """What the W&B connection page (and the app shell) needs — never the key itself."""
+    from .connection import key_hint, servers
+
+    conn = connection_for(user)
+    own = WandbCredential.objects.filter(user=user).first() if getattr(user, 'is_authenticated', False) else None
+    return {
+        'active': {'source': conn.source, 'server': conn.server.key, 'server_label': conn.server.label,
+                   'wandb_url': conn.server.host_url, 'wandb_user': conn.wandb_user,
+                   'key_hint': key_hint(conn.api_key) if conn.api_key else ''},
+        'own': own.as_dict() if own else None,
+        'shared_available': bool(settings.WANDB_API_KEY),
+        'servers': [{'key': s.key, 'label': s.label, 'url': s.host_url, 'key_page': s.key_page} for s in servers().values()],
+    }
+
+
+@require_http_methods(['GET', 'POST', 'DELETE'])
+@_superuser
+def connection_view(request: HttpRequest) -> JsonResponse:
+    """GET: the current connection. POST {server, api_key}: test the key on that W&B, then save it (encrypted).
+    DELETE: forget the user's key — Model Studio goes back to the shared server key."""
+    from django.utils import timezone
+
+    from .connection import encrypt_key, key_hint, verify
+
+    if request.method == 'GET':
+        return JsonResponse(connection_state(request.user))
+    if request.method == 'DELETE':
+        deleted, _ = WandbCredential.objects.filter(user=request.user).delete()
+        if deleted:
+            _audit(request, 'delete', 'connection', 'Removed own W&B API key (back to the shared key)')
+        return JsonResponse(connection_state(request.user))
+    try:
+        data = json.loads(request.body or b'{}')
+    except ValueError:
+        return _error(400, 'Body must be JSON: {"server": "local" | "cloud", "api_key": "..."}.')
+    server, api_key = str(data.get('server') or ''), str(data.get('api_key') or '').strip()
+    try:
+        viewer = verify(server, api_key)
+    except WandbError as exc:
+        return _error(exc.status_code, str(exc))
+    WandbCredential.objects.update_or_create(user=request.user, defaults={
+        'server': server, 'api_key_enc': encrypt_key(api_key), 'key_hint': key_hint(api_key),
+        'wandb_user': viewer['username'], 'wandb_entity': viewer['entity'], 'verified_at': timezone.now()})
+    _audit(request, 'update', 'connection', f'Saved own W&B API key for {server} (W&B user {viewer["username"]})')
+    from django.contrib.auth import get_user_model
+    fresh = get_user_model().objects.get(pk=request.user.pk)    # request.user may cache the old related row
+    return JsonResponse(connection_state(fresh))
 
 
 # ------------------------------------------------------------------ saved views

@@ -21,7 +21,7 @@ if _HERE not in sys.path:
 for _m in [m for m in sys.modules if m == "afya_metrics" or m.startswith("afya_metrics.")]:
     del sys.modules[_m]
 
-from afya_metrics import data as D, discovery, hmis, overview, patients, theme as T, update
+from afya_metrics import data as D, discovery, hmis, overview, patients, privacy, theme as T, update
 
 T.inject_css()
 
@@ -81,6 +81,9 @@ env_selected = list(st.session_state[hmis.ENV_KEY])
 env_overlap = []
 if pc_error is None:
     pc_rows, pc_receipts, env_overlap = hmis.combine(pc_rows, pc_receipts, hmis_parts, env_selected)
+    # facility names behind codes unless the deployment sets AFYA_HIDE_FACILITY_NAMES=false
+    if privacy.hidden():
+        pc_rows, pc_receipts = privacy.apply(pc_rows, pc_receipts)
 upds = sum(r["UPDS"] for r in pc_rows) if pc_rows else None
 patient_records = sum(r["PATIENT_RECORDS"] for r in pc_rows) if pc_rows else None
 

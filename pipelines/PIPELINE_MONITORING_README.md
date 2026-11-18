@@ -330,6 +330,17 @@ reliable target-side verification would require adding run-scoped load
 metadata. The source count alone is not a substitute for the expected count
 of each mapped target.
 
+### Canary runs already publish it
+
+Canary runs (see `CANARY_README.md`) publish `pipeline_reconciliation` from
+their final task: one entry per target with `expected_target_rows`,
+`loaded_target_rows` (confirmed by reading the records back),
+`duplicate_count`, `mismatched_fields` and `canary_status`. Their target-side
+counts are scoped to the canary's own records: by `ingested_at` and record
+id in EVENTS_RAW, by `RECORD_KEY` in the document table, and by V3 id or
+uuid in V3. A failed canary also fails its task, so it reaches Sentry through
+the central failure callback without any new policy.
+
 ### Central rollout
 
 Once DAGs publish the agreed contract, the global Airflow task policy can

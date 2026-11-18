@@ -35,7 +35,7 @@ PIPELINE_MODULES = ("facility_to_snowflake_fast_resume", "flatten_jsons_schemas"
                     "v3_to_v3_migration", "v3_to_v3_client", "v3_to_v3_links", "v3_to_v3_audit",
                     "v2_delta_to_v3", "fast_v2_live_to_v3",
                     "export_missing_records", "v3_db_tables", "load_missing_records",
-                    "dedup", "dedup_rules", "v3_org_softdelete")
+                    "dedup", "dedup_rules", "v3_org_softdelete", "canary")
 
 # Used only if the scripts aren't mounted, so the DAGs still parse and the
 # import error surfaces when a task runs, not as a broken DAG.

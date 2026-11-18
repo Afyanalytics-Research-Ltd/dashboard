@@ -32,6 +32,11 @@ route('/users', page('users'), { title: 'Users' });
 route('/system', page('system'), { title: 'System' });
 route('/cleanup', page('cleanup'), { title: 'Cleanup' });
 route('/explorer', page('explorer'), { title: 'API explorer' });
+route('/connection', page('connection'), { title: 'W&B connection' });
+
+// W&B Cloud accounts aren't W&B *server* admins: the instance-admin pages only make sense on our own W&B.
+const conn = config.connection?.active || {};
+const ON_CLOUD = conn.server === 'cloud';
 
 export const NAV = [
   { section: 'Models', items: [
@@ -41,10 +46,13 @@ export const NAV = [
   ] },
   { section: 'Admin', items: [
     { label: 'Teams', icon: 'people', path: '/teams', key: 'g t' },
-    { label: 'Users', icon: 'person-badge', path: '/users', key: 'g u' },
-    { label: 'System', icon: 'heart-pulse', path: '/system' },
-    { label: 'Cleanup', icon: 'recycle', path: '/cleanup' },
+    { label: 'Users', icon: 'person-badge', path: '/users', key: 'g u', serverOnly: true },
+    { label: 'System', icon: 'heart-pulse', path: '/system', serverOnly: true },
+    { label: 'Cleanup', icon: 'recycle', path: '/cleanup', serverOnly: true },
     { label: 'API explorer', icon: 'terminal', path: '/explorer', key: 'g x' },
+  ].filter((i) => !(ON_CLOUD && i.serverOnly)) },
+  { section: 'Account', items: [
+    { label: 'W&B connection', icon: 'key', path: '/connection', key: 'g c' },
   ] },
 ];
 
@@ -75,7 +83,7 @@ const navEl = h('nav.af-nav', { 'aria-label': 'Model Studio navigation' },
     gi === 0 ? projectNav : null,
   ]));
 
-const healthPill = h('a.af-health-pill', { href: urls.system(), title: 'W&B Server status' }, stateDot('none'), h('span', 'Checking…'));
+const healthPill = h('a.af-health-pill', { href: ON_CLOUD ? href('/connection') : urls.system(), title: 'W&B status' }, stateDot('none'), h('span', 'Checking…'));
 const versionEl = h('span.af-version');
 const netEl = h('span.af-net', { title: 'Requests in flight' });
 const outlet = h('main.af-main');
@@ -93,9 +101,10 @@ const shell = h('div.af-shell',
 const mobileToggle = h('button.af-mobile-nav.btn.btn-sm.btn-outline-secondary', { type: 'button', onclick: () => shell.classList.toggle('nav-open') }, icon('list'), ' Menu');
 
 if (!config.configured) {
-  mount(root, h('div.af-error.m-3', icon('key', 'af-error-icon'), h('div',
-    h('div.af-error-title', 'Weights & Biases is not connected'),
-    h('div.af-error-msg', 'Set WANDB_API_KEY (W&B → /authorize) and WANDB_BASE_URL in .env, then restart the dashboard. See docker-compose.wandb.yaml.'))));
+  // No shared server key and no key of your own yet: connect right here instead of a dead end.
+  const holder = h('main.af-main.ms-connect-only');
+  mount(root, holder);
+  import('./pages/connection.js').then((m) => m.default({ el: holder, active: true, query: new URLSearchParams(), setQuery() {} }));
 } else {
   mount(root, mobileToggle, shell);
 }
@@ -136,9 +145,12 @@ function renderProjectNav(proj) {
 
 async function refreshStatus() {
   try {
-    const d = await gql('query Health { serverInfo { latestLocalVersionInfo { versionOnThisInstanceString } } viewer { id } }');
-    mount(versionEl, `W&B Server v${d.serverInfo?.latestLocalVersionInfo?.versionOnThisInstanceString || '?'}`);
-    mount(healthPill, stateDot(d.viewer ? 'success' : 'failed'), h('span', d.viewer ? 'Connected' : 'API key rejected'));
+    const d = await gql('query Health { serverInfo { latestLocalVersionInfo { versionOnThisInstanceString } } viewer { id username } }');
+    const version = d.serverInfo?.latestLocalVersionInfo?.versionOnThisInstanceString;
+    mount(versionEl, ON_CLOUD ? 'W&B Cloud' : `W&B Server v${version || '?'}`);
+    const who = conn.source === 'own' ? ` as ${d.viewer?.username || conn.wandb_user || 'you'}` : '';
+    mount(healthPill, stateDot(d.viewer ? 'success' : 'failed'), h('span', d.viewer ? `Connected${who}` : 'API key rejected'));
+    healthPill.title = `${conn.source === 'own' ? 'Your key' : 'Shared server key'} · ${conn.server_label || 'W&B'} — click to change`;
     healthPill.classList.toggle('bad', !d.viewer);
   } catch {
     mount(healthPill, stateDot('failed'), h('span', 'W&B unreachable'));

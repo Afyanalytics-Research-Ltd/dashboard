@@ -21,7 +21,8 @@ with exactly its name.
 Replacing the 2026-11-17 import (an earlier copy of the sheet loaded badly between 15:30 and 16:00 UTC: tests
 collapsed to one self-line, wrong parameters, reference-range text made into tests, codes SWMC-…):
   * every template line / reference range of that import, and any other line / range on a test this step
-    templates, that this step didn't write is soft-deleted (deleted_at);
+    templates, that this step didn't write is moved onto one inactive test, BCH-RETIRED-20261117 (the gateway has no
+    delete and won't touch deleted_at); the report's retired_from keeps each row's original test, to undo it;
   * its SWMC- procedures not reused here are deactivated — never one that an investigation uses.
 """
 from __future__ import annotations
@@ -30,7 +31,6 @@ import json
 import logging
 import re
 from collections import Counter
-from datetime import UTC, datetime
 from pathlib import Path
 
 log = logging.getLogger(__name__)
@@ -111,6 +111,9 @@ TEST_PROCEDURES: dict[int, tuple[str, ...]] = {
 
 BAD_IMPORT = ("2026-11-17T15:30:00", "2026-11-17T16:00:00")      # UTC window of the import being replaced
 BAD_IMPORT_CODE = "SWMC-"
+RETIRED_KEY, RETIRED_CODE = "2026-11-17", "BCH-RETIRED-20261117"
+RETIRED_NAME = "Retired: lab template lines of the 2026-11-17 import"
+RETIRED_NOTE = "Holds the template lines / reference ranges of the faulty 2026-11-17 import (gateway can't delete)."
 NEW_CODE = "BCH-LT"
 NUM_RANGE = re.compile(r"^\s*(-?\d+(?:\.\d+)?)\s*[–—-]\s*(-?\d+(?:\.\d+)?)\s*$")
 
@@ -263,23 +266,34 @@ def lab_templates(run, gid) -> dict:
     res["template_labs"] = dict(run.post("evaluation", "template_labs", lines))
     res["bio_reference_ranges"] = dict(run.post("evaluation", "bio_reference_ranges", ranges))
 
-    # 3. what this replaces: the old lines / ranges on these tests, and everything the bad import wrote
+    # 3. what this replaces: the old lines / ranges on these tests, and everything the bad import wrote. The gateway
+    #    can't delete (no delete operation; deleted_at is protected), so they are moved onto one inactive "retired"
+    #    test, where nothing shows them; their original test is in the report (retired_from) to undo it.
+    run.post("evaluation", "procedures", [{**procedure_payload(gid("lab_retired", RETIRED_KEY), RETIRED_CODE, RETIRED_NAME,
+                                                               lab_cat, RETIRED_NOTE), "active": 0}])
+    retired = run.ids_by_uuid("evaluation", "procedures", fresh=True).get(gid("lab_retired", RETIRED_KEY))
+    if retired is None and run.dry_run:
+        retired = -1
     keep_lines, keep_ranges = {r["uuid"] for r in lines}, {r["uuid"] for r in ranges}
     old_lines = [r for r in live(c.read_all("evaluation", "template_labs", workers=4))
-                 if str(r.get("uuid")).lower() not in keep_lines
+                 if str(r.get("uuid")).lower() not in keep_lines and r.get("procedure_id") != retired
                  and (r.get("procedure_id") in panel_ids or created_in(r, BAD_IMPORT))]
     old_ranges = [r for r in live(c.read_all("evaluation", "bio_reference_ranges", workers=4))
-                  if str(r.get("uuid")).lower() not in keep_ranges
+                  if str(r.get("uuid")).lower() not in keep_ranges and r.get("parent_procedure_id") != retired
                   and (r.get("parent_procedure_id") in panel_ids or r.get("procedure_id") in panel_ids
                        or created_in(r, BAD_IMPORT))]
     replaced = Counter(r["procedure_id"] for r in old_lines if not created_in(r, BAD_IMPORT))
     res["replaced_own_templates"] = [{"id": pid, "code": next((p.get("code") for p in procs if p["id"] == pid), None),
                                       "old_lines": n} for pid, n in replaced.most_common()]
-    now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
-    res["template_labs_removed"] = dict(update_ids(run, "evaluation", "template_labs", [r["id"] for r in old_lines],
-                                                   {"deleted_at": now}))
-    res["bio_reference_ranges_removed"] = dict(update_ids(run, "evaluation", "bio_reference_ranges",
-                                                          [r["id"] for r in old_ranges], {"deleted_at": now}))
+    res["retired_test"] = retired
+    res["template_labs_retired"] = dict(update_ids(run, "evaluation", "template_labs", [r["id"] for r in old_lines],
+                                                   {"procedure_id": retired, "subtest_id": retired}))
+    res["bio_reference_ranges_retired"] = dict(update_ids(run, "evaluation", "bio_reference_ranges",
+                                                          [r["id"] for r in old_ranges],
+                                                          {"procedure_id": retired, "parent_procedure_id": retired}))
+    res["retired_from"] = {"template_labs": {r["id"]: [r.get("procedure_id"), r.get("subtest_id")] for r in old_lines},
+                           "bio_reference_ranges": {r["id"]: [r.get("procedure_id"), r.get("parent_procedure_id")]
+                                                    for r in old_ranges}}
     reused = {p["id"] for ps in targets.values() for p in ps}
     retire = [p for p in procs if str(p.get("code") or "").startswith(BAD_IMPORT_CODE) and p["id"] not in reused
               and p.get("active") not in (0, False, "0")]

@@ -61,6 +61,7 @@ import hashlib
 import json
 import logging
 import os
+import random
 import re
 import sys
 import time
@@ -313,6 +314,9 @@ def snowflake_connect(database: str = DEFAULT_DATABASE, schema: str = DEFAULT_SC
                   warehouse=os.getenv("SNOWFLAKE_WAREHOUSE", "").strip(),
                   role=os.getenv("SNOWFLAKE_ROLE", "").strip() or None,
                   database=database,
+                  # a big model is read from V3 for hours between two writes (eagle evaluation:activity_log,
+                  # 4.3M rows): without the heartbeat the session's token expires (390114) before the merge
+                  client_session_keep_alive=True,
                   session_parameters={"TIMEZONE": "UTC", "QUERY_TAG": "v3_to_snowflake_sync"})
     key_path = (os.getenv("SNOWFLAKE_PRIVATE_KEY_PATH") or "").strip()
     password = (os.getenv("SNOWFLAKE_PASSWORD") or "").strip()
@@ -329,8 +333,10 @@ class SnowflakeSink:
     """Everything this pipeline does to Snowflake. Tables live in {database}.{schema}; staging tables are
     session TEMPORARY tables, so nothing is left behind."""
 
-    def __init__(self, conn, database: str = DEFAULT_DATABASE, schema: str = DEFAULT_SCHEMA):
+    def __init__(self, conn, database: str = DEFAULT_DATABASE, schema: str = DEFAULT_SCHEMA,
+                 reconnect: Callable[[], object] | None = None):
         self.conn = conn
+        self.reconnect = reconnect                     # opens a fresh session when this one's token expired
         self.database = _ident(database)
         self.schema = _ident(schema)
         self.fq = f"{self.database}.{self.schema}"
@@ -338,6 +344,20 @@ class SnowflakeSink:
         self._filled: dict[str, set[str]] = {}         # STRING columns known to hold data (never retyped)
 
     def _exec(self, sql: str, params=None) -> list[tuple]:
+        try:
+            return self._exec_once(sql, params)
+        except Exception as e:
+            if not (self.reconnect and session_expired(e)):
+                raise
+            log.warning("Snowflake session expired (%s) — reconnecting", str(e)[:120])
+            try:
+                self.conn.close()
+            except Exception:  # noqa: BLE001
+                pass
+            self.conn = self.reconnect()               # session TEMPORARY staging tables are re-created on use
+            return self._exec_once(sql, params)
+
+    def _exec_once(self, sql: str, params=None) -> list[tuple]:
         cur = self.conn.cursor()
         try:
             cur.execute(sql, params)
@@ -732,18 +752,35 @@ def _utcnow() -> datetime:
 
 
 RETRY_WAITS = (10, 30)             # seconds before the 2nd and 3rd attempt of a Snowflake write
+# every service task writes its watermarks into the one _SYNC_STATE table: when more than 20 statements queue
+# for its lock Snowflake aborts the newest (000625) — those wait longer, with jitter so they don't collide again
+LOCK_WAITS = (5, 15, 30, 60, 120)
 
 
-def _with_retries(what: str, fn, *args):
+def session_expired(e: Exception) -> bool:
+    s = str(e)
+    return "390114" in s or "Authentication token has expired" in s
+
+
+def lock_contention(e: Exception) -> bool:
+    s = str(e)
+    return "000625" in s or "number of waiters for this lock" in s
+
+
+def _with_retries(what: str, fn, *args, **kwargs):
     """Run a Snowflake write, retrying transient failures (e.g. a 403 / dropped upload to the internal
-    stage). Safe because every write here is idempotent — a MERGE or a flag UPDATE."""
-    for attempt, wait in enumerate((*RETRY_WAITS, None), start=1):
+    stage, a lock queue that is full). Safe because every write here is idempotent — a MERGE or a flag UPDATE."""
+    attempt = 0
+    while True:
+        attempt += 1
         try:
-            return fn(*args)
+            return fn(*args, **kwargs)
         except Exception as e:
-            if wait is None:
+            waits = LOCK_WAITS if lock_contention(e) else RETRY_WAITS
+            if attempt > len(waits):
                 raise
-            log.warning("%s failed (attempt %d): %s — retrying in %ss", what, attempt, e, wait)
+            wait = waits[attempt - 1] * (1 + random.random() * 0.5)
+            log.warning("%s failed (attempt %d): %s — retrying in %.0fs", what, attempt, str(e)[:300], wait)
             time.sleep(wait)
 
 
@@ -815,8 +852,8 @@ def sync_model(client, sink, model: Model, *, source: str, opts: SyncOptions = S
         elif not complete:
             res.status, res.watermark_after = "partial", res.watermark_before
             res.note = f"stopped at limit {opts.limit}: deletes not checked, watermark not moved"
-            sink.save_state(tenant, model, source, watermark=stored, status="partial", error=None,
-                            started=started, counts=res.as_dict())
+            _with_retries(f"{model.name} state", sink.save_state, tenant, model, source, watermark=stored,
+                          status="partial", error=None, started=started, counts=res.as_dict())
         else:
             sink.ensure_table(model.table, {})          # a model with no rows yet still gets its table
             if opts.detect_deletes:
@@ -825,8 +862,8 @@ def sync_model(client, sink, model: Model, *, source: str, opts: SyncOptions = S
                     opts.max_delete_fraction)
             wm = next_watermark(stored, newest, started)
             res.watermark_after = _fmt(wm)
-            sink.save_state(tenant, model, source, watermark=wm, status="ok", error=res.note,
-                            started=started, counts=res.as_dict())
+            _with_retries(f"{model.name} state", sink.save_state, tenant, model, source, watermark=wm,
+                          status="ok", error=res.note, started=started, counts=res.as_dict())
     except Exception as e:
         res.watermark_after = res.watermark_before
         if unreadable(e, res.read):
@@ -837,8 +874,9 @@ def sync_model(client, sink, model: Model, *, source: str, opts: SyncOptions = S
             log.error("%s failed after %d rows read: %s", model.name, res.read, res.error)
         if not opts.dry_run and tenant is not None:
             try:
-                sink.save_state(tenant, model, source, watermark=stored, status=res.status,
-                                error=res.error or res.note, started=started, counts=res.as_dict())
+                _with_retries(f"{model.name} state", sink.save_state, tenant, model, source, watermark=stored,
+                              status=res.status, error=res.error or res.note, started=started,
+                              counts=res.as_dict())
             except Exception:
                 log.exception("%s: could not record the failure in %s", model.name, STATE_TABLE)
     res.seconds = round((clock() - started).total_seconds(), 1)
@@ -862,11 +900,12 @@ def discover_models(client, services: Iterable[str]) -> list[Model]:
 
 @contextmanager
 def _sink(database: str, schema: str):
-    conn = snowflake_connect(database, schema)
+    sink = SnowflakeSink(snowflake_connect(database, schema), database, schema,
+                         reconnect=lambda: snowflake_connect(database, schema))
     try:
-        yield SnowflakeSink(conn, database, schema)
+        yield sink
     finally:
-        conn.close()
+        sink.conn.close()               # the current session (a reconnect replaces the first one)
 
 
 def sync(source: str, models: list[Model], *, opts: SyncOptions = SyncOptions(), workers: int = 4,

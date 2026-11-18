@@ -735,3 +735,87 @@ def test_model_scope_rules():
     assert S.model_scope(c, S.Model("evaluation", "subprocedures")) == "global"
     assert S.model_scope(c, S.Model("evaluation", "empty")) == "tenant"
     assert S.model_scope(FakeV3Client(), PATIENT) == "tenant"                    # no probe available
+
+
+# ── 2026-11-18 prod failures ──────────────────────────────────────────────
+
+def test_full_state_lock_queue_is_retried_until_it_clears(monkeypatch):
+    """aroha finance:invoice / inventory:requisition: 000625 'number of waiters for this lock exceeds the 20
+    statements limit' on _SYNC_STATE. Retried (longer, jittered waits), not a model failure."""
+    waits = []
+    monkeypatch.setattr(S.time, "sleep", waits.append)
+    calls = {"n": 0}
+
+    def save(**kw):
+        calls["n"] += 1
+        if calls["n"] < 4:
+            raise RuntimeError("000625 (57014): Statement has locked table '_SYNC_STATE' ... the number of "
+                               "waiters for this lock exceeds the 20 statements limit.")
+        return "saved"
+
+    assert S._with_retries("state", save, status="ok") == "saved"
+    assert len(waits) == 3 and waits[0] >= S.LOCK_WAITS[0] and waits[2] >= S.LOCK_WAITS[2]
+
+
+def test_other_errors_keep_the_short_retry_budget(monkeypatch):
+    monkeypatch.setattr(S.time, "sleep", lambda s: None)
+    calls = {"n": 0}
+
+    def boom():
+        calls["n"] += 1
+        raise RuntimeError("SQL compilation error")
+
+    with pytest.raises(RuntimeError):
+        S._with_retries("merge", boom)
+    assert calls["n"] == len(S.RETRY_WAITS) + 1
+
+
+class _Cur:
+    def __init__(self, conn):
+        self.conn = conn
+
+    def execute(self, sql, params=None):
+        if self.conn.expired:
+            raise RuntimeError("390114 (08001): None: Authentication token has expired.  The user must "
+                               "authenticate again.")
+        self.conn.sql.append(sql)
+
+    def fetchall(self):
+        return [(1,)]
+
+    def close(self):
+        pass
+
+
+class _Conn:
+    def __init__(self, expired=False):
+        self.expired, self.sql, self.closed = expired, [], False
+
+    def cursor(self):
+        return _Cur(self)
+
+    def close(self):
+        self.closed = True
+
+
+def test_expired_snowflake_session_reconnects_and_reruns_the_statement():
+    """eagle evaluation:activity_log: 4.3M rows read over ~5h, then the merge hit 390114 on the old session."""
+    old, fresh = _Conn(expired=True), _Conn()
+    sink = S.SnowflakeSink(old, reconnect=lambda: fresh)
+    assert sink._exec("SELECT 1") == [(1,)]
+    assert sink.conn is fresh and old.closed and fresh.sql == ["SELECT 1"]
+
+
+def test_without_a_reconnect_an_expired_session_still_raises():
+    with pytest.raises(RuntimeError, match="390114"):
+        S.SnowflakeSink(_Conn(expired=True))._exec("SELECT 1")
+
+
+def test_snowflake_sessions_are_kept_alive(monkeypatch):
+    seen = {}
+    import afya_backends.warehouse as W
+    monkeypatch.setattr(W, "connect", lambda **kw: seen.update(kw) or _Conn())
+    monkeypatch.setenv("SNOWFLAKE_PASSWORD", "x")
+    monkeypatch.delenv("SNOWFLAKE_PRIVATE_KEY_PATH", raising=False)
+    S.snowflake_connect()
+    assert seen["client_session_keep_alive"] is True

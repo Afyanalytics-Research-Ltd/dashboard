@@ -534,7 +534,7 @@ class StudioViewTest(TestCase):
         self.assertEqual(resp.status_code, 200)
         cfg = resp.context['models_config']
         self.assertEqual(cfg['graphql'], '/models/graphql')
-        self.assertEqual(cfg['wandbUrl'], 'http://localhost:8090')
+        self.assertEqual(cfg['wandbUrl'], '')          # localhost W&B is never linked for an online visitor
         self.assertTrue(cfg['configured'])
         self.assertNotContains(resp, 'k123')
         for p in ('/models/projects', '/models/team/proj/runs/abc', '/models/explorer', '/models/connection'):
@@ -542,6 +542,30 @@ class StudioViewTest(TestCase):
             self.assertEqual(resp.status_code, 200, p)
             self.assertTemplateUsed(resp, 'wandb_ui/app.html')         # the page, never the JSON API
         self.assertEqual(cfg['connectionApi'], '/models/api/connection')
+
+    @override_settings(ALLOWED_HOSTS=['*'])
+    def test_no_localhost_links_online(self):
+        """WANDB_HOST_URL=http://localhost:8090 (the servers' default) must not send online visitors to localhost."""
+        c = TestClient()
+        c.force_login(make_user('admin', superuser=True))
+        online = c.get('/models/', HTTP_HOST='datahub.afyaanalytics.com')
+        cfg = online.context['models_config']
+        self.assertEqual(cfg['wandbUrl'], '')
+        local = next(s for s in cfg['connection']['servers'] if s['key'] == 'local')
+        self.assertEqual((local['url'], local['key_page']), ('', ''))
+        self.assertEqual(cfg['connection']['active']['wandb_url'], '')
+        cloud = next(s for s in cfg['connection']['servers'] if s['key'] == 'cloud')
+        self.assertEqual(cloud['key_page'], 'https://wandb.ai/authorize')
+        self.assertNotIn('localhost:8090', c.get('/models/api/connection', HTTP_HOST='datahub.afyaanalytics.com').content.decode())
+        # working on the server itself, the local URL is real and is shown
+        here = c.get('/models/', HTTP_HOST='localhost:8000').context['models_config']
+        self.assertEqual(here['wandbUrl'], 'http://localhost:8090')
+        # once W&B is published on its own subdomain, everyone gets that
+        with self.settings(WANDB_HOST_URL='https://wandb.datahub.afyaanalytics.com'):
+            cfg = c.get('/models/', HTTP_HOST='datahub.afyaanalytics.com').context['models_config']
+            self.assertEqual(cfg['wandbUrl'], 'https://wandb.datahub.afyaanalytics.com')
+            local = next(s for s in cfg['connection']['servers'] if s['key'] == 'local')
+            self.assertEqual(local['key_page'], 'https://wandb.datahub.afyaanalytics.com/authorize')
 
     def test_permissions(self):
         self.assertEqual(TestClient().get('/models/').status_code, 302)

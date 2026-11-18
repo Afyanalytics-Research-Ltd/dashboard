@@ -48,6 +48,35 @@ def servers() -> dict[str, Server]:
     }
 
 
+LOOPBACK_HOSTS = {'localhost', '127.0.0.1', '::1', '[::1]'}
+
+
+def _hostname(url_or_host: str) -> str:
+    from urllib.parse import urlsplit
+    s = url_or_host if '//' in url_or_host else f'//{url_or_host}'
+    try:
+        return (urlsplit(s).hostname or '').lower()
+    except ValueError:
+        return ''
+
+
+def browser_url(server: Server, request=None) -> str:
+    """The W&B URL to show someone in their browser, or '' when it would not work for them.
+
+    A server only reachable on the dashboard host itself (WANDB_HOST_URL=http://localhost:8090, the default) is
+    useless — and confusing — to someone browsing the online site, so it is never shown there. Publish W&B on its
+    own subdomain (WANDB_DOMAIN + WANDB_HOST_URL, see nginx/templates/wandb.template) to get real links."""
+    if _hostname(server.host_url) not in LOOPBACK_HOSTS:
+        return server.host_url
+    if request is None:
+        return ''
+    try:
+        here = request.get_host()
+    except Exception:          # DisallowedHost etc.
+        return ''
+    return server.host_url if _hostname(here) in LOOPBACK_HOSTS else ''
+
+
 @dataclass(frozen=True)
 class Connection:
     server: Server
@@ -140,6 +169,7 @@ def verify(server_key: str, api_key: str) -> dict:
     payload = resp.json() or {}
     viewer = (payload.get('data') or {}).get('viewer')
     if resp.status_code in (401, 403) or not viewer:
-        raise WandbError(f'{server.label} rejected this API key. Copy it again from {server.key_page}.', status_code=400)
+        raise WandbError(f'{server.label} rejected this API key. Copy it again from your W&B user settings '
+                         '(API keys) and make sure you picked the right server.', status_code=400)
     return {'id': viewer.get('id'), 'username': viewer.get('username') or '', 'entity': viewer.get('entity') or '',
             'email': viewer.get('email') or ''}

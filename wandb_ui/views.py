@@ -11,7 +11,7 @@ from django.views.generic import TemplateView
 
 from core.mixins import SuperuserRequiredMixin
 
-from .connection import connection_for
+from .connection import browser_url, connection_for
 from .proxy import connection_state, displayable_key_id
 
 
@@ -35,14 +35,15 @@ class ModelStudioView(SuperuserRequiredMixin, TemplateView):
                 'file': reverse('wandb_ui:file'),
                 'connectionApi': reverse('wandb_ui:connection'),
                 'views': reverse('wandb_ui:views', kwargs={'entity': '_E_', 'project': '_P_'}),
-                'wandbUrl': conn.server.host_url,
+                # '' when this platform's W&B is only reachable on the server itself (never a localhost link online)
+                'wandbUrl': browser_url(conn.server, self.request),
                 'user': self.request.user.get_username(),
                 'appName': 'Model Studio',
                 'service': 'W&B',
                 'configured': conn.configured,
                 # Non-secret id of the key Studio uses for this person, so the UI can label it "in use".
                 'apiKeyId': displayable_key_id(conn.api_key),
-                'connection': connection_state(self.request.user),
+                'connection': connection_state(self.request.user, self.request),
             },
         })
         return ctx

@@ -112,7 +112,7 @@ export default async function render(ctx) {
 run = wandb.init(project="${project}", entity="${entity}")
 artifact = run.use_artifact("${ref}", type="${type}")
 path = artifact.download()   # local folder with the ${fmtNumber(art.fileCount)} file(s)`;
-    const env = `export WANDB_BASE_URL=${config.wandbUrl || 'http://localhost:8090'}`;
+    const env = `export WANDB_BASE_URL=${config.wandbUrl || 'https://YOUR-WANDB-HOST'}`;
     const linked = (art.artifactCollections?.edges || []).map((e) => e.node).filter((c) => c.__typename === 'ArtifactPortfolio');
     mount(bodyEl, h('div.af-grid-main-side',
       h('div.d-flex.flex-column.gap-3',

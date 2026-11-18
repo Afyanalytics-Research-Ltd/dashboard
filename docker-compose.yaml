@@ -35,6 +35,9 @@ services:
       # Public hostname + Let's Encrypt email; set DOMAIN in this server's .env
       # (staging: datapipelines.afyaanalytics.ai). See nginx/entrypoint.sh.
       DOMAIN: ${DOMAIN:-datahub.afyaanalytics.com}
+      # Optional: publish W&B Server (wandb-local) on its own subdomain, e.g.
+      # wandb.datahub.afyaanalytics.com. See nginx/templates/wandb.template.
+      WANDB_DOMAIN: ${WANDB_DOMAIN:-}
       CERTBOT_EMAIL: ${CERTBOT_EMAIL:-lutherlunyamwi@gmail.com}
     depends_on:
       - web

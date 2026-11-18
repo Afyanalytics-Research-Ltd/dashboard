@@ -308,7 +308,7 @@ export default async function render(ctx) {
       let req;
       try { req = currentRequest(); } catch { return; }
       const payload = JSON.stringify({ query: req.text, variables: req.variables });
-      const base = (config.wandbUrl || 'http://localhost:8090').replace(/\/$/, '');
+      const base = (config.wandbUrl || 'https://YOUR-WANDB-HOST').replace(/\/$/, '');
       const curl = `curl -s -u "api:$WANDB_API_KEY" -H 'Content-Type: application/json' \\\n  ${base}/graphql --data-binary @- <<'JSON'\n${payload}\nJSON`;
       const py = `import os, wandb\nfrom wandb_gql import gql\n\napi = wandb.Api(overrides={"base_url": "${base}"})  # uses WANDB_API_KEY\nresult = api.client.execute(gql('''\n${req.text}\n'''), variable_values=${JSON.stringify(req.variables, null, 2).replace(/\n/g, '\n')})\nprint(result)`;
       mount(snippetsEl,

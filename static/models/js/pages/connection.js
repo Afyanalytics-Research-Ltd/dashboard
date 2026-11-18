@@ -44,7 +44,9 @@ export default async function render(ctx) {
       body: h('div',
         kv([
           ['Connection', h('span', { class: a.source === 'none' ? 'text-danger' : '' }, where)],
-          ['W&B', a.source === 'none' ? '—' : h('a', { href: a.wandb_url, target: '_blank', rel: 'noopener' }, a.wandb_url, ' ', icon('box-arrow-up-right'))],
+          ['W&B', a.source === 'none' ? '—' : a.wandb_url
+            ? h('a', { href: a.wandb_url, target: '_blank', rel: 'noopener' }, a.wandb_url, ' ', icon('box-arrow-up-right'))
+            : h('span.text-muted', 'Reached by Model Studio on the server (not published on its own web address)')],
           ['W&B user', a.wandb_user || (a.source === 'shared' ? 'the shared service account' : '—')],
           ['API key', a.key_hint ? h('span.ms-mono', a.key_hint) : '—'],
           ...(own?.verified_at ? [['Checked', timeAgo(own.verified_at)]] : []),
@@ -67,8 +69,14 @@ export default async function render(ctx) {
     const hint = h('div.small.text-muted.mt-1');
     const setHint = () => {
       const s = state.servers.find((x) => x.key === server);
-      mount(hint, 'Get it at ', h('a', { href: s.key_page, target: '_blank', rel: 'noopener' }, s.key_page), ' (signed in as you). ',
-        server === 'cloud' ? 'Model Studio then shows your wandb.ai projects; instance-admin pages (Users, System, Cleanup) are hidden.' : '');
+      const cloudNote = server === 'cloud' ? 'Model Studio then shows your wandb.ai projects; instance-admin pages (Users, System, Cleanup) are hidden.' : '';
+      if (s.key_page) {
+        mount(hint, 'Get it at ', h('a', { href: s.key_page, target: '_blank', rel: 'noopener' }, s.key_page), ' (signed in as you). ', cloudNote);
+      } else {
+        // This platform's W&B is only reachable on the server itself: no page to send people to.
+        mount(hint, 'This platform’s W&B has no public web address yet, so its key page can’t be opened from here. ',
+          'Ask a W&B admin for a key for your W&B user, or use W&B Cloud.');
+      }
     };
     const options = h('div.d-flex.flex-column.gap-2', state.servers.map((s) => h('label.ms-choice.d-flex.gap-2.align-items-start',
       h('input.form-check-input.mt-1', { type: 'radio', name: 'wb-server', value: s.key, checked: s.key === server,

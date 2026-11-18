@@ -256,19 +256,25 @@ def file_proxy(request: HttpRequest) -> HttpResponse:
 
 # ------------------------------------------------------------------ the user's own W&B connection
 
-def connection_state(user) -> dict:
-    """What the W&B connection page (and the app shell) needs — never the key itself."""
-    from .connection import key_hint, servers
+def connection_state(user, request=None) -> dict:
+    """What the W&B connection page (and the app shell) needs — never the key itself. URLs the person could not
+    open (this platform's W&B when it is only reachable on the server itself) come back as ''."""
+    from .connection import browser_url, key_hint, servers
 
     conn = connection_for(user)
     own = WandbCredential.objects.filter(user=user).first() if getattr(user, 'is_authenticated', False) else None
+
+    def server_info(s):
+        url = browser_url(s, request)
+        return {'key': s.key, 'label': s.label, 'url': url, 'key_page': f'{url}/authorize' if url else ''}
+
     return {
         'active': {'source': conn.source, 'server': conn.server.key, 'server_label': conn.server.label,
-                   'wandb_url': conn.server.host_url, 'wandb_user': conn.wandb_user,
+                   'wandb_url': browser_url(conn.server, request), 'wandb_user': conn.wandb_user,
                    'key_hint': key_hint(conn.api_key) if conn.api_key else ''},
         'own': own.as_dict() if own else None,
         'shared_available': bool(settings.WANDB_API_KEY),
-        'servers': [{'key': s.key, 'label': s.label, 'url': s.host_url, 'key_page': s.key_page} for s in servers().values()],
+        'servers': [server_info(s) for s in servers().values()],
     }
 
 
@@ -282,12 +288,12 @@ def connection_view(request: HttpRequest) -> JsonResponse:
     from .connection import encrypt_key, key_hint, verify
 
     if request.method == 'GET':
-        return JsonResponse(connection_state(request.user))
+        return JsonResponse(connection_state(request.user, request))
     if request.method == 'DELETE':
         deleted, _ = WandbCredential.objects.filter(user=request.user).delete()
         if deleted:
             _audit(request, 'delete', 'connection', 'Removed own W&B API key (back to the shared key)')
-        return JsonResponse(connection_state(request.user))
+        return JsonResponse(connection_state(request.user, request))
     try:
         data = json.loads(request.body or b'{}')
     except ValueError:
@@ -303,7 +309,7 @@ def connection_view(request: HttpRequest) -> JsonResponse:
     _audit(request, 'update', 'connection', f'Saved own W&B API key for {server} (W&B user {viewer["username"]})')
     from django.contrib.auth import get_user_model
     fresh = get_user_model().objects.get(pk=request.user.pk)    # request.user may cache the old related row
-    return JsonResponse(connection_state(fresh))
+    return JsonResponse(connection_state(fresh, request))
 
 
 # ------------------------------------------------------------------ saved views

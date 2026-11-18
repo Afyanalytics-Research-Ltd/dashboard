@@ -149,7 +149,7 @@ export default async function render(ctx) {
   }
 
   function renderStart(viewer) {
-    const host = config.wandbUrl || 'http://localhost:8090';
+    const host = config.wandbUrl || 'https://YOUR-WANDB-HOST';   // no public W&B address configured
     const project = projects[0]?.name || 'my-first-project';
     const snippet = `pip install wandb
 wandb login --host=${host}

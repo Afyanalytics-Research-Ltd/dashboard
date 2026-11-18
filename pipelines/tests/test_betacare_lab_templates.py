@@ -123,7 +123,9 @@ def test_step_builds_templates_and_replaces_the_bad_import():
     v3 = v3_with_bad_import()
     run = FakeRun(v3)
     res = L.lab_templates(run, b.gid)
-    lines = [r for r in v3.t["template_labs"] if not r.get("deleted_at")]
+    retired = res["retired_test"]
+    assert next(p for p in v3.t["procedures"] if p["id"] == retired)["active"] == 0
+    lines = [r for r in v3.t["template_labs"] if r["procedure_id"] != retired]
     by_panel = defaultdict(list)
     for r in lines:
         by_panel[r["procedure_id"]].append(r)
@@ -132,10 +134,13 @@ def test_step_builds_templates_and_replaces_the_bad_import():
     assert len(by_panel[10]) == 21 and [r["sort_order"] for r in by_panel[10]] == list(range(1, 22))
     names = {r["id"]: r["name"] for r in v3.t["procedures"]}
     assert [names[r["subtest_id"]] for r in sorted(by_panel[11], key=lambda r: r["sort_order"])][:3] == ["WBC", "LYM", "LYM%"]
-    # the bad import's line and the old line on a re-templated test are soft-deleted; an unrelated template is not
-    gone = {r["id"] for r in v3.t["template_labs"] if r.get("deleted_at")}
-    assert gone == {900, 901}
-    assert {r["id"] for r in v3.t["bio_reference_ranges"] if r.get("deleted_at")} == {700}
+    # the bad import's line and the old line on a re-templated test are moved onto the retired test (the gateway can't
+    # delete); an unrelated template is not touched; where each came from is reported, to undo it
+    gone = {r["id"] for r in v3.t["template_labs"] if r["procedure_id"] == retired}
+    assert gone == {900, 901} and all(r["subtest_id"] == retired for r in v3.t["template_labs"] if r["id"] in gone)
+    assert {r["id"] for r in v3.t["bio_reference_ranges"] if r["parent_procedure_id"] == retired} == {700}
+    assert res["retired_from"]["template_labs"] == {900: [12, 12], 901: [10, 99]}
+    assert not any(r.get("deleted_at") for t in ("template_labs", "bio_reference_ranges") for r in v3.t[t])
     assert res["replaced_own_templates"] == [{"id": 10, "code": "BCH-C305", "old_lines": 1}]
     # SWMC: junk deactivated, the one named like an unmapped sheet test reused, an ordered one kept
     active = {r["id"]: r["active"] for r in v3.t["procedures"]}
@@ -143,7 +148,7 @@ def test_step_builds_templates_and_replaces_the_bad_import():
     assert any(r["procedure_id"] == 51 for r in lines)                          # C-PEPTIDE templated on the reused test
     assert res["earlier import's tests kept active (ordered)"] == 1
     # ranges: numeric limits or text, all ages, both sexes
-    rr = [r for r in v3.t["bio_reference_ranges"] if not r.get("deleted_at") and r["parent_procedure_id"] == 11]
+    rr = [r for r in v3.t["bio_reference_ranges"] if r["parent_procedure_id"] == 11]
     wbc = next(r for r in rr if r["test_name"] == "WBC")
     assert (wbc["type"], wbc["lower"], wbc["upper"], wbc["unit"], wbc["age_group_id"], wbc["gender"]) == \
            ("range", 4.0, 10.0, "10^3/uL", 14968, "Both")
@@ -159,7 +164,8 @@ def test_step_is_idempotent():
     n = (len(v3.t["procedures"]), len(v3.t["template_labs"]), len(v3.t["bio_reference_ranges"]), len(v3.t["subprocedures"]))
     res = L.lab_templates(FakeRun(v3), b.gid)
     assert n == (len(v3.t["procedures"]), len(v3.t["template_labs"]), len(v3.t["bio_reference_ranges"]), len(v3.t["subprocedures"]))
-    assert res["template_labs_removed"] == {} and res["procedures_deactivated"] == {}
+    assert res["template_labs_retired"] == {} and res["bio_reference_ranges_retired"] == {}
+    assert res["procedures_deactivated"] == {}
 
 
 def test_dry_run_writes_nothing():
@@ -167,7 +173,7 @@ def test_dry_run_writes_nothing():
     before = {k: [dict(r) for r in v] for k, v in v3.t.items()}
     res = L.lab_templates(FakeRun(v3, dry_run=True), b.gid)
     assert {k: v for k, v in v3.t.items() if v} == before and not v3.updates
-    assert res["template_labs"]["would_post"] > 500 and res["template_labs_removed"] == {"would_update": 2}
+    assert res["template_labs"]["would_post"] > 500 and res["template_labs_retired"] == {"would_update": 2}
     assert res["procedures_deactivated"] == {"would_update": 1}
     assert len(res["mapping"]) == 180
 

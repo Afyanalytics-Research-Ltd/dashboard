@@ -1,0 +1,4661 @@
+{
+ "source": "Lab_Tests_Templates (1).xlsx, sheet 'Flat List' (Beta Care Hospital, 2026-11-18)",
+ "tests": [
+  {
+   "no": 1,
+   "name": "TOTAL BLOOD COUNT (TBC) – 3-Part Differential",
+   "sample": "Whole blood",
+   "method": "WBC/RBC/PLT – Impedance method; HB – Colorimetry",
+   "params": [
+    {
+     "name": "WBC",
+     "group": null,
+     "unit": "10^3/uL",
+     "range": "4.0 – 10.0"
+    },
+    {
+     "name": "LYM",
+     "group": null,
+     "unit": "10^3/uL",
+     "range": "0.6 – 4.1"
+    },
+    {
+     "name": "LYM%",
+     "group": null,
+     "unit": "%",
+     "range": "20 – 50"
+    },
+    {
+     "name": "MID",
+     "group": null,
+     "unit": "10^3/uL",
+     "range": "0.1 – 0.9"
+    },
+    {
+     "name": "MID%",
+     "group": null,
+     "unit": "%",
+     "range": "3 – 10"
+    },
+    {
+     "name": "GRA",
+     "group": null,
+     "unit": "10^3/uL",
+     "range": "2.0 – 7.8"
+    },
+    {
+     "name": "GRA%",
+     "group": null,
+     "unit": "%",
+     "range": "40 – 70"
+    },
+    {
+     "name": "HGB",
+     "group": null,
+     "unit": "g/dl",
+     "range": "11.0 – 16.5"
+    },
+    {
+     "name": "MCH",
+     "group": null,
+     "unit": "pg",
+     "range": "26.5 – 33.5"
+    },
+    {
+     "name": "MCHC",
+     "group": null,
+     "unit": "g/dl",
+     "range": "32 – 36"
+    },
+    {
+     "name": "RBC",
+     "group": null,
+     "unit": "10^6/L",
+     "range": "3.8 – 5.8"
+    },
+    {
+     "name": "MCV",
+     "group": null,
+     "unit": "fl",
+     "range": "80 – 99"
+    },
+    {
+     "name": "HCT",
+     "group": null,
+     "unit": "%",
+     "range": "35 – 50"
+    },
+    {
+     "name": "RDW%",
+     "group": null,
+     "unit": "%",
+     "range": "10 – 15"
+    },
+    {
+     "name": "PLT",
+     "group": null,
+     "unit": "10^9/L",
+     "range": "100 – 450"
+    },
+    {
+     "name": "MPV",
+     "group": null,
+     "unit": "fl",
+     "range": "7.0 – 11"
+    }
+   ]
+  },
+  {
+   "no": 2,
+   "name": "TOTAL BLOOD COUNT (TBC) – 5-Part Differential",
+   "sample": "Whole blood",
+   "method": "WBC/RBC/PLT – Impedance method; HB – Colorimetry",
+   "params": [
+    {
+     "name": "WBC",
+     "group": null,
+     "unit": "10^3/uL",
+     "range": "4.0 – 10.0"
+    },
+    {
+     "name": "LYMPH",
+     "group": null,
+     "unit": "10^3/uL",
+     "range": "0.6 – 4.1"
+    },
+    {
+     "name": "LYMPH%",
+     "group": null,
+     "unit": "%",
+     "range": "20 – 50"
+    },
+    {
+     "name": "MONO",
+     "group": null,
+     "unit": "10^3/uL",
+     "range": "0.1 – 0.9"
+    },
+    {
+     "name": "MONO%",
+     "group": null,
+     "unit": "%",
+     "range": "3 – 10"
+    },
+    {
+     "name": "NEUT",
+     "group": null,
+     "unit": "10^3/uL",
+     "range": "2.0 – 7.8"
+    },
+    {
+     "name": "NEUT%",
+     "group": null,
+     "unit": "%",
+     "range": "40 – 70"
+    },
+    {
+     "name": "EO",
+     "group": null,
+     "unit": "10^6/uL (as in template)",
+     "range": "0 – 6.0"
+    },
+    {
+     "name": "EO%",
+     "group": null,
+     "unit": "%",
+     "range": "0 – 4"
+    },
+    {
+     "name": "BASO",
+     "group": null,
+     "unit": "10^3/uL",
+     "range": "0 – 3"
+    },
+    {
+     "name": "BASO%",
+     "group": null,
+     "unit": "%",
+     "range": "0.0 – 1.0"
+    },
+    {
+     "name": "HGB",
+     "group": null,
+     "unit": "g/dl",
+     "range": "11.0 – 16.5"
+    },
+    {
+     "name": "MCH",
+     "group": null,
+     "unit": "pg",
+     "range": "26.5 – 33.5"
+    },
+    {
+     "name": "MCHC",
+     "group": null,
+     "unit": "g/dl",
+     "range": "32 – 36"
+    },
+    {
+     "name": "RBC",
+     "group": null,
+     "unit": "10^6/uL",
+     "range": "3.8 – 5.8"
+    },
+    {
+     "name": "MCV",
+     "group": null,
+     "unit": "fl",
+     "range": "80 – 99"
+    },
+    {
+     "name": "HCT",
+     "group": null,
+     "unit": "%",
+     "range": "35 – 50"
+    },
+    {
+     "name": "RDW%",
+     "group": null,
+     "unit": "%",
+     "range": "10 – 15"
+    },
+    {
+     "name": "PLT",
+     "group": null,
+     "unit": "10^9/uL",
+     "range": "100 – 450"
+    },
+    {
+     "name": "MPV",
+     "group": null,
+     "unit": "fl",
+     "range": "7.0 – 11"
+    }
+   ]
+  },
+  {
+   "no": 3,
+   "name": "C-REACTIVE PROTEIN TEST (CRP)",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "CRP",
+     "group": null,
+     "unit": "mg/l",
+     "range": "0.5 – 5.0: Normal\n5.1 – 15: Possible subclinical/silent infection\n>15: Acute/chronic infection/inflammation"
+    }
+   ]
+  },
+  {
+   "no": 4,
+   "name": "ERYTHROCYTE SEDIMENTATION RATE (ESR)",
+   "sample": "Whole blood",
+   "method": null,
+   "params": [
+    {
+     "name": "ESR",
+     "group": null,
+     "unit": "mm/hr",
+     "range": "Males <50 years: 0 – 15\nMales >50 years: 0 – 20\nFemales <50 years: 0 – 20\nFemales >50 years: 0 – 30"
+    }
+   ]
+  },
+  {
+   "no": 5,
+   "name": "ASPERGILLOSIS IgG & IgM",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Aspergillosis IgG",
+     "group": null,
+     "unit": "U/mL",
+     "range": "Negative: < 8\nEquivocal: 8.0 – 12.0\nPositive: > 12"
+    },
+    {
+     "name": "Aspergillosis IgM",
+     "group": null,
+     "unit": "U/mL",
+     "range": "Negative: < 8\nEquivocal: 8.0 – 12.0\nPositive: > 12"
+    }
+   ]
+  },
+  {
+   "no": 6,
+   "name": "COMPREHENSIVE ALLERGY PANEL (Pediatric Allergens)",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "D1 – Der. pteronyssinus (House dust mite)",
+     "group": null,
+     "unit": "IU/mL",
+     "range": "Grade 0 (0.00 – 0.35)"
+    },
+    {
+     "name": "D2 – Der. farinae (House dust mite)",
+     "group": null,
+     "unit": "IU/mL",
+     "range": "Grade 0 (0.00 – 0.35)"
+    },
+    {
+     "name": "T3 – Birch pollens",
+     "group": null,
+     "unit": "IU/mL",
+     "range": "Grade 0 (0.00 – 0.35)"
+    },
+    {
+     "name": "GX – Grass pollens",
+     "group": null,
+     "unit": "IU/mL",
+     "range": "Grade 0 (0.00 – 0.35)"
+    },
+    {
+     "name": "E1 – Cat",
+     "group": null,
+     "unit": "IU/mL",
+     "range": "Grade 0 (0.00 – 0.35)"
+    },
+    {
+     "name": "E5 – Dog",
+     "group": null,
+     "unit": "IU/mL",
+     "range": "Grade 0 (0.00 – 0.35)"
+    },
+    {
+     "name": "M6 – Alternaria alternata",
+     "group": null,
+     "unit": "IU/mL",
+     "range": "Grade 0 (0.00 – 0.35)"
+    },
+    {
+     "name": "F2 – Milk",
+     "group": null,
+     "unit": "IU/mL",
+     "range": "Grade 0 (0.00 – 0.35)"
+    },
+    {
+     "name": "F76 – Alpha-lactoglobulin",
+     "group": null,
+     "unit": "IU/mL",
+     "range": "Grade 0 (0.00 – 0.35)"
+    },
+    {
+     "name": "F77 – Beta-lactoglobulin",
+     "group": null,
+     "unit": "IU/mL",
+     "range": "Grade 0 (0.00 – 0.35)"
+    },
+    {
+     "name": "F78 – Casein",
+     "group": null,
+     "unit": "IU/mL",
+     "range": "Grade 0 (0.00 – 0.35)"
+    },
+    {
+     "name": "F1 – Egg white",
+     "group": null,
+     "unit": "IU/mL",
+     "range": "Grade 0 (0.00 – 0.35)"
+    },
+    {
+     "name": "F75 – Egg yolk",
+     "group": null,
+     "unit": "IU/mL",
+     "range": "Grade 0 (0.00 – 0.35)"
+    },
+    {
+     "name": "E101 – Bovine serum albumin",
+     "group": null,
+     "unit": "IU/mL",
+     "range": "Grade 0 (0.00 – 0.35)"
+    },
+    {
+     "name": "F14 – Soya bean",
+     "group": null,
+     "unit": "IU/mL",
+     "range": "Grade 0 (0.00 – 0.35)"
+    },
+    {
+     "name": "F31 – Carrot",
+     "group": null,
+     "unit": "IU/mL",
+     "range": "Grade 0 (0.00 – 0.35)"
+    },
+    {
+     "name": "F35 – Potato",
+     "group": null,
+     "unit": "IU/mL",
+     "range": "Grade 0 (0.00 – 0.35)"
+    },
+    {
+     "name": "F4 – Wheat flour",
+     "group": null,
+     "unit": "IU/mL",
+     "range": "Grade 0 (0.00 – 0.35)"
+    },
+    {
+     "name": "F17 – Hazelnut",
+     "group": null,
+     "unit": "IU/mL",
+     "range": "Grade 0 (0.00 – 0.35)"
+    },
+    {
+     "name": "F13 – Peanut",
+     "group": null,
+     "unit": "IU/mL",
+     "range": "Grade 0 (0.00 – 0.35)"
+    }
+   ]
+  },
+  {
+   "no": 7,
+   "name": "ANTI-CYCLIC CITRULLINATED PEPTIDE (Anti-CCP)",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Anti-CCP",
+     "group": null,
+     "unit": "U/ml",
+     "range": "< 20: Negative\n≥ 20: Positive"
+    }
+   ]
+  },
+  {
+   "no": 8,
+   "name": "URINALYSIS",
+   "sample": "Urine",
+   "method": null,
+   "params": [
+    {
+     "name": "Colour",
+     "group": "Macroscopy / Chemistry",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Appearance",
+     "group": "Macroscopy / Chemistry",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "pH",
+     "group": "Macroscopy / Chemistry",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Specific Gravity",
+     "group": "Macroscopy / Chemistry",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Proteins",
+     "group": "Macroscopy / Chemistry",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Leucocytes",
+     "group": "Macroscopy / Chemistry",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Glucose",
+     "group": "Macroscopy / Chemistry",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Blood",
+     "group": "Macroscopy / Chemistry",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Bilirubin",
+     "group": "Macroscopy / Chemistry",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Urobilinogen",
+     "group": "Macroscopy / Chemistry",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Ketones",
+     "group": "Macroscopy / Chemistry",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Nitrites",
+     "group": "Macroscopy / Chemistry",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Pus cells",
+     "group": "Microscopy",
+     "unit": "/HPF",
+     "range": null
+    },
+    {
+     "name": "RBC",
+     "group": "Microscopy",
+     "unit": "/HPF",
+     "range": null
+    },
+    {
+     "name": "Yeast cells",
+     "group": "Microscopy",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Renal epithelial cells",
+     "group": "Microscopy",
+     "unit": "/HPF",
+     "range": null
+    },
+    {
+     "name": "Bacteria",
+     "group": "Microscopy",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "S. haematobium",
+     "group": "Microscopy",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "T. vaginalis",
+     "group": "Microscopy",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Casts",
+     "group": "Microscopy",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Crystals",
+     "group": "Microscopy",
+     "unit": null,
+     "range": null
+    }
+   ]
+  },
+  {
+   "no": 9,
+   "name": "C-PEPTIDE",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "C-peptide",
+     "group": null,
+     "unit": "ng/ml",
+     "range": "0.78 – 5.1"
+    }
+   ]
+  },
+  {
+   "no": 10,
+   "name": "CLOSTRIDIUM DIFFICILE GDH",
+   "sample": "Stool",
+   "method": "CLIA",
+   "params": [
+    {
+     "name": "Clostridium difficile GDH",
+     "group": null,
+     "unit": "Index",
+     "range": "Negative: ≤ 0.9\nEquivocal: 0.91 – 1.1\nPositive: ≥ 1.1"
+    }
+   ]
+  },
+  {
+   "no": 11,
+   "name": "TROPONIN I LEVELS",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Troponin I",
+     "group": null,
+     "unit": "ng/l",
+     "range": "< 15"
+    }
+   ]
+  },
+  {
+   "no": 12,
+   "name": "GONORRHEA TEST PCR",
+   "sample": "Urine",
+   "method": null,
+   "params": [
+    {
+     "name": "Gonorrhea PCR",
+     "group": null,
+     "unit": null,
+     "range": null
+    }
+   ]
+  },
+  {
+   "no": 13,
+   "name": "UREA AND CREATININE",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Urea",
+     "group": null,
+     "unit": "mmol/l",
+     "range": "1.7 – 8.3"
+    },
+    {
+     "name": "Creatinine",
+     "group": null,
+     "unit": "umol/L",
+     "range": "42 – 123"
+    }
+   ]
+  },
+  {
+   "no": 14,
+   "name": "URINE MICROSCOPY, CULTURE AND SENSITIVITY",
+   "sample": "Urine",
+   "method": null,
+   "params": [
+    {
+     "name": "Colour",
+     "group": "Macroscopy / Chemistry",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Appearance",
+     "group": "Macroscopy / Chemistry",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "pH",
+     "group": "Macroscopy / Chemistry",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Specific Gravity",
+     "group": "Macroscopy / Chemistry",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Proteins",
+     "group": "Macroscopy / Chemistry",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Leucocytes",
+     "group": "Macroscopy / Chemistry",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Glucose",
+     "group": "Macroscopy / Chemistry",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Blood",
+     "group": "Macroscopy / Chemistry",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Bilirubin",
+     "group": "Macroscopy / Chemistry",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Urobilinogen",
+     "group": "Macroscopy / Chemistry",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Ketones",
+     "group": "Macroscopy / Chemistry",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Nitrites",
+     "group": "Macroscopy / Chemistry",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Pus cells",
+     "group": "Microscopy",
+     "unit": "/HPF",
+     "range": null
+    },
+    {
+     "name": "RBC",
+     "group": "Microscopy",
+     "unit": "/HPF",
+     "range": null
+    },
+    {
+     "name": "Yeast cells",
+     "group": "Microscopy",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Renal epithelial cells",
+     "group": "Microscopy",
+     "unit": "/HPF",
+     "range": null
+    },
+    {
+     "name": "Bacteria",
+     "group": "Microscopy",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "S. haematobium",
+     "group": "Microscopy",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "T. vaginalis",
+     "group": "Microscopy",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Casts",
+     "group": "Microscopy",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Crystals",
+     "group": "Microscopy",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Organism isolated",
+     "group": "Culture",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Ceftriaxone",
+     "group": "Susceptibility Testing (Sensitive / Resistant)",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Ciprofloxacin",
+     "group": "Susceptibility Testing (Sensitive / Resistant)",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Levofloxacin",
+     "group": "Susceptibility Testing (Sensitive / Resistant)",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Cefuroxime",
+     "group": "Susceptibility Testing (Sensitive / Resistant)",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Nalidixic acid",
+     "group": "Susceptibility Testing (Sensitive / Resistant)",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Nitrofurantoin",
+     "group": "Susceptibility Testing (Sensitive / Resistant)",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Ofloxacin",
+     "group": "Susceptibility Testing (Sensitive / Resistant)",
+     "unit": null,
+     "range": null
+    }
+   ]
+  },
+  {
+   "no": 15,
+   "name": "CHLAMYDIA TEST PCR",
+   "sample": "Urine",
+   "method": null,
+   "params": [
+    {
+     "name": "Chlamydia PCR",
+     "group": null,
+     "unit": null,
+     "range": null
+    }
+   ]
+  },
+  {
+   "no": 16,
+   "name": "UREA, ELECTROLYTES AND CREATININE (U/E/C)",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Urea",
+     "group": null,
+     "unit": "mmol/l",
+     "range": "1.7 – 8.3"
+    },
+    {
+     "name": "Creatinine",
+     "group": null,
+     "unit": "umol/L",
+     "range": "42 – 123"
+    },
+    {
+     "name": "Potassium",
+     "group": null,
+     "unit": "mmol/l",
+     "range": "3.5 – 5.5"
+    },
+    {
+     "name": "Sodium",
+     "group": null,
+     "unit": "mmol/l",
+     "range": "136 – 145"
+    },
+    {
+     "name": "Chloride",
+     "group": null,
+     "unit": "mmol/l",
+     "range": "96 – 108"
+    }
+   ]
+  },
+  {
+   "no": 17,
+   "name": "LIVER FUNCTION TESTS (LFTs)",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Total protein",
+     "group": null,
+     "unit": "g/dl",
+     "range": "6 – 10"
+    },
+    {
+     "name": "Albumin",
+     "group": null,
+     "unit": "g/dl",
+     "range": "3.5 – 5.5"
+    },
+    {
+     "name": "AST (SGOT)",
+     "group": null,
+     "unit": "u/l",
+     "range": "0 – 40"
+    },
+    {
+     "name": "ALT (SGPT)",
+     "group": null,
+     "unit": "u/l",
+     "range": "0 – 41"
+    },
+    {
+     "name": "Alkaline phosphatase (ALP)",
+     "group": null,
+     "unit": "u/l",
+     "range": "53 – 141"
+    },
+    {
+     "name": "GGT",
+     "group": null,
+     "unit": "u/l",
+     "range": "0 – 47"
+    },
+    {
+     "name": "Total Bilirubin",
+     "group": null,
+     "unit": "umol/l",
+     "range": "Up to 20"
+    },
+    {
+     "name": "Direct Bilirubin",
+     "group": null,
+     "unit": "umol/l",
+     "range": "0 – 6.8"
+    }
+   ]
+  },
+  {
+   "no": 18,
+   "name": "BILIRUBIN",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Total Bilirubin",
+     "group": null,
+     "unit": "umol/l",
+     "range": "1.75 – 20.5"
+    },
+    {
+     "name": "Direct Bilirubin",
+     "group": null,
+     "unit": "umol/l",
+     "range": "0 – 5.1"
+    },
+    {
+     "name": "Indirect Bilirubin",
+     "group": null,
+     "unit": "umol/l",
+     "range": "1.75 – 15.4"
+    }
+   ]
+  },
+  {
+   "no": 19,
+   "name": "CREATININE",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Creatinine",
+     "group": null,
+     "unit": "umol/L",
+     "range": "42 – 123"
+    }
+   ]
+  },
+  {
+   "no": 20,
+   "name": "ANTI-STREPTOLYSIN O TITRE (ASOT)",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "ASOT",
+     "group": null,
+     "unit": "IU",
+     "range": "< 150"
+    }
+   ]
+  },
+  {
+   "no": 21,
+   "name": "THYROID STIMULATING HORMONE (TSH)",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "TSH",
+     "group": null,
+     "unit": "uIU/ml",
+     "range": "0.27 – 4.2"
+    }
+   ]
+  },
+  {
+   "no": 22,
+   "name": "LIPID PROFILE",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Triglycerides",
+     "group": null,
+     "unit": "mmol/l",
+     "range": "Desirable: < 2.0\nMod. high: 2.0 – 2.65\nHigh: > 2.65"
+    },
+    {
+     "name": "HDL-Cholesterol",
+     "group": null,
+     "unit": "mmol/l",
+     "range": "Desirable: > 1.55\nBorderline low: < 1.04"
+    },
+    {
+     "name": "TC:HDL ratio",
+     "group": null,
+     "unit": null,
+     "range": "< 2.9"
+    },
+    {
+     "name": "LDL-Cholesterol",
+     "group": null,
+     "unit": "mmol/l",
+     "range": "Desirable: < 2.59\nMod. high: 2.59 – 4.12\nHigh: > 4.12"
+    },
+    {
+     "name": "Total Cholesterol",
+     "group": null,
+     "unit": "mmol/l",
+     "range": "Desirable: < 5.2\nMod. high: 5.2 – 6.2\nHigh: > 6.2"
+    }
+   ]
+  },
+  {
+   "no": 23,
+   "name": "THYROID FUNCTION TESTS (TFTs)",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "TSH",
+     "group": null,
+     "unit": "uIU/ml",
+     "range": "0.27 – 4.2"
+    },
+    {
+     "name": "FT3",
+     "group": null,
+     "unit": "pmol/L",
+     "range": "2.8 – 7.1"
+    },
+    {
+     "name": "FT4",
+     "group": null,
+     "unit": "pmol/L",
+     "range": "10.16 – 22.0"
+    }
+   ]
+  },
+  {
+   "no": 24,
+   "name": "ANTI NUCLEAR ANTIBODIES (ANA)",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "ANA",
+     "group": null,
+     "unit": "Index",
+     "range": "< 1.0: Negative\n1.0 – 1.2: Borderline positive\n> 1.2: Positive"
+    }
+   ]
+  },
+  {
+   "no": 25,
+   "name": "BRUCELLA ANTIBODIES IgG",
+   "sample": "Serum",
+   "method": "EIA",
+   "params": [
+    {
+     "name": "Brucella antibodies IgG",
+     "group": null,
+     "unit": "Index",
+     "range": "Negative: < 0.8\nBorderline: 0.8 – 1.1\nPositive: > 1.1"
+    }
+   ]
+  },
+  {
+   "no": 26,
+   "name": "HEPATITIS B VIRUS SURFACE ANTIGEN (HBsAg) – Rapid",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "HBsAg",
+     "group": null,
+     "unit": null,
+     "range": null
+    }
+   ]
+  },
+  {
+   "no": 27,
+   "name": "HEPATITIS C VIRUS ANTIBODY (HCV) – Rapid",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "HCV Ab",
+     "group": null,
+     "unit": null,
+     "range": null
+    }
+   ]
+  },
+  {
+   "no": 28,
+   "name": "VITAMIN D3",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Vitamin D3",
+     "group": null,
+     "unit": "ng/ml",
+     "range": "< 20: Deficiency\n21 – 29: Insufficiency\n> 30: Preferred levels"
+    }
+   ]
+  },
+  {
+   "no": 29,
+   "name": "FASTING BLOOD SUGAR (FBS)",
+   "sample": "Whole blood",
+   "method": null,
+   "params": [
+    {
+     "name": "FBS",
+     "group": null,
+     "unit": "mmol/L",
+     "range": "Normal: < 5.6\nPre-diabetes: 5.7 – 6.9\nDiabetes: > 7.0"
+    }
+   ]
+  },
+  {
+   "no": 30,
+   "name": "RHEUMATOID FACTOR (RF)",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "RF",
+     "group": null,
+     "unit": "IU/ml",
+     "range": "0.0 – 20.0"
+    }
+   ]
+  },
+  {
+   "no": 31,
+   "name": "BICARBONATE",
+   "sample": "Serum",
+   "method": "Photometric",
+   "params": [
+    {
+     "name": "Bicarbonate",
+     "group": null,
+     "unit": "mmol/L",
+     "range": "20 – 28"
+    }
+   ]
+  },
+  {
+   "no": 32,
+   "name": "CARBAMAZEPINE (Tegretol)",
+   "sample": "Serum",
+   "method": "Immunoturbidimetry",
+   "params": [
+    {
+     "name": "Carbamazepine",
+     "group": null,
+     "unit": "ug/mL",
+     "range": "Therapeutic range: 4 – 12\nToxic range: > 12"
+    }
+   ]
+  },
+  {
+   "no": 33,
+   "name": "H-PYLORI ANTIGEN TEST",
+   "sample": "Stool",
+   "method": null,
+   "params": [
+    {
+     "name": "H-pylori antigen",
+     "group": null,
+     "unit": null,
+     "range": null
+    }
+   ]
+  },
+  {
+   "no": 34,
+   "name": "STOOL SALMONELLA ANTIGEN TEST (SAT)",
+   "sample": "Stool",
+   "method": null,
+   "params": [
+    {
+     "name": "Salmonella antigen (SAT)",
+     "group": null,
+     "unit": null,
+     "range": null
+    }
+   ]
+  },
+  {
+   "no": 35,
+   "name": "FAECAL OCCULT BLOOD TEST (FOB)",
+   "sample": "Stool",
+   "method": null,
+   "params": [
+    {
+     "name": "Faecal occult blood",
+     "group": null,
+     "unit": null,
+     "range": null
+    }
+   ]
+  },
+  {
+   "no": 36,
+   "name": "BRUCELLA ANTIGEN (Abortus / Melitensis)",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Brucella abortus",
+     "group": null,
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Brucella melitensis",
+     "group": null,
+     "unit": null,
+     "range": null
+    }
+   ]
+  },
+  {
+   "no": 37,
+   "name": "CARCINOEMBRYONIC ANTIGEN (CEA)",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "CEA",
+     "group": null,
+     "unit": "ng/ml",
+     "range": "Up to 3.4"
+    }
+   ]
+  },
+  {
+   "no": 38,
+   "name": "CA 19-9",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "CA 19-9",
+     "group": null,
+     "unit": "U/ml",
+     "range": "Up to 39"
+    }
+   ]
+  },
+  {
+   "no": 39,
+   "name": "VENEREAL DISEASE RESEARCH LABORATORY TEST (VDRL)",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "VDRL",
+     "group": null,
+     "unit": null,
+     "range": null
+    }
+   ]
+  },
+  {
+   "no": 40,
+   "name": "P24 MARKERS TEST",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "HIV (P24 markers)",
+     "group": null,
+     "unit": null,
+     "range": null
+    }
+   ]
+  },
+  {
+   "no": 41,
+   "name": "CALCIUM LEVELS",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Calcium",
+     "group": null,
+     "unit": "mmol/l",
+     "range": "2.05 – 2.6"
+    }
+   ]
+  },
+  {
+   "no": 42,
+   "name": "PHOSPHORUS LEVELS",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Phosphorus",
+     "group": null,
+     "unit": "mmol/l",
+     "range": "0.87 – 1.45"
+    }
+   ]
+  },
+  {
+   "no": 43,
+   "name": "BLOOD SLIDE FOR MALARIA PARASITES (B/S for MPS)",
+   "sample": "Whole blood",
+   "method": null,
+   "params": [
+    {
+     "name": "B/S for MPS",
+     "group": null,
+     "unit": null,
+     "range": null
+    }
+   ]
+  },
+  {
+   "no": 44,
+   "name": "IMMUNOGLOBULIN E (IgE) LEVELS",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "IgE",
+     "group": null,
+     "unit": "kIU/l",
+     "range": "Neonates: < 1.5\n1 – 12 months: 0 – 13\n2 – 5 years: 0 – 60\n6 – 9 years: 0 – 90\n10 – 15 years: 0 – 200\nAdults: 0 – 100"
+    }
+   ]
+  },
+  {
+   "no": 45,
+   "name": "IMMUNOGLOBULIN G (IgG) LEVELS",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "IgG",
+     "group": null,
+     "unit": "mg/dl",
+     "range": "552 – 1637"
+    }
+   ]
+  },
+  {
+   "no": 46,
+   "name": "IMMUNOGLOBULIN M (IgM) LEVELS",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "IgM",
+     "group": null,
+     "unit": "mg/dL",
+     "range": "33 – 293"
+    }
+   ]
+  },
+  {
+   "no": 47,
+   "name": "IMMUNOGLOBULIN A (IgA) LEVELS",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "IgA",
+     "group": null,
+     "unit": "mg/dL",
+     "range": "69 – 517"
+    }
+   ]
+  },
+  {
+   "no": 48,
+   "name": "FERRITIN LEVELS",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Ferritin",
+     "group": null,
+     "unit": "ng/ml",
+     "range": "34 – 310"
+    }
+   ]
+  },
+  {
+   "no": 49,
+   "name": "RANDOM BLOOD SUGAR (RBS)",
+   "sample": "Whole blood",
+   "method": null,
+   "params": [
+    {
+     "name": "RBS",
+     "group": null,
+     "unit": "mmol/L",
+     "range": "Normal: 3.9 – 7.8\nPre-diabetes: 7.9 – 11.1\nDiabetes: > 11.2"
+    }
+   ]
+  },
+  {
+   "no": 50,
+   "name": "VITAMIN B12",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Vitamin B12",
+     "group": null,
+     "unit": "pmol/L",
+     "range": "156 – 672"
+    }
+   ]
+  },
+  {
+   "no": 51,
+   "name": "MANTOUX TEST",
+   "sample": "Not specified",
+   "method": null,
+   "params": [
+    {
+     "name": "Mantoux (induration)",
+     "group": null,
+     "unit": "mm",
+     "range": "Negative: 0 – 4\nIndeterminate: 5 – 9\nPositive: > 10"
+    }
+   ]
+  },
+  {
+   "no": 52,
+   "name": "ZINC",
+   "sample": "Serum",
+   "method": "ICPMS",
+   "params": [
+    {
+     "name": "Zinc",
+     "group": null,
+     "unit": "ug/dl",
+     "range": "54 – 151"
+    }
+   ]
+  },
+  {
+   "no": 53,
+   "name": "LEAD",
+   "sample": "EDTA whole blood",
+   "method": "ICPMS",
+   "params": [
+    {
+     "name": "Lead",
+     "group": null,
+     "unit": "ug/dl",
+     "range": "No additional action: 0 – 9\nIdentify and minimise exposure: 10 – 19\nExposure removal if symptomatic: 20 – 39\nImmediate evaluation: 40 – 79\nChelate: ≥ 80"
+    }
+   ]
+  },
+  {
+   "no": 54,
+   "name": "MERCURY",
+   "sample": "Serum",
+   "method": "ICPMS",
+   "params": [
+    {
+     "name": "Mercury",
+     "group": null,
+     "unit": "ug/L",
+     "range": "0.21 – 1.3"
+    }
+   ]
+  },
+  {
+   "no": 55,
+   "name": "ALUMINIUM",
+   "sample": "Serum",
+   "method": "ICPMS",
+   "params": [
+    {
+     "name": "Aluminium",
+     "group": null,
+     "unit": "µg/L",
+     "range": "1.0 – 3.0"
+    }
+   ]
+  },
+  {
+   "no": 56,
+   "name": "LACTATE",
+   "sample": "Plasma (Fluoride)",
+   "method": null,
+   "params": [
+    {
+     "name": "Lactate",
+     "group": null,
+     "unit": "mmol/L (template shows nmol/L)",
+     "range": "0.5 – 2.2"
+    }
+   ]
+  },
+  {
+   "no": 57,
+   "name": "D-DIMER",
+   "sample": "Whole blood (Citrated)",
+   "method": null,
+   "params": [
+    {
+     "name": "D-Dimer",
+     "group": null,
+     "unit": "ug/ml",
+     "range": "< 0.5"
+    }
+   ]
+  },
+  {
+   "no": 58,
+   "name": "URINE MICROALBUMIN/CREATININE RATIO (UACR)",
+   "sample": "Urine",
+   "method": null,
+   "params": [
+    {
+     "name": "Microalbumin, random urine",
+     "group": null,
+     "unit": "mg/L",
+     "range": null
+    },
+    {
+     "name": "Creatinine, urine",
+     "group": null,
+     "unit": "mmol/L",
+     "range": null
+    },
+    {
+     "name": "Microalbumin/creatinine ratio",
+     "group": null,
+     "unit": "mg/mmol",
+     "range": "0 – 3.0: Normal\n3.1 – 30: Moderately increased\n> 30: Severely increased"
+    }
+   ]
+  },
+  {
+   "no": 59,
+   "name": "SERUM URIC ACID",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Serum uric acid",
+     "group": null,
+     "unit": "umol/l",
+     "range": "Male: 200 – 430\nFemale: 140 – 360"
+    }
+   ]
+  },
+  {
+   "no": 60,
+   "name": "GLYCATED HAEMOGLOBIN (HbA1c)",
+   "sample": "Whole blood",
+   "method": null,
+   "params": [
+    {
+     "name": "HbA1c",
+     "group": null,
+     "unit": "%",
+     "range": "4.5 – 6.0"
+    }
+   ]
+  },
+  {
+   "no": 61,
+   "name": "SERUM AMYLASE",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Serum amylase",
+     "group": null,
+     "unit": "IU/L",
+     "range": "25 – 125"
+    }
+   ]
+  },
+  {
+   "no": 62,
+   "name": "SERUM LIPASE",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Serum lipase",
+     "group": null,
+     "unit": "u/l",
+     "range": "13 – 60"
+    }
+   ]
+  },
+  {
+   "no": 63,
+   "name": "CKMB",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "CKMB",
+     "group": null,
+     "unit": "ng/ml",
+     "range": "0 – 15"
+    }
+   ]
+  },
+  {
+   "no": 64,
+   "name": "URINE LIPOARABINOMANNAN ASSAY (LAM) TEST",
+   "sample": "Random urine",
+   "method": null,
+   "params": [
+    {
+     "name": "LAM",
+     "group": null,
+     "unit": null,
+     "range": null
+    }
+   ]
+  },
+  {
+   "no": 65,
+   "name": "IRON LEVELS",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Iron",
+     "group": null,
+     "unit": "μmol/L",
+     "range": "11.6 – 31.3"
+    }
+   ]
+  },
+  {
+   "no": 66,
+   "name": "PT / PTI / INR / APTT",
+   "sample": "Plasma",
+   "method": null,
+   "params": [
+    {
+     "name": "Prothrombin Time (PT)",
+     "group": "Prothrombin Time",
+     "unit": "sec",
+     "range": "11 – 16"
+    },
+    {
+     "name": "PT Control",
+     "group": "Prothrombin Time",
+     "unit": "sec",
+     "range": null
+    },
+    {
+     "name": "Index (PTI)",
+     "group": "Prothrombin Time",
+     "unit": "%",
+     "range": null
+    },
+    {
+     "name": "PT (INR)",
+     "group": "Prothrombin Time",
+     "unit": null,
+     "range": "Normal: 0.8 – 1.2\nStandard therapy: 2.0 – 3.0\nHigh dose therapy: 3.0 – 4.5"
+    },
+    {
+     "name": "APTT",
+     "group": "APTT",
+     "unit": "sec",
+     "range": "30 – 40"
+    },
+    {
+     "name": "APTT Control",
+     "group": "APTT",
+     "unit": "sec",
+     "range": null
+    }
+   ]
+  },
+  {
+   "no": 67,
+   "name": "FOLATE LEVELS",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Folate",
+     "group": null,
+     "unit": "nmol/L",
+     "range": "Deficient: 0.79 – 7.63\nIntermediate: 7.64 – 12.19\nNormal: > 12.19"
+    }
+   ]
+  },
+  {
+   "no": 68,
+   "name": "HIV ELISA",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "HIV antibodies + HIV P24 antigen",
+     "group": null,
+     "unit": "Index",
+     "range": "Non-reactive: < 1.0\nReactive: > 1.0"
+    }
+   ]
+  },
+  {
+   "no": 69,
+   "name": "CORTISOL LEVELS (PM)",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Cortisol (PM)",
+     "group": null,
+     "unit": "nmol/l",
+     "range": "171.0 – 536.0"
+    }
+   ]
+  },
+  {
+   "no": 70,
+   "name": "CORTISOL LEVELS (AM)",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Cortisol (AM)",
+     "group": null,
+     "unit": "nmol/l",
+     "range": "171.0 – 536.0"
+    }
+   ]
+  },
+  {
+   "no": 71,
+   "name": "HEPATITIS B VIRAL LOAD",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Hepatitis B viral load",
+     "group": null,
+     "unit": "IU/ml",
+     "range": "Linear reportable range (Roche Taqman): 20 – 170,000,000"
+    }
+   ]
+  },
+  {
+   "no": 72,
+   "name": "HEPATITIS B SURFACE ANTIGEN ELISA (HBsAg)",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "HBsAg ELISA",
+     "group": null,
+     "unit": "S/CO",
+     "range": "< 1.0: Negative\n≥ 1.0: Positive\n> 100.0: Indicative of acute or chronic HBV"
+    }
+   ]
+  },
+  {
+   "no": 73,
+   "name": "HEPATITIS A IgM",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "HAV IgM",
+     "group": null,
+     "unit": "Index",
+     "range": "0 – 0.80: Negative\n0.81 – 0.99: Intermediate\n> 1: Positive"
+    }
+   ]
+  },
+  {
+   "no": 74,
+   "name": "BETA HCG",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Serum Beta HCG",
+     "group": null,
+     "unit": "mIU/mL",
+     "range": "< 5: Negative for pregnancy\nGestational age:\n3 – 4 weeks: 6 – 750\n5 – 6 weeks: 160 – 32,000\n7 – 9 weeks: 1,700 – 160,000\n10 – 12 weeks: 47,000 – 210,000\n14 – 15 weeks: 12,000 – 71,000\n16 – 18 weeks: 8,100 – 58,000"
+    }
+   ]
+  },
+  {
+   "no": 75,
+   "name": "TOXOPLASMA IgG & IgM",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Toxoplasma IgG",
+     "group": null,
+     "unit": "IU/mL",
+     "range": "Non-reactive: < 1.0\nIndeterminate: 1.0 – < 9.0\nReactive: ≥ 10"
+    },
+    {
+     "name": "Toxoplasma IgM",
+     "group": null,
+     "unit": "IU/mL",
+     "range": "Non-reactive: < 0.8\nIndeterminate: 0.8 – < 1.0\nReactive: ≥ 1.0"
+    }
+   ]
+  },
+  {
+   "no": 76,
+   "name": "CYTOMEGALOVIRUS (CMV) IgG & IgM",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Cytomegalovirus IgG",
+     "group": null,
+     "unit": "IU/mL",
+     "range": "Non-reactive: < 0.5\nIndeterminate: 0.5 – < 1.0\nReactive: ≥ 1.0"
+    },
+    {
+     "name": "Cytomegalovirus IgM",
+     "group": null,
+     "unit": "IU/mL",
+     "range": "Non-reactive: < 0.7\nIndeterminate: 0.7 – < 1.0\nReactive: ≥ 1.0"
+    }
+   ]
+  },
+  {
+   "no": 77,
+   "name": "RUBELLA IgG & IgM",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Rubella IgG",
+     "group": null,
+     "unit": "IU/mL",
+     "range": "Non-reactive: < 10\nReactive: ≥ 10"
+    },
+    {
+     "name": "Rubella IgM",
+     "group": null,
+     "unit": "IU/mL",
+     "range": "Non-reactive: < 0.8\nIndeterminate: 0.8 – < 1.0\nReactive: ≥ 1.0"
+    }
+   ]
+  },
+  {
+   "no": 78,
+   "name": "HERPES SIMPLEX VIRUS 1 (HSV-1) IgG & IgM",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "HSV-1 IgG",
+     "group": null,
+     "unit": "IU/mL",
+     "range": "Non-reactive: < 0.5\nIndeterminate: 0.5 – < 1.0\nReactive: ≥ 1.0"
+    },
+    {
+     "name": "HSV-1 IgM",
+     "group": null,
+     "unit": "IU/mL",
+     "range": "Non-reactive: < 0.7\nIndeterminate: 0.7 – < 1.0\nReactive: ≥ 1.0"
+    }
+   ]
+  },
+  {
+   "no": 79,
+   "name": "HERPES SIMPLEX VIRUS 2 (HSV-2) IgG & IgM",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "HSV-2 IgG",
+     "group": null,
+     "unit": "IU/mL",
+     "range": "Non-reactive: < 0.5\nIndeterminate: 0.5 – < 1.0\nReactive: ≥ 1.0"
+    },
+    {
+     "name": "HSV-2 IgM",
+     "group": null,
+     "unit": "IU/mL",
+     "range": "Non-reactive: < 0.7\nIndeterminate: 0.7 – < 1.0\nReactive: ≥ 1.0"
+    }
+   ]
+  },
+  {
+   "no": 80,
+   "name": "LACTATE DEHYDROGENASE (LDH)",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "LDH",
+     "group": null,
+     "unit": "IU/L",
+     "range": "120 – 250"
+    }
+   ]
+  },
+  {
+   "no": 81,
+   "name": "CREATINE PHOSPHOKINASE (CPK) – Sex-specific",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "CPK",
+     "group": null,
+     "unit": "U/L",
+     "range": "Male: 39 – 308\nFemale: 26 – 192"
+    }
+   ]
+  },
+  {
+   "no": 82,
+   "name": "ALDOLASE",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Aldolase",
+     "group": null,
+     "unit": "IU/L",
+     "range": "3 – 12"
+    }
+   ]
+  },
+  {
+   "no": 83,
+   "name": "FASTING INSULIN LEVELS",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Insulin",
+     "group": null,
+     "unit": "μU/ml",
+     "range": "2.6 – 24.9"
+    }
+   ]
+  },
+  {
+   "no": 84,
+   "name": "MAGNESIUM LEVELS",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Magnesium",
+     "group": null,
+     "unit": "mmol/l",
+     "range": "0.60 – 0.99"
+    }
+   ]
+  },
+  {
+   "no": 85,
+   "name": "STOOL ANALYSIS, CULTURE AND SENSITIVITY",
+   "sample": "Stool",
+   "method": null,
+   "params": [
+    {
+     "name": "Consistency",
+     "group": "Macroscopy / Microscopy",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Colour",
+     "group": "Macroscopy / Microscopy",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Ova / Cysts",
+     "group": "Macroscopy / Microscopy",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Pus cells",
+     "group": "Macroscopy / Microscopy",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "RBCs",
+     "group": "Macroscopy / Microscopy",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Starch granules",
+     "group": "Macroscopy / Microscopy",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Trophozoites",
+     "group": "Macroscopy / Microscopy",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Yeast cells",
+     "group": "Macroscopy / Microscopy",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Egg(s)",
+     "group": "Macroscopy / Microscopy",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Organism isolated",
+     "group": "Culture",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Meropenem",
+     "group": "Susceptibility Testing (Sensitive / Resistant)",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Ceftriaxone",
+     "group": "Susceptibility Testing (Sensitive / Resistant)",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Chloramphenicol",
+     "group": "Susceptibility Testing (Sensitive / Resistant)",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Ampicillin",
+     "group": "Susceptibility Testing (Sensitive / Resistant)",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Cefotaxime",
+     "group": "Susceptibility Testing (Sensitive / Resistant)",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Cefuroxime",
+     "group": "Susceptibility Testing (Sensitive / Resistant)",
+     "unit": null,
+     "range": null
+    }
+   ]
+  },
+  {
+   "no": 86,
+   "name": "STOOL MACROSCOPY (Modified Ziehl–Neelsen)",
+   "sample": "Stool",
+   "method": "Modified Ziehl–Neelsen (MZN)",
+   "params": [
+    {
+     "name": "Consistency",
+     "group": "Macroscopy",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Colour",
+     "group": "Macroscopy",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Mucoid",
+     "group": "Macroscopy",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Blood stained",
+     "group": "Macroscopy",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Cryptosporidium oocysts / Isospora belli",
+     "group": "Microscopy",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Ova and cysts",
+     "group": "Microscopy",
+     "unit": null,
+     "range": null
+    }
+   ]
+  },
+  {
+   "no": 87,
+   "name": "BLOOD CULTURE AND SENSITIVITY",
+   "sample": "Blood",
+   "method": null,
+   "params": [
+    {
+     "name": "Organism isolated",
+     "group": "Culture",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Meropenem",
+     "group": "Susceptibility Testing (Sensitive / Resistant)",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Ceftriaxone",
+     "group": "Susceptibility Testing (Sensitive / Resistant)",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Chloramphenicol",
+     "group": "Susceptibility Testing (Sensitive / Resistant)",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Ampicillin",
+     "group": "Susceptibility Testing (Sensitive / Resistant)",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Cefotaxime",
+     "group": "Susceptibility Testing (Sensitive / Resistant)",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Cefuroxime",
+     "group": "Susceptibility Testing (Sensitive / Resistant)",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Ofloxacin",
+     "group": "Susceptibility Testing (Sensitive / Resistant)",
+     "unit": null,
+     "range": null
+    }
+   ]
+  },
+  {
+   "no": 88,
+   "name": "BLOOD CULTURE",
+   "sample": "Blood",
+   "method": null,
+   "params": [
+    {
+     "name": "Gram staining",
+     "group": null,
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Colony morphology",
+     "group": null,
+     "unit": null,
+     "range": null
+    }
+   ]
+  },
+  {
+   "no": 89,
+   "name": "HIGH VAGINAL SWAB (HVS) MICROSCOPY, CULTURE AND SENSITIVITY",
+   "sample": "HVS swab",
+   "method": null,
+   "params": [
+    {
+     "name": "Pus cells",
+     "group": "Wet Preparation",
+     "unit": "/HPF",
+     "range": null
+    },
+    {
+     "name": "RBC",
+     "group": "Wet Preparation",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Yeast cells",
+     "group": "Wet Preparation",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Epithelial cells",
+     "group": "Wet Preparation",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Bacteria",
+     "group": "Wet Preparation",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "T. vaginalis",
+     "group": "Wet Preparation",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Gram stain",
+     "group": "Gram Stain",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Organism isolated",
+     "group": "Culture",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Ofloxacin",
+     "group": "Susceptibility Testing (Sensitive / Resistant)",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Ceftriaxone",
+     "group": "Susceptibility Testing (Sensitive / Resistant)",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Ciprofloxacin",
+     "group": "Susceptibility Testing (Sensitive / Resistant)",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Gentamicin",
+     "group": "Susceptibility Testing (Sensitive / Resistant)",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Ampicillin",
+     "group": "Susceptibility Testing (Sensitive / Resistant)",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Cefotaxime",
+     "group": "Susceptibility Testing (Sensitive / Resistant)",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Meropenem",
+     "group": "Susceptibility Testing (Sensitive / Resistant)",
+     "unit": null,
+     "range": null
+    }
+   ]
+  },
+  {
+   "no": 90,
+   "name": "SERUM CRYPTOCOCCAL ANTIGEN (CrAg)",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Serum CrAg",
+     "group": null,
+     "unit": null,
+     "range": null
+    }
+   ]
+  },
+  {
+   "no": 91,
+   "name": "EXTRACTABLE NUCLEAR ANTIGEN (ENA) PANEL",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Anti-RNP",
+     "group": null,
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Anti-Sm",
+     "group": null,
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Anti-Jo-1",
+     "group": null,
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Anti-Scl-70",
+     "group": null,
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Anti-SSA",
+     "group": null,
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Anti-SSB",
+     "group": null,
+     "unit": null,
+     "range": null
+    }
+   ]
+  },
+  {
+   "no": 92,
+   "name": "PROCALCITONIN (PCT)",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "PCT",
+     "group": null,
+     "unit": "ng/ml",
+     "range": "< 0.5"
+    }
+   ]
+  },
+  {
+   "no": 93,
+   "name": "SERUM PROTEIN ELECTROPHORESIS – Concentration (g/dL)",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Total protein",
+     "group": null,
+     "unit": "g/dL",
+     "range": "6.4 – 8.3"
+    },
+    {
+     "name": "Serum albumin",
+     "group": null,
+     "unit": "g/dL",
+     "range": "3.57 – 5.42"
+    },
+    {
+     "name": "Alpha 1 globulin",
+     "group": null,
+     "unit": "g/dL",
+     "range": "0.19 – 0.40"
+    },
+    {
+     "name": "Alpha 2 globulin",
+     "group": null,
+     "unit": "g/dL",
+     "range": "0.45 – 0.96"
+    },
+    {
+     "name": "Beta 1 globulin",
+     "group": null,
+     "unit": "g/dL",
+     "range": "0.30 – 0.59"
+    },
+    {
+     "name": "Beta 2 globulin",
+     "group": null,
+     "unit": "g/dL",
+     "range": "0.20 – 0.53"
+    },
+    {
+     "name": "Gamma globulin",
+     "group": null,
+     "unit": "g/dL",
+     "range": "0.71 – 1.54"
+    },
+    {
+     "name": "Albumin/Globulin ratio",
+     "group": null,
+     "unit": null,
+     "range": "1.1 – 2.2"
+    },
+    {
+     "name": "M-Band",
+     "group": null,
+     "unit": null,
+     "range": null
+    }
+   ]
+  },
+  {
+   "no": 94,
+   "name": "SERUM PROTEIN ELECTROPHORESIS – Fractions (% and Conc.)",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Total protein",
+     "group": null,
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Serum albumin (%)",
+     "group": null,
+     "unit": "%",
+     "range": "55.8 – 66.1"
+    },
+    {
+     "name": "Serum albumin (Conc.)",
+     "group": null,
+     "unit": null,
+     "range": "40.2 – 47.6"
+    },
+    {
+     "name": "Alpha 1 globulin (%)",
+     "group": null,
+     "unit": "%",
+     "range": "2.9 – 4.9"
+    },
+    {
+     "name": "Alpha 1 globulin (Conc.)",
+     "group": null,
+     "unit": null,
+     "range": "2.1 – 3.5"
+    },
+    {
+     "name": "Alpha 2 globulin (%)",
+     "group": null,
+     "unit": "%",
+     "range": "7.1 – 11.8"
+    },
+    {
+     "name": "Alpha 2 globulin (Conc.)",
+     "group": null,
+     "unit": null,
+     "range": "5.1 – 8.5"
+    },
+    {
+     "name": "Beta 1 globulin (%)",
+     "group": null,
+     "unit": "%",
+     "range": "4.7 – 7.2"
+    },
+    {
+     "name": "Beta 1 globulin (Conc.)",
+     "group": null,
+     "unit": null,
+     "range": "3.4 – 5.2"
+    },
+    {
+     "name": "Beta 2 globulin (%)",
+     "group": null,
+     "unit": "%",
+     "range": "3.2 – 6.5"
+    },
+    {
+     "name": "Beta 2 globulin (Conc.)",
+     "group": null,
+     "unit": null,
+     "range": "2.3 – 4.7"
+    },
+    {
+     "name": "Gamma globulin (%)",
+     "group": null,
+     "unit": "%",
+     "range": "11.1 – 18.8"
+    },
+    {
+     "name": "Gamma globulin (Conc.)",
+     "group": null,
+     "unit": null,
+     "range": "8.0 – 13.5"
+    },
+    {
+     "name": "Albumin/Globulin ratio",
+     "group": null,
+     "unit": null,
+     "range": "1.1 – 2.2"
+    }
+   ]
+  },
+  {
+   "no": 95,
+   "name": "CREATINE PHOSPHOKINASE (CPK)",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "CPK",
+     "group": null,
+     "unit": "U/L",
+     "range": "24 – 195"
+    }
+   ]
+  },
+  {
+   "no": 96,
+   "name": "CD3 / CD4 / CD8 COUNT",
+   "sample": "Whole blood",
+   "method": null,
+   "params": [
+    {
+     "name": "Total T cells (CD3)",
+     "group": null,
+     "unit": "/uL",
+     "range": "723 – 2737"
+    },
+    {
+     "name": "CD4 count",
+     "group": null,
+     "unit": "/uL",
+     "range": "500 – 2010"
+    },
+    {
+     "name": "CD8 count",
+     "group": null,
+     "unit": "/uL",
+     "range": "370 – 1100"
+    },
+    {
+     "name": "CD4:CD8 ratio",
+     "group": null,
+     "unit": null,
+     "range": "1.0 – 2.0"
+    }
+   ]
+  },
+  {
+   "no": 97,
+   "name": "CD3 / CD4 / CD8 COUNT – Extended (% and Absolute)",
+   "sample": "Whole blood",
+   "method": null,
+   "params": [
+    {
+     "name": "T Lymphs % of Lymphs (CD3+/CD45+)",
+     "group": null,
+     "unit": "%",
+     "range": "55 – 84"
+    },
+    {
+     "name": "T Lymphs (CD3+) Abs count",
+     "group": null,
+     "unit": "cells/uL",
+     "range": "690 – 2540"
+    },
+    {
+     "name": "T Helper % of Lymphs (CD3+CD4+/CD45+)",
+     "group": null,
+     "unit": "%",
+     "range": "31 – 60"
+    },
+    {
+     "name": "T Helper Lymphs (CD3+CD4+) Abs count",
+     "group": null,
+     "unit": "cells/uL",
+     "range": "410 – 1590"
+    },
+    {
+     "name": "CD8 count",
+     "group": null,
+     "unit": "cells/uL",
+     "range": "210 – 1200"
+    }
+   ]
+  },
+  {
+   "no": 98,
+   "name": "PRO-BNP",
+   "sample": "Serum / Citrated plasma",
+   "method": null,
+   "params": [
+    {
+     "name": "Pro-BNP",
+     "group": null,
+     "unit": "pg/ml",
+     "range": "< 300"
+    }
+   ]
+  },
+  {
+   "no": 99,
+   "name": "SPUTUM CULTURE AND SENSITIVITY",
+   "sample": "Sputum",
+   "method": null,
+   "params": [
+    {
+     "name": "Organism isolated",
+     "group": "Culture",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Penicillin",
+     "group": "Susceptibility Testing (Sensitive / Resistant)",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Gentamicin",
+     "group": "Susceptibility Testing (Sensitive / Resistant)",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Ciprofloxacin",
+     "group": "Susceptibility Testing (Sensitive / Resistant)",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Ceftriaxone",
+     "group": "Susceptibility Testing (Sensitive / Resistant)",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Vancomycin",
+     "group": "Susceptibility Testing (Sensitive / Resistant)",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Ampicillin",
+     "group": "Susceptibility Testing (Sensitive / Resistant)",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Erythromycin",
+     "group": "Susceptibility Testing (Sensitive / Resistant)",
+     "unit": null,
+     "range": null
+    }
+   ]
+  },
+  {
+   "no": 100,
+   "name": "SPUTUM GENEXPERT (Xpert MTB/RIF)",
+   "sample": "Sputum",
+   "method": null,
+   "params": [
+    {
+     "name": "Assay (Xpert MTB/RIF G4 / Ultra)",
+     "group": null,
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "MTB",
+     "group": null,
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Rifampicin resistance",
+     "group": null,
+     "unit": null,
+     "range": null
+    }
+   ]
+  },
+  {
+   "no": 101,
+   "name": "SPUTUM Z-N STAINING",
+   "sample": "Sputum",
+   "method": null,
+   "params": [
+    {
+     "name": "Acid fast bacilli (AFB)",
+     "group": null,
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Pus cells",
+     "group": null,
+     "unit": null,
+     "range": null
+    }
+   ]
+  },
+  {
+   "no": 102,
+   "name": "GRAM STAIN",
+   "sample": "Sputum",
+   "method": null,
+   "params": [
+    {
+     "name": "Pus cells",
+     "group": null,
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Organisms seen",
+     "group": null,
+     "unit": null,
+     "range": null
+    }
+   ]
+  },
+  {
+   "no": 103,
+   "name": "POTASSIUM HYDROXIDE TEST (KOH)",
+   "sample": "Skin scrapings",
+   "method": null,
+   "params": [
+    {
+     "name": "KOH (fungal elements)",
+     "group": null,
+     "unit": null,
+     "range": null
+    }
+   ]
+  },
+  {
+   "no": 104,
+   "name": "TESTOSTERONE LEVELS",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Testosterone",
+     "group": null,
+     "unit": "nmol/L",
+     "range": "Male: 8 – 30\n  >12: probably does not require therapy\n  <8: may benefit from testosterone therapy\n  8 – 12: if symptomatic and supported by a decreased calculated free testosterone level, may benefit from therapy\nFemale: 0.3 – 2.4"
+    }
+   ]
+  },
+  {
+   "no": 105,
+   "name": "TESTOSTERONE PANEL (Total, SHBG, Free, Bioavailable)",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Total testosterone",
+     "group": null,
+     "unit": "nmol/L",
+     "range": "Male: 8 – 30\n  <8: may benefit from testosterone therapy\n  8 – 12: if symptomatic and supported by a decreased calculated free testosterone level, may benefit from therapy\n  >12: probably does not require therapy\nFemale: 0.3 – 2.4"
+    },
+    {
+     "name": "SHBG",
+     "group": null,
+     "unit": "nmol/L",
+     "range": "Male: 10 – 57\nFemale: 18 – 144"
+    },
+    {
+     "name": "Free testosterone",
+     "group": null,
+     "unit": "ng/dL",
+     "range": "Male: 5 – 22.4\nFemale: 0.1 – 0.85"
+    },
+    {
+     "name": "Bioavailable testosterone",
+     "group": null,
+     "unit": "ng/dL",
+     "range": null
+    }
+   ]
+  },
+  {
+   "no": 106,
+   "name": "ALPHA FETO PROTEIN (AFP)",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "AFP",
+     "group": null,
+     "unit": "KU/L",
+     "range": "0 – 5.8"
+    }
+   ]
+  },
+  {
+   "no": 107,
+   "name": "ESTRADIOL (E2)",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "E2",
+     "group": null,
+     "unit": "pmol/L",
+     "range": "Female:\n  Follicular phase: 66 – 1240\n  Ovulating: 341 – 2110\n  Luteal: 158 – 1560\n  Post menopause: < 73\nMen: 34 – 143"
+    }
+   ]
+  },
+  {
+   "no": 108,
+   "name": "LUTEINIZING HORMONE (LH)",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "LH",
+     "group": null,
+     "unit": "U/L",
+     "range": "Female:\n  1 – 10 years: 0.03 – 3.9\n  Follicular phase: 1.8 – 11.8\n  Ovulating: 7.6 – 89.1\n  Luteal: 0.56 – 14.0\n  Post menopause: 5.2 – 62.0\nMen: 0.57 – 12.07"
+    }
+   ]
+  },
+  {
+   "no": 109,
+   "name": "FOLLICLE STIMULATING HORMONE (FSH)",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "FSH",
+     "group": null,
+     "unit": "IU/L",
+     "range": "Female:\n  Follicular phase: 3.5 – 12.5\n  Ovulating: 4.7 – 21.5\n  Luteal: 1.7 – 7.7\n  Post menopause: 25.8 – 134.8\nMen: 0.95 – 12.0"
+    }
+   ]
+  },
+  {
+   "no": 110,
+   "name": "PROLACTIN",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Prolactin",
+     "group": null,
+     "unit": "ng/ml",
+     "range": "Female: 3.4 – 24.1\nMen: 4.1 – 18.4"
+    }
+   ]
+  },
+  {
+   "no": 111,
+   "name": "SEMEN ANALYSIS – Format 1",
+   "sample": "Semen",
+   "method": null,
+   "params": [
+    {
+     "name": "Duration of abstinence",
+     "group": null,
+     "unit": "days",
+     "range": "3 – 7 days"
+    },
+    {
+     "name": "Interval between ejaculation and start of analysis",
+     "group": null,
+     "unit": "minutes",
+     "range": null
+    },
+    {
+     "name": "Appearance",
+     "group": null,
+     "unit": null,
+     "range": "Creamy white / greyish"
+    },
+    {
+     "name": "Volume",
+     "group": null,
+     "unit": "ml",
+     "range": "> 1.5"
+    },
+    {
+     "name": "Consistency",
+     "group": null,
+     "unit": null,
+     "range": "Droplets"
+    },
+    {
+     "name": "pH",
+     "group": null,
+     "unit": null,
+     "range": "> 7.2"
+    },
+    {
+     "name": "a. Rapid progressive",
+     "group": "Motility (%)",
+     "unit": "%",
+     "range": "Total motility (a+b+c) > 40%"
+    },
+    {
+     "name": "b. Slow progressive",
+     "group": "Motility (%)",
+     "unit": "%",
+     "range": null
+    },
+    {
+     "name": "c. Non progressive",
+     "group": "Motility (%)",
+     "unit": "%",
+     "range": null
+    },
+    {
+     "name": "d. Immotile",
+     "group": "Motility (%)",
+     "unit": "%",
+     "range": null
+    },
+    {
+     "name": "Agglutination type",
+     "group": "Agglutination",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Agglutination severity",
+     "group": "Agglutination",
+     "unit": "%",
+     "range": null
+    },
+    {
+     "name": "Concentration",
+     "group": "Count & Morphology",
+     "unit": "x10^6/ml",
+     "range": "> 15"
+    },
+    {
+     "name": "Total sperm count",
+     "group": "Count & Morphology",
+     "unit": "x10^6",
+     "range": "> 39.0"
+    },
+    {
+     "name": "White blood cells",
+     "group": "Count & Morphology",
+     "unit": "x10^6/ml",
+     "range": "< 1.0"
+    },
+    {
+     "name": "Morphology – Normal",
+     "group": "Count & Morphology",
+     "unit": "%",
+     "range": "> 4 (strict criteria)"
+    },
+    {
+     "name": "Morphology – Abnormal",
+     "group": "Count & Morphology",
+     "unit": "%",
+     "range": null
+    },
+    {
+     "name": "Comment",
+     "group": "Count & Morphology",
+     "unit": null,
+     "range": null
+    }
+   ]
+  },
+  {
+   "no": 112,
+   "name": "SEMEN ANALYSIS – Format 2",
+   "sample": "Semen",
+   "method": null,
+   "params": [
+    {
+     "name": "Duration of abstinence",
+     "group": null,
+     "unit": "days",
+     "range": "3 – 7 days"
+    },
+    {
+     "name": "Time of ejaculation",
+     "group": null,
+     "unit": "hrs",
+     "range": "N/A"
+    },
+    {
+     "name": "Appearance",
+     "group": null,
+     "unit": null,
+     "range": "Creamy white / greyish"
+    },
+    {
+     "name": "Volume",
+     "group": null,
+     "unit": "mls",
+     "range": "2 – 6"
+    },
+    {
+     "name": "Liquefaction at 1 hr",
+     "group": null,
+     "unit": null,
+     "range": "Normal"
+    },
+    {
+     "name": "pH",
+     "group": null,
+     "unit": null,
+     "range": "7.2 – 8.0"
+    },
+    {
+     "name": "Viscosity",
+     "group": null,
+     "unit": null,
+     "range": "Normal"
+    },
+    {
+     "name": "Motility",
+     "group": null,
+     "unit": "%",
+     "range": "> 50"
+    },
+    {
+     "name": "Viability",
+     "group": null,
+     "unit": "%",
+     "range": "> 58"
+    },
+    {
+     "name": "Total count",
+     "group": null,
+     "unit": "Millions/mL",
+     "range": "20 – 160"
+    },
+    {
+     "name": "Progressive",
+     "group": null,
+     "unit": "%",
+     "range": "> 32"
+    },
+    {
+     "name": "Non-progressive",
+     "group": null,
+     "unit": "%",
+     "range": null
+    },
+    {
+     "name": "Immotile",
+     "group": null,
+     "unit": "%",
+     "range": null
+    },
+    {
+     "name": "Leucocytes",
+     "group": null,
+     "unit": "/HPF",
+     "range": "0 – 2"
+    },
+    {
+     "name": "RBC",
+     "group": null,
+     "unit": "/HPF",
+     "range": "0"
+    },
+    {
+     "name": "Morphology",
+     "group": null,
+     "unit": "%",
+     "range": "≥ 4"
+    }
+   ]
+  },
+  {
+   "no": 113,
+   "name": "IRON LEVELS – Format 2",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Iron",
+     "group": null,
+     "unit": "μmol/L",
+     "range": "9.0 – 31.0"
+    }
+   ]
+  },
+  {
+   "no": 114,
+   "name": "TOTAL IRON BINDING CAPACITY (TIBC)",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "TIBC",
+     "group": null,
+     "unit": "mcg/dl",
+     "range": "42.0 – 72.0"
+    }
+   ]
+  },
+  {
+   "no": 115,
+   "name": "SICKLING TEST",
+   "sample": "Whole blood",
+   "method": null,
+   "params": [
+    {
+     "name": "Sickling test",
+     "group": null,
+     "unit": null,
+     "range": null
+    }
+   ]
+  },
+  {
+   "no": 116,
+   "name": "ANTI DOUBLE STRANDED DNA (Anti-dsDNA) – Titre",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Anti-dsDNA",
+     "group": null,
+     "unit": "Titre",
+     "range": "< 1:10: Negative\n≥ 1:10: Positive"
+    }
+   ]
+  },
+  {
+   "no": 117,
+   "name": "ANTI DOUBLE STRANDED DNA (Anti-dsDNA) – Quantitative",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Anti-dsDNA",
+     "group": null,
+     "unit": null,
+     "range": "Negative: 0 – 200\nEquivocal: 201 – 300\nPositive: 301 – 800"
+    }
+   ]
+  },
+  {
+   "no": 118,
+   "name": "ANTICARDIOLIPIN ANTIBODIES TEST",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Anticardiolipin Abs IgG",
+     "group": null,
+     "unit": "Index",
+     "range": "< 0.9: Negative\n0.91 – 1.09: Equivocal\n> 1.10: Positive"
+    },
+    {
+     "name": "Anticardiolipin Abs IgM",
+     "group": null,
+     "unit": "Index",
+     "range": "< 0.9: Negative\n0.91 – 1.09: Equivocal\n> 1.10: Positive"
+    }
+   ]
+  },
+  {
+   "no": 119,
+   "name": "COMPLEMENT C4",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "C4",
+     "group": null,
+     "unit": "mg/dl",
+     "range": "13 – 75"
+    }
+   ]
+  },
+  {
+   "no": 120,
+   "name": "COMPLEMENT C3",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "C3",
+     "group": null,
+     "unit": "mg/dl",
+     "range": "88 – 206"
+    }
+   ]
+  },
+  {
+   "no": 121,
+   "name": "GLOMERULAR FILTRATION RATE (GFR)",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "GFR",
+     "group": null,
+     "unit": "mL/min/1.73 m²",
+     "range": "90 – 120"
+    }
+   ]
+  },
+  {
+   "no": 122,
+   "name": "PROGESTERONE",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Progesterone",
+     "group": null,
+     "unit": "nmol/L",
+     "range": "Follicular phase: 0.6 – 4.7\nOvulating: 2.4 – 9.4\nLuteal: 5.3 – 86.0\nPost menopause: 0.3 – 2.5\nDuring pregnancy:\n  1st trimester: 32.6 – 139.9\n  2nd trimester: 62.0 – 262.4\n  3rd trimester: 206.7 – 728.2"
+    }
+   ]
+  },
+  {
+   "no": 123,
+   "name": "ABNORMAL HAEMOGLOBIN STUDIES (Hb Variants)",
+   "sample": "Whole blood",
+   "method": "HPLC",
+   "params": [
+    {
+     "name": "Foetal haemoglobin (HbF)",
+     "group": null,
+     "unit": "%",
+     "range": "0 – 2.0"
+    },
+    {
+     "name": "Haemoglobin A0 (HbA0)",
+     "group": null,
+     "unit": "%",
+     "range": "94.3 – 98.5"
+    },
+    {
+     "name": "Haemoglobin A2 (HbA2)",
+     "group": null,
+     "unit": "%",
+     "range": "1.5 – 3.7"
+    },
+    {
+     "name": "Haemoglobin S (HbS)",
+     "group": null,
+     "unit": "%",
+     "range": "0 – 0"
+    },
+    {
+     "name": "Impression",
+     "group": null,
+     "unit": null,
+     "range": null
+    }
+   ]
+  },
+  {
+   "no": 124,
+   "name": "URINE TOXICOLOGY – Panel A",
+   "sample": "Urine",
+   "method": null,
+   "params": [
+    {
+     "name": "U-Cocaine",
+     "group": null,
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "U-Amphetamines",
+     "group": null,
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "U-Methamphetamine",
+     "group": null,
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "U-Cannabis/Marijuana",
+     "group": null,
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "U-Methadone",
+     "group": null,
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "U-Morphine",
+     "group": null,
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "U-Opiates",
+     "group": null,
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "U-Phencyclidine",
+     "group": null,
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "U-Barbiturates",
+     "group": null,
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "U-Benzodiazepine",
+     "group": null,
+     "unit": null,
+     "range": null
+    }
+   ]
+  },
+  {
+   "no": 125,
+   "name": "URINE TOXICOLOGY – Panel B",
+   "sample": "Urine",
+   "method": null,
+   "params": [
+    {
+     "name": "U-Cocaine (COC)",
+     "group": null,
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "U-Amphetamine (AMP)",
+     "group": null,
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "U-Methamphetamine (MET)",
+     "group": null,
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "U-Cannabis/Marijuana (THC)",
+     "group": null,
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "U-Tramadol (TRA)",
+     "group": null,
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "U-Morphine (MOP)",
+     "group": null,
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "U-Opiates (OPI)",
+     "group": null,
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "U-Tricyclic Antidepressants (TCA)",
+     "group": null,
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "U-Barbiturates (BAR)",
+     "group": null,
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "U-Benzodiazepine (BZO)",
+     "group": null,
+     "unit": null,
+     "range": null
+    }
+   ]
+  },
+  {
+   "no": 126,
+   "name": "URINE TOXICOLOGY – Panel C",
+   "sample": "Urine",
+   "method": null,
+   "params": [
+    {
+     "name": "U-Cocaine (COC)",
+     "group": null,
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "U-Tricyclic Antidepressants (TCA)",
+     "group": null,
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "U-Barbiturates (BAR)",
+     "group": null,
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "U-Methadone (MTD)",
+     "group": null,
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "U-Opiates (OPI)",
+     "group": null,
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "U-Cannabis/Marijuana (THC)",
+     "group": null,
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "U-Benzodiazepine (BZO)",
+     "group": null,
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "U-Amphetamine (AMP)",
+     "group": null,
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "U-Tramadol (TRA)",
+     "group": null,
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "U-Morphine (MOP)",
+     "group": null,
+     "unit": null,
+     "range": null
+    }
+   ]
+  },
+  {
+   "no": 127,
+   "name": "CA 125",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "CA 125",
+     "group": null,
+     "unit": "U/ml",
+     "range": "< 35"
+    }
+   ]
+  },
+  {
+   "no": 128,
+   "name": "CA 15-3",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "CA 15-3",
+     "group": null,
+     "unit": "U/ml",
+     "range": "< 31.3"
+    }
+   ]
+  },
+  {
+   "no": 129,
+   "name": "TREPONEMA PALLIDUM HAEMAGGLUTINATION TEST (TPHA)",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "TPHA",
+     "group": null,
+     "unit": null,
+     "range": null
+    }
+   ]
+  },
+  {
+   "no": 130,
+   "name": "URINE PROTEIN TEST",
+   "sample": "Urine",
+   "method": null,
+   "params": [
+    {
+     "name": "Urine protein",
+     "group": null,
+     "unit": "g/L",
+     "range": "0 – 0.14"
+    }
+   ]
+  },
+  {
+   "no": 131,
+   "name": "LACTIC ACID",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Lactic acid",
+     "group": null,
+     "unit": null,
+     "range": "0.5 – 2.2"
+    }
+   ]
+  },
+  {
+   "no": 132,
+   "name": "PERIPHERAL BLOOD FILM (PBF)",
+   "sample": "Whole blood",
+   "method": null,
+   "params": [
+    {
+     "name": "History",
+     "group": null,
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "RBC morphology",
+     "group": null,
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "WBC (differential & morphology)",
+     "group": null,
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Platelets",
+     "group": null,
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Comment",
+     "group": null,
+     "unit": null,
+     "range": null
+    }
+   ]
+  },
+  {
+   "no": 133,
+   "name": "METANEPHRINE LEVEL, ELISA (24-hr Urine)",
+   "sample": "24 hrs urine",
+   "method": "ELISA",
+   "params": [
+    {
+     "name": "Metanephrine in urine",
+     "group": null,
+     "unit": "µg/L",
+     "range": null
+    },
+    {
+     "name": "Urine volume in 24 hours",
+     "group": null,
+     "unit": "ml",
+     "range": null
+    },
+    {
+     "name": "Metanephrine, urine per day",
+     "group": null,
+     "unit": "µg/24 hrs",
+     "range": "< 350"
+    },
+    {
+     "name": "Creatinine, urine (Jaffe method)",
+     "group": null,
+     "unit": "gm/L",
+     "range": null
+    },
+    {
+     "name": "Metanephrines/creatinine ratio",
+     "group": null,
+     "unit": "ug/g creatinine",
+     "range": "33 – 109"
+    }
+   ]
+  },
+  {
+   "no": 134,
+   "name": "METANEPHRINE-FREE, PLASMA",
+   "sample": "EDTA plasma",
+   "method": "ELISA",
+   "params": [
+    {
+     "name": "Metanephrine-free, plasma",
+     "group": null,
+     "unit": "pg/mL",
+     "range": "< 65"
+    }
+   ]
+  },
+  {
+   "no": 135,
+   "name": "PROSTATE SPECIFIC ANTIGEN (PSA)",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "PSA",
+     "group": null,
+     "unit": "ng/ml",
+     "range": "0.00 – 4.00"
+    }
+   ]
+  },
+  {
+   "no": 136,
+   "name": "ANTI-MULLERIAN HORMONE (AMH)",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "AMH",
+     "group": null,
+     "unit": "pmol/L",
+     "range": "Optimal fertility: 30 – 51\nSatisfactory fertility: 16.5 – 30\nLow fertility: 2.3 – 16.5\nVery low: 0 – 2.3\n> 51: suggestive of PCOS"
+    }
+   ]
+  },
+  {
+   "no": 137,
+   "name": "HEPATITIS B ENVELOPE ANTIGEN TEST (HBeAg) – Quantitative",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Hepatitis B envelope antigen",
+     "group": null,
+     "unit": "Index",
+     "range": "< 0.1: Negative\n≥ 0.1: Positive"
+    }
+   ]
+  },
+  {
+   "no": 138,
+   "name": "HEPATITIS B ENVELOPE ANTIBODY (Anti-HBe)",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Hepatitis B envelope antibody",
+     "group": null,
+     "unit": null,
+     "range": null
+    }
+   ]
+  },
+  {
+   "no": 139,
+   "name": "HEPATITIS B ENVELOPE ANTIGEN (HBeAg) – Rapid",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Hepatitis B envelope antigen",
+     "group": null,
+     "unit": null,
+     "range": null
+    }
+   ]
+  },
+  {
+   "no": 140,
+   "name": "RAPID PLASMA REAGIN (RPR)",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "RPR",
+     "group": null,
+     "unit": null,
+     "range": null
+    }
+   ]
+  },
+  {
+   "no": 141,
+   "name": "BETA 2 MICROGLOBULIN",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Beta 2 microglobulin",
+     "group": null,
+     "unit": "ng/ml",
+     "range": "0 – 2,295"
+    }
+   ]
+  },
+  {
+   "no": 142,
+   "name": "ABO AND RHESUS BLOOD GROUPING",
+   "sample": "Whole blood",
+   "method": null,
+   "params": [
+    {
+     "name": "ABO blood group",
+     "group": null,
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Rhesus",
+     "group": null,
+     "unit": null,
+     "range": null
+    }
+   ]
+  },
+  {
+   "no": 143,
+   "name": "LUPUS ANTICOAGULANT TEST",
+   "sample": "Not specified",
+   "method": null,
+   "params": [
+    {
+     "name": "Patient time",
+     "group": null,
+     "unit": "sec",
+     "range": null
+    },
+    {
+     "name": "Normal time",
+     "group": null,
+     "unit": "sec",
+     "range": null
+    },
+    {
+     "name": "Screen ratio",
+     "group": null,
+     "unit": null,
+     "range": "0.8 – 1.2\n(1.2 – 1.5: LA weakly present; 1.5 – 2.0: moderately present; > 2.0: strongly present)"
+    }
+   ]
+  },
+  {
+   "no": 144,
+   "name": "BENCE JONES PROTEIN",
+   "sample": "Urine",
+   "method": null,
+   "params": [
+    {
+     "name": "Bence Jones protein",
+     "group": null,
+     "unit": null,
+     "range": null
+    }
+   ]
+  },
+  {
+   "no": 145,
+   "name": "CEREBROSPINAL FLUID (CSF) PROTEIN",
+   "sample": "CSF",
+   "method": null,
+   "params": [
+    {
+     "name": "CSF protein",
+     "group": null,
+     "unit": "g/l",
+     "range": "0.15 – 0.45"
+    }
+   ]
+  },
+  {
+   "no": 146,
+   "name": "ANTI-HBc IgM (IgM Ab to Hep B Core Ag)",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Hepatitis B core IgM",
+     "group": null,
+     "unit": "Ratio",
+     "range": "< 1: Non-reactive\n≥ 1: Reactive"
+    }
+   ]
+  },
+  {
+   "no": 147,
+   "name": "ASCITIC FLUID BIOCHEMISTRY – Format 1",
+   "sample": "Ascitic fluid",
+   "method": null,
+   "params": [
+    {
+     "name": "Total protein",
+     "group": null,
+     "unit": "g/l",
+     "range": "Transudates: < 30\nExudates: > 30"
+    },
+    {
+     "name": "Albumin",
+     "group": null,
+     "unit": "g/l",
+     "range": "Transudates: > 11"
+    }
+   ]
+  },
+  {
+   "no": 148,
+   "name": "HEPATITIS C VIRUS ANTIBODY (Anti-HCV) – S/CO",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Anti-HCV",
+     "group": null,
+     "unit": "S/CO",
+     "range": "< 2.0: Negative\n> 2.0: Positive\n> 200.0: Indicative of acute or chronic HCV"
+    }
+   ]
+  },
+  {
+   "no": 149,
+   "name": "INSULIN AND C-PEPTIDE LEVELS",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Insulin",
+     "group": null,
+     "unit": "μU/ml",
+     "range": "2.6 – 24.9"
+    },
+    {
+     "name": "C-peptide",
+     "group": null,
+     "unit": "ng/ml",
+     "range": "0.78 – 5.1"
+    }
+   ]
+  },
+  {
+   "no": 150,
+   "name": "THYROID ANTIBODIES",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Anti-thyroid peroxidase (ATPO)",
+     "group": null,
+     "unit": "IU/mL",
+     "range": "< 20"
+    },
+    {
+     "name": "Anti-thyroglobulin (ATG)",
+     "group": null,
+     "unit": "IU/mL",
+     "range": "< 116"
+    }
+   ]
+  },
+  {
+   "no": 151,
+   "name": "RETICULOCYTE COUNT",
+   "sample": "Whole blood",
+   "method": null,
+   "params": [
+    {
+     "name": "Reticulocyte count",
+     "group": null,
+     "unit": "%",
+     "range": "0.5 – 2.0"
+    }
+   ]
+  },
+  {
+   "no": 152,
+   "name": "DIRECT COOMBS TEST",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Direct Coombs test",
+     "group": null,
+     "unit": null,
+     "range": null
+    }
+   ]
+  },
+  {
+   "no": 153,
+   "name": "INDIRECT COOMBS TEST",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Indirect Coombs test",
+     "group": null,
+     "unit": null,
+     "range": null
+    }
+   ]
+  },
+  {
+   "no": 154,
+   "name": "ANTINUCLEAR ANTIBODY TEST (ANA) – Qualitative",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "ANA",
+     "group": null,
+     "unit": null,
+     "range": null
+    }
+   ]
+  },
+  {
+   "no": 155,
+   "name": "TB QUANTIFERON GOLD TEST",
+   "sample": "Whole blood",
+   "method": null,
+   "params": [
+    {
+     "name": "Gamma interferon, antigen tube",
+     "group": null,
+     "unit": "IU/mL",
+     "range": null
+    },
+    {
+     "name": "Gamma interferon, nil tube",
+     "group": null,
+     "unit": "IU/mL",
+     "range": null
+    },
+    {
+     "name": "Final result",
+     "group": null,
+     "unit": "IU/mL",
+     "range": "Negative: < 0.35\nPositive: ≥ 0.35"
+    }
+   ]
+  },
+  {
+   "no": 156,
+   "name": "ALKALINE PHOSPHATASE (ALP)",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Alkaline phosphatase (ALP)",
+     "group": null,
+     "unit": "u/l",
+     "range": "53 – 141"
+    }
+   ]
+  },
+  {
+   "no": 157,
+   "name": "ORAL GLUCOSE TOLERANCE TEST (OGTT) – 75 g glucose",
+   "sample": "Blood & Urine",
+   "method": null,
+   "params": [
+    {
+     "name": "Blood sugar – 0 hr (fasting)",
+     "group": "Blood Sugar",
+     "unit": "mmol/l",
+     "range": null
+    },
+    {
+     "name": "Blood sugar – ½ hr",
+     "group": "Blood Sugar",
+     "unit": "mmol/l",
+     "range": null
+    },
+    {
+     "name": "Blood sugar – 1 hr",
+     "group": "Blood Sugar",
+     "unit": "mmol/l",
+     "range": "< 11.11"
+    },
+    {
+     "name": "Blood sugar – 1½ hr",
+     "group": "Blood Sugar",
+     "unit": "mmol/l",
+     "range": null
+    },
+    {
+     "name": "Blood sugar – 2 hr",
+     "group": "Blood Sugar",
+     "unit": "mmol/l",
+     "range": "< 7.78\n(7.78 – 11.11: Impaired glucose tolerance; > 11.11: Diabetes mellitus)"
+    },
+    {
+     "name": "Urine sugar – 0 hr",
+     "group": "Urine Sugar",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Urine sugar – 1 hr",
+     "group": "Urine Sugar",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Urine sugar – 2 hr",
+     "group": "Urine Sugar",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Comments",
+     "group": "Urine Sugar",
+     "unit": null,
+     "range": null
+    }
+   ]
+  },
+  {
+   "no": 158,
+   "name": "HEPATITIS B VIRUS IgM",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "HBV IgM",
+     "group": null,
+     "unit": "Index",
+     "range": "0 – 0.80: Negative\n0.81 – 0.99: Intermediate\n> 1: Positive"
+    }
+   ]
+  },
+  {
+   "no": 159,
+   "name": "ADENOSINE DEAMINASE (ADA)",
+   "sample": "Pleural fluid / Body fluid",
+   "method": null,
+   "params": [
+    {
+     "name": "ADA",
+     "group": null,
+     "unit": "U/L",
+     "range": "0 – 40"
+    }
+   ]
+  },
+  {
+   "no": 160,
+   "name": "CSF CRYPTOCOCCAL ANTIGEN (CrAg)",
+   "sample": "CSF",
+   "method": null,
+   "params": [
+    {
+     "name": "CSF CrAg",
+     "group": null,
+     "unit": null,
+     "range": null
+    }
+   ]
+  },
+  {
+   "no": 161,
+   "name": "HOMOCYSTEINE LEVELS",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Homocysteine",
+     "group": null,
+     "unit": "μmol/l",
+     "range": "5.46 – 16.2"
+    }
+   ]
+  },
+  {
+   "no": 162,
+   "name": "HIV VIRAL LOAD (LDL copies/ml)",
+   "sample": "Plasma",
+   "method": null,
+   "params": [
+    {
+     "name": "HIV RNA",
+     "group": null,
+     "unit": "copies/ml",
+     "range": "Target not detected: HIV RNA not detected\n< 20 copies/ml (< 1.30 log): Detected, below 20 copies/ml\n20 – 10,000,000 copies/ml (1.30 – 7.00 log): Detected within linear range\n> 10,000,000 (> 7.0 log): Detected above linear range"
+    },
+    {
+     "name": "Log value",
+     "group": null,
+     "unit": "log copies/ml",
+     "range": null
+    }
+   ]
+  },
+  {
+   "no": 163,
+   "name": "PLEURAL FLUID CULTURE AND SENSITIVITY",
+   "sample": "Pleural fluid",
+   "method": null,
+   "params": [
+    {
+     "name": "Colour",
+     "group": "Macroscopy / Chemistry",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Appearance",
+     "group": "Macroscopy / Chemistry",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "pH",
+     "group": "Macroscopy / Chemistry",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Proteins",
+     "group": "Macroscopy / Chemistry",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Gram stain",
+     "group": "Microscopy",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Pus cells",
+     "group": "Microscopy",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Z-N staining (AFB)",
+     "group": "Microscopy",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Culture and sensitivity",
+     "group": "Culture",
+     "unit": null,
+     "range": null
+    }
+   ]
+  },
+  {
+   "no": 164,
+   "name": "CSF TOTAL PROTEIN TEST",
+   "sample": "CSF",
+   "method": null,
+   "params": [
+    {
+     "name": "Total protein",
+     "group": null,
+     "unit": "g/dl (as in template)",
+     "range": "0.15 – 0.45"
+    }
+   ]
+  },
+  {
+   "no": 165,
+   "name": "GROWTH HORMONE (HGH)",
+   "sample": "Serum",
+   "method": "ECLIA",
+   "params": [
+    {
+     "name": "Growth hormone",
+     "group": null,
+     "unit": "ng/ml",
+     "range": "0.05 – 3.0"
+    }
+   ]
+  },
+  {
+   "no": 166,
+   "name": "ADRENOCORTICOTROPIC HORMONE (ACTH) – pg/ml",
+   "sample": "Plasma",
+   "method": "ECLIA",
+   "params": [
+    {
+     "name": "ACTH",
+     "group": null,
+     "unit": "pg/ml",
+     "range": "7.2 – 63.6"
+    }
+   ]
+  },
+  {
+   "no": 167,
+   "name": "ADRENOCORTICOTROPIC HORMONE (ACTH) – pmol/L",
+   "sample": "Plasma",
+   "method": "ECLIA",
+   "params": [
+    {
+     "name": "ACTH",
+     "group": null,
+     "unit": "pmol/L",
+     "range": "1.11 – 6.0"
+    }
+   ]
+  },
+  {
+   "no": 168,
+   "name": "CSF CELL COUNT",
+   "sample": "CSF",
+   "method": null,
+   "params": [
+    {
+     "name": "Polymorphs",
+     "group": null,
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Lymphocytes",
+     "group": null,
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Erythrocytes",
+     "group": null,
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Appearance",
+     "group": null,
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Supernatant",
+     "group": null,
+     "unit": null,
+     "range": null
+    }
+   ]
+  },
+  {
+   "no": 169,
+   "name": "CSF CULTURE AND SENSITIVITY",
+   "sample": "CSF",
+   "method": null,
+   "params": [
+    {
+     "name": "Colour",
+     "group": "Macroscopy",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Appearance",
+     "group": "Macroscopy",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Organisms",
+     "group": "Gram Stain",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Pus cells",
+     "group": "Gram Stain",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Culture",
+     "group": "Culture",
+     "unit": null,
+     "range": null
+    }
+   ]
+  },
+  {
+   "no": 170,
+   "name": "CSF MICROSCOPY, CULTURE AND SENSITIVITY",
+   "sample": "CSF",
+   "method": null,
+   "params": [
+    {
+     "name": "Colour",
+     "group": null,
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Appearance",
+     "group": null,
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Indian ink",
+     "group": null,
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "ZN staining",
+     "group": null,
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Gram stain",
+     "group": null,
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Culture",
+     "group": null,
+     "unit": null,
+     "range": null
+    }
+   ]
+  },
+  {
+   "no": 171,
+   "name": "PUS SWAB MICROSCOPY, CULTURE AND SENSITIVITY",
+   "sample": "Pus swab",
+   "method": null,
+   "params": [
+    {
+     "name": "Pus cells",
+     "group": "Gram Stain",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Organisms seen",
+     "group": "Gram Stain",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Organism isolated",
+     "group": "Culture",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Augmentin",
+     "group": "Susceptibility Testing (Sensitive / Resistant)",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Ceftriaxone",
+     "group": "Susceptibility Testing (Sensitive / Resistant)",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Ampicillin",
+     "group": "Susceptibility Testing (Sensitive / Resistant)",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Levofloxacin",
+     "group": "Susceptibility Testing (Sensitive / Resistant)",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Cefotaxime",
+     "group": "Susceptibility Testing (Sensitive / Resistant)",
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Vancomycin",
+     "group": "Susceptibility Testing (Sensitive / Resistant)",
+     "unit": null,
+     "range": null
+    }
+   ]
+  },
+  {
+   "no": 172,
+   "name": "HEPATITIS B SURFACE ANTIGEN ELISA – Index",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Hepatitis B surface antigen ELISA",
+     "group": null,
+     "unit": "Index",
+     "range": "< 1: Negative\n≥ 1: Positive"
+    }
+   ]
+  },
+  {
+   "no": 173,
+   "name": "BIOCHEMISTRY CSF TEST",
+   "sample": "CSF",
+   "method": null,
+   "params": [
+    {
+     "name": "Total protein",
+     "group": null,
+     "unit": "g/dL (as in template)",
+     "range": "0.15 – 0.45"
+    },
+    {
+     "name": "Glucose",
+     "group": null,
+     "unit": "mmol/L",
+     "range": "3.3 – 4.4"
+    },
+    {
+     "name": "Chloride",
+     "group": null,
+     "unit": "mmol/L",
+     "range": "120 – 130"
+    }
+   ]
+  },
+  {
+   "no": 174,
+   "name": "PARATHYROID HORMONE (PTH)",
+   "sample": "Whole blood",
+   "method": null,
+   "params": [
+    {
+     "name": "PTH",
+     "group": null,
+     "unit": "pg/ml",
+     "range": "14 – 72"
+    }
+   ]
+  },
+  {
+   "no": 175,
+   "name": "BETA 2 MICROGLOBULIN – Format 2",
+   "sample": "Serum",
+   "method": null,
+   "params": [
+    {
+     "name": "Beta 2 microglobulin",
+     "group": null,
+     "unit": "ng/ml (as in template)",
+     "range": "0.67 – 2.14"
+    }
+   ]
+  },
+  {
+   "no": 176,
+   "name": "FLUID BIOCHEMISTRY (Pleural)",
+   "sample": "Pleural fluid",
+   "method": null,
+   "params": [
+    {
+     "name": "Total protein",
+     "group": null,
+     "unit": "g/dl",
+     "range": "Transudate: < 2.0\nExudate: > 3.0"
+    },
+    {
+     "name": "LDH",
+     "group": null,
+     "unit": "IU/L",
+     "range": "Transudate: < 200\nExudate: > 200"
+    },
+    {
+     "name": "Glucose",
+     "group": null,
+     "unit": "mmol/l",
+     "range": "Transudate: as blood concentration (3.8 – 8.0)\nExudate: low if bacteria present"
+    }
+   ]
+  },
+  {
+   "no": 177,
+   "name": "COVID-19 TEST (PCR)",
+   "sample": "Nasopharyngeal swab",
+   "method": null,
+   "params": [
+    {
+     "name": "Orf1a/1b gene",
+     "group": null,
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "E gene",
+     "group": null,
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "SARS-CoV-2",
+     "group": null,
+     "unit": null,
+     "range": null
+    },
+    {
+     "name": "Review notes",
+     "group": null,
+     "unit": null,
+     "range": null
+    }
+   ]
+  },
+  {
+   "no": 178,
+   "name": "ASCITIC FLUID BIOCHEMISTRY – Format 2",
+   "sample": "Ascitic fluid",
+   "method": null,
+   "params": [
+    {
+     "name": "Total protein",
+     "group": null,
+     "unit": "g/l",
+     "range": "Transudates: < 40\nExudates: > 40"
+    },
+    {
+     "name": "Glucose",
+     "group": null,
+     "unit": "mmol/L",
+     "range": "Similar to blood glucose: Normal\nLess than blood glucose: TB/Malignancy"
+    },
+    {
+     "name": "LDH",
+     "group": null,
+     "unit": "IU/L",
+     "range": "Transudate: < 200\nExudate: > 200"
+    },
+    {
+     "name": "Albumin (SAAG)",
+     "group": null,
+     "unit": "g/l",
+     "range": "Transudates: > 11\nExudates: < 11"
+    }
+   ]
+  },
+  {
+   "no": 179,
+   "name": "URINE PREGNANCY TEST (PDT)",
+   "sample": "Urine",
+   "method": null,
+   "params": [
+    {
+     "name": "Urine PDT",
+     "group": null,
+     "unit": null,
+     "range": null
+    }
+   ]
+  },
+  {
+   "no": 180,
+   "name": "APTT / PT / PTI / INR – Format 2",
+   "sample": "Plasma",
+   "method": null,
+   "params": [
+    {
+     "name": "Prothrombin Time (PT)",
+     "group": "Prothrombin Time",
+     "unit": "sec",
+     "range": "11 – 16"
+    },
+    {
+     "name": "PT Control",
+     "group": "Prothrombin Time",
+     "unit": "sec",
+     "range": null
+    },
+    {
+     "name": "Index (PTI)",
+     "group": "Prothrombin Time",
+     "unit": "%",
+     "range": null
+    },
+    {
+     "name": "PT (INR)",
+     "group": "Prothrombin Time",
+     "unit": null,
+     "range": "Normal: 0.8 – 1.2\nStandard therapy: 2.0 – 3.0\nHigh dose therapy: 3.0 – 4.5"
+    },
+    {
+     "name": "APTT",
+     "group": "APTT",
+     "unit": "sec",
+     "range": "24.0 – 44.0"
+    },
+    {
+     "name": "APTT Control",
+     "group": "APTT",
+     "unit": "sec",
+     "range": null
+    }
+   ]
+  }
+ ]
+}

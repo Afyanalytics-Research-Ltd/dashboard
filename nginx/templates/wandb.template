@@ -1,0 +1,83 @@
+# =============================================================================
+# W&B Server (wandb-local, docker-compose.wandb.yaml) on its own subdomain.
+#
+# Rendered by nginx/entrypoint.sh ONLY when WANDB_DOMAIN is set in the
+# server's .env (e.g. wandb.datahub.afyaanalytics.com); ${DOMAIN} below is
+# that WANDB_DOMAIN. It gets its own Let's Encrypt certificate, obtained and
+# renewed exactly like the main site's.
+#
+# Why a subdomain and not https://<DOMAIN>/wandb/: W&B Server builds every
+# link (UI routes, /graphql, /files, presigned /local-files upload URLs) from
+# its HOST setting, which W&B documents as an origin ("The FQD of your
+# instance, for example https://my.domain.net") — there is no base-path
+# setting. So W&B is served at the root of its own host.
+#
+# To turn it on for a server:
+#   1. DNS: an A record for the subdomain -> this server's IP
+#   2. .env: WANDB_DOMAIN=<subdomain>
+#            WANDB_HOST_URL=https://<subdomain>
+#            (WANDB_BASE_URL stays http://wandb-local:8080 — Model Studio
+#             keeps talking to W&B over dashboard-net)
+#   3. docker compose up -d nginx   (renders this, gets the certificate)
+#      docker compose -f docker-compose.wandb.yaml up -d   (new HOST)
+#      restart web                  (Model Studio picks up WANDB_HOST_URL)
+#
+# W&B has its own sign-in; this only makes the login page reachable. Keep
+# strong W&B admin passwords (see the 2026-11 Airflow default-credentials
+# incident) and leave non-admin team creation off.
+# =============================================================================
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${DOMAIN};
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name ${DOMAIN};
+    charset utf-8;
+
+    ssl_certificate     ${SSL_CERT};
+    ssl_certificate_key ${SSL_KEY};
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_ciphers         HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+    ssl_session_cache   shared:SSL:10m;
+    ssl_session_timeout 1d;
+
+    # Run files, checkpoints and artifacts are uploaded through this host
+    # (presigned /local-files URLs built from HOST): no size cap, and stream
+    # them straight through instead of spooling multi-GB bodies to disk.
+    client_max_body_size 0;
+    proxy_request_buffering off;
+    proxy_buffering off;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    # Same resolver + variable pattern as django_project.template, so a
+    # wandb-local restart never leaves nginx on a stale IP — and nginx still
+    # starts on a server where wandb-local isn't running (502 until it is).
+    location / {
+        resolver 127.0.0.11 valid=30s;
+        set $wandb_upstream http://wandb-local:8080;
+        proxy_pass $wandb_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        include /etc/nginx/snippets/proxy-headers.conf;
+        proxy_read_timeout 600s;
+        proxy_send_timeout 600s;
+    }
+}

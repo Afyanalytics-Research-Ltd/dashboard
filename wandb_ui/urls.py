@@ -15,7 +15,8 @@ urlpatterns = [
     path('file', proxy.file_proxy, name='file'),
     path('views/<str:entity>/<str:project>/', proxy.views_collection, name='views'),
     path('views/<int:view_id>/', proxy.view_detail, name='view'),
+    path('api/connection', proxy.connection_view, name='connection'),   # the page itself is /models/connection
 
     path('', app, name='home'),
-    re_path(r'^(?!graphql$|file$|views/).+$', app, name='app'),
+    re_path(r'^(?!graphql$|file$|api/|views/).+$', app, name='app'),
 ]

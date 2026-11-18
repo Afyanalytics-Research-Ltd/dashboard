@@ -351,6 +351,140 @@ class FileProxyTest(TestCase):
 
 
 # =============================================================================
+# YOUR OWN W&B CONNECTION (per-user key, this platform's W&B or W&B Cloud)
+# =============================================================================
+
+OWN_KEY = 'wandb_v1_OWNPUBLICID_OWNSECRETPART0123456789'
+CLOUD_KEY = 'c' * 40     # classic 40-char key: its "id" is the secret, so only the last 4 may be shown
+
+
+@override_settings(**WANDB)
+class OwnConnectionTest(TestCase):
+
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
+        reset_client()
+        self.admin = make_user('admin', superuser=True)
+        self.other = make_user('other', superuser=True)
+        self.client = TestClient()
+        self.client.force_login(self.admin)
+
+    def save(self, server, key, viewer=None, status=200):
+        upstream = fake(status, {'data': {'viewer': viewer}} if viewer is not None else {'errors': [{'message': 'unauthorized'}]})
+        with patch('requests.Session.request', return_value=upstream) as req:
+            resp = self.client.post('/models/api/connection', data=json.dumps({'server': server, 'api_key': key}),
+                                    content_type='application/json')
+        return resp, req
+
+    def test_save_verifies_then_stores_encrypted(self):
+        from .models import WandbCredential
+        resp, req = self.save('cloud', CLOUD_KEY, {'id': 'VXNlcjox', 'username': 'mbironga', 'entity': 'afya'})
+        self.assertEqual(resp.status_code, 200, resp.content)
+        # verified against W&B Cloud with the new key, nothing else
+        self.assertEqual(req.call_args.args[:2], ('POST', 'https://api.wandb.ai/graphql'))
+        self.assertEqual(req.call_args.kwargs['auth'], ('api', CLOUD_KEY))
+        body = resp.json()
+        self.assertEqual(body['active']['source'], 'own')
+        self.assertEqual(body['active']['server'], 'cloud')
+        self.assertEqual(body['active']['wandb_user'], 'mbironga')
+        self.assertEqual(body['own']['key_hint'], '••••cccc')
+        self.assertNotIn(CLOUD_KEY, resp.content.decode())
+        cred = WandbCredential.objects.get(user=self.admin)
+        self.assertNotIn(CLOUD_KEY, cred.api_key_enc)                     # encrypted at rest
+        log = AuditLog.objects.filter(resource='wandb', resource_id='connection').get()
+        self.assertNotIn(CLOUD_KEY, log.detail)
+
+    def test_bad_key_bad_server_and_permissions(self):
+        from .models import WandbCredential
+        resp, _ = self.save('local', OWN_KEY, None, status=401)
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('rejected this API key', resp.json()['errors'][0]['message'])
+        resp, req = self.save('http://169.254.169.254', OWN_KEY, {'id': 'x'})
+        self.assertEqual(resp.status_code, 400)                          # only the two known servers, no URLs
+        req.assert_not_called()
+        resp, req = self.save('local', 'short', {'id': 'x'})
+        self.assertEqual(resp.status_code, 400)
+        req.assert_not_called()
+        self.assertFalse(WandbCredential.objects.exists())
+        plain = TestClient()
+        plain.force_login(make_user('plain'))
+        self.assertEqual(plain.get('/models/api/connection').status_code, 403)
+
+    def test_requests_use_your_key_and_server_others_keep_the_shared_key(self):
+        self.save('cloud', CLOUD_KEY, {'id': 'VXNlcjox', 'username': 'me', 'entity': 'me'})
+        with patch('requests.Session.request', return_value=fake(200, {'data': {}})) as req:
+            self.client.post('/models/graphql', data=gql('{ viewer { id } }'), content_type='application/json')
+        self.assertEqual(req.call_args.args[1], 'https://api.wandb.ai/graphql')
+        self.assertEqual(req.call_args.kwargs['auth'], ('api', CLOUD_KEY))
+        other = TestClient()
+        other.force_login(self.other)
+        with patch('requests.Session.request', return_value=fake(200, {'data': {}})) as req:
+            other.post('/models/graphql', data=gql('{ viewer { id } }'), content_type='application/json')
+        self.assertEqual(req.call_args.args[1], 'http://wandb-local:8080/graphql')
+        self.assertEqual(req.call_args.kwargs['auth'], ('api', 'k123'))
+
+    def test_own_key_on_local_server(self):
+        self.save('local', OWN_KEY, {'id': 'VXNlcjoz', 'username': 'me', 'entity': 'me'})
+        with patch('requests.Session.request', return_value=fake(200, {'data': {}})) as req:
+            self.client.post('/models/graphql', data=gql('{ viewer { id } }'), content_type='application/json')
+        self.assertEqual(req.call_args.args[1], 'http://wandb-local:8080/graphql')
+        self.assertEqual(req.call_args.kwargs['auth'], ('api', OWN_KEY))
+        resp = self.client.get('/models/')
+        cfg = resp.context['models_config']
+        self.assertEqual(cfg['apiKeyId'], 'wandb_v1_OWNPUBLICID')         # the users page marks YOUR key "in use"
+        self.assertEqual(cfg['connection']['active']['source'], 'own')
+        self.assertNotContains(resp, 'OWNSECRETPART')
+
+    def test_cloud_signed_links_go_without_the_wandb_key(self):
+        self.save('cloud', CLOUD_KEY, {'id': 'VXNlcjox', 'username': 'me', 'entity': 'me'})
+        signed = ('https://storage.googleapis.com/wandb-production.appspot.com/me/proj/run1/media/a.png'
+                  '?Expires=1&GoogleAccessId=x&Signature=abc')
+        with patch('requests.Session.request', return_value=fake(200, body=b'PNG', content_type='image/png')) as req:
+            resp = self.client.get('/models/file', {'url': signed})
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(req.call_args.args[1], signed)
+        self.assertIsNone(req.call_args.kwargs['auth'])                   # never send the W&B key to GCS
+        with patch('requests.Session.request', return_value=fake(200, body=b'x')) as req:
+            self.client.get('/models/file', {'url': 'https://api.wandb.ai/files/me/proj/run1/output.log'})
+        self.assertEqual(req.call_args.kwargs['auth'], ('api', CLOUD_KEY))
+        for bad in ('https://storage.googleapis.com/someone-else/x?Signature=a',
+                    'https://storage.googleapis.com/wandb-production.appspot.com/x',     # not signed
+                    'http://localhost:8090/files/e/p/r/a.png'):                          # the other server
+            with patch('requests.Session.request') as req:
+                self.assertEqual(self.client.get('/models/file', {'url': bad}).status_code, 400, bad)
+            req.assert_not_called()
+
+    def test_lockout_guard_protects_your_key(self):
+        from django.core.cache import cache
+        self.save('local', OWN_KEY, {'id': 'VXNlcjoz', 'username': 'me', 'entity': 'me'})
+        cache.clear()
+        viewer = fake(200, {'data': {'viewer': {'id': 'VXNlcjoz'}}})
+        with patch('requests.Session.request', return_value=viewer) as req:
+            resp = self.client.post('/models/graphql', data=gql(
+                'mutation { deleteApiKeys(input: {keys: [{apiKeyId: "wandb_v1_OWNPUBLICID"}]}) { success } }'),
+                content_type='application/json')
+        self.assertEqual(resp.status_code, 409)
+        self.assertIn('W&B connection', resp.json()['errors'][0]['message'])
+        self.assertEqual(req.call_args.kwargs['auth'], ('api', OWN_KEY))  # the owner lookup used YOUR key
+
+    @override_settings(WANDB_API_KEY='')
+    def test_no_shared_key_shows_connect_page_and_remove_falls_back(self):
+        resp = self.client.get('/models/')
+        self.assertFalse(resp.context['models_config']['configured'])
+        self.assertEqual(resp.context['models_config']['connection']['active']['source'], 'none')
+        with patch('requests.Session.request') as req:
+            self.assertEqual(self.client.post('/models/graphql', data=gql('{ viewer { id } }'),
+                                              content_type='application/json').status_code, 503)
+        req.assert_not_called()
+        self.save('local', OWN_KEY, {'id': 'VXNlcjoz', 'username': 'me', 'entity': 'me'})
+        self.assertTrue(self.client.get('/models/').context['models_config']['configured'])
+        resp = self.client.delete('/models/api/connection')
+        self.assertEqual(resp.json()['active']['source'], 'none')
+        self.assertFalse(self.client.get('/models/').context['models_config']['configured'])
+
+
+# =============================================================================
 # SAVED VIEWS
 # =============================================================================
 
@@ -400,11 +534,38 @@ class StudioViewTest(TestCase):
         self.assertEqual(resp.status_code, 200)
         cfg = resp.context['models_config']
         self.assertEqual(cfg['graphql'], '/models/graphql')
-        self.assertEqual(cfg['wandbUrl'], 'http://localhost:8090')
+        self.assertEqual(cfg['wandbUrl'], '')          # localhost W&B is never linked for an online visitor
         self.assertTrue(cfg['configured'])
         self.assertNotContains(resp, 'k123')
-        for p in ('/models/projects', '/models/team/proj/runs/abc', '/models/explorer'):
-            self.assertEqual(c.get(p).status_code, 200, p)
+        for p in ('/models/projects', '/models/team/proj/runs/abc', '/models/explorer', '/models/connection'):
+            resp = c.get(p)
+            self.assertEqual(resp.status_code, 200, p)
+            self.assertTemplateUsed(resp, 'wandb_ui/app.html')         # the page, never the JSON API
+        self.assertEqual(cfg['connectionApi'], '/models/api/connection')
+
+    @override_settings(ALLOWED_HOSTS=['*'])
+    def test_no_localhost_links_online(self):
+        """WANDB_HOST_URL=http://localhost:8090 (the servers' default) must not send online visitors to localhost."""
+        c = TestClient()
+        c.force_login(make_user('admin', superuser=True))
+        online = c.get('/models/', HTTP_HOST='datahub.afyaanalytics.com')
+        cfg = online.context['models_config']
+        self.assertEqual(cfg['wandbUrl'], '')
+        local = next(s for s in cfg['connection']['servers'] if s['key'] == 'local')
+        self.assertEqual((local['url'], local['key_page']), ('', ''))
+        self.assertEqual(cfg['connection']['active']['wandb_url'], '')
+        cloud = next(s for s in cfg['connection']['servers'] if s['key'] == 'cloud')
+        self.assertEqual(cloud['key_page'], 'https://wandb.ai/authorize')
+        self.assertNotIn('localhost:8090', c.get('/models/api/connection', HTTP_HOST='datahub.afyaanalytics.com').content.decode())
+        # working on the server itself, the local URL is real and is shown
+        here = c.get('/models/', HTTP_HOST='localhost:8000').context['models_config']
+        self.assertEqual(here['wandbUrl'], 'http://localhost:8090')
+        # once W&B is published on its own subdomain, everyone gets that
+        with self.settings(WANDB_HOST_URL='https://wandb.datahub.afyaanalytics.com'):
+            cfg = c.get('/models/', HTTP_HOST='datahub.afyaanalytics.com').context['models_config']
+            self.assertEqual(cfg['wandbUrl'], 'https://wandb.datahub.afyaanalytics.com')
+            local = next(s for s in cfg['connection']['servers'] if s['key'] == 'local')
+            self.assertEqual(local['key_page'], 'https://wandb.datahub.afyaanalytics.com/authorize')
 
     def test_permissions(self):
         self.assertEqual(TestClient().get('/models/').status_code, 302)

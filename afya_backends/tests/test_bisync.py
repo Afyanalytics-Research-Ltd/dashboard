@@ -151,3 +151,49 @@ def test_views_created_replaced_and_restored(sides, monkeypatch):
     bisync.views_sf_to_db(sf, db, state, report, log=lambda m: None)
     assert report["views_replaced"] == [] and report["views_failed"][0].startswith("RPT.V_OK")
     assert len(db.run(f'SELECT * FROM {db.fq("RPT", "V_OK")}')) == 2       # previous definition restored
+
+
+def test_bulk_unload_keeps_one_parquet_schema_across_files():
+    """Snowflake's per-file integer narrowing (int16 in one file, int32 in another) broke Databend's COPY with
+    'Schema at index 2 was different' (V3_SYNC.EVALUATION__PATIENT_META, INVENTORY__BATCH): the unload turns it off
+    in the same session, before the COPY INTO @stage."""
+    from afya_backends.warehouse.bisync import Bulk, Col
+
+    class Fake:
+        def __init__(self, backend):
+            self.backend, self.sql = backend, []
+
+        def real(self, schema, table):
+            return schema, table
+
+        def columns(self, schema, table):
+            return [Col("ID", "NUMBER", 38, 0), Col("NAME", "TEXT", None, None)]
+
+        def fq(self, schema, table):
+            return f"{schema}.{table}"
+
+        def run(self, sql, params=None):
+            self.sql.append(sql)
+            return []
+
+        def ensure_schema(self, schema):
+            pass
+
+        def create_table(self, *a, **k):
+            pass
+
+        def count(self, *a):
+            return 0
+
+        def swap_in(self, *a):
+            pass
+
+        def drop(self, *a):
+            pass
+
+    sf, db = Fake("snowflake"), Fake("databend")
+    bisync.bulk_copy_sf_to_db(sf, db, "V3_SYNC", "T", Bulk("S.A.STAGE", "s3://b/p/", "k", "s"), dst_exists=False,
+                              log=lambda m: None)
+    alter = next(i for i, s in enumerate(sf.sql) if "ENABLE_UNLOAD_PHYSICAL_TYPE_OPTIMIZATION = FALSE" in s)
+    copy = next(i for i, s in enumerate(sf.sql) if s.startswith("COPY INTO @"))
+    assert alter < copy

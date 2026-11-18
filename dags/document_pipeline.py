@@ -7,6 +7,21 @@ by page with LandingAI ADE, splits each file into individual patient records,
 extracts structured JSON per record, and appends every result to results.csv.
 Requires Airflow >= 2.3 (dynamic task mapping).
 
+ADDING SCANS (for whoever uploads them)
+  Drive folder:
+  https://drive.google.com/drive/folders/1Fb_89LIGH8QXJ8sWG5MISMvYhl3k1tmV?usp=sharing
+
+    1. Open the Drive folder.
+    2. Add the scans (PDF) as files, not a folder: drag them in, or use
+       New -> File upload.
+    3. Wait until Drive has finished uploading: files still uploading are not
+       seen.
+
+  Why: each run lists only the PDFs sitting directly in the source folder
+  (sub-folders and non-PDF files are skipped), and moves each file to the
+  "done" folder once all of its records are extracted (unless the run's
+  move_processed param is off).
+
 WHY THIS IS FASTER THAN A STANDALONE SCRIPT
   A standalone script's only parallelism is threads inside ONE Python process,
   capped by one machine's CPU/network and by the GIL for anything that isn't

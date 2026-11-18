@@ -199,7 +199,7 @@ export default async function render(ctx) {
         h('li', icon('shield-lock'), ' Port is bound to ', h('code', '127.0.0.1:8090'), ' only — Model Studio reaches it server-side; the API key never reaches browsers.'),
         h('li', icon('memory'), ' Memory is hard-capped at ', h('code', '3500m'), ' so W&B is the one stopped if the host runs low, never Airflow/Redash/Django.'),
         h('li', icon('cloud-upload'), ' Online: run ', h('code', 'docker compose -f docker-compose.wandb.yaml up -d'), ', set ', h('code', 'WANDB_BASE_URL=http://wandb-local:8080'), ' and ', h('code', 'WANDB_API_KEY'), ' in .env, restart the web container.'),
-        h('li', icon('globe'), ' Training jobs elsewhere log via ', h('code', 'WANDB_HOST_URL'), ' — give W&B its own subdomain (it cannot live under a path prefix).')));
+        h('li', icon('globe'), ' Training jobs elsewhere log via ', h('code', 'WANDB_HOST_URL'), ' — publish W&B on its own subdomain: set WANDB_DOMAIN and WANDB_HOST_URL (see nginx/templates/wandb.template).')));
   }
 
   await load();

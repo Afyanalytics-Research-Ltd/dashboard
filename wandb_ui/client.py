@@ -58,7 +58,8 @@ class WandbClient:
 
     def _auth(self):
         if not self.api_key:
-            raise WandbError('WANDB_API_KEY is not configured on the server.', status_code=503)
+            raise WandbError('W&B is not connected: add your API key in Model Studio ▸ W&B connection '
+                             '(or set WANDB_API_KEY on the server).', status_code=503)
         return ('api', self.api_key)
 
     def graphql(self, body: bytes, *, read_only: bool) -> WandbResponse:
@@ -66,12 +67,14 @@ class WandbClient:
         return self._send('POST', f'{self.base_url}/graphql', data=body, retry=read_only,
                           headers={'Content-Type': 'application/json', 'Accept': 'application/json'})
 
-    def get_file(self, url: str, *, range_header: str | None = None) -> WandbResponse:
+    def get_file(self, url: str, *, range_header: str | None = None, auth: bool = True) -> WandbResponse:
+        """auth=False for presigned storage links (W&B Cloud files on GCS): the W&B key must never go to a
+        third-party host, and the link's own signature is the credential."""
         headers = {'Range': range_header} if range_header else {}
-        return self._send('GET', url, headers=headers, retry=True, stream_limit=200 * 1024 * 1024)
+        return self._send('GET', url, headers=headers, retry=True, stream_limit=200 * 1024 * 1024, use_auth=auth)
 
-    def _send(self, method, url, *, data=None, headers=None, retry=False, stream_limit=None) -> WandbResponse:
-        auth = self._auth()
+    def _send(self, method, url, *, data=None, headers=None, retry=False, stream_limit=None, use_auth=True) -> WandbResponse:
+        auth = self._auth() if use_auth else None
         attempt = 0
         while True:
             try:

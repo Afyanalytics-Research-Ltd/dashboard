@@ -439,6 +439,10 @@ def bulk_copy_sf_to_db(sf: Side, db: Side, schema: str, table: str, bulk: Bulk, 
             exprs.append(f"{q}::TIMESTAMP_NTZ AS {q}")
         else:
             exprs.append(q)
+    # Snowflake otherwise writes each parquet file with the narrowest integer type its own rows fit (ID int16 in one
+    # file, int32 in the next) and Databend's COPY rejects files whose schemas differ ("Schema at index N was
+    # different"). Off: every file carries the column's declared type.
+    sf.run("ALTER SESSION SET ENABLE_UNLOAD_PHYSICAL_TYPE_OPTIMIZATION = FALSE")
     out = sf.run(f"COPY INTO @{bulk.stage}/{path} FROM (SELECT {', '.join(exprs)} FROM {sf.fq(schema, table)}) "
                  "FILE_FORMAT = (TYPE = PARQUET) HEADER = TRUE MAX_FILE_SIZE = 268435456")
     unloaded = int(sum(r[0] for r in out)) if out else 0

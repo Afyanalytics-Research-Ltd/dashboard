@@ -23,19 +23,25 @@ def _span(a, b):
     return f"{a:%d %b} – {b:%d %b %Y}" if a.year == b.year else f"{a:%d %b %Y} – {b:%d %b %Y}"
 
 
-def _hmis_status(parts, error):
-    """Where the HMIS figures come from: each environment's latest capture, and whether it has gone quiet."""
+def _hmis_status(parts, error, selected):
+    """The latest capture of each selected HMIS environment, flagged when it has gone quiet."""
     if error is not None:
-        return f"HMIS unavailable: {error.__class__.__name__}"
+        return "HMIS unavailable"
     out = []
     for label, (view, _) in parts.items():
-        when = f"{view['captured']:%d %b %Y, %H:%M} EAT" if hasattr(view["captured"], "strftime") else view["captured"]
-        stale = f" <b class='x-flag-t'>(no new run for over {H.STALE_HOURS}h)</b>" if view["stale"] else ""
-        out.append(f"{label} captured <b>{when}</b>{stale}")
+        if label not in selected:
+            continue
+        at = view["captured"]
+        when = f"{at:%d %b, %H:%M} EAT" if hasattr(at, "strftime") else str(at)
+        quiet = ""
+        if view["stale"] and hasattr(at, "strftime"):
+            days = (H.now_eat() - at).days
+            quiet = f" <b class='x-flag-t'>· no run for {days} day{'s' if days != 1 else ''}</b>" if days else                 f" <b class='x-flag-t'>· no run for over {H.STALE_HOURS}h</b>"
+        out.append(f"{label} <b>{when}</b>{quiet}")
     return " · ".join(out)
 
 
-def _period(receipts, updated, hmis_line=""):
+def _period(receipts, updated, hmis_line="", show_warehouse=True):
     """Period picker and the as-of line. Returns (start, end), or None for all time."""
     dated = [r["DATE"] for r in receipts if r["DATE"]]
     today = date.today()
@@ -55,8 +61,10 @@ def _period(receipts, updated, hmis_line=""):
                                        format="DD/MM/YYYY", label_visibility="collapsed")
             picked = tuple(picked) if isinstance(picked, (tuple, list)) else (picked,)
             rng = (picked[0], picked[-1]) if picked else (lo, today)
-    asof = " · ".join(x for x in (f"Warehouse updated <b>{updated:%d %b %Y}</b>" if updated else "", hmis_line) if x)
-    T.html(f'<div class="x-asof pc-asof"><span>{asof}</span></div>')
+    asof = " · ".join(x for x in (f"Warehouse <b>{updated:%d %b}</b>" if updated and show_warehouse else "", hmis_line)
+                      if x)
+    if asof:
+        T.html(f'<div class="x-asof pc-asof"><span>Updated: {asof}</span></div>')
     return rng
 
 
@@ -147,7 +155,7 @@ def _filters(env_options):
     read before the totals in afya_internal_metrics, so changing it reruns the whole page)."""
     with st.container(key="pc_tbl_filters"):
         c_q, c_env = st.columns([2.2, 2], vertical_alignment="bottom")
-        q = c_q.text_input("Search sources", key="pc_q", placeholder="Type part of a source or facility name")
+        q = c_q.text_input("Search sources", key="pc_q", placeholder="Type part of a source name or code")
         c_env.multiselect("Environment", env_options, key=H.ENV_KEY, placeholder="Choose environments",
                           on_change=_env_changed)
     return q
@@ -184,14 +192,16 @@ def _sources_table(listed, q):
 def render(rows, updated, receipts, hmis_parts=None, hmis_error=None, env_options=(H.WAREHOUSE_ENV,), overlap=()):
     st.session_state.pop(ENV_CHANGED, None)          # this is a whole-page run already
     hmis_parts = hmis_parts or {}
-    hmis_line = _hmis_status(hmis_parts, hmis_error)
+    selected = set(st.session_state.get(H.ENV_KEY) or [])
+    hmis_line = _hmis_status(hmis_parts, hmis_error, selected)
+    show_warehouse = H.WAREHOUSE_ENV in selected
     if not rows:
-        _period(receipts, updated, hmis_line)
+        _period(receipts, updated, hmis_line, show_warehouse)
         _filters(list(env_options))
         T.html('<div class="x-empty"><b>No patient counts yet</b>They appear after the next count.</div>')
         return
 
-    rng = _period(receipts, updated, hmis_line)
+    rng = _period(receipts, updated, hmis_line, show_warehouse)
     shown = _received(rows, receipts, rng) if rng else rows
     total = {m: sum(r[m] for r in shown) for m in MEASURES}
     when = f"received {_span(*rng)}" if rng else None

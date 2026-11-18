@@ -239,8 +239,18 @@ class Flags(unittest.TestCase):
                 row("latest", 13, "EAGLE NURSING HOME", 17, "Kibra", 18900),
                 row("previous", 13, "EAGLE NURSING HOME", 17, "Kibra", 18817, at=datetime(2026, 11, 11, 8, 0))]
         rows = {r["SOURCE"]: r for r in H.counted_rows(H.build(feed, "production", [], NOW))}
-        self.assertEqual(rows["Kangemi · Eagle Nursing Home"]["FLAGS"], ["+40% since 11 Nov"])
+        self.assertEqual(rows["Kangemi · Eagle Nursing Home"]["FLAGS"], ["+20,000 patients since 11 Nov"])
         self.assertEqual(rows["Kibra · Eagle Nursing Home"]["FLAGS"], [])
+
+    def test_small_moves_are_not_flagged_and_bulk_loads_are_named(self):
+        y = datetime(2026, 11, 11, 8, 0)
+        feed = [row("latest", 307, "Small", 306, "Small Clinic", 3), row("previous", 307, "Small", 306, "Small Clinic", 2, at=y),
+                row("latest", 96, "Moved", 94, "Moved Hospital", 9230), row("previous", 96, "Moved", 94, "Moved Hospital", 3, at=y),
+                row("latest", 50, "Fell", 49, "Fell Clinic", 100), row("previous", 50, "Fell", 49, "Fell Clinic", 200, at=y)]
+        rows = {r["SOURCE"]: r["FLAGS"] for r in H.counted_rows(H.build(feed, "prod", [], NOW))}
+        self.assertEqual(rows["Small Clinic · Small"], [])                                  # +50%, but 1 patient
+        self.assertEqual(rows["Moved Hospital · Moved"], ["+9,227 patients since 11 Nov (bulk load)"])
+        self.assertEqual(rows["Fell Clinic · Fell"], ["-100 patients since 11 Nov"])
 
     def test_times_are_east_africa_time(self):
         from datetime import timezone

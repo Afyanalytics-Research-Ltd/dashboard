@@ -34,7 +34,9 @@ WAREHOUSE_ENV = "Warehouse"                     # the Environment value of the w
 ENV_KEY = "pc_envs"                             # session key of the dashboard's Environment filter
 METHODS = {m.strip() for m in os.environ.get("AFYA_HMIS_METHODS", "gateway_count").split(",") if m.strip()}
 STALE_HOURS = 26          # runs are hourly; a day without one is worth a look
-JUMP = 0.20               # flag a facility whose count moved more than this since the previous day
+JUMP = 0.20               # flag a facility whose patients moved by more than this share since the previous day
+JUMP_MIN = 50             # ...and by at least this many patients (small clinics move 2 to 3 without meaning much)
+BULK = 10                 # a count that grew this many times over is a bulk load (migrated history), not new patients
 # CAPTURED_AT is stored in UTC; the dashboard shows HMIS times and dates in East Africa Time (data.py converts).
 TZ = "Africa/Nairobi"
 EAT = timezone(timedelta(hours=3), "EAT")
@@ -174,8 +176,10 @@ def build(rows, environment, warehouse_sources, now=None):
         before = prev.get(key(r))
         if before is not None and extra:
             before += prev.get((r["ORGANIZATION_ID"], "unassigned"), 0)
-        change = (n - before) / before if before else None
-        flags = [f"{change:+.0%} since {prev_at:%d %b}"] if change is not None and abs(change) > JUMP else []
+        flags = []
+        if before and abs(n - before) > JUMP * before and abs(n - before) >= JUMP_MIN:
+            bulk = " (bulk load)" if n >= BULK * before else ""
+            flags = [f"{n - before:+,} patients since {prev_at:%d %b}{bulk}"]
         visits = r.get("VISIT_COUNT")
         facilities.append(dict(name=name, patients=n, visits=None if visits is None else int(visits), flags=flags,
                                ids=ids, key=name_key(r["FACILITY_NAME"]), no_facility=extra))
@@ -233,7 +237,8 @@ def counted_rows(view):
     day = view["captured"].date() if hasattr(view["captured"], "date") else view["captured"]
     env = CHOICES.get(choice_of(view["environment"]), str(view["environment"]))
     return [{"SOURCE": f["name"], "PATIENT_RECORDS": f.get("visits") or 0, "VISITS_POSTED": f.get("visits") is not None,
-             "UPDS": f["patients"], "COUNTED_AT": day, "HMIS": True, "ENV": env, "FLAGS": f["flags"]}
+             "UPDS": f["patients"], "COUNTED_AT": day, "HMIS": True, "ENV": env, "FLAGS": f["flags"],
+             "ORGANIZATION_ID": f["ids"][0], "FACILITY_ID": f["ids"][1]}
             for f in view["facilities"]]
 
 

@@ -125,6 +125,25 @@ def test_snowflake_metadata_uses_show_and_desc_not_a_warehouse():
     assert all(s.startswith(("SHOW ", "DESC ")) for s in conn.sql)
 
 
+def test_view_rewrite_used_only_for_the_definition_it_was_written_for(tmp_path, monkeypatch):
+    import hashlib
+    original = "CREATE OR REPLACE VIEW HOSPITALS.RPT.V AS SELECT 1 AS a"
+    (tmp_path / "RPT.V.sql").write_text(f"-- for_hash: {hashlib.md5(original.encode()).hexdigest()}\n"
+                                        "-- why: Databend can't plan the original\n"
+                                        "CREATE OR REPLACE VIEW HOSPITALS.RPT.V AS SELECT 2 AS a\n")
+    monkeypatch.setattr(bisync, "VIEW_REWRITES_DIR", tmp_path)
+    assert bisync._view_source("RPT.V", original) == "CREATE OR REPLACE VIEW HOSPITALS.RPT.V AS SELECT 2 AS a"
+    changed = original.replace("1 AS a", "3 AS a")          # Snowflake view edited -> rewrite is stale, not used
+    assert bisync._view_source("RPT.V", changed) == changed
+    assert bisync._view_source("RPT.OTHER", original) == original
+    # the shipped rewrite translates to one CREATE VIEW
+    from pathlib import Path
+    real = Path(bisync.__file__).parent / "view_rewrites" / "REPORTING.VW_RPT_ORTHO_OPD.sql"
+    text = "\n".join(ln for ln in real.read_text().splitlines() if not ln.lstrip().startswith("--"))
+    ddl = bisync._view_ddl(text, "REPORTING", "HOSPITALS")
+    assert ddl.startswith('CREATE OR REPLACE VIEW "REPORTING"."VW_RPT_ORTHO_OPD"') and "EXISTS" not in ddl.upper()
+
+
 def test_view_comment_clause_is_dropped_for_databend():
     """SHOW VIEWS text keeps the view COMMENT; Databend rejects COMMENT= on CREATE VIEW (70 prod views, 2026-11-19)."""
     d = ("CREATE OR REPLACE VIEW HOSPITALS.SILVERWOOD_EXTRACTION_MAPPED.CORE_FACILITY\n"

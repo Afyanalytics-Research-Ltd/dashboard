@@ -49,6 +49,82 @@ def test_side_real_names():
     assert side.real("X", "Y") == ("X", "Y")
 
 
+def test_plan_migrates_old_snowflake_fingerprints_by_row_count():
+    """Fingerprints recorded as rows|LAST_ALTERED must not make every table look changed once Snowflake is read
+    with SHOW TABLES (rows|b<bytes>): the first run compares row counts only."""
+    key = ("V3_SYNC", "T")
+    state = {"V3_SYNC.T": {"sf": "100|2026-11-18 14:34:40.758 Z", "db": "100|d1"}}
+    db = {key: _ti(100, "d1", "V3_SYNC")}
+    assert bisync.plan({key: _ti(100, "b4096", "V3_SYNC")}, db, state, allow_shrink=False) == [(key, "noop")]
+    assert bisync.plan({key: _ti(120, "b4096", "V3_SYNC")}, db, state, allow_shrink=False) == [(key, "copy_sf_to_db")]
+    # once migrated, bytes count: an UPDATE (same rows, new bytes) is a change
+    state["V3_SYNC.T"]["sf"] = "100|b4096"
+    assert bisync.plan({key: _ti(100, "b4096", "V3_SYNC")}, db, state, allow_shrink=False) == [(key, "noop")]
+    assert bisync.plan({key: _ti(100, "b8192", "V3_SYNC")}, db, state, allow_shrink=False) == [(key, "copy_sf_to_db")]
+
+
+class _ShowCursor:
+    def __init__(self, results, log):
+        self.results, self.log, self.description, self._rows = results, log, None, []
+
+    def execute(self, sql, params=None):
+        self.log.append(sql)
+        cols, rows = next(v for k, v in self.results.items() if sql.startswith(k))
+        self.description = [(c,) for c in cols]
+        self._rows = rows
+
+    def fetchall(self):
+        return self._rows
+
+    def close(self):
+        pass
+
+
+class _ShowConn:
+    def __init__(self, results):
+        self.results, self.sql = results, []
+
+    def cursor(self):
+        return _ShowCursor(self.results, self.sql)
+
+
+def test_snowflake_metadata_uses_show_and_desc_not_a_warehouse():
+    """Listing tables/views and reading columns must not resume the warehouse (INFORMATION_SCHEMA does: an hourly
+    no-op run was billed ~6 warehouse-minutes, and failed outright while the resource monitor blocked it)."""
+    cols = ["created_on", "name", "database_name", "schema_name", "kind", "rows", "bytes", "is_external"]
+    conn = _ShowConn({
+        "SHOW TABLES IN DATABASE": (cols, [
+            (None, "activations", "HOSPITALS", "TENRI", "TABLE", 247, 1024, "N"),
+            (None, "ACTIVATIONS", "HOSPITALS", "TENRI", "TABLE", 240, 2048, "N"),
+            (None, "cache", "HOSPITALS", "TENRI", "TABLE", 20, 512, "N"),
+            (None, "EXT", "HOSPITALS", "RAW", "TABLE", 5, 0, "Y"),
+            (None, "TMP", "HOSPITALS", "RAW", "TEMPORARY", 5, 0, "N"),
+            (None, "T", "HOSPITALS", "RAW", "TRANSIENT", 7, 4096, "N"),
+            (None, "TABLES", "HOSPITALS", "INFORMATION_SCHEMA", "TABLE", 1, 1, "N"),
+        ]),
+        "SHOW TABLES LIKE": (cols, [(None, "T", "HOSPITALS", "RAW", "TABLE", 9, 8192, "N"),
+                                    (None, "TX", "HOSPITALS", "RAW", "TABLE", 1, 1, "N")]),
+        "SHOW VIEWS IN DATABASE": (["name", "schema_name", "text"], [("V", "RPT", "create view V as select 1")]),
+        "DESC TABLE": (["name", "type", "kind"], [("ID", "NUMBER(38,0)", "COLUMN"), ("AMT", "NUMBER(12, 2)", "COLUMN"),
+                                                  ("NAME", "VARCHAR(16777216)", "COLUMN"),
+                                                  ("AT", "TIMESTAMP_NTZ(9)", "COLUMN"), ("J", "VARIANT", "COLUMN"),
+                                                  ("F", "FLOAT", "COLUMN")]),
+    })
+    side = bisync.Side("snowflake", conn, "HOSPITALS")
+    t = side.tables()
+    assert set(t) == {("TENRI", "ACTIVATIONS"), ("TENRI", "CACHE"), ("RAW", "T")}
+    assert t[("TENRI", "ACTIVATIONS")].name == "ACTIVATIONS"         # upper-case spelling wins, every run
+    assert t[("TENRI", "ACTIVATIONS")].fingerprint == "240|b2048"
+    assert t[("TENRI", "CACHE")].name == "cache"                     # the only spelling is kept as is
+    assert side.info("RAW", "T").fingerprint == "9|b8192"           # exact name, not the LIKE wildcard match
+    assert side.views() == {("RPT", "V"): "create view V as select 1"}
+    c = {x.name: x for x in side.columns("RAW", "T")}
+    assert (c["ID"].kind, c["ID"].precision, c["ID"].scale) == ("NUMBER", 38, 0)
+    assert (c["AMT"].precision, c["AMT"].scale) == (12, 2)
+    assert [c[n].kind for n in ("NAME", "AT", "J", "F")] == ["TEXT", "TIMESTAMP", "VARIANT", "FLOAT"]
+    assert all(s.startswith(("SHOW ", "DESC ")) for s in conn.sql)
+
+
 # -- live --------------------------------------------------------------------------
 
 def _reachable():
@@ -112,6 +188,52 @@ def test_reconcile_by_append_key_copies_only_new_runs_both_ways(sides):
     assert a.count("ANALYTICS", "PC") == b.count("ANALYTICS", "PC") == 5
     # in sync -> nothing read or written
     assert bisync.insert_missing(a, b, "ANALYTICS", "PC", "RUN_ID", log=lambda m: None) == 0
+
+
+def _v3_table(side, rows):
+    side.run(f'CREATE DATABASE IF NOT EXISTS "{side.bend_db("V3_SYNC")}"')
+    side.run(f'CREATE TABLE {side.fq("V3_SYNC", "M")} ("_TENANT_ID" INT, "_KEY" VARCHAR, "NAME" VARCHAR, '
+             f'"_IS_DELETED" BOOLEAN, "_LAST_LOADED_AT" TIMESTAMP)')
+    if rows:
+        side.run(f"INSERT INTO {side.fq('V3_SYNC', 'M')} VALUES " + ", ".join(rows))
+
+
+@live
+def test_incremental_merges_only_rows_loaded_since_the_watermark(sides):
+    """V3_SYNC: new rows inserted, changed / delete-flagged rows updated by (_TENANT_ID, _KEY); older rows not read."""
+    src, dst = sides
+    _v3_table(src, ["(1, 'a', 'old-a', false, '2026-11-01 00:00:00')",        # unchanged, far before the watermark
+                    "(1, 'b', 'new-b', false, '2026-11-18 12:00:00')",        # changed after the last sync
+                    "(2, 'a', 'gone', true, '2026-11-18 12:00:00')",          # flagged deleted
+                    "(2, 'c', 'brand-new', false, '2026-11-18 12:30:00')"])   # new
+    _v3_table(dst, ["(1, 'a', 'old-a', false, '2026-11-01 00:00:00')",
+                    "(1, 'b', 'old-b', false, '2026-11-18 10:00:00')",
+                    "(2, 'a', 'gone', false, '2026-11-18 10:00:00')"])
+    src.tables(), dst.tables()
+    n, got = bisync.incremental_copy(src, dst, "V3_SYNC", "M", src_rows=4, log=lambda m: None)
+    assert (n, got) == (3, 4)
+    rows = {(r[0], r[1]): (r[2], r[3]) for r in dst.run(
+        f'SELECT "_TENANT_ID", "_KEY", "NAME", "_IS_DELETED" FROM {dst.fq("V3_SYNC", "M")}')}
+    assert rows[("1", "b")][0] == "new-b" and rows[("2", "c")][0] == "brand-new"
+    assert str(rows[("2", "a")][1]).lower() in ("1", "true")
+    names = {r[0] for r in dst.run(f"SELECT name FROM system.tables WHERE database = '{dst.bend_db('V3_SYNC')}'")}
+    assert names == {"M"}                                               # staging dropped
+    # nothing new -> only the overlap window is re-read, merged idempotently
+    n, got = bisync.incremental_copy(src, dst, "V3_SYNC", "M", src_rows=4, log=lambda m: None)
+    assert got == 4
+
+
+@live
+def test_incremental_falls_back_when_columns_differ_or_target_empty(sides):
+    src, dst = sides
+    _v3_table(src, ["(1, 'a', 'x', false, '2026-11-18 12:00:00')"])
+    _v3_table(dst, [])
+    src.tables(), dst.tables()
+    with pytest.raises(bisync.NotIncremental, match="watermark"):
+        bisync.incremental_copy(src, dst, "V3_SYNC", "M", src_rows=1, log=lambda m: None)
+    src.run(f'ALTER TABLE {src.fq("V3_SYNC", "M")} ADD COLUMN "EXTRA" VARCHAR')
+    with pytest.raises(bisync.NotIncremental, match="columns differ"):
+        bisync.incremental_copy(src, dst, "V3_SYNC", "M", src_rows=1, log=lambda m: None)
 
 
 @live

@@ -242,6 +242,59 @@ def test_child_waits_for_its_parent(tmp_path):
     assert res["posted"] == 2 and res["held"] == 0
 
 
+def test_resolve_window_keywords_dates_and_errors():
+    from datetime import datetime
+    now = datetime(2026, 11, 19, 1, 30, tzinfo=vv.SOURCE_TZ)
+    y0 = datetime(2026, 11, 18, tzinfo=vv.SOURCE_TZ)
+    assert vv.resolve_window("", "") is None
+    assert vv.resolve_window("yesterday", "", now=now) == (y0, datetime(2026, 11, 19, tzinfo=vv.SOURCE_TZ))
+    assert vv.resolve_window("2026-11-18", "", now=now) == (y0, datetime(2026, 11, 19, tzinfo=vv.SOURCE_TZ))
+    assert vv.resolve_window("2026-11-17", "2026-11-18", now=now)[1] == datetime(2026, 11, 19, tzinfo=vv.SOURCE_TZ)
+    assert vv.resolve_window("2026-11-18 12:00:00", "", now=now) == (y0.replace(hour=12), now)
+    for bad in (("", "today"), ("nope", ""), ("today", "yesterday")):
+        with pytest.raises(ValueError):
+            vv.resolve_window(*bad, now=now)
+    win = vv.resolve_window("yesterday", "", now=now)
+    assert vv.in_window({"created_at": "2026-11-17T21:00:00.000000Z"}, win)       # 00:00 Nairobi
+    assert not vv.in_window({"created_at": "2026-11-17T20:59:59.000000Z"}, win)
+    assert vv.in_window({"created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-11-18 23:00:00"}, win)
+    assert not vv.in_window({"name": "no timestamps"}, win)
+    assert vv.in_window({"name": "no timestamps"}, None)
+
+
+def test_windowed_copy_posts_only_the_windows_rows_and_links_them_to_older_ones(tmp_path):
+    """The target is a clone of the source up to some point; the window's new
+    rows are copied and link to the clone's (pre-existing) rows by uuid."""
+    from datetime import datetime
+    src, dst = _pair()
+    for r in (row for rows in src.rows.values() for row in rows):
+        r["created_at"] = r["updated_at"] = "2026-10-01T08:00:00.000000Z"
+    _run(src, dst, tmp_path / "clone")                       # the clone
+    old_p1 = next(r for r in dst.rows["reception/patient"] if r["uuid"] == "p1")
+    old_p1["first_name"] = "Amy (edited on the target since)"   # target's own later edit
+    p1 = next(r["id"] for r in src.rows["reception/patient"] if r["uuid"] == "p1")
+    u1 = next(r["id"] for r in src.rows["core/users"] if r["uuid"] == "u1")
+    new_ts = "2026-11-18T09:00:00.000000Z"
+    p3 = src.add("reception/patient", uuid="p3", first_name="Cy", facility_id=4, created_by=u1,
+                 created_at=new_ts, updated_at=new_ts)
+    src.add("evaluation/visits", uuid="v3", patient=p1, user=u1, status="open", created_at=new_ts, updated_at=new_ts)
+    src.add("evaluation/visits", uuid="v4", patient=p3, user=u1, status="open", created_at=new_ts, updated_at=new_ts)
+    src.add("evaluation/visits", uuid="v-old", patient=p1, user=u1, status="old",       # not in the window
+            created_at="2026-11-10T09:00:00.000000Z", updated_at="2026-11-10T09:00:00.000000Z")
+    before = {m: len(r) for m, r in dst.rows.items()}
+    win = vv.resolve_window("yesterday", "", now=datetime(2026, 11, 19, 10, tzinfo=vv.SOURCE_TZ))
+    _, _, copier, order, res = _run(src, dst, tmp_path / "window", window=win)
+    grew = {m: len(r) - before[m] for m, r in dst.rows.items() if len(r) != before[m]}
+    assert grew == {"reception/patient": 1, "evaluation/visits": 2}
+    assert res["evaluation/visits"]["posted"] == 2 and res["evaluation/visits"]["outside_window"] == 1
+    assert res["evaluation/visits"]["already"] == 2 and res["evaluation/visits"]["status"] == "done"
+    pat = {r["uuid"]: r["id"] for r in dst.rows["reception/patient"]}
+    vis = {r["uuid"]: r for r in dst.rows["evaluation/visits"]}
+    assert vis["v3"]["patient"] == pat["p1"] and vis["v4"]["patient"] == pat["p3"]
+    for model in order:                       # the target's own later edit of p1 is outside the window
+        assert vv.verify_model(copier, model)["ok"], model
+
+
 def test_canary_posts_at_most_n_per_model(tmp_path):
     src, dst = _pair()
     _, _, _, order, results = _run(src, dst, tmp_path, record_limit=1)

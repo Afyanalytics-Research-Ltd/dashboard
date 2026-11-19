@@ -167,14 +167,22 @@ class V3Client:
             return r
         return r
 
+    def _call(self, service: str, body: dict, what: str, **kw) -> requests.Response:
+        """post(), with a host that can't be reached (DNS, TLS, refused) as a GatewayError like any other —
+        callers skip a service that isn't deployed on this instance instead of crashing."""
+        try:
+            return self.post(service, body, **kw)
+        except requests.RequestException as e:
+            raise GatewayError(f"{self.key} {what}: {type(e).__name__}: {e}") from e
+
     def models(self, service: str) -> list[dict]:
-        r = self.post(service, {"action": "list"}, timeout=60)
+        r = self._call(service, {"action": "list"}, f"{service} list", timeout=60)
         if not r.ok:
             raise GatewayError(f"{self.key} {service} list: {r.status_code} {r.text[:200]}")
         return [e for e in (r.json().get("data") or []) if e.get("alias")]
 
     def describe(self, service: str, alias: str) -> dict:
-        r = self.post(service, {"action": "describe", "model": alias}, timeout=60)
+        r = self._call(service, {"action": "describe", "model": alias}, f"{service}/{alias} describe", timeout=60)
         if not r.ok:
             raise GatewayError(f"{self.key} {service}/{alias} describe: {r.status_code} {r.text[:200]}")
         return r.json().get("data") or {}

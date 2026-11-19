@@ -295,6 +295,22 @@ def test_windowed_copy_posts_only_the_windows_rows_and_links_them_to_older_ones(
         assert vv.verify_model(copier, model)["ok"], model
 
 
+def test_unreachable_service_is_a_gateway_error_so_the_plan_skips_it(monkeypatch):
+    import requests
+    from v3_to_v3_client import V3Client, GatewayError
+
+    c = V3Client("x", urls={s: f"https://{s}.invalid/api/" for s in vv.SERVICES}, username="u", password="p")
+
+    def boom(*a, **k):
+        raise requests.exceptions.SSLError("Hostname mismatch")
+
+    monkeypatch.setattr(c, "post", boom)
+    with pytest.raises(GatewayError, match="inventory list: SSLError"):
+        c.models("inventory")
+    with pytest.raises(GatewayError, match="describe"):
+        c.describe("inventory", "products")
+
+
 def test_canary_posts_at_most_n_per_model(tmp_path):
     src, dst = _pair()
     _, _, _, order, results = _run(src, dst, tmp_path, record_limit=1)

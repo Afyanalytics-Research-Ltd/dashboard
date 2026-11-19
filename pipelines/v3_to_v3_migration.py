@@ -82,7 +82,10 @@ def to_wall_time(v):
     m = _ISO_UTC.match(v) if isinstance(v, str) else None
     if not m:
         return v
-    t = datetime.fromisoformat(f"{m.group(1)}T{m.group(2)}+00:00").astimezone(SOURCE_TZ)
+    try:
+        t = datetime.fromisoformat(f"{m.group(1)}T{m.group(2)}+00:00").astimezone(SOURCE_TZ)
+    except (ValueError, OverflowError):     # zero / placeholder dates (0000-…): sent as they came
+        return v
     return t.strftime("%Y-%m-%d") if (t.hour, t.minute, t.second) == (0, 0, 0) else t.strftime("%Y-%m-%d %H:%M:%S")
 
 

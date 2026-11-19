@@ -12,6 +12,14 @@ the matching Databend databases (HOSPITALS.<SCHEMA> <-> Databend <SCHEMA>):
     a copy never shrinks the target unless allow_shrink=true (it is reconciled instead)
     append-only tables (bisync.APPEND_KEYS, e.g. patient counts by RUN_ID)
                                 -> always reconciled by that key: new rows only, never re-copied
+    V3_SYNC model tables (_TENANT_ID, _KEY, _LAST_LOADED_AT) changed in Snowflake
+                                -> only rows loaded since Databend's newest _LAST_LOADED_AT are
+                                   read and MERGEd by key (no full re-copy)
+
+Change detection is SHOW TABLES / SHOW VIEWS / DESC (Snowflake metadata, no
+warehouse), so an hour with nothing new costs no Snowflake credits. If the
+warehouse's resource monitor quota is exhausted the run stops at the first
+such error (views still sync) and fails with that reason.
 
 Then views, Snowflake -> Databend only (DDL, no data): missing ones created,
 changed ones replaced, each compile-checked; untranslatable views are logged
@@ -117,6 +125,9 @@ def warehouse_bisync():
             log.warning("conflict: %s", c)
         for v in report.get("views_failed", [])[:50]:
             log.warning("view not on Databend: %s", v)
+        if report.get("quota_exhausted"):
+            raise RuntimeError(f"Snowflake warehouse quota exhausted - {len(report['failed'])} changed table(s) "
+                               f"not synced; they are retried next run: {report['quota_exhausted']}")
         if report["failed"]:
             raise RuntimeError(f"{len(report['failed'])} table(s) failed: {report['failed'][:10]}")
         return report

@@ -26,10 +26,18 @@ would is reconciled instead. That stops e.g. a Databend table that was
 written fresh during a Snowflake outage (3 rows) from wiping the
 Snowflake history (millions of rows).
 
-"Changed" = the table's (row count, last-modified) fingerprint differs from
-the one recorded after the last sync. State is a JSON file; if it is lost,
-every table is "first sight": equal row counts are adopted as in sync,
+"Changed" = the table's fingerprint differs from the one recorded after the
+last sync: Databend (row count, updated_on); Snowflake (row count, bytes), read
+with SHOW TABLES - metadata only, so an hour in which nothing changed never
+resumes (and bills) a Snowflake warehouse. State is a JSON file; if it is
+lost, every table is "first sight": equal row counts are adopted as in sync,
 different ones reconciled - safe, just slower.
+
+Incremental tables (V3_SYNC models: _TENANT_ID, _KEY, _LAST_LOADED_AT - every
+insert/update/delete-flag of pipelines/v3_to_snowflake_sync.py stamps
+_LAST_LOADED_AT): a Snowflake-side change copies only the rows loaded since
+Databend's newest _LAST_LOADED_AT (minus an overlap) and MERGEs them by key,
+instead of re-copying the whole table.
 """
 
 from __future__ import annotations
@@ -39,6 +47,7 @@ import logging
 import re
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -194,14 +203,36 @@ class Side:
             return f"{_bq(self.bend_db(schema))}.{_bq(table)}"
         return f"{_q(self.database)}.{_q(schema)}.{_q(table)}"
 
+    def show(self, sql: str) -> list[dict]:
+        """Snowflake SHOW/DESC rows as dicts. These are answered from metadata by the cloud
+        services layer: no warehouse is resumed, so they cost no warehouse credits and keep
+        working while a resource monitor has the warehouse suspended."""
+        cur = self.conn.cursor()
+        try:
+            cur.execute(sql)
+            cols = [d[0].lower() for d in cur.description]
+            return [dict(zip(cols, r)) for r in cur.fetchall()]
+        finally:
+            cur.close()
+
+    @staticmethod
+    def _sf_info(r: dict) -> TableInfo:
+        return TableInfo(r["schema_name"], r["name"], int(r.get("rows") or 0), f"b{int(r.get('bytes') or 0)}")
+
     def tables(self) -> dict[tuple, TableInfo]:
         out = {}
         if self.backend == "snowflake":
-            rows = self.run(f"SELECT TABLE_SCHEMA, TABLE_NAME, ROW_COUNT, TO_VARCHAR(LAST_ALTERED) "
-                            f"FROM {_q(self.database)}.INFORMATION_SCHEMA.TABLES "
-                            "WHERE TABLE_TYPE = 'BASE TABLE' AND TABLE_SCHEMA <> 'INFORMATION_SCHEMA'")
-            for s, n, r, m in rows:
-                out[(s.upper(), n.upper())] = TableInfo(s, n, int(r or 0), str(m))
+            for r in self.show(f"SHOW TABLES IN DATABASE {_q(self.database)}"):
+                if (r["schema_name"] == "INFORMATION_SCHEMA" or r.get("kind") not in ("TABLE", "TRANSIENT")
+                        or r.get("is_external") == "Y"):
+                    continue
+                key = (r["schema_name"].upper(), r["name"].upper())
+                # Names differing only in case (TENRI.ACTIVATIONS and TENRI."activations") share one key:
+                # always keep the upper-case one. Taking whichever came last made the pick (and so the
+                # fingerprint) flip between runs, and the table was re-copied every hour.
+                if key in out and out[key].name == out[key].name.upper():
+                    continue
+                out[key] = self._sf_info(r)
         else:
             rows = self.run("SELECT database, name, num_rows, updated_on FROM system.tables "
                             "WHERE engine NOT IN ('VIEW', 'STREAM') AND is_external = false")
@@ -227,10 +258,9 @@ class Side:
         """{(SCHEMA, VIEW) upper: definition} - Snowflake; {(SCHEMA, VIEW) upper: ''} - Databend."""
         out = {}
         if self.backend == "snowflake":
-            for s, n, d in self.run(f"SELECT TABLE_SCHEMA, TABLE_NAME, VIEW_DEFINITION "
-                                    f"FROM {_q(self.database)}.INFORMATION_SCHEMA.VIEWS "
-                                    "WHERE TABLE_SCHEMA <> 'INFORMATION_SCHEMA'"):
-                out[(s.upper(), n.upper())] = d or ""
+            for r in self.show(f"SHOW VIEWS IN DATABASE {_q(self.database)}"):
+                if r["schema_name"] != "INFORMATION_SCHEMA":
+                    out[(r["schema_name"].upper(), r["name"].upper())] = r.get("text") or ""
         else:
             primary = self.database.upper() == self._primary.upper()
             prefix = f"{self.database.upper()}__"
@@ -244,12 +274,15 @@ class Side:
         return {k: v for k, v in out.items() if self.schemas is None or k[0] in self.schemas}
 
     def columns(self, schema: str, table: str) -> list[Col]:
-        if self.backend == "snowflake":
-            rows = self.run(f"SELECT COLUMN_NAME, DATA_TYPE, NUMERIC_PRECISION, NUMERIC_SCALE "
-                            f"FROM {_q(self.database)}.INFORMATION_SCHEMA.COLUMNS "
-                            "WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s ORDER BY ORDINAL_POSITION",
-                            (schema, table))
-            return [col_from_snowflake(*r) for r in rows]
+        if self.backend == "snowflake":   # DESC: metadata only, no warehouse
+            out = []
+            for r in self.show(f"DESC TABLE {self.fq(schema, table)}"):
+                if (r.get("kind") or "COLUMN") != "COLUMN":
+                    continue
+                m = re.match(r"\s*([A-Za-z_ ]+?)\s*(?:\((\d+)(?:\s*,\s*(\d+))?\))?\s*$", str(r["type"]))
+                t, p, s = (m.group(1), m.group(2), m.group(3)) if m else (str(r["type"]), None, None)
+                out.append(col_from_snowflake(r["name"], t, int(p) if p else None, int(s) if s else None))
+            return out
         # DESC: Field, Type, Null, Default, Extra - in column order
         return [col_from_databend(r[0], r[1]) for r in self.run(f"DESC {self.fq(schema, table)}")]
 
@@ -257,10 +290,10 @@ class Side:
         """Current fingerprint of one table (None if it doesn't exist)."""
         def lit(s):
             return "'" + str(s).replace("'", "''") + "'"
-        if self.backend == "snowflake":
-            rows = self.run(f"SELECT TABLE_SCHEMA, TABLE_NAME, ROW_COUNT, TO_VARCHAR(LAST_ALTERED) "
-                            f"FROM {_q(self.database)}.INFORMATION_SCHEMA.TABLES "
-                            "WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s", (schema, table))
+        if self.backend == "snowflake":   # SHOW ... LIKE is case-insensitive and '_' is a wildcard
+            hit = [r for r in self.show(f"SHOW TABLES LIKE {lit(table)} IN SCHEMA {_q(self.database)}.{_q(schema)}")
+                   if r["name"] == table]
+            return self._sf_info(hit[0]) if hit else None
         else:
             rows = self.run(f"SELECT database, name, num_rows, updated_on FROM system.tables "
                             f"WHERE database = {lit(self.bend_db(schema))} AND name = {lit(table)}")
@@ -572,6 +605,84 @@ def insert_missing(src: Side, dst: Side, schema: str, table: str, key: str, *, l
     return added
 
 
+# ── incremental (changed rows only) ──────────────────────────────────────
+# V3_SYNC model tables (pipelines/v3_to_snowflake_sync.py): identity (_TENANT_ID, _KEY); every MERGE insert/update
+# and every delete-flag UPDATE sets _LAST_LOADED_AT = SYSDATE(), so "loaded since X" is exactly what changed.
+INCREMENTAL_KEYS = ("_TENANT_ID", "_KEY")
+INCREMENTAL_WATERMARK = "_LAST_LOADED_AT"
+# Re-read this much before Databend's newest watermark: covers a Snowflake MERGE that started (and stamped
+# SYSDATE) before the previous read but committed after it. Re-read rows are merged again - idempotent.
+INCREMENTAL_OVERLAP = timedelta(hours=2)
+# More changed rows than this share of the table -> a full (bulk) copy is cheaper than a MERGE.
+INCREMENTAL_MAX_FRACTION = 0.5
+
+
+class NotIncremental(Exception):
+    """The table can't (or shouldn't) take the incremental path; do a full copy."""
+
+
+def incremental_copy(src: Side, dst: Side, schema: str, table: str, *, src_rows: int,
+                     log: Callable) -> tuple[int, int]:
+    """Copy only the src rows loaded since dst's newest INCREMENTAL_WATERMARK (minus the overlap) and MERGE them
+    into dst by INCREMENTAL_KEYS: new rows inserted, changed / delete-flagged rows updated. dst must be Databend.
+    Returns (rows merged, dst row count after). Raises NotIncremental when a full copy is needed instead."""
+    if dst.backend != "databend":
+        raise NotIncremental("incremental target must be Databend")
+    s_schema, s_table = src.real(schema, table)
+    d_schema, d_table = dst.real(schema, table)
+    src_cols, dst_cols = src.columns(s_schema, s_table), dst.columns(d_schema, d_table)
+    s_up, d_up = {c.name.upper(): c for c in src_cols}, {c.name.upper(): c for c in dst_cols}
+    needed = (*INCREMENTAL_KEYS, INCREMENTAL_WATERMARK)
+    if not all(k in s_up and k in d_up for k in needed):
+        raise NotIncremental(f"no {'/'.join(needed)} columns")
+    if set(s_up) != set(d_up):     # V3 added (or dropped) a column: the full copy rebuilds the table
+        raise NotIncremental(f"columns differ: {sorted(set(s_up) ^ set(d_up))[:5]}")
+    target = dst.fq(d_schema, d_table)
+    wm = dst.run(f"SELECT TO_STRING(MAX({_bq(d_up[INCREMENTAL_WATERMARK].name)})) FROM {target}")
+    wm = wm[0][0] if wm else None
+    if not wm or str(wm).upper() == "NULL":
+        raise NotIncremental("target has no watermark yet")
+    since = (datetime.fromisoformat(str(wm)[:19]) - INCREMENTAL_OVERLAP).strftime("%Y-%m-%d %H:%M:%S")
+    where = f"{_q(s_up[INCREMENTAL_WATERMARK].name)} >= '{since}'"
+    if src.backend == "snowflake":
+        changed = int(src.run(f"SELECT COUNT(*) FROM {src.fq(s_schema, s_table)} WHERE {where}")[0][0])
+    else:
+        changed = int(src.run(f"SELECT COUNT(*) FROM {src.fq(s_schema, s_table)} "
+                              f"WHERE {_bq(s_up[INCREMENTAL_WATERMARK].name)} >= '{since}'")[0][0])
+    if changed > max(1000, INCREMENTAL_MAX_FRACTION * src_rows):
+        raise NotIncremental(f"{changed:,} of {src_rows:,} rows changed - a full copy is cheaper")
+
+    if changed:
+        staging = d_table + STAGING_SUFFIX
+        rename = {c.name: d_up[c.name.upper()].name for c in src_cols}
+        out_cols = [Col(d_up[c.name.upper()].name, c.kind) for c in src_cols]
+        names = [c.name for c in out_cols]
+        keys = [d_up[k].name for k in INCREMENTAL_KEYS]
+        stamp = d_up[INCREMENTAL_WATERMARK].name
+        try:
+            dst.run(f"CREATE OR REPLACE TABLE {dst.fq(d_schema, staging)} LIKE {target}")
+            for df in src.read_batches(s_schema, s_table, src_cols, where=where):
+                if not df.empty:
+                    dst.write(d_schema, staging, _prepare(df.rename(columns=rename), out_cols, dst))
+            on = " AND ".join(f"t.{_bq(k)} = s.{_bq(k)}" for k in keys)
+            sets = ", ".join(f"{_bq(n)} = s.{_bq(n)}" for n in names if n not in keys)
+            dst.run(f"MERGE INTO {target} AS t USING (SELECT * FROM {dst.fq(d_schema, staging)} "
+                    f"QUALIFY ROW_NUMBER() OVER (PARTITION BY {', '.join(_bq(k) for k in keys)} "
+                    f"ORDER BY {_bq(stamp)} DESC) = 1) AS s ON {on} "
+                    f"WHEN MATCHED THEN UPDATE SET {sets} "
+                    f"WHEN NOT MATCHED THEN INSERT ({', '.join(_bq(n) for n in names)}) "
+                    f"VALUES ({', '.join('s.' + _bq(n) for n in names)})")
+        finally:
+            try:
+                dst.drop(d_schema, staging)
+            except Exception:  # noqa: BLE001
+                pass
+    got = dst.count(d_schema, d_table)
+    log(f"  incremental {schema}.{table} {src.backend} -> {dst.backend}: {changed:,} changed row(s) merged "
+        f"(since {since}), {got:,} rows")
+    return changed, got
+
+
 def append_keys_from_env() -> dict:
     """BISYNC_APPEND_KEYS="SCHEMA.TABLE=COLUMN,..." merged over APPEND_KEYS."""
     import os
@@ -593,6 +704,22 @@ def _key_for(a: Side, b: Side, schema: str, table: str, append_keys: Optional[di
 
 
 # ── planning + run ───────────────────────────────────────────────────────
+def _old_sf_fingerprint(recorded: Optional[str]) -> bool:
+    """Recorded before Snowflake fingerprints became rows|b<bytes> (they were rows|LAST_ALTERED)."""
+    return bool(recorded) and not re.fullmatch(r"\d+\|b\d+", recorded)
+
+
+def _changed(info: TableInfo, recorded: Optional[str]) -> bool:
+    # An old-style record can't be compared with a SHOW TABLES fingerprint: compare row counts once (run() then
+    # stores the new fingerprint) instead of treating all ~2,700 tables as changed and re-copying everything.
+    if _old_sf_fingerprint(recorded) and re.fullmatch(r"\d+\|b\d+", info.fingerprint):
+        return str(info.rows) != recorded.split("|", 1)[0]
+    return info.fingerprint != recorded
+
+
+_QUOTA_ERR = re.compile(r"090073|resource monitor .* exceeded its quota|cannot be resumed", re.I)
+
+
 def plan(sf: dict, bend: dict, state: dict, *, allow_shrink: bool,
          append_keys: Optional[dict] = None) -> list[tuple]:
     """[(key, action)] with action in copy_sf_to_db, copy_db_to_sf, reconcile, adopt, noop.
@@ -611,7 +738,7 @@ def plan(sf: dict, bend: dict, state: dict, *, allow_shrink: bool,
         if st is None:
             out.append((key, "adopt" if a.rows == b.rows else "reconcile"))
             continue
-        a_changed, b_changed = a.fingerprint != st.get("sf"), b.fingerprint != st.get("db")
+        a_changed, b_changed = _changed(a, st.get("sf")), b.fingerprint != st.get("db")
         if not a_changed and not b_changed:
             out.append((key, "noop"))
         elif ".".join(key) in append:
@@ -640,8 +767,9 @@ def run(sf: Side, db: Side, state_path: Path, *, allow_shrink: bool = False, dry
     if only:
         actions = [(k, a) for k, a in actions if ".".join(k) in only or k[1] in only]
     report = {"sf_tables": len(sf_t), "db_tables": len(db_t), "copied_sf_to_db": [], "copied_db_to_sf": [],
-              "reconciled": [], "adopted": 0, "unchanged": 0, "conflicts": [], "failed": [], "rows": 0,
-              "views_created": [], "views_replaced": [], "views_adopted": 0, "views_failed": []}
+              "incremental": [], "reconciled": [], "adopted": 0, "unchanged": 0, "conflicts": [], "failed": [],
+              "rows": 0, "views_created": [], "views_replaced": [], "views_adopted": 0, "views_failed": []}
+    quota_error = None
 
     def save():
         tmp = state_path.with_suffix(".tmp")
@@ -655,6 +783,12 @@ def run(sf: Side, db: Side, state_path: Path, *, allow_shrink: bool = False, dry
         s_schema, s_table = (a or b).schema, (a or b).name      # side-correct casing
         if action == "noop":
             report["unchanged"] += 1
+            st = state.get(name)
+            if not dry_run and a and st and _old_sf_fingerprint(st.get("sf")) and st.get("sf") != a.fingerprint:
+                st["sf"] = a.fingerprint          # migrate to the SHOW TABLES fingerprint (saved below)
+            continue
+        if quota_error:
+            report["failed"].append(f"{name}: {action}: not attempted - Snowflake warehouse quota exhausted")
             continue
         if dry_run:
             log(f"[dry-run] {name}: {action} (sf={a and a.rows} db={b and b.rows})")
@@ -662,8 +796,12 @@ def run(sf: Side, db: Side, state_path: Path, *, allow_shrink: bool = False, dry
                 f"{name}: {action}")
             continue
         try:
+            incr = action == "copy_sf_to_db" and b is not None and _incremental(sf, db, s_schema, s_table, a, log,
+                                                                                 report, name)
             if action == "adopt":
                 report["adopted"] += 1
+            elif incr:
+                pass
             elif action == "copy_sf_to_db":
                 if bulk is not None and a.rows >= bulk.min_rows:
                     report["rows"] += bulk_copy_sf_to_db(sf, db, s_schema, s_table, bulk,
@@ -684,15 +822,24 @@ def run(sf: Side, db: Side, state_path: Path, *, allow_shrink: bool = False, dry
                 n += insert_missing(db, sf, s_schema, s_table, k, log=log)
                 report["rows"] += n
                 report["reconciled"].append(f"{name} (+{n})")
-            # record both sides' fingerprints as they are NOW (after our writes)
-            fresh_a = sf.info(*sf.real(s_schema, s_table)) if action != "adopt" else a
+            # record both sides' fingerprints as they are NOW (after our writes). Incremental: Snowflake's as
+            # PLANNED - if V3 wrote more while we merged, the next run sees a change and picks those rows up.
+            fresh_a = a if action == "adopt" or incr else sf.info(*sf.real(s_schema, s_table))
             fresh_b = db.info(*db.real(s_schema, s_table)) if action != "adopt" else b
             state[name] = {"sf": fresh_a and fresh_a.fingerprint, "db": fresh_b and fresh_b.fingerprint,
-                           "action": action, "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+                           "action": "incremental" if incr else action,
+                           "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
             save()
         except Exception as e:  # noqa: BLE001 - keep going, report at the end
             logger.exception("bisync %s failed", name)
             report["failed"].append(f"{name}: {action}: {str(e)[:300]}")
+            if _QUOTA_ERR.search(str(e)):
+                # Every further Snowflake read fails the same way; stop instead of failing table after table.
+                quota_error = str(e)[:300]
+    if quota_error:
+        report["quota_exhausted"] = quota_error
+    if not dry_run:
+        save()                          # fingerprint migrations above, even when nothing was copied
     if sync_views:
         try:
             views_sf_to_db(sf, db, state, report, dry_run=dry_run, only=only, log=log)
@@ -703,6 +850,27 @@ def run(sf: Side, db: Side, state_path: Path, *, allow_shrink: bool = False, dry
             save()
     log(f"bisync: {json.dumps({k: (v if isinstance(v, int) else len(v)) for k, v in report.items()})}")
     return report
+
+
+def _incremental(sf: Side, db: Side, schema: str, table: str, a: TableInfo, log: Callable, report: dict,
+                 name: str) -> bool:
+    """Try the changed-rows-only path; True if it synced the table, False if a full copy is needed."""
+    try:
+        n, got = incremental_copy(sf, db, schema, table, src_rows=a.rows, log=log)
+    except NotIncremental as e:
+        if not str(e).startswith("no "):
+            log(f"  {name}: full copy ({e})")
+        return False
+    if got != a.rows:
+        now = sf.info(*sf.real(schema, table))
+        if now is not None and now.rows == a.rows:
+            # Snowflake didn't move while we merged, yet the counts differ: Databend has diverged (e.g. Snowflake
+            # removed duplicate rows). The full copy below makes it an exact copy again.
+            log(f"  {name}: databend has {got:,} rows after the merge, snowflake {a.rows:,} - full copy")
+            return False
+    report["rows"] += n
+    report["incremental"].append(f"{name} (+{n})")
+    return True
 
 
 # ── views (Snowflake -> Databend, one way) ───────────────────────────────

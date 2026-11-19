@@ -311,6 +311,13 @@ def test_unreachable_service_is_a_gateway_error_so_the_plan_skips_it(monkeypatch
         c.describe("inventory", "products")
 
 
+@pytest.mark.parametrize("model", ["evaluation/patient_meta", "evaluation/visit_symptoms",
+                                   "evaluation/examination_review_details"])
+def test_patient_and_visit_owned_models_without_tenant_are_parent_rows(model):
+    # a "reference" kind would post every org's rows (V3 refused 126 other-org patient_meta rows)
+    assert vv.model_kind(model, {"tenant": None}, {"id", "uuid", "patient_id", "visit_id"}) == "parent_rows"
+
+
 def test_canary_posts_at_most_n_per_model(tmp_path):
     src, dst = _pair()
     _, _, _, order, results = _run(src, dst, tmp_path, record_limit=1)

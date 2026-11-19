@@ -184,6 +184,11 @@ CRITICAL: dict[str, tuple[str, ...]] = {
     "reception/visit_destination": ("visit_id",),
     "evaluation/visit_destinations": ("visit_id",),
     "evaluation/visits": ("patient",),
+    # no tenant column: without a critical link these read as shared "reference"
+    # rows, so every org's rows were posted (refused, or filed under the target org)
+    "evaluation/patient_meta": ("patient_id",),
+    "evaluation/visit_symptoms": ("visit_id",),
+    "evaluation/examination_review_details": ("visit_id",),
     "evaluation/vitals": ("visit",),
     "evaluation/doctor_notes": ("visit_id",),
     "evaluation/diagnoses": ("visit_id",),

@@ -269,15 +269,51 @@ def test_timestamp_from_parts_date_and_time():
 
 
 def test_view_ctes_get_view_specific_names():
+    # read twice -> stays a CTE, renamed per view (single-use CTEs are inlined, see below)
     out = sql("create or replace view staging.v as with deduped as (select id from raw.t) "
-              "select deduped.id from deduped join raw.u u on u.id = deduped.id")
+              "select deduped.id from deduped join raw.u u on u.id = deduped.id "
+              "union all select d2.id from deduped d2")
     name = out.split('WITH "')[1].split('"')[0]
     assert name.startswith("DEDUPED_V") and len(name) == len("DEDUPED_V") + 8
-    assert f'FROM "{name}" AS "DEDUPED"' in out and '"DEDUPED"."ID"' in out
+    assert f'FROM "{name}" AS "DEDUPED"' in out and '"DEDUPED"."ID"' in out and f'FROM "{name}" AS "D2"' in out
     # a different view gets a different name; plain queries are untouched
-    other = sql("create or replace view staging.w as with deduped as (select 1 as id) select * from deduped")
+    other = sql("create or replace view staging.w as with deduped as (select 1 as id) "
+                "select * from deduped union all select * from deduped")
     assert name not in other
     assert 'WITH "DEDUPED" AS' in sql("with deduped as (select 1 as id) select * from deduped")
+
+
+def test_view_single_use_ctes_are_inlined():
+    """Databend registers a view's CTE names at every expansion: reading such a view in a NOT EXISTS and a JOIN
+    failed with "Duplicate common table expression" (STAGING.STG_ADMISSIONS from REPORTING.VW_RPT_ORTHO_OPD)."""
+    out = sql("create or replace view staging.adm as with eav as (select id, w from raw.t), "
+              "ow as (select e.id, max(e.w) w from eav e group by 1) select a.*, ow.w from raw.a a left join ow on ow.id = a.id")
+    assert "WITH" not in out                                # no CTE left to collide
+    assert 'LEFT JOIN (SELECT "E"."ID", MAX("E"."W") AS "W" FROM (SELECT "ID", "W" FROM "RAW"."T") AS "E"' in out
+    assert 'AS "OW" ON' in out
+
+
+def test_view_unqualified_names_resolve_in_the_views_schema():
+    out = sql("CREATE OR REPLACE VIEW patients_current_v AS WITH aged AS (SELECT p.* FROM patients p) "
+              "SELECT a.*, g.age_group FROM aged a LEFT JOIN age_group_reference g ON a.x = g.x",
+              tr.Context(database="HOSPITALS", schema="STAGING_V2", primary_database="HOSPITALS"))
+    assert out.startswith('CREATE OR REPLACE VIEW "STAGING_V2"."PATIENTS_CURRENT_V" AS')
+    assert '"STAGING_V2"."PATIENTS" AS "P"' in out and '"STAGING_V2"."AGE_GROUP_REFERENCE" AS "G"' in out
+
+
+def test_scaled_to_timestamp_and_asof_match_condition():
+    assert "TO_TIMESTAMP(CAST(\"APTDATE\" AS BIGINT), 6)" in sql("select to_timestamp(aptdate, 6) from t")
+    out = sql("select u.k, f.v from u asof join f match_condition (u.d >= f.d) on u.k = f.k")
+    assert "MATCH_CONDITION" not in out
+    assert 'ASOF LEFT JOIN "F" ON "U"."D" >= "F"."D" AND "U"."K" = "F"."K"' in out
+
+
+def test_flatten_value_only_where_flatten_is_read():
+    out = sql("with neg as (select month, sum(v) as value from t group by 1), "
+              "fl as (select x.value:m::string m from s, lateral flatten(input => s.arr) x) "
+              "select month, value from neg union all select m, null from fl")
+    assert 'SELECT "MONTH", "VALUE" FROM' in out          # ordinary column: Snowflake case
+    assert 'GET_PATH("X"."value", \'m\')' in out          # FLATTEN's column: Databend's lower case
 
 
 def test_coerce_text_aggregates_is_opt_in():

@@ -880,7 +880,14 @@ _TEXT_AGG_ERR = re.compile(r"(sum|avg) does not support type '?String", re.I)
 _MISSING_DEP_ERR = re.compile(r"Unknown (table|database)", re.I)
 
 
+# SHOW VIEWS' text carries the view COMMENT (INFORMATION_SCHEMA.VIEW_DEFINITION didn't); Databend's CREATE VIEW
+# has no COMMENT clause, so it's dropped from the header (before the AS).
+_VIEW_COMMENT = re.compile(r"(?is)^(\s*CREATE\b(?:(?!\bAS\b).)*?\bVIEW\b(?:(?!\bAS\b).)*?)"
+                           r"\s+COMMENT\s*=\s*'(?:\\.|''|[^'\\])*'")
+
+
 def _view_ddl(definition: str, schema: str, database: str, *, coerce: bool = False) -> str:
+    definition = _VIEW_COMMENT.sub(r"\1", definition, count=1)
     ctx = tr.Context(database=database, schema=schema, primary_database=tr.default_primary_database(),
                      coerce_text_aggregates=coerce)
     stmts = [s for s in tr.translate(definition, ctx) if s.action == "sql"]

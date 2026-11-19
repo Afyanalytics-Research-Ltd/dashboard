@@ -20,6 +20,11 @@ the source: every row, every field, every link.
     python v3_to_v3_migration.py --source kisumu_v3 --target org250 migrate --record-limit 3
     python v3_to_v3_migration.py --source kisumu_v3 --target org250 migrate --tier 1
     python v3_to_v3_migration.py --source kisumu_v3 --target org250 verify
+    python v3_to_v3_migration.py --source test284 --target prod284 migrate --since yesterday
+
+--since / --until copy only rows created or changed in that window (rows
+outside it already on the target are still mapped by uuid, so the new rows
+link to them); verify then compares only the window's rows.
 
 Each side's account / URLs / org come from AFYA_<KEY>_* (v3_to_v3_client).
 State (id maps, held rows, dead letters, reports) lives in
@@ -41,7 +46,7 @@ import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -93,6 +98,72 @@ def from_wall_time(v):
 
 
 TIMESTAMPS: set[str] = set()       # (all fields are compared and patched now)
+
+# ─── date window (copy only the rows created / changed in a period) ─────────
+WINDOW_COLUMNS = ("created_at", "updated_at")
+
+
+def parse_instant(v) -> datetime | None:
+    """A gateway timestamp ('…Z' = UTC) or a wall-clock 'YYYY-MM-DD[ HH:MM:SS]'
+    (SOURCE_TZ) → an aware datetime; None if it isn't one."""
+    if isinstance(v, datetime):
+        return v if v.tzinfo else v.replace(tzinfo=SOURCE_TZ)
+    if not isinstance(v, str) or len(v) < 10:
+        return None
+    s = v.strip().replace("Z", "+00:00")
+    try:
+        t = datetime.fromisoformat(s)
+    except ValueError:
+        return None
+    return t if t.tzinfo else t.replace(tzinfo=SOURCE_TZ)
+
+
+def resolve_window(since: str | None, until: str | None, now: datetime | None = None
+                   ) -> tuple[datetime, datetime] | None:
+    """('yesterday' | 'today' | date | datetime, same | '') → [since, until), in SOURCE_TZ
+    wall time. A bare date for `until` means the end of that day; no `until`
+    means the end of `since`'s day for a bare date / keyword, else now."""
+    since, until = (since or "").strip().lower(), (until or "").strip().lower()
+    if not since:
+        if until:
+            raise ValueError("a window needs `since` (until alone would copy all history)")
+        return None
+    today = (now or datetime.now(SOURCE_TZ)).astimezone(SOURCE_TZ).replace(hour=0, minute=0, second=0,
+                                                                          microsecond=0)
+
+    def day_start(s: str) -> datetime | None:
+        if s == "today":
+            return today
+        if s == "yesterday":
+            return today - timedelta(days=1)
+        if re.fullmatch(r"\d{4}-\d\d-\d\d", s):
+            return datetime.fromisoformat(s).replace(tzinfo=SOURCE_TZ)
+        return None
+
+    start = day_start(since) or parse_instant(since)
+    if start is None:
+        raise ValueError(f"since={since!r}: use yesterday, today, YYYY-MM-DD or YYYY-MM-DD HH:MM:SS")
+    if until:
+        d = day_start(until)
+        end = d + timedelta(days=1) if d is not None else parse_instant(until)
+        if end is None:
+            raise ValueError(f"until={until!r}: use yesterday, today, YYYY-MM-DD or YYYY-MM-DD HH:MM:SS")
+    else:
+        end = start + timedelta(days=1) if day_start(since) is not None else (now or datetime.now(SOURCE_TZ))
+    if end <= start:
+        raise ValueError(f"empty window {start} .. {end}")
+    return start, end
+
+
+def in_window(row: dict, window: tuple[datetime, datetime] | None) -> bool:
+    """True when there is no window, or the row was created or last changed inside it."""
+    if window is None:
+        return True
+    for col in WINDOW_COLUMNS:
+        t = parse_instant(row.get(col))
+        if t is not None and window[0] <= t < window[1]:
+            return True
+    return False
 
 
 # ─── state ──────────────────────────────────────────────────────────────────
@@ -531,8 +602,12 @@ def preflight(client: V3Client, services=SERVICES) -> None:
 class Copier:
     def __init__(self, src: V3Client, dst: V3Client, state: State, plan: dict, *, workers: int = 4,
                  record_limit: int = 0, read_workers: int = READ_WORKERS, v2_map: dict | None = None,
-                 checkpoint_seconds: float = CHECKPOINT_SECONDS, max_error_streak: int = MAX_ERROR_STREAK):
+                 checkpoint_seconds: float = CHECKPOINT_SECONDS, max_error_streak: int = MAX_ERROR_STREAK,
+                 window: tuple[datetime, datetime] | None = None):
         self.src, self.dst, self.state, self.plan = src, dst, state, plan
+        # [since, until): only rows created / changed in it are posted; older rows
+        # already on the target are still mapped (by uuid) so new rows link to them
+        self.window = window
         self.v2_map = v2_map or {}
         self.unrepaired: dict[str, int] = {}          # "model.col" → V2 ids the map lacked (copied as null)
         self.errors: dict[str, dict[str, dict]] = {}  # model → cause → {count, v3_message, meaning, example}
@@ -862,6 +937,12 @@ class Copier:
                     if x["kind"] == "parent_rows" and not self._parent_in_source(model, row, missing_crit):
                         counts["foreign"] += 1
                         continue
+                if not there and not in_window(row, self.window):
+                    # a windowed run: not created / changed in the window — left alone
+                    counts["outside_window"] = counts.get("outside_window", 0) + 1
+                    src_ids.append(sid)
+                    continue
+                if missing_crit and not there:
                     held[sid] = {c: row.get(c) for c in missing_crit}
                     counts["held"] += 1
                     src_ids.append(sid)
@@ -978,6 +1059,9 @@ class Copier:
                     with pool.lock:
                         idm[sid] = hit
                         counts["linked"] += 1
+                    continue
+                if not in_window(row, self.window):
+                    counts["outside_window"] = counts.get("outside_window", 0) + 1
                     continue
                 if self.map_only or (self.record_limit and posting >= self.record_limit):
                     continue
@@ -1163,6 +1247,10 @@ def verify_model(copier: Copier, model: str, examples: int = 5, canary: bool = F
         src_ids = [str(r["id"]) for r in copier.source_rows(model)]
         idm = copier.state.id_map(model, reload=True)
         miss = [i for i in src_ids if i not in idm]
+        if copier.window is not None:   # a windowed copy links only the rows of its window
+            in_win = {str(r["id"]) for r in copier.source_rows(model) if in_window(r, copier.window)}
+            src_ids = [i for i in src_ids if i in idm or i in in_win]
+            miss = [i for i in miss if i in in_win]
         if canary:
             miss = []
         return {"source": len(src_ids), "linked": len(src_ids) - len(miss), "missing": len(miss),
@@ -1255,8 +1343,8 @@ def verify_model(copier: Copier, model: str, examples: int = 5, canary: bool = F
                                       "_key": [pk[1], pk[2]],
                                       **({"updated_at": payload["updated_at"]} if "updated_at" in payload else {})}
         got, got_ts = got_pair if got_pair is not None else (None, None)
-        if got is None and canary:
-            n_src -= 1
+        if (got is None and canary) or not in_window(row, copier.window):
+            n_src -= 1          # canary: not posted by design; windowed: outside the window
             continue
         if got is None:
             missing += 1
@@ -1518,7 +1606,11 @@ def main(argv=None) -> int:
     ap.add_argument("--refresh-plan", action="store_true")
     ap.add_argument("--audit-sample", type=int, default=2000)
     ap.add_argument("--canary", action="store_true", help="verify: compare only the rows on the target")
+    ap.add_argument("--since", default="", help="only rows created / changed since: yesterday, today, "
+                                                "YYYY-MM-DD or 'YYYY-MM-DD HH:MM:SS' (V3V3_SOURCE_TZ)")
+    ap.add_argument("--until", default="", help="window end (exclusive; a date = end of that day)")
     a = ap.parse_args(argv)
+    window = resolve_window(a.since, a.until)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s · %(levelname)-7s · %(message)s", datefmt="%H:%M:%S")
 
     src, dst = clients(a.source, a.target)
@@ -1536,7 +1628,9 @@ def main(argv=None) -> int:
     copier = Copier(src, dst, state, plan, workers=a.workers, record_limit=a.record_limit,
                     v2_map=load_v2_map(a.source, root=a.state_dir),
                     read_workers=a.read_workers, checkpoint_seconds=a.checkpoint_seconds,
-                    max_error_streak=a.max_error_streak)
+                    max_error_streak=a.max_error_streak, window=window)
+    if window:
+        log.info("window: rows created / changed %s … %s (exclusive)", *window)
     todo = sorted((m for m, x in plan["models"].items() if x["selected"] and (a.tier is None or x["tier"] == a.tier)),
                   key=lambda m: (plan["models"][m]["tier"], m))
 

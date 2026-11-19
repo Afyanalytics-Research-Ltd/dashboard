@@ -60,6 +60,17 @@ def _setup(p: dict):
     return vv, src, dst, vv.State(p["source"], p["target"])
 
 
+def _window(vv, ctx):
+    """The run's [since, until) or None. 'yesterday' / 'today' count from when the
+    run was triggered, so every task of a run (even past midnight) agrees."""
+    p, run = ctx["params"], ctx.get("dag_run")
+    anchor = getattr(run, "run_after", None) or getattr(run, "start_date", None) or getattr(run, "logical_date", None)
+    try:
+        return vv.resolve_window(p.get("since"), p.get("until"), now=anchor)
+    except ValueError as e:
+        raise AirflowFailException(str(e))
+
+
 def _plan(vv, src, state, p, refresh=False):
     return vv.load_or_build_plan(src, state, clean_list(p["models"]) or None,
                                  clean_list(p["exclude_models"]) or None, refresh=refresh)
@@ -91,6 +102,13 @@ def _plan(vv, src, state, p, refresh=False):
                                      f"Up to {PARALLEL_MODELS} models run at once: total in flight = that × this."),
         "read_workers": Param(8, type="integer", minimum=1, maximum=32, title="Parallel page reads per table",
                               description="The gateway serves at most 500 rows a page; 8 readers ≈ 4k rows/s."),
+        "since": Param("", type="string", title="Only rows created / changed since",
+                       description="Empty = the whole org. 'yesterday', 'today', YYYY-MM-DD or 'YYYY-MM-DD HH:MM:SS' "
+                                   "(Nairobi time). Rows outside the window aren't posted; ones already on the "
+                                   "target are still matched by uuid so the new rows link to them."),
+        "until": Param("", type="string", title="… until (exclusive)",
+                       description="Empty = the end of `since`'s day (a date / keyword), else now. A date = end of "
+                                   "that day."),
         "refresh_plan": Param(False, type="boolean", title="Rebuild the plan",
                               description="Re-read the source catalogue (new models / columns)."),
         "skip_verify": Param(False, type="boolean", title="Skip verify after migrate"),
@@ -108,6 +126,9 @@ def v3_to_v3_migration():
         p = get_current_context()["params"]
         vv, src, dst, state = _setup(p)
         log.info("source %r → target %r", src, dst)
+        window = _window(vv, get_current_context())
+        if window:
+            log.info("window: rows created / changed %s … %s (exclusive)", *window)
         # wrong account / org, or an account the gateway refuses (no superadmin
         # role), fails here — before anything moves, with what's refused
         try:
@@ -154,7 +175,8 @@ def v3_to_v3_migration():
         vv, src, dst, state = _setup(p)
         pl = _plan(vv, src, state, p)
         copier = vv.Copier(src, dst, state, pl, workers=int(p["workers"]), record_limit=int(p["record_limit"]),
-                           read_workers=int(p["read_workers"]), v2_map=vv.load_v2_map(p["source"]))
+                           read_workers=int(p["read_workers"]), v2_map=vv.load_v2_map(p["source"]),
+                           window=_window(vv, ctx))
         try:
             res = copier.copy_model(job["model"])
         except vv.GatewayError as e:          # target down / rejecting everything: state is saved, retry later
@@ -178,7 +200,7 @@ def v3_to_v3_migration():
         vv, src, dst, state = _setup(p)
         pl = _plan(vv, src, state, p)
         copier = vv.Copier(src, dst, state, pl, workers=int(p["workers"]), read_workers=int(p["read_workers"]),
-                           v2_map=vv.load_v2_map(p["source"]))
+                           v2_map=vv.load_v2_map(p["source"]), window=_window(vv, get_current_context()))
         out = {m: copier.relink(m) for m, x in sorted(pl["models"].items(), key=lambda kv: kv[1]["tier"] or 0)
                if x["selected"]}
         left = {m: r["still_missing"] for m, r in out.items() if r["still_missing"]}
@@ -209,7 +231,7 @@ def v3_to_v3_migration():
         # a canary run compares just the rows it copied, field by field
         canary = ctx["params"]["mode"] == "migrate" and int(ctx["params"]["record_limit"]) > 0
         res = vv.verify_model(vv.Copier(src, dst, state, pl, read_workers=int(ctx["params"]["read_workers"]),
-                                        v2_map=vv.load_v2_map(ctx["params"]["source"])),
+                                        v2_map=vv.load_v2_map(ctx["params"]["source"]), window=_window(vv, ctx)),
                               job["model"], canary=canary)
         state.save("verify", job["model"], res)
         log.info("%s: %s", job["model"], json.dumps(res, default=str)[:4000])
@@ -242,8 +264,9 @@ def v3_to_v3_migration():
     @task(trigger_rule=TriggerRule.ALL_DONE, execution_timeout=timedelta(hours=6))
     def corrections() -> None:
         p = get_current_context()["params"]
-        if p["mode"] != "migrate" or int(p["record_limit"]) > 0 or not p.get("corrections", True):
-            raise AirflowSkipException("only after a full migrate (not plan / verify / a canary)")
+        if (p["mode"] != "migrate" or int(p["record_limit"]) > 0 or not p.get("corrections", True)
+                or (p.get("since") or "").strip()):
+            raise AirflowSkipException("only after a full migrate (not plan / verify / a canary / a date window)")
         from v3_org_corrections_dag import run_corrections
         run_corrections(p["target"], source=p["source"], facility=p.get("v2_facility") or p["source"],
                         dry_run=False, steps=["restore_destinations", "destination_categories",

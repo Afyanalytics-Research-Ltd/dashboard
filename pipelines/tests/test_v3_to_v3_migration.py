@@ -259,6 +259,8 @@ def test_resolve_window_keywords_dates_and_errors():
     assert not vv.in_window({"created_at": "2026-11-17T20:59:59.000000Z"}, win)
     assert vv.in_window({"created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-11-18 23:00:00"}, win)
     assert not vv.in_window({"name": "no timestamps"}, win)
+    for zero in ("0000-00-00T00:00:00.000000Z", "0000-12-31T21:00:00.000000Z"):   # patient_meta on test284
+        assert vv.to_wall_time(zero) == zero
     # placeholder dates: year 0 in UTC must not crash the copy
     assert not vv.in_window({"created_at": "0001-01-01 00:00:00", "updated_at": "0000-00-00 00:00:00"}, win)
     assert vv.in_window({"created_at": "0001-01-01 00:00:00", "updated_at": "2026-11-18 10:00:00"}, win)

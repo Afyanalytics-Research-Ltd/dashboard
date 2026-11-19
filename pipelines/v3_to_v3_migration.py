@@ -113,9 +113,11 @@ def parse_instant(v) -> datetime | None:
     s = v.strip().replace("Z", "+00:00")
     try:
         t = datetime.fromisoformat(s)
-    except ValueError:
+        t = t if t.tzinfo else t.replace(tzinfo=SOURCE_TZ)
+        t.astimezone(ZoneInfo("UTC"))      # placeholder dates (0001-01-01 local) fall before year 1 in UTC
+    except (ValueError, OverflowError):
         return None
-    return t if t.tzinfo else t.replace(tzinfo=SOURCE_TZ)
+    return t
 
 
 def resolve_window(since: str | None, until: str | None, now: datetime | None = None
@@ -1020,6 +1022,25 @@ class Copier:
                 return True
         return False
 
+    def _links_another_org(self, model: str, unresolved: dict) -> bool:
+        """An unresolved link whose parent model was fully read (its src_ids are saved)
+        and doesn't hold that id: the parent belongs to another org."""
+        x = self.models[model]
+        for col, val in unresolved.items():
+            parent = x["links"].get(col)
+            if not parent or parent == model:
+                continue
+            cache = self.__dict__.setdefault("_read_parent_ids", {})   # parent → set | None (never fully read)
+            if parent not in cache:
+                with self._lock:
+                    if parent not in cache:
+                        saved = self.state.load("src_ids", parent, None)
+                        cache[parent] = set(saved) if saved is not None else None
+            ids = cache[parent]
+            if ids is not None and str(val) not in ids:
+                return True
+        return False
+
     def link_reference(self, model: str) -> dict:
         """Shared reference rows: the target's own row (uuid, then the match
         fields); inserted only when the target has none."""
@@ -1065,8 +1086,13 @@ class Copier:
                     continue
                 if self.map_only or (self.record_limit and posting >= self.record_limit):
                     continue
+                payload, _, unresolved = self.translate(model, row)
+                if self._links_another_org(model, unresolved):
+                    # a shared-table row whose parent (procedure …) is another org's:
+                    # posting it would leave that link NULL on the target
+                    counts["foreign"] = counts.get("foreign", 0) + 1
+                    continue
                 posting += 1
-                payload, _, _ = self.translate(model, row)
                 pool.submit(row, payload, None, done)
                 if time.time() - last_save > self.checkpoint_seconds:
                     with pool.lock:

@@ -259,6 +259,9 @@ def test_resolve_window_keywords_dates_and_errors():
     assert not vv.in_window({"created_at": "2026-11-17T20:59:59.000000Z"}, win)
     assert vv.in_window({"created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-11-18 23:00:00"}, win)
     assert not vv.in_window({"name": "no timestamps"}, win)
+    # placeholder dates: year 0 in UTC must not crash the copy
+    assert not vv.in_window({"created_at": "0001-01-01 00:00:00", "updated_at": "0000-00-00 00:00:00"}, win)
+    assert vv.in_window({"created_at": "0001-01-01 00:00:00", "updated_at": "2026-11-18 10:00:00"}, win)
     assert vv.in_window({"name": "no timestamps"}, None)
 
 
@@ -316,6 +319,19 @@ def test_unreachable_service_is_a_gateway_error_so_the_plan_skips_it(monkeypatch
 def test_patient_and_visit_owned_models_without_tenant_are_parent_rows(model):
     # a "reference" kind would post every org's rows (V3 refused 126 other-org patient_meta rows)
     assert vv.model_kind(model, {"tenant": None}, {"id", "uuid", "patient_id", "visit_id"}) == "parent_rows"
+
+
+def test_shared_row_whose_parent_is_another_orgs_is_not_posted(tmp_path):
+    # evaluation/subprocedures on test284: 622 other orgs' rows went to prod with procedure NULL
+    src, dst = _pair()
+    _run(src, dst, tmp_path)
+    u1 = next(r["id"] for r in src.rows["core/users"] if r["uuid"] == "u1")
+    src.add("evaluation/symptoms", uuid="s-ours", name="Cough", created_by=u1)
+    src.add("evaluation/symptoms", uuid="s-theirs", name="Itch", created_by=987654)   # another org's user
+    _, _, _, _, res = _run(src, dst, tmp_path)
+    names = {r["name"] for r in dst.rows["evaluation/symptoms"]}
+    assert "Cough" in names and "Itch" not in names
+    assert res["evaluation/symptoms"]["foreign"] == 1 and res["evaluation/symptoms"]["posted"] == 1
 
 
 def test_canary_posts_at_most_n_per_model(tmp_path):

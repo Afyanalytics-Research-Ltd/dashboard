@@ -125,6 +125,18 @@ def test_snowflake_metadata_uses_show_and_desc_not_a_warehouse():
     assert all(s.startswith(("SHOW ", "DESC ")) for s in conn.sql)
 
 
+def test_view_comment_clause_is_dropped_for_databend():
+    """SHOW VIEWS text keeps the view COMMENT; Databend rejects COMMENT= on CREATE VIEW (70 prod views, 2026-11-19)."""
+    d = ("CREATE OR REPLACE VIEW HOSPITALS.SILVERWOOD_EXTRACTION_MAPPED.CORE_FACILITY\n"
+         "comment = 'V3 App\\\\Models\\\\Core\\\\Facility mapped from facility (connection 35); latest load only' \n"
+         "AS\nSELECT id AS comment_id, 'x = ''y''' AS note FROM HOSPITALS.RAW.T")
+    sql = bisync._view_ddl(d, "SILVERWOOD_EXTRACTION_MAPPED", "HOSPITALS")
+    assert sql.upper().startswith("CREATE OR REPLACE VIEW") and "Facility mapped" not in sql
+    assert "comment_id" in sql.lower()                       # body untouched
+    plain = "create or replace view HOSPITALS.RPT.V as select 1 as comment"
+    assert "comment" in bisync._view_ddl(plain, "RPT", "HOSPITALS").lower()
+
+
 # -- live --------------------------------------------------------------------------
 
 def _reachable():

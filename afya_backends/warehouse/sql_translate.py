@@ -885,8 +885,24 @@ def _protect_flatten_columns(tree: exp.Expression) -> None:
         if name.upper() not in FLATTEN_COLUMNS or col.this.args.get("quoted"):
             continue
         table = col.table
-        if (table and table.upper() in aliases) or not table:
+        # Unqualified: FLATTEN's column only if this SELECT itself reads a FLATTEN - otherwise it's an ordinary
+        # column/alias that happens to be called VALUE (REPORTING.RPT_KSH_V3_INV_CONTROL: `SUM(..) AS value`
+        # in one CTE, `SELECT ..., value FROM neg` in another).
+        if (table and table.upper() in aliases) or (not table and _select_reads_flatten(col)):
             col.set("this", exp.Identifier(this=name.lower(), quoted=True))
+
+
+def _select_reads_flatten(node: exp.Expression) -> bool:
+    sel = node.find_ancestor(exp.Select)
+    if sel is None:
+        return False
+    for src in [sel.args.get("from_"), *(sel.args.get("joins") or [])]:
+        if src is None:
+            continue
+        for n in src.find_all(exp.Lateral, exp.Explode, exp.TableFromRows):
+            if n.find_ancestor(exp.Select) is sel:
+                return True
+    return False
 
 
 def _map_tables(tree: exp.Expression, ctx: Context) -> None:
@@ -1515,7 +1531,11 @@ def _translate_one(stmt: str, ctx: Context) -> list[Statement]:
                 s.original = stmt
             return special
     if isinstance(tree, exp.Create) and (tree.args.get("kind") or "").upper() == "VIEW":
+        _qualify_view_refs(tree, ctx)
+        _inline_single_use_ctes(tree)
         _uniquify_view_ctes(tree)
+    _rewrite_scaled_to_timestamp(tree)
+    _rewrite_asof_match_condition(tree)
     if ctx.coerce_text_aggregates:
         _coerce_text_aggregates(tree)
     tree = _rewrite_delete_using(tree)
@@ -1524,6 +1544,84 @@ def _translate_one(stmt: str, ctx: Context) -> list[Statement]:
     _normalize_and_map(tree, ctx)
     sql = tree.sql(dialect=Databend, identify=True)
     return [Statement("sql", sql, original=stmt)]
+
+
+def _cte_names(tree: exp.Expression) -> set[str]:
+    return {c.alias_or_name.upper() for c in tree.find_all(exp.CTE)}
+
+
+def _qualify_view_refs(tree: exp.Create, ctx: Context) -> None:
+    """Unqualified names in a Snowflake view resolve against the view's own schema, whoever reads it later.
+    Databend would resolve them against the reading session's database (`default`), so qualify them - the view
+    name included - with ctx.schema (STAGING_V2.PATIENTS_CURRENT_V: `CREATE VIEW patients_current_v ... FROM
+    patients`)."""
+    if not ctx.schema:
+        return
+    ctes = _cte_names(tree)
+    for t in tree.find_all(exp.Table):
+        if t.args.get("db") is None and isinstance(t.this, exp.Identifier) and t.name.upper() not in ctes:
+            t.set("db", exp.to_identifier(ctx.schema))
+
+
+def _inline_single_use_ctes(tree: exp.Create) -> None:
+    """A view's CTE that is read exactly once becomes a derived table at that spot (same query, no name).
+
+    Databend expands a view at every reference and registers the view's CTE names each time; a query that reads
+    such a view both in a subquery predicate and elsewhere then fails with "Duplicate common table expression"
+    (REPORTING.VW_RPT_ORTHO_OPD reads STAGING.STG_ADMISSIONS - CTEs v1_ward_eav, v1_order_ward - in a LEFT JOIN
+    and in a NOT EXISTS). A view without CTEs can be read any number of times. CTEs read more than once stay
+    (and are made unique per view by _uniquify_view_ctes)."""
+    body = tree.expression
+    if not isinstance(body, exp.Query):
+        return
+    with_ = body.args.get("with_")
+    if with_ is None or with_.args.get("recursive"):
+        return
+    while True:
+        done = True
+        for cte in list(with_.expressions):
+            name = cte.alias_or_name.upper()
+            if cte.args["alias"].args.get("columns") or                     sum(1 for c in body.find_all(exp.CTE) if c.alias_or_name.upper() == name) > 1:
+                continue        # column-list alias / a nested WITH reuses the name: leave it
+            refs = [t for t in body.find_all(exp.Table)
+                    if t.args.get("db") is None and t.args.get("catalog") is None
+                    and isinstance(t.this, exp.Identifier) and t.name.upper() == name]
+            if len(refs) != 1 or refs[0].find_ancestor(exp.CTE) is cte:
+                continue
+            t = refs[0]
+            alias = t.args.get("alias") or exp.TableAlias(this=exp.to_identifier(cte.alias_or_name))
+            t.replace(exp.Subquery(this=cte.this.copy(), alias=alias.copy()))
+            with_.set("expressions", [c for c in with_.expressions if c is not cte])
+            done = False
+            break
+        if not with_.expressions:
+            body.set("with_", None)
+            return
+        if done:
+            return
+
+
+def _rewrite_scaled_to_timestamp(tree: exp.Expression) -> None:
+    """TO_TIMESTAMP(n, scale) - n in units of 10^-scale seconds. Databend has to_timestamp(Int64, UInt64) only,
+    so a NUMBER/DECIMAL n is cast to BIGINT (STAGING.V_ALL_SOURCES_VISITS_UNFILTERED: TO_TIMESTAMP(aptdate, 6))."""
+    for e in tree.find_all(exp.UnixToTime):
+        if e.args.get("scale") is not None and not (isinstance(e.this, exp.Cast) and e.this.to.is_type("bigint")):
+            e.set("this", exp.Cast(this=e.this, to=exp.DataType.build("BIGINT")))
+
+
+def _rewrite_asof_match_condition(tree: exp.Expression) -> None:
+    """Snowflake: ASOF JOIN t MATCH_CONDITION (a >= b) ON x = y. Databend takes the inequality in the ON:
+    ASOF LEFT JOIN t ON a >= b AND x = y. Snowflake's ASOF JOIN keeps left rows without a match (NULLs), so it
+    is Databend's ASOF LEFT JOIN (REPORTING.RPT_KSH_V3_INV_CONTROL)."""
+    for j in tree.find_all(exp.Join):
+        mc = j.args.get("match_condition")
+        if mc is None:
+            continue
+        on = j.args.get("on")
+        j.set("on", exp.and_(mc.copy(), on.copy()) if on is not None else mc.copy())
+        j.set("match_condition", None)
+        if not j.args.get("side"):
+            j.set("side", "LEFT")
 
 
 def _uniquify_view_ctes(tree: exp.Create) -> None:

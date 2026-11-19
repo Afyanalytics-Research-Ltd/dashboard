@@ -876,6 +876,12 @@ def _incremental(sf: Side, db: Side, schema: str, table: str, a: TableInfo, log:
 # ── views (Snowflake -> Databend, one way) ───────────────────────────────
 VIEW_STATE_KEY = "__views__"
 VIEW_PAUSE_S = 0.1          # between view DDLs - keep the catalog load trivial
+# Bump when the view translation changes: every view is re-translated and replaced once (compile-checked; the
+# previous definition is restored if the new one doesn't compile), so all views carry the current translation.
+# Without a bump a view is only re-created when its Snowflake definition changes.
+# 2: qualify unqualified names with the view's schema, single-use CTEs inlined, TO_TIMESTAMP(n, scale),
+#    ASOF MATCH_CONDITION, FLATTEN `value` only where FLATTEN is read.
+VIEW_TRANSLATOR_VERSION = 2
 _TEXT_AGG_ERR = re.compile(r"(sum|avg) does not support type '?String", re.I)
 _MISSING_DEP_ERR = re.compile(r"Unknown (table|database)", re.I)
 
@@ -884,6 +890,24 @@ _MISSING_DEP_ERR = re.compile(r"Unknown (table|database)", re.I)
 # has no COMMENT clause, so it's dropped from the header (before the AS).
 _VIEW_COMMENT = re.compile(r"(?is)^(\s*CREATE\b(?:(?!\bAS\b).)*?\bVIEW\b(?:(?!\bAS\b).)*?)"
                            r"\s+COMMENT\s*=\s*'(?:\\.|''|[^'\\])*'")
+
+
+VIEW_REWRITES_DIR = Path(__file__).resolve().parent / "view_rewrites"
+
+
+def _view_source(name: str, definition: str) -> str:
+    """The Snowflake-dialect text to translate for view SCHEMA.NAME: a hand-written stand-in from
+    view_rewrites/<SCHEMA.NAME>.sql when its `-- for_hash: <md5>` matches the current Snowflake definition (for
+    views Databend can't plan as written), otherwise the Snowflake definition itself."""
+    import hashlib
+    f = VIEW_REWRITES_DIR / f"{name.upper()}.sql"
+    if f.exists():
+        text = f.read_text()
+        m = re.search(r"--\s*for_hash:\s*([0-9a-f]{32})", text)
+        if m and m.group(1) == hashlib.md5(definition.encode()).hexdigest():
+            return "\n".join(ln for ln in text.splitlines() if not ln.lstrip().startswith("--")).strip()
+        logger.warning("view rewrite %s is stale (Snowflake definition changed) - translating Snowflake's", f.name)
+    return definition
 
 
 def _view_ddl(definition: str, schema: str, database: str, *, coerce: bool = False) -> str:
@@ -926,14 +950,15 @@ def views_sf_to_db(sf: Side, db: Side, state: dict, report: dict, *, dry_run: bo
         h = hashlib.md5(sf_v[key].encode()).hexdigest()
         st = vstate.get(name) or {}
         exists = key in db_v
-        if exists and st.get("hash") == h and st.get("ok", True):
+        if exists and st.get("hash") == h and st.get("ok", True) and st.get("tv", 1) >= VIEW_TRANSLATOR_VERSION:
             continue
         if exists and not st:
             vstate[name] = {"hash": h, "ok": True, "action": "adopt"}
             report["views_adopted"] += 1
             continue
-        if not exists and st.get("hash") == h and st.get("ok") is False and not st.get("retry"):
-            continue     # failed before with this exact definition; retried when something else changes
+        if (not exists and st.get("hash") == h and st.get("ok") is False and not st.get("retry")
+                and st.get("tv") == VIEW_TRANSLATOR_VERSION):
+            continue     # failed before with this exact definition + translator; retried when something changes
         todo.append((key, h, exists))
     if dry_run:
         for key, _, exists in todo:
@@ -958,7 +983,7 @@ def views_sf_to_db(sf: Side, db: Side, state: dict, report: dict, *, dry_run: bo
             for coerce in (False, True):
                 try:
                     db.run(f"CREATE DATABASE IF NOT EXISTS {_bq(target_db)}")
-                    db.run(_view_ddl(sf_v[key], schema, sf.database, coerce=coerce))
+                    db.run(_view_ddl(_view_source(name, sf_v[key]), schema, sf.database, coerce=coerce))
                     db.run(f"SELECT * FROM {ref} LIMIT 0")
                     err = None
                     break
@@ -967,8 +992,12 @@ def views_sf_to_db(sf: Side, db: Side, state: dict, report: dict, *, dry_run: bo
                     if not _TEXT_AGG_ERR.search(err):
                         break
             time.sleep(VIEW_PAUSE_S)
+            prior = vstate.get(name) or {}
+            # only the translator changed (same Snowflake definition, working view): a failure keeps the old view
+            retranslate = exists and prior.get("hash") == h and prior.get("ok", True)
             if err is None:
                 vstate[name] = {"hash": h, "ok": True, "action": "replace" if exists else "create",
+                                "tv": VIEW_TRANSLATOR_VERSION,
                                 "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
                 report["views_replaced" if exists else "views_created"].append(name)
                 changed_any = True
@@ -981,7 +1010,13 @@ def views_sf_to_db(sf: Side, db: Side, state: dict, report: dict, *, dry_run: bo
                     db.run(f"DROP VIEW IF EXISTS {ref}")
             except Exception:  # noqa: BLE001
                 logger.warning("could not undo view %s", name, exc_info=True)
-            vstate[name] = {"hash": h, "ok": False, "error": err[:300],
+            if retranslate and old:
+                vstate[name] = {"hash": h, "ok": True, "action": "kept", "tv": VIEW_TRANSLATOR_VERSION,
+                                "retranslate_error": err[:300],
+                                "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+                report.setdefault("views_kept", []).append(name)
+                continue
+            vstate[name] = {"hash": h, "ok": False, "error": err[:300], "tv": VIEW_TRANSLATOR_VERSION,
                             "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
             if _MISSING_DEP_ERR.search(err):
                 retry.append((key, h, exists))

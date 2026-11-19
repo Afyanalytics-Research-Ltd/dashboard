@@ -27,6 +27,9 @@ Settings: the server .env (or Airflow) needs
   AFYA_MEDHANIT_PROD_*  (or Connection afya_v3_medhanit_prod: Extra {"organization_id": 71, "facility_id": 69,
       "url_template": "https://{service}.afyaanalytics.ai/api/"})
   MEDHANIT_V1_BASE_URL / _USERNAME / _PASSWORD  (or Connection medhanit_v1: host, login, password)
+Schedule: every 3 hours (Medhanit still works in V1). A scheduled run ignores the form: it extracts V1's new rows
+and posts them to medhanit_prod with only_missing on (SCHEDULED). Manual triggers keep the form's values.
+Both read and write Snowflake (HOSPITALS.MEDHANIT_V1) unless the run's warehouse_backend says otherwise.
 Rows are matched by stable uuid5s, so nothing is duplicated: by default every row is posted again and updated in place
 (fixing links a limited canary left empty); only_missing posts only rows whose uuid V3 doesn't have yet.
 """
@@ -57,6 +60,21 @@ GROUPS = {
     "stock": ["products", "stock"],
 }
 TARGETS = ["medhanit", "medhanit_prod"]
+# what a scheduled (every 3 h) run does, whatever the form's defaults say: V1's new rows → prod org 71, posting only
+# rows V3 doesn't have yet (a full re-post of ~700k rows every 3 hours would be far too heavy)
+SCHEDULED = {"target": "medhanit_prod", "only_missing": True, "extract": True, "full_extract": False,
+             "extract_tables": [], "steps": [], "base": True, "groups": list(GROUPS), "patients": [], "limit": 0,
+             "dry_run": False}
+
+
+def run_params() -> dict:
+    """The trigger form's params; a scheduled run gets SCHEDULED on top."""
+    ctx = get_current_context()
+    p = dict(ctx["params"])
+    run = ctx.get("dag_run")
+    if str(getattr(run, "run_type", "")).lower().endswith("scheduled"):
+        p.update(SCHEDULED)
+    return p
 
 
 def step_names(raw) -> list[str]:
@@ -82,6 +100,7 @@ def v1_settings() -> None:
 def run_steps(steps: list[str], *, target: str, only_missing: bool, dry_run: bool, workers: int, limit: int,
               patients: list[str]) -> dict:
     """One medhanit_to_v3 Run, the steps in order; an errored step fails the task."""
+    os.environ.setdefault("AFYA_WAREHOUSE_BACKEND", "snowflake")    # HOSPITALS.MEDHANIT_V1 lives in Snowflake
     use_pipelines_dir([target])
     import medhanit_to_v3 as M
     unknown = [s for s in steps if s not in M.STEPS]
@@ -107,8 +126,9 @@ def run_steps(steps: list[str], *, target: str, only_missing: bool, dry_run: boo
 
 @dag(
     dag_id=DAG_ID,
-    description="Medhanit Healthcare (Collabmed V1) → V3 (migrate org 16 / prod org 71, gaps only) — resumable",
-    schedule=None,
+    description="Medhanit Healthcare (Collabmed V1) → V3 (migrate org 16 / prod org 71, gaps only) — every 3 h to prod",
+    # Medhanit still works in V1: every 3 hours pull V1's new rows and post them to prod org 71 (see SCHEDULED)
+    schedule="0 */3 * * *",
     start_date=datetime(2026, 1, 1),
     catchup=False,
     max_active_runs=1,
@@ -139,16 +159,17 @@ def run_steps(steps: list[str], *, target: str, only_missing: bool, dry_run: boo
 def medhanit_to_v3():
 
     def args() -> dict:
-        p = get_current_context()["params"]
+        p = run_params()
         return {"target": p["target"], "only_missing": bool(p["only_missing"]), "dry_run": bool(p["dry_run"]),
                 "workers": int(p["workers"]), "limit": int(p["limit"]), "patients": step_names(p["patients"])}
 
     @task(execution_timeout=timedelta(hours=8))
     def extract() -> dict:
-        p = get_current_context()["params"]
+        p = run_params()
         if not p["extract"]:
             log.info("extract skipped")
             return {}
+        os.environ.setdefault("AFYA_WAREHOUSE_BACKEND", "snowflake")
         use_pipelines_dir([])
         v1_settings()
         import medhanit_v1_to_snowflake as X
@@ -162,7 +183,7 @@ def medhanit_to_v3():
 
     @task(execution_timeout=timedelta(hours=8))
     def chosen_steps(_) -> dict:
-        p = get_current_context()["params"]
+        p = run_params()
         if not p["steps"]:
             log.info("no steps listed — base + groups run")
             return {}
@@ -170,7 +191,7 @@ def medhanit_to_v3():
 
     @task(execution_timeout=timedelta(hours=8))
     def base(_) -> dict:
-        p = get_current_context()["params"]
+        p = run_params()
         if p["steps"] or not p["base"]:
             log.info("base skipped")
             return {}
@@ -179,7 +200,7 @@ def medhanit_to_v3():
     def group_task(name: str):
         @task(task_id=name, execution_timeout=timedelta(hours=8))
         def _run(_) -> dict:
-            p = get_current_context()["params"]
+            p = run_params()
             if p["steps"] or name not in p["groups"]:
                 log.info("%s not selected", name)
                 return {}

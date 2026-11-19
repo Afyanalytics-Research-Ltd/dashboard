@@ -130,7 +130,9 @@ def group_by_service(source: str, models, tenant_id: int | None = None) -> list[
 @dag(
     dag_id=DAG_ID,
     description="V3 gateway → Snowflake HOSPITALS.V3_SYNC — watermarked upserts, deletes flagged",
-    schedule="0 */3 * * *",
+    # every 6 h (was 3): a run takes ~5 h, so 3-hourly runs queued back to back and kept COMPUTE_WH busy until the
+    # CHECKER resource monitor's quota ran out (2026-11-18 17:30 UTC — every Snowflake pipeline stopped)
+    schedule="0 */6 * * *",
     start_date=datetime(2026, 10, 1),
     catchup=False,
     max_active_runs=1,          # never two runs MERGEing the same (tenant, model)

@@ -733,6 +733,41 @@ class Copier:
                 if t not in (L.FACILITY, L.DROP) and payload.get(c) not in (None, "") and tgt.get(c) in (None, "")
                 and c in tgt}
 
+    def _tail_patch(self, model: str, row: dict, payload: dict, uuid: str) -> tuple[dict, bool]:
+        """Tail mode, a window row already on the target: (patch, restores updated_at).
+        The patch fills link columns the target holds empty, and always carries an
+        updated_at, so writing it never stamps a new one: the source's (the original
+        V3 record's) when the row then matches the source in everything else — the only
+        difference was a timestamp an earlier patch stamped — else the target's own
+        (it has later edits of its own: kept)."""
+        fill = self._empty_links_to_fill(model, uuid, payload)
+        tgt = (self.__dict__.get("_target_tail_rows") or {}).get(model, {}).get(uuid)
+        if tgt is None or "updated_at" not in tgt or not row.get("updated_at"):
+            return fill, False
+        links = self.models[model]["links"]
+        skip = L.NOT_COMPARED | {"id", "uuid", "created_at", "updated_at", "deleted_at"}
+
+        def same(a, b):
+            a, b = _norm(a), _norm(b)
+            return a == b or (isinstance(a, str) and isinstance(b, str) and a.lower() == b.lower())
+
+        for c in tgt:
+            if c in skip or L.is_instance_derived(c) or c not in row or links.get(c) in (L.FACILITY, L.DROP):
+                continue
+            mine = fill[c] if c in fill else payload.get(c) if c in links else row.get(c)
+            theirs = fill[c] if c in fill else tgt.get(c)
+            if c in links and links[c] not in (L.FACILITY, L.DROP) and mine is None and theirs is not None:
+                continue           # a link the source can't map here: the target's value stands
+            if not same(mine, theirs):
+                restore = False
+                break
+        else:
+            restore = _norm(row.get("updated_at")) != _norm(tgt.get("updated_at"))
+        if not fill and not restore:
+            return {}, False
+        stamp = row["updated_at"] if restore else tgt["updated_at"]
+        return {**fill, "updated_at": to_wall_time(stamp)}, restore
+
     def _clone_upto(self, target: str):
         if target not in self._tail_cache:
             saved = self.state.load("tail", target, None)
@@ -1047,14 +1082,16 @@ class Copier:
                 deferred_all[sid] = {**deferred, _UUID_KEY: row.get("uuid")}
                 counts["deferred"] += 1
 
-        def filled_done(row, patch, _extra, _new_id, err):     # under pool.lock
+        def filled_done(row, patch, restored, _new_id, err):     # under pool.lock
             if err:
                 self.record_error(model, row, patch, err, stage="fill links")
-            else:
-                for c in patch:
-                    if c != "uuid":
-                        f = counts.setdefault("links_filled", {})
-                        f[c] = f.get(c, 0) + 1
+                return
+            for c in patch:
+                if c not in ("uuid", "updated_at"):
+                    f = counts.setdefault("links_filled", {})
+                    f[c] = f.get(c, 0) + 1
+            if restored:
+                counts["updated_at_restored"] = counts.get("updated_at_restored", 0) + 1
 
         pool = self._post_pool(model)
         complete = False
@@ -1100,9 +1137,10 @@ class Copier:
                         counts["already"] += 1
                         if deferred:
                             deferred_all[sid] = {**deferred, _UUID_KEY: row.get("uuid")}
-                    fill = self._empty_links_to_fill(model, uuid, payload) if in_window(row, self.window) else {}
-                    if fill and not self.map_only:
-                        pool.submit(row, {"uuid": row.get("uuid"), **fill}, None, filled_done)
+                    patch, restore = (self._tail_patch(model, row, payload, uuid)
+                                      if self.tail and in_window(row, self.window) else ({}, False))
+                    if patch and not self.map_only:
+                        pool.submit(row, {"uuid": row.get("uuid"), **patch}, restore, filled_done)
                     continue
                 if self.map_only or (self.record_limit and new >= self.record_limit):
                     continue

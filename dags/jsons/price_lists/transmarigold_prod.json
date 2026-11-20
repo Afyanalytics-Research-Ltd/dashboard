@@ -1,0 +1,3408 @@
+{
+ "source": "TMH procedure & servive list.xlsx",
+ "sheet": "MASTER",
+ "rows": [
+  {
+   "row": 1,
+   "name": "C/S ANAESTHETIC FEE",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Patient care Income",
+   "cash": 3500.0,
+   "insurance": 4200.0
+  },
+  {
+   "row": 2,
+   "name": "ABDOMINAL / PELVIC U/S",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 2500.0,
+   "insurance": 3000.0
+  },
+  {
+   "row": 3,
+   "name": "ABDOMINAL PACKS",
+   "department": "General In- Patient",
+   "bill_term": "ADMISSION FEE",
+   "income_category": "Inpatient Income",
+   "cash": 500.0,
+   "insurance": 600.0
+  },
+  {
+   "row": 4,
+   "name": "ABDOMINAL/PELVIC ULTRASOUND",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 2500.0,
+   "insurance": 3000.0
+  },
+  {
+   "row": 5,
+   "name": "ABSCESS INCISION & DRAINAGE",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 2000.0,
+   "insurance": 2400.0
+  },
+  {
+   "row": 6,
+   "name": "ACCOMODATION-500",
+   "department": "General In- Patient",
+   "bill_term": "BED CHARGES",
+   "income_category": "Inpatient Income",
+   "cash": 500.0,
+   "insurance": 600.0
+  },
+  {
+   "row": 7,
+   "name": "admission fee",
+   "department": "General In- Patient",
+   "bill_term": "ADMISSION FEE",
+   "income_category": "Inpatient Income",
+   "cash": 1500.0,
+   "insurance": 1800.0
+  },
+  {
+   "row": 8,
+   "name": "ADMISSION FEE (NEW)",
+   "department": "Theatre",
+   "bill_term": "ADMISSION FEE",
+   "income_category": "Inpatient Income",
+   "cash": 1500.0,
+   "insurance": 1800.0
+  },
+  {
+   "row": 9,
+   "name": "ADMISSION FEE (RETURNING)",
+   "department": "Theatre",
+   "bill_term": "ADMISSION FEE",
+   "income_category": "Inpatient Income",
+   "cash": 1500.0,
+   "insurance": 1800.0
+  },
+  {
+   "row": 10,
+   "name": "ADMISSION FEE 3",
+   "department": "General In- Patient",
+   "bill_term": "ADMISSION FEE",
+   "income_category": "Inpatient Income",
+   "cash": 3000.0,
+   "insurance": 3600.0
+  },
+  {
+   "row": 11,
+   "name": "ADMISSION FEE 5",
+   "department": "General In- Patient",
+   "bill_term": "ADMISSION FEE",
+   "income_category": "Inpatient Income",
+   "cash": 5000.0,
+   "insurance": 6000.0
+  },
+  {
+   "row": 12,
+   "name": "ADMISSION PAKAGE",
+   "department": "General In- Patient",
+   "bill_term": "ADMISSION FEE",
+   "income_category": "Inpatient Income",
+   "cash": 500.0,
+   "insurance": 600.0
+  },
+  {
+   "row": 13,
+   "name": "ADMISSION-500",
+   "department": "General In- Patient",
+   "bill_term": "ADMISSION FEE",
+   "income_category": "Inpatient Income",
+   "cash": 500.0,
+   "insurance": 600.0
+  },
+  {
+   "row": 14,
+   "name": "ALANINE AMINOTRANSFERASE (ALT/GPT)",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 15000.0,
+   "insurance": 18000.0
+  },
+  {
+   "row": 15,
+   "name": "AMBULANCE SERVICES",
+   "department": "General OPD",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 0.0,
+   "insurance": 0.0
+  },
+  {
+   "row": 16,
+   "name": "ANAESTHETIC FEE-10",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Patient care Income",
+   "cash": 10000.0,
+   "insurance": 12000.0
+  },
+  {
+   "row": 17,
+   "name": "ANAESTHETIST FEE",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Patient care Income",
+   "cash": 7000.0,
+   "insurance": 8400.0
+  },
+  {
+   "row": 18,
+   "name": "ANAESTHETIST FEE-5",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Patient care Income",
+   "cash": 5000.0,
+   "insurance": 6000.0
+  },
+  {
+   "row": 19,
+   "name": "ANAESTHETISTFEE-15000",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Patient care Income",
+   "cash": 15000.0,
+   "insurance": 18000.0
+  },
+  {
+   "row": 20,
+   "name": "ANC BOOKLET",
+   "department": "MCH ANC",
+   "bill_term": "MCH FEE",
+   "income_category": "Outpatient income",
+   "cash": 250.0,
+   "insurance": 300.0
+  },
+  {
+   "row": 21,
+   "name": "ANC- 1ST VISIT",
+   "department": "MCH ANC",
+   "bill_term": "MCH FEE",
+   "income_category": "Outpatient income",
+   "cash": 2300.0,
+   "insurance": 2760.0
+  },
+  {
+   "row": 22,
+   "name": "ANC- REVISIT",
+   "department": "MCH ANC",
+   "bill_term": "MCH FEE",
+   "income_category": "Outpatient income",
+   "cash": 200.0,
+   "insurance": 240.0
+  },
+  {
+   "row": 23,
+   "name": "ANKLE",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 1500.0,
+   "insurance": 1800.0
+  },
+  {
+   "row": 24,
+   "name": "ASCITIC TAP SERVICE",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 2500.0,
+   "insurance": 3000.0
+  },
+  {
+   "row": 25,
+   "name": "BA-ENEMA",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 7000.0,
+   "insurance": 8400.0
+  },
+  {
+   "row": 26,
+   "name": "BA-MEAL",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 5000.0,
+   "insurance": 6000.0
+  },
+  {
+   "row": 27,
+   "name": "BA-MEAL + FOLLOW THROUGH THRGH",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 7500.0,
+   "insurance": 9000.0
+  },
+  {
+   "row": 28,
+   "name": "BA-SWALLOW",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 5000.0,
+   "insurance": 6000.0
+  },
+  {
+   "row": 29,
+   "name": "BABY FRIENDLY VACCINES",
+   "department": "MCH ANC",
+   "bill_term": "MCH FEE",
+   "income_category": "Outpatient income",
+   "cash": 0.0,
+   "insurance": 0.0
+  },
+  {
+   "row": 30,
+   "name": "BABY WEIGHT AND HEIGHT",
+   "department": "MCH ANC",
+   "bill_term": "MCH FEE",
+   "income_category": "Outpatient income",
+   "cash": 50.0,
+   "insurance": 60.0
+  },
+  {
+   "row": 31,
+   "name": "BCG",
+   "department": "MCH CWC",
+   "bill_term": "MCH FEE",
+   "income_category": "Outpatient income",
+   "cash": 200.0,
+   "insurance": 240.0
+  },
+  {
+   "row": 32,
+   "name": "BILATERAL DOPPLER U/S",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 5000.0,
+   "insurance": 6000.0
+  },
+  {
+   "row": 33,
+   "name": "BILATERAL TUBAL LIGATION",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 25000.0,
+   "insurance": 30000.0
+  },
+  {
+   "row": 34,
+   "name": "BIOPSY",
+   "department": "General OPD",
+   "bill_term": "MCH FEE",
+   "income_category": "Outpatient income",
+   "cash": 30000.0,
+   "insurance": 36000.0
+  },
+  {
+   "row": 35,
+   "name": "BIRTH NOTFIGATION",
+   "department": "Maternity",
+   "bill_term": "DELIVERY PACK",
+   "income_category": "Inpatient Income",
+   "cash": 500.0,
+   "insurance": 600.0
+  },
+  {
+   "row": 36,
+   "name": "BLOOD PRESSURE",
+   "department": "General OPD",
+   "bill_term": "CONSULTATION FEE",
+   "income_category": "Outpatient income",
+   "cash": 50.0,
+   "insurance": 60.0
+  },
+  {
+   "row": 37,
+   "name": "Blood Pressure Checkup",
+   "department": "General OPD",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 50.0,
+   "insurance": 60.0
+  },
+  {
+   "row": 38,
+   "name": "BLOOD TRANSFUSION",
+   "department": "General In- Patient",
+   "bill_term": "ADMISSION FEE",
+   "income_category": "Inpatient Income",
+   "cash": 5000.0,
+   "insurance": 6000.0
+  },
+  {
+   "row": 39,
+   "name": "BLOOD TRANSPORTATION",
+   "department": "Lab",
+   "bill_term": "LABORATORY FEE",
+   "income_category": "Laboratory income",
+   "cash": 1000.0,
+   "insurance": 1200.0
+  },
+  {
+   "row": 40,
+   "name": "BODY PART DISPOSAL",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 2000.0,
+   "insurance": 2400.0
+  },
+  {
+   "row": 41,
+   "name": "BONE MARROW COLLECTION",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 0.0,
+   "insurance": 0.0
+  },
+  {
+   "row": 42,
+   "name": "BRACE REVIEW",
+   "department": "DENTAL",
+   "bill_term": "DENTAL FEE",
+   "income_category": "Dental Income",
+   "cash": 1000.0,
+   "insurance": 1200.0
+  },
+  {
+   "row": 43,
+   "name": "BRACES",
+   "department": "DENTAL",
+   "bill_term": "DENTAL FEE",
+   "income_category": "Dental Income",
+   "cash": 30000.0,
+   "insurance": 36000.0
+  },
+  {
+   "row": 44,
+   "name": "BRACES PER JAW",
+   "department": "DENTAL",
+   "bill_term": "DENTAL FEE",
+   "income_category": "Dental Income",
+   "cash": 15000.0,
+   "insurance": 18000.0
+  },
+  {
+   "row": 45,
+   "name": "BREAST",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 2500.0,
+   "insurance": 3000.0
+  },
+  {
+   "row": 46,
+   "name": "BREAST EXAMINATION/ SCREENING",
+   "department": "General OPD",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 450.0,
+   "insurance": 540.0
+  },
+  {
+   "row": 47,
+   "name": "BREAST UTRASOUD DISCOUTED",
+   "department": "General OPD",
+   "bill_term": "MCH FEE",
+   "income_category": "Outpatient income",
+   "cash": 2000.0,
+   "insurance": 2400.0
+  },
+  {
+   "row": 48,
+   "name": "C/S PACK",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 2500.0,
+   "insurance": 3000.0
+  },
+  {
+   "row": 49,
+   "name": "C/S SURGIONS FEE",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 5000.0,
+   "insurance": 6000.0
+  },
+  {
+   "row": 50,
+   "name": "C/S THEATER FEE",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 1500.0,
+   "insurance": 1800.0
+  },
+  {
+   "row": 51,
+   "name": "CAESERIAN SECTION",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 50000.0,
+   "insurance": 60000.0
+  },
+  {
+   "row": 52,
+   "name": "CALCANIUS",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 1500.0,
+   "insurance": 1800.0
+  },
+  {
+   "row": 53,
+   "name": "CANNULATION",
+   "department": "General OPD",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 100.0,
+   "insurance": 120.0
+  },
+  {
+   "row": 54,
+   "name": "CANULATION",
+   "department": "General OPD",
+   "bill_term": "CONSULTATION FEE",
+   "income_category": "Outpatient income",
+   "cash": 100.0,
+   "insurance": 120.0
+  },
+  {
+   "row": 55,
+   "name": "CAR PARKING",
+   "department": "Administration",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 100.0,
+   "insurance": 120.0
+  },
+  {
+   "row": 56,
+   "name": "CASUALTY FEE",
+   "department": "General OPD",
+   "bill_term": "MCH FEE",
+   "income_category": "Outpatient income",
+   "cash": 500.0,
+   "insurance": 600.0
+  },
+  {
+   "row": 57,
+   "name": "CATHETERISATION FEE",
+   "department": "General OPD",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 1000.0,
+   "insurance": 1200.0
+  },
+  {
+   "row": 58,
+   "name": "CATHETERIZATION",
+   "department": "General OPD",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 1000.0,
+   "insurance": 1200.0
+  },
+  {
+   "row": 59,
+   "name": "CATHETRE REMOVAL",
+   "department": "General OPD",
+   "bill_term": "MCH FEE",
+   "income_category": "Outpatient income",
+   "cash": 500.0,
+   "insurance": 600.0
+  },
+  {
+   "row": 60,
+   "name": "CAUSTIC PENSIL APPLICATION",
+   "department": "General OPD",
+   "bill_term": "MCH FEE",
+   "income_category": "Outpatient income",
+   "cash": 300.0,
+   "insurance": 360.0
+  },
+  {
+   "row": 61,
+   "name": "CCC CLINIC FEE",
+   "department": "Administration",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 200.0,
+   "insurance": 240.0
+  },
+  {
+   "row": 62,
+   "name": "CEF",
+   "department": "General OPD",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 500.0,
+   "insurance": 600.0
+  },
+  {
+   "row": 63,
+   "name": "CERVICAL CANCER SCREENING",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 500.0,
+   "insurance": 600.0
+  },
+  {
+   "row": 64,
+   "name": "CERVICAL CANCER SCREENING/VIA VILLI",
+   "department": "MCH FP",
+   "bill_term": "MCH FEE",
+   "income_category": "Outpatient income",
+   "cash": 500.0,
+   "insurance": 600.0
+  },
+  {
+   "row": 65,
+   "name": "CERVICAL TEAR REPAIR",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 20000.0,
+   "insurance": 24000.0
+  },
+  {
+   "row": 66,
+   "name": "cervical tear repear labor ward",
+   "department": "General In- Patient",
+   "bill_term": "NURSING FEE",
+   "income_category": "Patient care Income",
+   "cash": 3000.0,
+   "insurance": 3600.0
+  },
+  {
+   "row": 67,
+   "name": "CHEST",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 1500.0,
+   "insurance": 1800.0
+  },
+  {
+   "row": 68,
+   "name": "CHEST AP/LAT",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 2000.0,
+   "insurance": 2400.0
+  },
+  {
+   "row": 69,
+   "name": "CHILDREN MULTIPLE (RESTORATIONS/EXCTRACTIONS )",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 60000.0,
+   "insurance": 72000.0
+  },
+  {
+   "row": 70,
+   "name": "CIRCILAGE WIRE",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 1500.0,
+   "insurance": 1800.0
+  },
+  {
+   "row": 71,
+   "name": "CIRCUMCISION (10 TO 15YRS).",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 3000.0,
+   "insurance": 3600.0
+  },
+  {
+   "row": 72,
+   "name": "CIRCUMCISION (15 TO 18YRS).",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 5000.0,
+   "insurance": 6000.0
+  },
+  {
+   "row": 73,
+   "name": "CIRCUMCISION (5 TO 10YRS)",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 7500.0,
+   "insurance": 9000.0
+  },
+  {
+   "row": 74,
+   "name": "CIRCUMCISION (BELOW 5 YRS)",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 10000.0,
+   "insurance": 12000.0
+  },
+  {
+   "row": 75,
+   "name": "CIRCUMCISION (OVER 18YRS).",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 7500.0,
+   "insurance": 9000.0
+  },
+  {
+   "row": 76,
+   "name": "CIRCUMCISION UNDER SEDATION - PAED",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 10000.0,
+   "insurance": 12000.0
+  },
+  {
+   "row": 77,
+   "name": "CIRCUMCISION UNDER SEDATION- ADULT",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 10000.0,
+   "insurance": 12000.0
+  },
+  {
+   "row": 78,
+   "name": "CONSULTATIO CONSULTANT",
+   "department": "General OPD",
+   "bill_term": "CONSULTATION FEE",
+   "income_category": "Outpatient income",
+   "cash": 2500.0,
+   "insurance": 3000.0
+  },
+  {
+   "row": 79,
+   "name": "CONSULTATION",
+   "department": "General OPD",
+   "bill_term": "CONSULTATION FEE",
+   "income_category": "Outpatient income",
+   "cash": 500.0,
+   "insurance": 600.0
+  },
+  {
+   "row": 80,
+   "name": "CONSULTATION DENTAL",
+   "department": "General OPD",
+   "bill_term": "CONSULTATION FEE",
+   "income_category": "Dental Income",
+   "cash": 200.0,
+   "insurance": 240.0
+  },
+  {
+   "row": 81,
+   "name": "CONSULTATION OTHERS",
+   "department": "General OPD",
+   "bill_term": "MCH FEE",
+   "income_category": "Outpatient income",
+   "cash": 1000.0,
+   "insurance": 1200.0
+  },
+  {
+   "row": 82,
+   "name": "CONSULTATION SPECIALIST",
+   "department": "General OPD",
+   "bill_term": "MCH FEE",
+   "income_category": "Outpatient income",
+   "cash": 3000.0,
+   "insurance": 3600.0
+  },
+  {
+   "row": 83,
+   "name": "CORD CARE",
+   "department": "General OPD",
+   "bill_term": "MCH FEE",
+   "income_category": "Outpatient income",
+   "cash": 250.0,
+   "insurance": 300.0
+  },
+  {
+   "row": 84,
+   "name": "CORD CARE",
+   "department": "General In- Patient",
+   "bill_term": "MCH FEE",
+   "income_category": "Outpatient income",
+   "cash": 0.0,
+   "insurance": 0.0
+  },
+  {
+   "row": 85,
+   "name": "CORRUGATED DRAIN",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 400.0,
+   "insurance": 480.0
+  },
+  {
+   "row": 86,
+   "name": "COVID VACCINE",
+   "department": "MCH CWC",
+   "bill_term": "NURSING FEE",
+   "income_category": "Patient care Income",
+   "cash": 0.0,
+   "insurance": 0.0
+  },
+  {
+   "row": 87,
+   "name": "CPAP PER HOUR",
+   "department": "Maternity",
+   "bill_term": "DELIVERY PACK",
+   "income_category": "Inpatient Income",
+   "cash": 500.0,
+   "insurance": 600.0
+  },
+  {
+   "row": 88,
+   "name": "CRANIAL UTRASOUND",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 3500.0,
+   "insurance": 4200.0
+  },
+  {
+   "row": 89,
+   "name": "CROWNS",
+   "department": "DENTAL",
+   "bill_term": "DENTAL FEE",
+   "income_category": "Dental Income",
+   "cash": 7500.0,
+   "insurance": 9000.0
+  },
+  {
+   "row": 90,
+   "name": "CWC 4,5,7,8,10,11,13",
+   "department": "MCH CWC",
+   "bill_term": "MCH FEE",
+   "income_category": "Outpatient income",
+   "cash": 50.0,
+   "insurance": 60.0
+  },
+  {
+   "row": 91,
+   "name": "CWC 10 WEEKS",
+   "department": "MCH CWC",
+   "bill_term": "MCH FEE",
+   "income_category": "Outpatient income",
+   "cash": 200.0,
+   "insurance": 240.0
+  },
+  {
+   "row": 92,
+   "name": "CWC 14 WEEKS",
+   "department": "MCH CWC",
+   "bill_term": "MCH FEE",
+   "income_category": "Outpatient income",
+   "cash": 200.0,
+   "insurance": 240.0
+  },
+  {
+   "row": 93,
+   "name": "CWC 6 MONTHS",
+   "department": "MCH CWC",
+   "bill_term": "MCH FEE",
+   "income_category": "Outpatient income",
+   "cash": 150.0,
+   "insurance": 180.0
+  },
+  {
+   "row": 94,
+   "name": "CWC 6 WEEKS",
+   "department": "MCH CWC",
+   "bill_term": "MCH FEE",
+   "income_category": "Outpatient income",
+   "cash": 300.0,
+   "insurance": 360.0
+  },
+  {
+   "row": 95,
+   "name": "CWC MONTH 12,24,30,36,42,48",
+   "department": "MCH CWC",
+   "bill_term": "MCH FEE",
+   "income_category": "Outpatient income",
+   "cash": 150.0,
+   "insurance": 180.0
+  },
+  {
+   "row": 96,
+   "name": "CWC MONTHS 9,18",
+   "department": "MCH CWC",
+   "bill_term": "MCH FEE",
+   "income_category": "Outpatient income",
+   "cash": 200.0,
+   "insurance": 240.0
+  },
+  {
+   "row": 97,
+   "name": "D&C PACK",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 2000.0,
+   "insurance": 2400.0
+  },
+  {
+   "row": 98,
+   "name": "DEATH NOTFICATION",
+   "department": "General In- Patient",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 500.0,
+   "insurance": 600.0
+  },
+  {
+   "row": 99,
+   "name": "DELIVERY PACK",
+   "department": "General In- Patient",
+   "bill_term": "DELIVERY PACK",
+   "income_category": "Inpatient Income",
+   "cash": 1000.0,
+   "insurance": 1200.0
+  },
+  {
+   "row": 100,
+   "name": "DEWORMER",
+   "department": "MCH CWC",
+   "bill_term": "MCH FEE",
+   "income_category": "Outpatient income",
+   "cash": 50.0,
+   "insurance": 60.0
+  },
+  {
+   "row": 101,
+   "name": "DIATHERMY FEE PER HOUR",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 1200.0,
+   "insurance": 1440.0
+  },
+  {
+   "row": 102,
+   "name": "DISCOUNTED CROWN",
+   "department": "DENTAL",
+   "bill_term": "DENTAL FEE",
+   "income_category": "Dental Income",
+   "cash": 6000.0,
+   "insurance": 7200.0
+  },
+  {
+   "row": 103,
+   "name": "DISCOUNTED FILING",
+   "department": "DENTAL",
+   "bill_term": "DENTAL FEE",
+   "income_category": "Dental Income",
+   "cash": 1500.0,
+   "insurance": 1800.0
+  },
+  {
+   "row": 104,
+   "name": "DISCOUNTED SCALING",
+   "department": "DENTAL",
+   "bill_term": "DENTAL FEE",
+   "income_category": "Dental Income",
+   "cash": 2500.0,
+   "insurance": 3000.0
+  },
+  {
+   "row": 105,
+   "name": "DRAINAGE AND INCISION EXTRA",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 7000.0,
+   "insurance": 8400.0
+  },
+  {
+   "row": 106,
+   "name": "DRAINAGE AND INCISION MAJOR",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 3000.0,
+   "insurance": 3600.0
+  },
+  {
+   "row": 107,
+   "name": "DRAINAGE AND INCISION MINOR(BOIL)",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 1000.0,
+   "insurance": 1200.0
+  },
+  {
+   "row": 108,
+   "name": "DRESSING LARGE (SERVICE)",
+   "department": "General OPD",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 1000.0,
+   "insurance": 1200.0
+  },
+  {
+   "row": 109,
+   "name": "DRESSING MEDIUM (SERVICE)",
+   "department": "General OPD",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 500.0,
+   "insurance": 600.0
+  },
+  {
+   "row": 110,
+   "name": "DRESSING SMALL (SERVICE)",
+   "department": "General OPD",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 300.0,
+   "insurance": 360.0
+  },
+  {
+   "row": 111,
+   "name": "EAR SYRINGING",
+   "department": "General OPD",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 1000.0,
+   "insurance": 1200.0
+  },
+  {
+   "row": 112,
+   "name": "ECG",
+   "department": "RADIOLOGY",
+   "bill_term": "LABORATORY FEE",
+   "income_category": "Laboratory income",
+   "cash": 1500.0,
+   "insurance": 1800.0
+  },
+  {
+   "row": 113,
+   "name": "ECG",
+   "department": "General OPD",
+   "bill_term": "LABORATORY FEE",
+   "income_category": "Laboratory income",
+   "cash": 1500.0,
+   "insurance": 1800.0
+  },
+  {
+   "row": 114,
+   "name": "ECHO",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 7500.0,
+   "insurance": 9000.0
+  },
+  {
+   "row": 115,
+   "name": "ECO",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 6000.0,
+   "insurance": 7200.0
+  },
+  {
+   "row": 116,
+   "name": "ECTOPIC PREGNANCY",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 75000.0,
+   "insurance": 90000.0
+  },
+  {
+   "row": 117,
+   "name": "ELBOW",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 200.0,
+   "insurance": 240.0
+  },
+  {
+   "row": 118,
+   "name": "ELBOW",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 1500.0,
+   "insurance": 1800.0
+  },
+  {
+   "row": 119,
+   "name": "ENDOSCOPY NOSE",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 10000.0,
+   "insurance": 12000.0
+  },
+  {
+   "row": 120,
+   "name": "ENT",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Patient care Income",
+   "cash": 1500.0,
+   "insurance": 1800.0
+  },
+  {
+   "row": 121,
+   "name": "EVACUATION OF HEMETOMA",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 30000.0,
+   "insurance": 36000.0
+  },
+  {
+   "row": 122,
+   "name": "EX FIXATION",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 35000.0,
+   "insurance": 42000.0
+  },
+  {
+   "row": 123,
+   "name": "EXCISION LARGE",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 15000.0,
+   "insurance": 18000.0
+  },
+  {
+   "row": 124,
+   "name": "EXCISION MEDIUM",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 10000.0,
+   "insurance": 12000.0
+  },
+  {
+   "row": 125,
+   "name": "EXCISION SMALL",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 6000.0,
+   "insurance": 7200.0
+  },
+  {
+   "row": 126,
+   "name": "EXPLORATORY LAPAROTOMY",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 150000.0,
+   "insurance": 180000.0
+  },
+  {
+   "row": 127,
+   "name": "EXTRACTION CHILD (NON-MOBILE)",
+   "department": "DENTAL",
+   "bill_term": "DENTAL FEE",
+   "income_category": "Dental Income",
+   "cash": 500.0,
+   "insurance": 600.0
+  },
+  {
+   "row": 128,
+   "name": "EXTRACTION CHILD(MOBILE)",
+   "department": "DENTAL",
+   "bill_term": "DENTAL FEE",
+   "income_category": "Dental Income",
+   "cash": 300.0,
+   "insurance": 360.0
+  },
+  {
+   "row": 129,
+   "name": "Extraction Impacted tooth",
+   "department": "DENTAL",
+   "bill_term": "DENTAL FEE",
+   "income_category": "Dental Income",
+   "cash": 1500.0,
+   "insurance": 1800.0
+  },
+  {
+   "row": 130,
+   "name": "Extraction Impacted tooth non-discounted",
+   "department": "DENTAL",
+   "bill_term": "DENTAL FEE",
+   "income_category": "Dental Income",
+   "cash": 2000.0,
+   "insurance": 2400.0
+  },
+  {
+   "row": 131,
+   "name": "Extraction Other teeth",
+   "department": "DENTAL",
+   "bill_term": "DENTAL FEE",
+   "income_category": "Dental Income",
+   "cash": 600.0,
+   "insurance": 720.0
+  },
+  {
+   "row": 132,
+   "name": "Extraction Wisdom teeth",
+   "department": "DENTAL",
+   "bill_term": "DENTAL FEE",
+   "income_category": "Dental Income",
+   "cash": 1000.0,
+   "insurance": 1200.0
+  },
+  {
+   "row": 133,
+   "name": "EYE IRRIGATION SERVICE",
+   "department": "General OPD",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 1000.0,
+   "insurance": 1200.0
+  },
+  {
+   "row": 134,
+   "name": "FAMILY PLANING FIRST VISIT",
+   "department": "MCH FP",
+   "bill_term": "MCH FEE",
+   "income_category": "Outpatient income",
+   "cash": 200.0,
+   "insurance": 240.0
+  },
+  {
+   "row": 135,
+   "name": "FEMUR",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 1500.0,
+   "insurance": 1800.0
+  },
+  {
+   "row": 136,
+   "name": "FILING-CHILD",
+   "department": "DENTAL",
+   "bill_term": "DENTAL FEE",
+   "income_category": "Dental Income",
+   "cash": 1000.0,
+   "insurance": 1200.0
+  },
+  {
+   "row": 137,
+   "name": "Filling (Per tooth)",
+   "department": "DENTAL",
+   "bill_term": "DENTAL FEE",
+   "income_category": "Dental Income",
+   "cash": 2500.0,
+   "insurance": 3000.0
+  },
+  {
+   "row": 138,
+   "name": "FOOT/TOES",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 1500.0,
+   "insurance": 1800.0
+  },
+  {
+   "row": 139,
+   "name": "FP FEMI PLAN PILLS",
+   "department": "MCH FP",
+   "bill_term": "MCH FEE",
+   "income_category": "Outpatient income",
+   "cash": 100.0,
+   "insurance": 120.0
+  },
+  {
+   "row": 140,
+   "name": "FP IMPLANT FOLLOW UP",
+   "department": "MCH FP",
+   "bill_term": "MCH FEE",
+   "income_category": "Outpatient income",
+   "cash": 200.0,
+   "insurance": 240.0
+  },
+  {
+   "row": 141,
+   "name": "FP IMPLANT INSERTION",
+   "department": "MCH FP",
+   "bill_term": "MCH FEE",
+   "income_category": "Outpatient income",
+   "cash": 1000.0,
+   "insurance": 1200.0
+  },
+  {
+   "row": 142,
+   "name": "FP IMPLANT REMOVAL",
+   "department": "MCH FP",
+   "bill_term": "MCH FEE",
+   "income_category": "Outpatient income",
+   "cash": 500.0,
+   "insurance": 600.0
+  },
+  {
+   "row": 143,
+   "name": "FP INJECTION (DEPO)",
+   "department": "MCH FP",
+   "bill_term": "MCH FEE",
+   "income_category": "Outpatient income",
+   "cash": 300.0,
+   "insurance": 360.0
+  },
+  {
+   "row": 144,
+   "name": "FP MICROGYNON",
+   "department": "MCH FP",
+   "bill_term": "MCH FEE",
+   "income_category": "Outpatient income",
+   "cash": 200.0,
+   "insurance": 240.0
+  },
+  {
+   "row": 145,
+   "name": "FP MICROLUT",
+   "department": "MCH FP",
+   "bill_term": "MCH FEE",
+   "income_category": "Outpatient income",
+   "cash": 50.0,
+   "insurance": 60.0
+  },
+  {
+   "row": 146,
+   "name": "FP MYCHOICE",
+   "department": "MCH FP",
+   "bill_term": "MCH FEE",
+   "income_category": "Outpatient income",
+   "cash": 50.0,
+   "insurance": 60.0
+  },
+  {
+   "row": 147,
+   "name": "FULL BODY NUTRITIONAL ASSESSMENT",
+   "department": "General OPD",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 1000.0,
+   "insurance": 1200.0
+  },
+  {
+   "row": 148,
+   "name": "Full mouth scaling",
+   "department": "DENTAL",
+   "bill_term": "DENTAL FEE",
+   "income_category": "Dental Income",
+   "cash": 4000.0,
+   "insurance": 4800.0
+  },
+  {
+   "row": 149,
+   "name": "GASTRIC LAVAGE ADULT",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 2500.0,
+   "insurance": 3000.0
+  },
+  {
+   "row": 150,
+   "name": "GASTRIC LAVAGE PEDIATRIC",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 2000.0,
+   "insurance": 2400.0
+  },
+  {
+   "row": 151,
+   "name": "GAUZE BANDAGE",
+   "department": "General OPD",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 20.0,
+   "insurance": 24.0
+  },
+  {
+   "row": 152,
+   "name": "GAUZE STERILE",
+   "department": "Pharmacy",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 20.0,
+   "insurance": 24.0
+  },
+  {
+   "row": 153,
+   "name": "GENERAL PACK",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 4500.0,
+   "insurance": 5400.0
+  },
+  {
+   "row": 154,
+   "name": "Gluten allery",
+   "department": "Lab",
+   "bill_term": "LABORATORY FEE",
+   "income_category": "Laboratory income",
+   "cash": 6000.0,
+   "insurance": 7200.0
+  },
+  {
+   "row": 155,
+   "name": "Gynecologist",
+   "department": "Obstetrics and Gynecology",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 1000.0,
+   "insurance": 1200.0
+  },
+  {
+   "row": 156,
+   "name": "Gynecology",
+   "department": "THEATRE",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Patient care Income",
+   "cash": 1000.0,
+   "insurance": 1200.0
+  },
+  {
+   "row": 157,
+   "name": "H.S.G",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 6000.0,
+   "insurance": 7200.0
+  },
+  {
+   "row": 158,
+   "name": "HAEMORRHOIDECTOMY",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 100000.0,
+   "insurance": 120000.0
+  },
+  {
+   "row": 159,
+   "name": "HALOTHANE(FLUOTHANE) 250MLS",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 2500.0,
+   "insurance": 3000.0
+  },
+  {
+   "row": 160,
+   "name": "HANDS/FINGERS",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 1500.0,
+   "insurance": 1800.0
+  },
+  {
+   "row": 161,
+   "name": "HIP",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 1500.0,
+   "insurance": 1800.0
+  },
+  {
+   "row": 162,
+   "name": "HIP IMPLANT",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 0.0,
+   "insurance": 0.0
+  },
+  {
+   "row": 163,
+   "name": "HPV",
+   "department": "MCH HPV",
+   "bill_term": "MCH FEE",
+   "income_category": "Outpatient income",
+   "cash": 200.0,
+   "insurance": 240.0
+  },
+  {
+   "row": 164,
+   "name": "HUMERUS",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 200.0,
+   "insurance": 240.0
+  },
+  {
+   "row": 165,
+   "name": "HUMERUS",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 1500.0,
+   "insurance": 1800.0
+  },
+  {
+   "row": 166,
+   "name": "I.V.U",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 6500.0,
+   "insurance": 7800.0
+  },
+  {
+   "row": 167,
+   "name": "IMPLANT SURGERY",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 25000.0,
+   "insurance": 30000.0
+  },
+  {
+   "row": 168,
+   "name": "IMUNIZATION",
+   "department": "Maternity",
+   "bill_term": "MCH FEE",
+   "income_category": "Outpatient income",
+   "cash": 0.0,
+   "insurance": 0.0
+  },
+  {
+   "row": 169,
+   "name": "IN PATIENT COMPLICATION FEE",
+   "department": "General In- Patient",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 0.0,
+   "insurance": 0.0
+  },
+  {
+   "row": 170,
+   "name": "In patient nursing fee",
+   "department": "General In- Patient",
+   "bill_term": "NURSING FEE",
+   "income_category": "Patient care Income",
+   "cash": 0.0,
+   "insurance": 0.0
+  },
+  {
+   "row": 171,
+   "name": "In-patient doctorS fee",
+   "department": "General In- Patient",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 500.0,
+   "insurance": 600.0
+  },
+  {
+   "row": 172,
+   "name": "In-patient nursing fee",
+   "department": "General In- Patient",
+   "bill_term": "NURSING FEE",
+   "income_category": "Patient care Income",
+   "cash": 500.0,
+   "insurance": 600.0
+  },
+  {
+   "row": 173,
+   "name": "INCISION AND DRAINAGE",
+   "department": "General OPD",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 2500.0,
+   "insurance": 3000.0
+  },
+  {
+   "row": 174,
+   "name": "INCISION AND DRAINAGE",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 20000.0,
+   "insurance": 24000.0
+  },
+  {
+   "row": 175,
+   "name": "INDUCTION",
+   "department": "Maternity",
+   "bill_term": "NURSING FEE",
+   "income_category": "Patient care Income",
+   "cash": 4000.0,
+   "insurance": 4800.0
+  },
+  {
+   "row": 176,
+   "name": "INDUCTION 2",
+   "department": "Maternity",
+   "bill_term": "NURSING FEE",
+   "income_category": "Patient care Income",
+   "cash": 500.0,
+   "insurance": 600.0
+  },
+  {
+   "row": 177,
+   "name": "INDUCTION-2000",
+   "department": "Maternity",
+   "bill_term": "NURSING FEE",
+   "income_category": "Patient care Income",
+   "cash": 2000.0,
+   "insurance": 2400.0
+  },
+  {
+   "row": 178,
+   "name": "INFUSION PROCEDURE",
+   "department": "General OPD",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 1000.0,
+   "insurance": 1200.0
+  },
+  {
+   "row": 179,
+   "name": "INGROWN NAIL REMOVAL",
+   "department": "General OPD",
+   "bill_term": "CONSULTATION FEE",
+   "income_category": "Outpatient income",
+   "cash": 3000.0,
+   "insurance": 3600.0
+  },
+  {
+   "row": 180,
+   "name": "INJECTION PROCEDURE",
+   "department": "General OPD",
+   "bill_term": "NURSING FEE",
+   "income_category": "Patient care Income",
+   "cash": 100.0,
+   "insurance": 120.0
+  },
+  {
+   "row": 181,
+   "name": "inpatient doctors-1500",
+   "department": "General In- Patient",
+   "bill_term": "DOCTORS FEE",
+   "income_category": "Inpatient Income",
+   "cash": 1500.0,
+   "insurance": 1800.0
+  },
+  {
+   "row": 182,
+   "name": "inpatient doctors-2000",
+   "department": "General In- Patient",
+   "bill_term": "DOCTORS FEE",
+   "income_category": "Inpatient Income",
+   "cash": 2000.0,
+   "insurance": 2400.0
+  },
+  {
+   "row": 183,
+   "name": "INPATIENT GENERAL BED",
+   "department": "General In- Patient",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 2000.0,
+   "insurance": 2400.0
+  },
+  {
+   "row": 184,
+   "name": "INPATIENT PRIVATE WARD",
+   "department": "General In- Patient",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 5000.0,
+   "insurance": 6000.0
+  },
+  {
+   "row": 185,
+   "name": "INPATIENT SEMI PRIVATE BED",
+   "department": "General In- Patient",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 3000.0,
+   "insurance": 3600.0
+  },
+  {
+   "row": 186,
+   "name": "INPATIENTGENERAIBED SPECIAL",
+   "department": "General In- Patient",
+   "bill_term": "ADMISSION FEE",
+   "income_category": "Inpatient Income",
+   "cash": 500.0,
+   "insurance": 600.0
+  },
+  {
+   "row": 187,
+   "name": "IUCD CHECK UP",
+   "department": "MCH FP",
+   "bill_term": "MCH FEE",
+   "income_category": "Outpatient income",
+   "cash": 500.0,
+   "insurance": 600.0
+  },
+  {
+   "row": 188,
+   "name": "IUCD INSERTION",
+   "department": "MCH FP",
+   "bill_term": "MCH FEE",
+   "income_category": "Outpatient income",
+   "cash": 1000.0,
+   "insurance": 1200.0
+  },
+  {
+   "row": 189,
+   "name": "IUCD INSERTION",
+   "department": "MCH ANC",
+   "bill_term": "MCH FEE",
+   "income_category": "Outpatient income",
+   "cash": 1000.0,
+   "insurance": 1200.0
+  },
+  {
+   "row": 190,
+   "name": "IUCD REMOVAL",
+   "department": "MCH ANC",
+   "bill_term": "MCH FEE",
+   "income_category": "Outpatient income",
+   "cash": 500.0,
+   "insurance": 600.0
+  },
+  {
+   "row": 191,
+   "name": "IUCD REMOVAL",
+   "department": "MCH FP",
+   "bill_term": "MCH FEE",
+   "income_category": "Outpatient income",
+   "cash": 500.0,
+   "insurance": 600.0
+  },
+  {
+   "row": 192,
+   "name": "K- NAIL",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 10000.0,
+   "insurance": 12000.0
+  },
+  {
+   "row": 193,
+   "name": "KETROLAC",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 400.0,
+   "insurance": 480.0
+  },
+  {
+   "row": 194,
+   "name": "KNEE",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 1500.0,
+   "insurance": 1800.0
+  },
+  {
+   "row": 195,
+   "name": "KNEE IMPLANT",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 0.0,
+   "insurance": 0.0
+  },
+  {
+   "row": 196,
+   "name": "KUB ULTRASOUND",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 2000.0,
+   "insurance": 2400.0
+  },
+  {
+   "row": 197,
+   "name": "LABOUR FEE",
+   "department": "Maternity",
+   "bill_term": "NURSING FEE",
+   "income_category": "Patient care Income",
+   "cash": 5000.0,
+   "insurance": 6000.0
+  },
+  {
+   "row": 198,
+   "name": "LABOUR WARD-2500",
+   "department": "Maternity",
+   "bill_term": "NURSING FEE",
+   "income_category": "Patient care Income",
+   "cash": 2500.0,
+   "insurance": 3000.0
+  },
+  {
+   "row": 199,
+   "name": "LAMPECTOMY",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 0.0,
+   "insurance": 0.0
+  },
+  {
+   "row": 200,
+   "name": "LIGATION OF EXTRA DIGIT",
+   "department": "General OPD",
+   "bill_term": "NURSING FEE",
+   "income_category": "Patient care Income",
+   "cash": 3000.0,
+   "insurance": 3600.0
+  },
+  {
+   "row": 201,
+   "name": "LUMBAR PUNCTURE PROCEDURE",
+   "department": "General OPD",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 2000.0,
+   "insurance": 2400.0
+  },
+  {
+   "row": 202,
+   "name": "M.C.U",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 6500.0,
+   "insurance": 7800.0
+  },
+  {
+   "row": 203,
+   "name": "MACDONALD STITCH",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 15000.0,
+   "insurance": 18000.0
+  },
+  {
+   "row": 204,
+   "name": "MACDONALD STITCH REMOVAL",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 2000.0,
+   "insurance": 2400.0
+  },
+  {
+   "row": 205,
+   "name": "MARSUPIALIZATION(BARTHOLIN CYST)",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 25000.0,
+   "insurance": 30000.0
+  },
+  {
+   "row": 206,
+   "name": "maternity chek list",
+   "department": "Maternity",
+   "bill_term": "NURSING FEE",
+   "income_category": "Patient care Income",
+   "cash": 20.0,
+   "insurance": 24.0
+  },
+  {
+   "row": 207,
+   "name": "MATERNITY PADS",
+   "department": "General OPD",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 200.0,
+   "insurance": 240.0
+  },
+  {
+   "row": 208,
+   "name": "MCS",
+   "department": "Lab",
+   "bill_term": "LABORATORY FEE",
+   "income_category": "Laboratory income",
+   "cash": 3000.0,
+   "insurance": 3600.0
+  },
+  {
+   "row": 209,
+   "name": "MEDICAL CERTIFICATE",
+   "department": "General OPD",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 500.0,
+   "insurance": 600.0
+  },
+  {
+   "row": 210,
+   "name": "MEDICAL EXAMINATION - SCHOOLS",
+   "department": "General OPD",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 500.0,
+   "insurance": 600.0
+  },
+  {
+   "row": 211,
+   "name": "MEDICAL REPORT",
+   "department": "General OPD",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 500.0,
+   "insurance": 600.0
+  },
+  {
+   "row": 212,
+   "name": "MONITOR",
+   "department": "General In- Patient",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 550.0,
+   "insurance": 660.0
+  },
+  {
+   "row": 213,
+   "name": "MOTHER&CHILD HEALTH BOOKLET",
+   "department": "MCH ANC",
+   "bill_term": "MCH FEE",
+   "income_category": "Outpatient income",
+   "cash": 250.0,
+   "insurance": 300.0
+  },
+  {
+   "row": 214,
+   "name": "MVA",
+   "department": "General In- Patient",
+   "bill_term": "DOCTORS FEE",
+   "income_category": "Inpatient Income",
+   "cash": 8000.0,
+   "insurance": 9600.0
+  },
+  {
+   "row": 215,
+   "name": "MVA UNDER ANAESTHESIA",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 20000.0,
+   "insurance": 24000.0
+  },
+  {
+   "row": 216,
+   "name": "MYOMECTOMY",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 100000.0,
+   "insurance": 120000.0
+  },
+  {
+   "row": 217,
+   "name": "NASAL PACK",
+   "department": "General OPD",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 300.0,
+   "insurance": 360.0
+  },
+  {
+   "row": 218,
+   "name": "NBU INCUBATOR SERVICE PER DAY",
+   "department": "NBU",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 3000.0,
+   "insurance": 3600.0
+  },
+  {
+   "row": 219,
+   "name": "NBU-ROOM",
+   "department": "Maternity",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 3000.0,
+   "insurance": 3600.0
+  },
+  {
+   "row": 220,
+   "name": "NEBULIZATION OWN WITH MASKMASK",
+   "department": "General OPD",
+   "bill_term": "NURSING FEE",
+   "income_category": "Patient care Income",
+   "cash": 450.0,
+   "insurance": 540.0
+  },
+  {
+   "row": 221,
+   "name": "NEBULIZATION PER CESSION",
+   "department": "Nursing Station",
+   "bill_term": "NURSING FEE",
+   "income_category": "Patient care Income",
+   "cash": 650.0,
+   "insurance": 780.0
+  },
+  {
+   "row": 222,
+   "name": "NEBULIZATION PER CESSION",
+   "department": "General OPD",
+   "bill_term": "NURSING FEE",
+   "income_category": "Patient care Income",
+   "cash": 450.0,
+   "insurance": 540.0
+  },
+  {
+   "row": 223,
+   "name": "NEBULIZATION PROCEDURES",
+   "department": "General OPD",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 2000.0,
+   "insurance": 2400.0
+  },
+  {
+   "row": 224,
+   "name": "NGT INSERTION",
+   "department": "General OPD",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 1000.0,
+   "insurance": 1200.0
+  },
+  {
+   "row": 225,
+   "name": "NIGHT ACCOMODATION RELATIVE",
+   "department": "General In- Patient",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 2000.0,
+   "insurance": 2400.0
+  },
+  {
+   "row": 226,
+   "name": "NITROUS OXIDE 1 LTR PER MIN",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 10.0,
+   "insurance": 12.0
+  },
+  {
+   "row": 227,
+   "name": "NITROUS OXIDE 2 LTR PER MIN",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 15.0,
+   "insurance": 18.0
+  },
+  {
+   "row": 228,
+   "name": "normal delivery package",
+   "department": "General In- Patient",
+   "bill_term": "NURSING FEE",
+   "income_category": "Patient care Income",
+   "cash": 10000.0,
+   "insurance": 12000.0
+  },
+  {
+   "row": 229,
+   "name": "NORMAL FILING",
+   "department": "DENTAL",
+   "bill_term": "DENTAL FEE",
+   "income_category": "Dental Income",
+   "cash": 2000.0,
+   "insurance": 2400.0
+  },
+  {
+   "row": 230,
+   "name": "NOSE PIERCING",
+   "department": "General OPD",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 300.0,
+   "insurance": 360.0
+  },
+  {
+   "row": 231,
+   "name": "Nutrition Adults",
+   "department": "NUTRITION",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 500.0,
+   "insurance": 600.0
+  },
+  {
+   "row": 232,
+   "name": "Nutrition Children",
+   "department": "NUTRITION",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 300.0,
+   "insurance": 360.0
+  },
+  {
+   "row": 233,
+   "name": "OBSTETRIC U/S",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 1500.0,
+   "insurance": 1800.0
+  },
+  {
+   "row": 234,
+   "name": "OBSTETRIC U/S DISCOUNTED",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 500.0,
+   "insurance": 600.0
+  },
+  {
+   "row": 235,
+   "name": "OBSTETRIC/BPP",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 2500.0,
+   "insurance": 3000.0
+  },
+  {
+   "row": 236,
+   "name": "OLD RECORD RETRIEVAL",
+   "department": "General OPD",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 500.0,
+   "insurance": 600.0
+  },
+  {
+   "row": 237,
+   "name": "ORAL-POLIO",
+   "department": "MCH ANC",
+   "bill_term": "MCH FEE",
+   "income_category": "Outpatient income",
+   "cash": 100.0,
+   "insurance": 120.0
+  },
+  {
+   "row": 238,
+   "name": "ORIF",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 0.0,
+   "insurance": 0.0
+  },
+  {
+   "row": 239,
+   "name": "OVARIAN RESECTION",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 80000.0,
+   "insurance": 96000.0
+  },
+  {
+   "row": 240,
+   "name": "OXGEN 2 TO 5 LITRES /MINUTE/HR",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 1000.0,
+   "insurance": 1200.0
+  },
+  {
+   "row": 241,
+   "name": "OXGEN 6 TO 10 LITRES /MINUTE/HR",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 1500.0,
+   "insurance": 1800.0
+  },
+  {
+   "row": 242,
+   "name": "OXYGEN -2-5 LTS/HR-300",
+   "department": "General In- Patient",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 300.0,
+   "insurance": 360.0
+  },
+  {
+   "row": 243,
+   "name": "OXYGEN ABOVE 10L/MINUTE/HR",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 2000.0,
+   "insurance": 2400.0
+  },
+  {
+   "row": 244,
+   "name": "OXYGEN2.5-5LTS/HOUR",
+   "department": "NBU",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 300.0,
+   "insurance": 360.0
+  },
+  {
+   "row": 245,
+   "name": "P.N.S",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 1500.0,
+   "insurance": 1800.0
+  },
+  {
+   "row": 246,
+   "name": "P.O.P REVIEW",
+   "department": "General OPD",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 500.0,
+   "insurance": 600.0
+  },
+  {
+   "row": 247,
+   "name": "Paeditrician",
+   "department": "POPC / PAEDRIATIC",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 1000.0,
+   "insurance": 1200.0
+  },
+  {
+   "row": 248,
+   "name": "PATIENT DEPTS",
+   "department": "General In- Patient",
+   "bill_term": "NURSING FEE",
+   "income_category": "Patient care Income",
+   "cash": 0.0,
+   "insurance": 0.0
+  },
+  {
+   "row": 249,
+   "name": "PATIENT OBSERVATION HOURLY",
+   "department": "General OPD",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 300.0,
+   "insurance": 360.0
+  },
+  {
+   "row": 250,
+   "name": "patient PACKAGE",
+   "department": "General In- Patient",
+   "bill_term": "ADMISSION FEE",
+   "income_category": "Inpatient Income",
+   "cash": 500.0,
+   "insurance": 600.0
+  },
+  {
+   "row": 251,
+   "name": "PEADIATRIC HEAD",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 3000.0,
+   "insurance": 3600.0
+  },
+  {
+   "row": 252,
+   "name": "PELVIC U/S",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 1500.0,
+   "insurance": 1800.0
+  },
+  {
+   "row": 253,
+   "name": "PERENIAL REPAIR 3RD DEGREE",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 5000.0,
+   "insurance": 6000.0
+  },
+  {
+   "row": 254,
+   "name": "PHOTOTHERAPY PER DAY",
+   "department": "NBU",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 2000.0,
+   "insurance": 2400.0
+  },
+  {
+   "row": 255,
+   "name": "Physician",
+   "department": "MOPC / PHYSICIAN",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 3000.0,
+   "insurance": 3600.0
+  },
+  {
+   "row": 256,
+   "name": "Physiotherapy",
+   "department": "physiotherapy",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 1000.0,
+   "insurance": 1200.0
+  },
+  {
+   "row": 257,
+   "name": "PIERCING",
+   "department": "General OPD",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 250.0,
+   "insurance": 300.0
+  },
+  {
+   "row": 258,
+   "name": "PLACENTA REMOVAL",
+   "department": "Maternity",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 5000.0,
+   "insurance": 6000.0
+  },
+  {
+   "row": 259,
+   "name": "PLASTER APLICATION",
+   "department": "General OPD",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 5000.0,
+   "insurance": 6000.0
+  },
+  {
+   "row": 260,
+   "name": "PLASTER APPLICATION (LARGE)",
+   "department": "General OPD",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 1500.0,
+   "insurance": 1800.0
+  },
+  {
+   "row": 261,
+   "name": "PLASTER APPLICATION (SMALL)",
+   "department": "General OPD",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 1000.0,
+   "insurance": 1200.0
+  },
+  {
+   "row": 262,
+   "name": "PLASTER REMOVAL(FULL)",
+   "department": "General OPD",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 1000.0,
+   "insurance": 1200.0
+  },
+  {
+   "row": 263,
+   "name": "PLASTER REMOVAL(SMALL)",
+   "department": "General OPD",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 500.0,
+   "insurance": 600.0
+  },
+  {
+   "row": 264,
+   "name": "PLATE AND SCREWS",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 4500.0,
+   "insurance": 5400.0
+  },
+  {
+   "row": 265,
+   "name": "PLEURAL TAP",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 3000.0,
+   "insurance": 3600.0
+  },
+  {
+   "row": 266,
+   "name": "PNC BABY",
+   "department": "MCH PNC",
+   "bill_term": "MCH FEE",
+   "income_category": "Outpatient income",
+   "cash": 200.0,
+   "insurance": 240.0
+  },
+  {
+   "row": 267,
+   "name": "PNC CLINIC NORMAL SVD",
+   "department": "MCH PNC",
+   "bill_term": "MCH FEE",
+   "income_category": "Outpatient income",
+   "cash": 200.0,
+   "insurance": 240.0
+  },
+  {
+   "row": 268,
+   "name": "PNC CLINIC UNDER C/S",
+   "department": "MCH PNC",
+   "bill_term": "MCH FEE",
+   "income_category": "Outpatient income",
+   "cash": 300.0,
+   "insurance": 360.0
+  },
+  {
+   "row": 269,
+   "name": "POVIDONE SOLUTION",
+   "department": "Pharmacy",
+   "bill_term": "PRESCIPTION FEE",
+   "income_category": "PHARMACY INCOME",
+   "cash": 500.0,
+   "insurance": 600.0
+  },
+  {
+   "row": 270,
+   "name": "PRESCRIPTION SLIP",
+   "department": "General OPD",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 100.0,
+   "insurance": 120.0
+  },
+  {
+   "row": 271,
+   "name": "PROLENE MESH",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 15000.0,
+   "insurance": 18000.0
+  },
+  {
+   "row": 272,
+   "name": "PROPHYLAXIS DISCOUNTED",
+   "department": "DENTAL",
+   "bill_term": "DENTAL FEE",
+   "income_category": "Dental Income",
+   "cash": 1500.0,
+   "insurance": 1800.0
+  },
+  {
+   "row": 273,
+   "name": "PROPHYLAXIS NORMAL",
+   "department": "DENTAL",
+   "bill_term": "DENTAL FEE",
+   "income_category": "Dental Income",
+   "cash": 2000.0,
+   "insurance": 2400.0
+  },
+  {
+   "row": 274,
+   "name": "PROSTATE ULTRASOUND",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 2500.0,
+   "insurance": 3000.0
+  },
+  {
+   "row": 275,
+   "name": "Prostrate cancer Screening",
+   "department": "Obstetrics and Gynecology",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 1500.0,
+   "insurance": 1800.0
+  },
+  {
+   "row": 276,
+   "name": "RADIAL/ULNA",
+   "department": "ORTHOPAEDIC",
+   "bill_term": "ORTHOPAEDIC FEE",
+   "income_category": "Outpatient income",
+   "cash": 1500.0,
+   "insurance": 1800.0
+  },
+  {
+   "row": 277,
+   "name": "RASH PIN",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 2500.0,
+   "insurance": 3000.0
+  },
+  {
+   "row": 278,
+   "name": "RECTAL EXAMINATION",
+   "department": "General OPD",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 500.0,
+   "insurance": 600.0
+  },
+  {
+   "row": 279,
+   "name": "REGIONAL U/S",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 2500.0,
+   "insurance": 3000.0
+  },
+  {
+   "row": 280,
+   "name": "Removal of a lost IUCD",
+   "department": "General OPD",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 3000.0,
+   "insurance": 3600.0
+  },
+  {
+   "row": 281,
+   "name": "REMOVAL OF FOREIGN BODIES",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 2000.0,
+   "insurance": 2400.0
+  },
+  {
+   "row": 282,
+   "name": "REMOVAL OF FOREIGN BODY",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 1000.0,
+   "insurance": 1200.0
+  },
+  {
+   "row": 283,
+   "name": "REMOVAL OF HARDWIRE",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 1000.0,
+   "insurance": 1200.0
+  },
+  {
+   "row": 284,
+   "name": "REMOVAL OF HARDWIRE2",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 50000.0,
+   "insurance": 60000.0
+  },
+  {
+   "row": 285,
+   "name": "REMOVAL OF MILK TEETH",
+   "department": "DENTAL",
+   "bill_term": "DENTAL FEE",
+   "income_category": "Dental Income",
+   "cash": 300.0,
+   "insurance": 360.0
+  },
+  {
+   "row": 286,
+   "name": "REMOVAL OF MILK TEETH",
+   "department": "General OPD",
+   "bill_term": "DENTAL FEE",
+   "income_category": "Dental Income",
+   "cash": 200.0,
+   "insurance": 240.0
+  },
+  {
+   "row": 287,
+   "name": "REMOVAL OF MILK TEETH",
+   "department": "MCH CWC",
+   "bill_term": "DENTAL FEE",
+   "income_category": "Dental Income",
+   "cash": 300.0,
+   "insurance": 360.0
+  },
+  {
+   "row": 288,
+   "name": "REMOVAL OF MOLARS",
+   "department": "DENTAL",
+   "bill_term": "DENTAL FEE",
+   "income_category": "Dental Income",
+   "cash": 500.0,
+   "insurance": 600.0
+  },
+  {
+   "row": 289,
+   "name": "REMOVAL OF PLASTER SMALL",
+   "department": "General OPD",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 1000.0,
+   "insurance": 1200.0
+  },
+  {
+   "row": 290,
+   "name": "REMOVAL OF PLATES",
+   "department": "ORTHOPAEDIC",
+   "bill_term": "ORTHOPAEDIC FEE",
+   "income_category": "Outpatient income",
+   "cash": 60000.0,
+   "insurance": 72000.0
+  },
+  {
+   "row": 291,
+   "name": "REMOVAL OF STITCHES",
+   "department": "General OPD",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 550.0,
+   "insurance": 660.0
+  },
+  {
+   "row": 292,
+   "name": "RESUSCITATION",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 3000.0,
+   "insurance": 3600.0
+  },
+  {
+   "row": 293,
+   "name": "RIPPLE MATRESS @ DAY",
+   "department": "General In- Patient",
+   "bill_term": "ADMISSION FEE",
+   "income_category": "Inpatient Income",
+   "cash": 1500.0,
+   "insurance": 1800.0
+  },
+  {
+   "row": 294,
+   "name": "ROOT CANAL DISCOUNTED",
+   "department": "DENTAL",
+   "bill_term": "DENTAL FEE",
+   "income_category": "Dental Income",
+   "cash": 5000.0,
+   "insurance": 6000.0
+  },
+  {
+   "row": 295,
+   "name": "Root Canal Treatment",
+   "department": "DENTAL",
+   "bill_term": "DENTAL FEE",
+   "income_category": "Dental Income",
+   "cash": 6000.0,
+   "insurance": 7200.0
+  },
+  {
+   "row": 296,
+   "name": "ROTAVAC",
+   "department": "MCH CWC",
+   "bill_term": "MCH FEE",
+   "income_category": "Outpatient income",
+   "cash": 100.0,
+   "insurance": 120.0
+  },
+  {
+   "row": 297,
+   "name": "SCREWS EACH",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 700.0,
+   "insurance": 840.0
+  },
+  {
+   "row": 298,
+   "name": "SCROTAL",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 2500.0,
+   "insurance": 3000.0
+  },
+  {
+   "row": 299,
+   "name": "SEARCH FOR MEDICAL DOCUMENTS",
+   "department": "General OPD",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 500.0,
+   "insurance": 600.0
+  },
+  {
+   "row": 300,
+   "name": "SELF INJECTION",
+   "department": "General OPD",
+   "bill_term": "NURSING FEE",
+   "income_category": "Patient care Income",
+   "cash": 200.0,
+   "insurance": 240.0
+  },
+  {
+   "row": 301,
+   "name": "SERVICE FEE",
+   "department": "General OPD",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 500.0,
+   "insurance": 600.0
+  },
+  {
+   "row": 302,
+   "name": "SERVICE FEE 1",
+   "department": "General OPD",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 300.0,
+   "insurance": 360.0
+  },
+  {
+   "row": 303,
+   "name": "SERVICE FEE MATERNIT LARGE",
+   "department": "Maternity",
+   "bill_term": "DELIVERY PACK",
+   "income_category": "Inpatient Income",
+   "cash": 2000.0,
+   "insurance": 2400.0
+  },
+  {
+   "row": 304,
+   "name": "SERVICE FEE MATERNIT MIDIUM",
+   "department": "Maternity",
+   "bill_term": "DELIVERY PACK",
+   "income_category": "Inpatient Income",
+   "cash": 1500.0,
+   "insurance": 1800.0
+  },
+  {
+   "row": 305,
+   "name": "SERVICE FEE MATERNIT SMALL",
+   "department": "Maternity",
+   "bill_term": "DELIVERY PACK",
+   "income_category": "Inpatient Income",
+   "cash": 1000.0,
+   "insurance": 1200.0
+  },
+  {
+   "row": 306,
+   "name": "SICK-OFF",
+   "department": "General OPD",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 500.0,
+   "insurance": 600.0
+  },
+  {
+   "row": 307,
+   "name": "SILK SUTURE",
+   "department": "Pharmacy",
+   "bill_term": "PRESCIPTION FEE",
+   "income_category": "PHARMACY INCOME",
+   "cash": 1000.0,
+   "insurance": 1200.0
+  },
+  {
+   "row": 308,
+   "name": "SINUSES",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 2000.0,
+   "insurance": 2400.0
+  },
+  {
+   "row": 309,
+   "name": "SOAP & WATER ENEMA",
+   "department": "General OPD",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 450.0,
+   "insurance": 540.0
+  },
+  {
+   "row": 310,
+   "name": "SPECIAL SCREW",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 1500.0,
+   "insurance": 1800.0
+  },
+  {
+   "row": 311,
+   "name": "SPECULUM EXAMINATION",
+   "department": "General OPD",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 500.0,
+   "insurance": 600.0
+  },
+  {
+   "row": 312,
+   "name": "SPINAL TRAY",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 550.0,
+   "insurance": 660.0
+  },
+  {
+   "row": 313,
+   "name": "SPLINT",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 5000.0,
+   "insurance": 6000.0
+  },
+  {
+   "row": 314,
+   "name": "SPLINT PLASTER",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 5000.0,
+   "insurance": 6000.0
+  },
+  {
+   "row": 315,
+   "name": "SU",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 0.0,
+   "insurance": 0.0
+  },
+  {
+   "row": 316,
+   "name": "SUCTIONING",
+   "department": "General OPD",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 300.0,
+   "insurance": 360.0
+  },
+  {
+   "row": 317,
+   "name": "SUPRA PUBIC CATHETERIZATION",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 2500.0,
+   "insurance": 3000.0
+  },
+  {
+   "row": 318,
+   "name": "SUPRA PUBIC CATHETERIZATION",
+   "department": "General OPD",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 2500.0,
+   "insurance": 3000.0
+  },
+  {
+   "row": 319,
+   "name": "SURGEON FEE-20",
+   "department": "Theatre",
+   "bill_term": "DOCTORS FEE",
+   "income_category": "Inpatient Income",
+   "cash": 20000.0,
+   "insurance": 24000.0
+  },
+  {
+   "row": 320,
+   "name": "SURGEON FEE-40",
+   "department": "Theatre",
+   "bill_term": "DOCTORS FEE",
+   "income_category": "Inpatient Income",
+   "cash": 40000.0,
+   "insurance": 48000.0
+  },
+  {
+   "row": 321,
+   "name": "SURGEON FEE-80",
+   "department": "Theatre",
+   "bill_term": "DOCTORS FEE",
+   "income_category": "Inpatient Income",
+   "cash": 80000.0,
+   "insurance": 96000.0
+  },
+  {
+   "row": 322,
+   "name": "SURGICAL IMPLANT",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 50000.0,
+   "insurance": 60000.0
+  },
+  {
+   "row": 323,
+   "name": "SURGICAL TOILETING",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 20000.0,
+   "insurance": 24000.0
+  },
+  {
+   "row": 324,
+   "name": "SURGIONS FEE",
+   "department": "Theatre",
+   "bill_term": "DOCTORS FEE",
+   "income_category": "Inpatient Income",
+   "cash": 0.0,
+   "insurance": 0.0
+  },
+  {
+   "row": 325,
+   "name": "SURGIONS FEE-100",
+   "department": "Theatre",
+   "bill_term": "DOCTORS FEE",
+   "income_category": "Inpatient Income",
+   "cash": 0.0,
+   "insurance": 0.0
+  },
+  {
+   "row": 326,
+   "name": "surgions fee-60",
+   "department": "Theatre",
+   "bill_term": "DOCTORS FEE",
+   "income_category": "Inpatient Income",
+   "cash": 60000.0,
+   "insurance": 72000.0
+  },
+  {
+   "row": 327,
+   "name": "SURGIONSFEE-35",
+   "department": "Theatre",
+   "bill_term": "DOCTORS FEE",
+   "income_category": "Inpatient Income",
+   "cash": 35000.0,
+   "insurance": 42000.0
+  },
+  {
+   "row": 328,
+   "name": "SUTURE PACK",
+   "department": "General OPD",
+   "bill_term": "CONSULTATION FEE",
+   "income_category": "Outpatient income",
+   "cash": 500.0,
+   "insurance": 600.0
+  },
+  {
+   "row": 329,
+   "name": "SUTURING",
+   "department": "General OPD",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 1000.0,
+   "insurance": 1200.0
+  },
+  {
+   "row": 330,
+   "name": "SUTURING SERVICE (LARGE)",
+   "department": "General OPD",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 2500.0,
+   "insurance": 3000.0
+  },
+  {
+   "row": 331,
+   "name": "SUTURING SERVICE (MEDIUM)",
+   "department": "General OPD",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 1500.0,
+   "insurance": 1800.0
+  },
+  {
+   "row": 332,
+   "name": "SUTURING SERVICE (SMALL)",
+   "department": "General OPD",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 1000.0,
+   "insurance": 1200.0
+  },
+  {
+   "row": 333,
+   "name": "TESTICULAR",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 2500.0,
+   "insurance": 3000.0
+  },
+  {
+   "row": 334,
+   "name": "TESTICULAR U/S",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 2500.0,
+   "insurance": 3000.0
+  },
+  {
+   "row": 335,
+   "name": "TETANUS INJECTION",
+   "department": "General OPD",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 200.0,
+   "insurance": 240.0
+  },
+  {
+   "row": 336,
+   "name": "THEATER FEE",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 10000.0,
+   "insurance": 12000.0
+  },
+  {
+   "row": 337,
+   "name": "THEATER FEE-50",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 0.0,
+   "insurance": 0.0
+  },
+  {
+   "row": 338,
+   "name": "THEATERFEE-30",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 30000.0,
+   "insurance": 36000.0
+  },
+  {
+   "row": 339,
+   "name": "THEATRE DEBRIDEMENT LARGE",
+   "department": "ORTHOPAEDIC",
+   "bill_term": "ORTHOPAEDIC FEE",
+   "income_category": "Outpatient income",
+   "cash": 50000.0,
+   "insurance": 60000.0
+  },
+  {
+   "row": 340,
+   "name": "THEATRE DEBRIDEMENT MEDIUM",
+   "department": "ORTHOPAEDIC",
+   "bill_term": "ORTHOPAEDIC FEE",
+   "income_category": "Outpatient income",
+   "cash": 30000.0,
+   "insurance": 36000.0
+  },
+  {
+   "row": 341,
+   "name": "THEATRE DEBRIDEMENT SMALL",
+   "department": "ORTHOPAEDIC",
+   "bill_term": "ORTHOPAEDIC FEE",
+   "income_category": "Outpatient income",
+   "cash": 20000.0,
+   "insurance": 24000.0
+  },
+  {
+   "row": 342,
+   "name": "THEATRE FEE-20",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 20000.0,
+   "insurance": 24000.0
+  },
+  {
+   "row": 343,
+   "name": "THEATRE FEE-25",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 25000.0,
+   "insurance": 30000.0
+  },
+  {
+   "row": 344,
+   "name": "THEATRE INCISION AND DRAINAGE",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 20000.0,
+   "insurance": 24000.0
+  },
+  {
+   "row": 345,
+   "name": "THEATRE PERENIAL REPAIR",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 20000.0,
+   "insurance": 24000.0
+  },
+  {
+   "row": 346,
+   "name": "Therapeutic massage",
+   "department": "Nursing Station",
+   "bill_term": "NURSING FEE",
+   "income_category": "Patient care Income",
+   "cash": 200.0,
+   "insurance": 240.0
+  },
+  {
+   "row": 347,
+   "name": "THOMAS SPLINT",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 5000.0,
+   "insurance": 6000.0
+  },
+  {
+   "row": 348,
+   "name": "THYROID U/S",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 2000.0,
+   "insurance": 2400.0
+  },
+  {
+   "row": 349,
+   "name": "TIBIA/FIBULAR",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 1500.0,
+   "insurance": 1800.0
+  },
+  {
+   "row": 350,
+   "name": "TONGUE TIE RELEASE",
+   "department": "General OPD",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 1000.0,
+   "insurance": 1200.0
+  },
+  {
+   "row": 351,
+   "name": "TOTAL NURSING CARE",
+   "department": "General In- Patient",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 1500.0,
+   "insurance": 1800.0
+  },
+  {
+   "row": 352,
+   "name": "transfusion-3000",
+   "department": "General In- Patient",
+   "bill_term": "ADMISSION FEE",
+   "income_category": "Inpatient Income",
+   "cash": 3000.0,
+   "insurance": 3600.0
+  },
+  {
+   "row": 353,
+   "name": "TRANSFUSION-7500",
+   "department": "General In- Patient",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 7500.0,
+   "insurance": 9000.0
+  },
+  {
+   "row": 354,
+   "name": "TRANSPORTATION",
+   "department": "General OPD",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 1000.0,
+   "insurance": 1200.0
+  },
+  {
+   "row": 355,
+   "name": "TRIPOD",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 2500.0,
+   "insurance": 3000.0
+  },
+  {
+   "row": 356,
+   "name": "UNILATERAL DOPPLER UTRASOUD",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 3000.0,
+   "insurance": 3600.0
+  },
+  {
+   "row": 357,
+   "name": "URETHROGRAM",
+   "department": "General In- Patient",
+   "bill_term": "NURSING FEE",
+   "income_category": "Patient care Income",
+   "cash": 6000.0,
+   "insurance": 7200.0
+  },
+  {
+   "row": 358,
+   "name": "VACCUM DELIVERY",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 4000.0,
+   "insurance": 4800.0
+  },
+  {
+   "row": 359,
+   "name": "VACUUM DRESSING",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 2000.0,
+   "insurance": 2400.0
+  },
+  {
+   "row": 360,
+   "name": "VAGINAL EXAMINATION (V.E PACK)",
+   "department": "General OPD",
+   "bill_term": "SERVICE FEE",
+   "income_category": "Patient care Income",
+   "cash": 500.0,
+   "insurance": 600.0
+  },
+  {
+   "row": 361,
+   "name": "VENTOLIN PUFF",
+   "department": "General OPD",
+   "bill_term": "NURSING FEE",
+   "income_category": "Patient care Income",
+   "cash": 100.0,
+   "insurance": 120.0
+  },
+  {
+   "row": 362,
+   "name": "VITAMIN A",
+   "department": "MCH CWC",
+   "bill_term": "MCH FEE",
+   "income_category": "Outpatient income",
+   "cash": 50.0,
+   "insurance": 60.0
+  },
+  {
+   "row": 363,
+   "name": "VITAMIN A",
+   "department": "MCH ANC",
+   "bill_term": "MCH FEE",
+   "income_category": "Outpatient income",
+   "cash": 50.0,
+   "insurance": 60.0
+  },
+  {
+   "row": 364,
+   "name": "WRIST",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 1500.0,
+   "insurance": 1800.0
+  },
+  {
+   "row": 365,
+   "name": "X RAY",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 1500.0,
+   "insurance": 1800.0
+  },
+  {
+   "row": 366,
+   "name": "X RAY-MCU",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 6500.0,
+   "insurance": 7800.0
+  },
+  {
+   "row": 367,
+   "name": "X-VENOGRAM",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 10000.0,
+   "insurance": 12000.0
+  },
+  {
+   "row": 368,
+   "name": "XLAP PACK",
+   "department": "Theatre",
+   "bill_term": "THEATRE FEE",
+   "income_category": "Theatre Income",
+   "cash": 3000.0,
+   "insurance": 3600.0
+  },
+  {
+   "row": 369,
+   "name": "XRAY -CERVICAL/SPINE",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 2000.0,
+   "insurance": 2400.0
+  },
+  {
+   "row": 370,
+   "name": "XRAY -WRIST",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 1500.0,
+   "insurance": 1800.0
+  },
+  {
+   "row": 371,
+   "name": "XRAY*THORACIC SPINE",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 2000.0,
+   "insurance": 2400.0
+  },
+  {
+   "row": 372,
+   "name": "XRAY-ABDOMINAL",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 1500.0,
+   "insurance": 1800.0
+  },
+  {
+   "row": 373,
+   "name": "XRAY-CLAVICAL",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 1500.0,
+   "insurance": 1800.0
+  },
+  {
+   "row": 374,
+   "name": "XRAY-HANDS/FINGERS",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 1500.0,
+   "insurance": 1800.0
+  },
+  {
+   "row": 375,
+   "name": "XRAY-PELVIS",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 1500.0,
+   "insurance": 1800.0
+  },
+  {
+   "row": 376,
+   "name": "XRAY-SCAPULAR",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 2000.0,
+   "insurance": 2400.0
+  },
+  {
+   "row": 377,
+   "name": "XRAY-SHOULDER",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 1500.0,
+   "insurance": 1800.0
+  },
+  {
+   "row": 378,
+   "name": "XRAY-SKULL-AP/LT",
+   "department": "RADIOLOGY",
+   "bill_term": "RADIOLOGY FEE",
+   "income_category": "Radiology Income",
+   "cash": 2000.0,
+   "insurance": 2400.0
+  }
+ ]
+}

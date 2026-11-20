@@ -431,20 +431,30 @@ def test_tail_mode_fills_links_an_earlier_run_left_empty_never_overwrites(tmp_pa
     # empty; on v-y prod has since set its own
     dst.add("evaluation/visits", uuid="v-prod", patient=p1, user=u1, status="open",
             created_at=new_ts, updated_at=new_ts)
+    src.add("evaluation/visits", uuid="v-z", patient=p1, user=u1, status="open",
+            created_at=new_ts, updated_at=new_ts)
+    stamped = "2026-11-20T05:00:00.000000Z"          # an earlier patch stamped "now"
     dst.add("evaluation/visits", uuid="v-x", patient=p1, user=None, status="open",
-            created_at=new_ts, updated_at=new_ts)
+            created_at=new_ts, updated_at=stamped)
     dst.add("evaluation/visits", uuid="v-y", patient=p1, user=777, status="open",
-            created_at=new_ts, updated_at=new_ts)
+            created_at=new_ts, updated_at="2026-11-19T10:00:00.000000Z")    # prod's own later edit
+    dst.add("evaluation/visits", uuid="v-z", patient=p1, user=u1, status="open",
+            created_at=new_ts, updated_at=stamped)
     win = vv.resolve_window("yesterday", "", now=datetime(2026, 11, 19, 10, tzinfo=vv.SOURCE_TZ))
     plan = vv.build_plan(src)
     copier = vv.Copier(src, dst, vv.State("src", "dst", root=tmp_path), plan, workers=1, window=win, tail=True)
     for m in sorted((m for m, x in plan["models"].items() if x["selected"]), key=lambda m: plan["models"][m]["tier"]):
         res = copier.copy_model(m)
     vis = {r["uuid"]: r for r in dst.rows["evaluation/visits"]}
+    original = vv.to_wall_time(new_ts)
     assert vis["v-x"]["user"] == u1                      # empty on the target: filled
+    assert vis["v-x"]["updated_at"] == original          # … and the original record's updated_at, not "now"
     assert vis["v-y"]["user"] == 777                     # the target's own value: kept
+    assert vis["v-y"]["updated_at"] == "2026-11-19T10:00:00.000000Z"   # its own later edit: untouched
+    assert vis["v-z"]["updated_at"] == original          # only the stamp differed: restored
     visits = copier.state.load("report", "evaluation/visits", {})
     assert visits["posted"] == 0 and visits["links_filled"] == {"user": 1}
+    assert visits["updated_at_restored"] == 2
 
 
 def test_tail_mode_identity_links_for_a_model_the_source_cant_read(tmp_path, monkeypatch):

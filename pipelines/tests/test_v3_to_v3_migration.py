@@ -336,6 +336,124 @@ def test_shared_row_whose_parent_is_another_orgs_is_not_posted(tmp_path):
     assert res["evaluation/symptoms"]["foreign"] == 1 and res["evaluation/symptoms"]["posted"] == 1
 
 
+def _cloned_pair(n_patients=40):
+    """src = test instance, dst = its clone (same ids / uuids / org), both since grown apart."""
+    import copy
+    src, _ = _pair()
+    old = "2026-10-01T08:00:00.000000Z"
+    u1 = next(r["id"] for r in src.rows["core/users"] if r["uuid"] == "u1")
+    for k in range(n_patients):
+        src.add("reception/patient", uuid=f"bulk{k}", first_name=f"B{k}", facility_id=4, created_by=u1)
+    for r in (row for rows in src.rows.values() for row in rows):
+        r["created_at"] = r["updated_at"] = old
+    dst = FakeGateway("dst", 4, 4, MODELS, id_start=1)
+    dst.rows = copy.deepcopy(src.rows)
+    nxt = next(src._ids)
+    src._ids, dst._ids = itertools.count(nxt), itertools.count(nxt)
+    return src, dst, u1
+
+
+def _count_reads(gw):
+    gw.reads = 0
+    orig = gw.read_page
+
+    def counted(*a, **k):
+        gw.reads += 1
+        return orig(*a, **k)
+    gw.read_page = counted
+
+
+def test_tail_mode_reads_only_the_diverged_pages_and_links_to_the_clone(tmp_path, monkeypatch):
+    from datetime import datetime
+    monkeypatch.setattr(vv, "TAIL_PAGE", 4)
+    src, dst, u1 = _cloned_pair()
+    new_ts = "2026-11-18T09:00:00.000000Z"
+    p1 = next(r["id"] for r in src.rows["reception/patient"] if r["uuid"] == "p1")
+    # the target (prod) kept working: its own new rows take the same ids the test instance used
+    dst.add("reception/patient", uuid="p-prod", first_name="Prod", facility_id=4, created_by=u1,
+            created_at=new_ts, updated_at=new_ts)
+    # the test instance: a new patient, and visits for an old and the new patient
+    pn = src.add("reception/patient", uuid="p-new", first_name="New", facility_id=4, created_by=u1,
+                 created_at=new_ts, updated_at=new_ts)
+    src.add("evaluation/visits", uuid="v-old-pat", patient=p1, user=u1, status="open",
+            created_at=new_ts, updated_at=new_ts)
+    src.add("evaluation/visits", uuid="v-new-pat", patient=pn, user=u1, status="open",
+            created_at=new_ts, updated_at=new_ts)
+    _count_reads(src)
+    _count_reads(dst)
+    win = vv.resolve_window("yesterday", "", now=datetime(2026, 11, 19, 10, tzinfo=vv.SOURCE_TZ))
+    state = vv.State("src", "dst", root=tmp_path)
+    plan = vv.build_plan(src)
+    src.reads = dst.reads = 0
+    copier = vv.Copier(src, dst, state, plan, workers=2, window=win, tail=True)
+    order = sorted((m for m, x in plan["models"].items() if x["selected"]), key=lambda m: plan["models"][m]["tier"])
+    res = {m: copier.copy_model(m) for m in order}
+    pat = {r["uuid"]: r["id"] for r in dst.rows["reception/patient"]}
+    vis = {r["uuid"]: r for r in dst.rows["evaluation/visits"]}
+    assert "p-new" in pat and pat["p-new"] != pn                    # posted under a new id (pn is prod's p-prod)
+    assert vis["v-old-pat"]["patient"] == p1                         # before the divergence: same id on both
+    assert vis["v-new-pat"]["patient"] == pat["p-new"]               # posted in this run: mapped
+    assert vis["v-old-pat"]["user"] == u1
+    assert res["reception/patient"]["posted"] == 1 and res["evaluation/visits"]["posted"] == 2
+    assert len([r for r in dst.rows["reception/patient"] if r["uuid"] == "p-new"]) == 1
+    pages = -(-len(src.rows["reception/patient"]) // 4)
+    assert copier.tail_point("reception/patient")["same_pages"] >= pages - 2
+    assert copier.tail_point("reception/patient")["clone_upto"] < pn
+    assert src.reads + dst.reads < 4 * sum(-(-len(r) // 4) + 1 for r in src.rows.values())   # far from a full read
+    for m in order:
+        assert vv.verify_model(copier, m)["ok"], m
+    # a re-run posts nothing
+    again = vv.Copier(src, dst, state, plan, workers=2, window=win, tail=True)
+    assert all(again.copy_model(m).get("posted", 0) == 0 for m in order)
+
+
+def test_tail_mode_fills_links_an_earlier_run_left_empty_never_overwrites(tmp_path, monkeypatch):
+    from datetime import datetime
+    monkeypatch.setattr(vv, "TAIL_PAGE", 4)
+    src, dst, u1 = _cloned_pair()
+    new_ts = "2026-11-18T09:00:00.000000Z"
+    p1 = next(r["id"] for r in src.rows["reception/patient"] if r["uuid"] == "p1")
+    src.add("evaluation/visits", uuid="v-x", patient=p1, user=u1, status="open",
+            created_at=new_ts, updated_at=new_ts)
+    src.add("evaluation/visits", uuid="v-y", patient=p1, user=u1, status="open",
+            created_at=new_ts, updated_at=new_ts)
+    # an earlier run copied them (new ids, after prod's own new rows) with the user link
+    # empty; on v-y prod has since set its own
+    dst.add("evaluation/visits", uuid="v-prod", patient=p1, user=u1, status="open",
+            created_at=new_ts, updated_at=new_ts)
+    dst.add("evaluation/visits", uuid="v-x", patient=p1, user=None, status="open",
+            created_at=new_ts, updated_at=new_ts)
+    dst.add("evaluation/visits", uuid="v-y", patient=p1, user=777, status="open",
+            created_at=new_ts, updated_at=new_ts)
+    win = vv.resolve_window("yesterday", "", now=datetime(2026, 11, 19, 10, tzinfo=vv.SOURCE_TZ))
+    plan = vv.build_plan(src)
+    copier = vv.Copier(src, dst, vv.State("src", "dst", root=tmp_path), plan, workers=1, window=win, tail=True)
+    for m in sorted((m for m, x in plan["models"].items() if x["selected"]), key=lambda m: plan["models"][m]["tier"]):
+        res = copier.copy_model(m)
+    vis = {r["uuid"]: r for r in dst.rows["evaluation/visits"]}
+    assert vis["v-x"]["user"] == u1                      # empty on the target: filled
+    assert vis["v-y"]["user"] == 777                     # the target's own value: kept
+    visits = copier.state.load("report", "evaluation/visits", {})
+    assert visits["posted"] == 0 and visits["links_filled"] == {"user": 1}
+
+
+def test_tail_mode_identity_links_for_a_model_the_source_cant_read(tmp_path, monkeypatch):
+    from datetime import datetime
+    monkeypatch.setattr(vv, "TAIL_PAGE", 4)
+    src, dst, u1 = _cloned_pair()
+    plan = vv.build_plan(src)
+    plan["models"]["evaluation/visits"]["links"]["drug"] = "inventory/product"     # not in the plan
+    win = vv.resolve_window("yesterday", "", now=datetime(2026, 11, 19, 10, tzinfo=vv.SOURCE_TZ))
+    row = {"id": 1, "uuid": "z", "drug": 5753122, "created_at": "2026-11-18T09:00:00.000000Z"}
+    plain = vv.Copier(src, dst, vv.State("a", "b", root=tmp_path), plan, window=win, tail=True)
+    assert plain.translate("evaluation/visits", row)[0]["drug"] is None
+    ident = vv.Copier(src, dst, vv.State("a", "b", root=tmp_path), plan, window=win, tail=True,
+                      identity_links=["inventory/"])
+    assert ident.translate("evaluation/visits", row)[0]["drug"] == 5753122
+    with pytest.raises(ValueError):
+        vv.Copier(src, dst, vv.State("a", "b", root=tmp_path), plan, tail=True)
+
+
 def test_canary_posts_at_most_n_per_model(tmp_path):
     src, dst = _pair()
     _, _, _, order, results = _run(src, dst, tmp_path, record_limit=1)

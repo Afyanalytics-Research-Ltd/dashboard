@@ -166,6 +166,16 @@ def test_audit_ignores_other_orgs_rows_of_a_model_without_tenant_column():
     assert audit["evaluation/investigation_result_details"]["investigation_result_id"]["rate"] == 1.0
 
 
+def test_v2_keyed_columns_of_a_source_without_a_v2_load_are_v3_ids():
+    # test284 → prod284: no V2 map, so drug / marked_as_em_by … hold plain V3 ids (they were blanked)
+    col = next(iter(L.V2_KEYED))
+    assert vv.repair_v2({}, col[0], col[1], 5752302) == (5752302, False)
+    assert vv.repair_v2({a: {} for a in set(L.V2_KEYED.values())}, col[0], col[1], 7) == (7, False)
+    some = {a: {"500": 3} for a in set(L.V2_KEYED.values())}
+    assert vv.repair_v2(some, col[0], col[1], 500) == (3, True)          # a V2-loaded source keeps the guard
+    assert vv.repair_v2(some, col[0], col[1], 999) == (None, True)
+
+
 def test_v2_ids_left_by_the_v2_load_are_repaired_through_its_map(tmp_path):
     src, dst = _pair()
     u1 = next(r["id"] for r in src.rows["core/users"] if r["uuid"] == "u1")

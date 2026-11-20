@@ -258,9 +258,11 @@ def load_v2_map(source: str, root: Path = STATE_ROOT) -> dict[str, dict[str, int
 def repair_v2(v2_map: dict, model: str, col: str, val):
     """(value to link with, was it repaired): a V2-keyed column's V2 id →
     the source's V3 id, or None when the map lacks it (never the raw value:
-    a V2 id can collide with an unrelated V3 id)."""
+    a V2 id can collide with an unrelated V3 id). A source with no V2 load at
+    all (no map: e.g. test284, a clone of a V3 instance) holds V3 ids there:
+    taken as they are."""
     alias = L.V2_KEYED.get((model, col))
-    if alias is None or val in (None, "") or isinstance(val, bool):
+    if alias is None or val in (None, "") or isinstance(val, bool) or not any(v2_map.values()):
         return val, False
     return (v2_map.get(alias) or {}).get(str(val)), True
 

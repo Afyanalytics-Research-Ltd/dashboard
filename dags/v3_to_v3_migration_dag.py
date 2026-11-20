@@ -71,6 +71,16 @@ def _window(vv, ctx):
         raise AirflowFailException(str(e))
 
 
+def _copier_kw(vv, ctx) -> dict:
+    p = ctx["params"]
+    window = _window(vv, ctx)
+    tail = bool(p.get("tail"))
+    if tail and window is None:
+        raise AirflowFailException("tail mode needs `since`")
+    return {"window": window, "tail": tail,
+            "identity_links": [s.strip() for s in (p.get("identity_links") or []) if str(s).strip()]}
+
+
 def _plan(vv, src, state, p, refresh=False):
     return vv.load_or_build_plan(src, state, clean_list(p["models"]) or None,
                                  clean_list(p["exclude_models"]) or None, refresh=refresh)
@@ -109,6 +119,15 @@ def _plan(vv, src, state, p, refresh=False):
         "until": Param("", type="string", title="… until (exclusive)",
                        description="Empty = the end of `since`'s day (a date / keyword), else now. A date = end of "
                                    "that day."),
+        "tail": Param(False, type="boolean", title="Tail mode (fast: source is a clone of the target)",
+                      description="Needs `since`. Gateway pages are in id order, so page p is the same on both "
+                                  "instances up to where they diverged (found by bisection): only the pages after "
+                                  "that are read on each side — minutes instead of hours. Ids up to the divergence "
+                                  "point link as-is; empty links on rows already copied are filled (never "
+                                  "overwritten). A table whose pages aren't in id order is read in full."),
+        "identity_links": Param([], type="array", items={"type": "string"}, title="Identity links",
+                                description="Tail mode: target models (prefixes, e.g. inventory/) whose ids are the "
+                                            "same on both instances but can't be read on the source — linked as-is."),
         "refresh_plan": Param(False, type="boolean", title="Rebuild the plan",
                               description="Re-read the source catalogue (new models / columns)."),
         "skip_verify": Param(False, type="boolean", title="Skip verify after migrate"),
@@ -176,7 +195,7 @@ def v3_to_v3_migration():
         pl = _plan(vv, src, state, p)
         copier = vv.Copier(src, dst, state, pl, workers=int(p["workers"]), record_limit=int(p["record_limit"]),
                            read_workers=int(p["read_workers"]), v2_map=vv.load_v2_map(p["source"]),
-                           window=_window(vv, ctx))
+                           **_copier_kw(vv, ctx))
         try:
             res = copier.copy_model(job["model"])
         except vv.GatewayError as e:          # target down / rejecting everything: state is saved, retry later
@@ -200,7 +219,7 @@ def v3_to_v3_migration():
         vv, src, dst, state = _setup(p)
         pl = _plan(vv, src, state, p)
         copier = vv.Copier(src, dst, state, pl, workers=int(p["workers"]), read_workers=int(p["read_workers"]),
-                           v2_map=vv.load_v2_map(p["source"]), window=_window(vv, get_current_context()))
+                           v2_map=vv.load_v2_map(p["source"]), **_copier_kw(vv, get_current_context()))
         out = {m: copier.relink(m) for m, x in sorted(pl["models"].items(), key=lambda kv: kv[1]["tier"] or 0)
                if x["selected"]}
         left = {m: r["still_missing"] for m, r in out.items() if r["still_missing"]}
@@ -231,7 +250,7 @@ def v3_to_v3_migration():
         # a canary run compares just the rows it copied, field by field
         canary = ctx["params"]["mode"] == "migrate" and int(ctx["params"]["record_limit"]) > 0
         res = vv.verify_model(vv.Copier(src, dst, state, pl, read_workers=int(ctx["params"]["read_workers"]),
-                                        v2_map=vv.load_v2_map(ctx["params"]["source"]), window=_window(vv, ctx)),
+                                        v2_map=vv.load_v2_map(ctx["params"]["source"]), **_copier_kw(vv, ctx)),
                               job["model"], canary=canary)
         state.save("verify", job["model"], res)
         log.info("%s: %s", job["model"], json.dumps(res, default=str)[:4000])

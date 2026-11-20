@@ -59,6 +59,7 @@ log = logging.getLogger("v3_to_v3")
 STATE_ROOT = Path(os.getenv("V3V3_STATE_DIR") or Path(__file__).resolve().parent / ".migration_state")
 CHECKPOINT_SECONDS = float(os.getenv("V3V3_CHECKPOINT_SECONDS") or 30)
 READ_WORKERS = int(os.getenv("V3V3_READ_WORKERS") or 8)   # parallel page reads per table
+TAIL_PAGE = 500     # tail mode compares page p on both sides: the same page size on both (the gateway's cap)
 # a model stops (state saved, rest left for the re-run) after this many POSTs
 # in a row fail at the transport / 5xx level, or when its first this-many
 # rows are all rejected — the target is down or the schema is wrong, and
@@ -608,11 +609,22 @@ class Copier:
     def __init__(self, src: V3Client, dst: V3Client, state: State, plan: dict, *, workers: int = 4,
                  record_limit: int = 0, read_workers: int = READ_WORKERS, v2_map: dict | None = None,
                  checkpoint_seconds: float = CHECKPOINT_SECONDS, max_error_streak: int = MAX_ERROR_STREAK,
-                 window: tuple[datetime, datetime] | None = None):
+                 window: tuple[datetime, datetime] | None = None, tail: bool = False,
+                 identity_links: list[str] | None = None):
         self.src, self.dst, self.state, self.plan = src, dst, state, plan
         # [since, until): only rows created / changed in it are posted; older rows
         # already on the target are still mapped (by uuid) so new rows link to them
         self.window = window
+        # tail: the source is a clone of the target that diverged at some point. Gateway
+        # pages are in id order, so page p holds the same rows on both up to the first
+        # page that differs (found by bisection); only the pages from there on are read.
+        if tail and window is None:
+            raise ValueError("tail mode needs a window (since)")
+        self.tail = tail
+        # target models (prefixes, e.g. "inventory/") whose ids are the same on both
+        # instances and can't be mapped by reading the source (unreachable there)
+        self.identity_links = tuple(identity_links or ())
+        self._tail_cache: dict[str, dict] = {}
         self.v2_map = v2_map or {}
         self.unrepaired: dict[str, int] = {}          # "model.col" → V2 ids the map lacked (copied as null)
         self.errors: dict[str, dict[str, dict]] = {}  # model → cause → {count, v3_message, meaning, example}
@@ -634,24 +646,128 @@ class Copier:
         self.filled: dict[str, dict[str, int]] = {}
         self._lock = threading.Lock()
 
+    # ── tail mode ────────────────────────────────────────────────────────
+    @staticmethod
+    def _last_page(meta: dict, n_rows: int, per_page: int) -> int:
+        if meta.get("last_page"):
+            return int(meta["last_page"])
+        total = meta.get("total")
+        return max(1, -(-int(total) // per_page)) if total is not None else (1 if n_rows < per_page else 10 ** 9)
+
+    def _pages(self, client, model: str, start: int, last: int):
+        """Rows of pages start..last in order (read_workers pages in flight)."""
+        x = self.models[model]
+        pages = list(range(start, last + 1))
+        with ThreadPoolExecutor(self.read_workers) as ex:
+            for rows, _ in ex.map(lambda p: client.read_page(x["service"], x["alias"], p, per_page=TAIL_PAGE), pages):
+                yield from rows
+
+    def tail_point(self, model: str) -> dict:
+        """{"start": first page that may differ, "clone_upto": highest id that is the same
+        row on both, "src_last", "dst_last"} — saved, so other tasks' links can use it."""
+        if model in self._tail_cache:
+            return self._tail_cache[model]
+        x = self.models[model]
+        svc, alias = x["service"], x["alias"]
+        cache: dict[tuple, list] = {}
+
+        def page(client, p):
+            k = (id(client), p)
+            if k not in cache:
+                cache[k] = client.read_page(svc, alias, p, per_page=TAIL_PAGE)[0]
+            return cache[k]
+
+        def ids_ascending(rows):
+            ids = [r.get("id") for r in rows]
+            return all(isinstance(i, int) for i in ids) and ids == sorted(ids)
+
+        def same(p):
+            a, b = page(self.src, p), page(self.dst, p)
+            return bool(a) and [str(r.get("uuid")).lower() for r in a] == [str(r.get("uuid")).lower() for r in b]
+
+        s1, ms = self.src.read_page(svc, alias, 1, per_page=TAIL_PAGE)
+        d1, md = self.dst.read_page(svc, alias, 1, per_page=TAIL_PAGE)
+        cache[(id(self.src), 1)], cache[(id(self.dst), 1)] = s1, d1
+        src_last = self._last_page(ms, len(s1), TAIL_PAGE)
+        dst_last = self._last_page(md, len(d1), TAIL_PAGE)
+        lo, hi = 0, min(src_last, dst_last)            # invariant: pages 1..lo are the same on both
+        if hi >= 1 and same(1):
+            lo = 1
+            if same(hi):
+                lo = hi
+            else:
+                while hi - lo > 1:
+                    mid = (lo + hi) // 2
+                    if same(mid):
+                        lo = mid
+                    else:
+                        hi = mid
+        start = lo + 1
+        # the bisection is only sound when pages are in id order: else read everything
+        probe = [page(self.src, p) for p in {1, max(lo, 1), min(start, src_last)}]
+        if not all(ids_ascending(r) for r in probe if r):
+            log.warning("%s: gateway pages aren't in id order — tail mode reads the whole table", model)
+            lo, start = 0, 1
+        clone_upto = max((r["id"] for r in page(self.src, lo)), default=None) if lo else None
+        res = {"start": start, "clone_upto": clone_upto, "src_last": src_last, "dst_last": dst_last,
+               "same_pages": lo}
+        self._tail_cache[model] = res
+        self.state.save("tail", model, res)
+        log.info("%s tail: pages 1..%d the same on both; reading source %d..%d, target %d..%d",
+                 model, lo, start, src_last, start, dst_last)
+        return res
+
+    def _empty_links_to_fill(self, model: str, uuid: str, payload: dict) -> dict:
+        """Tail mode, a window row already on the target: its link columns the target holds
+        empty but the translated source row fills (an earlier run couldn't map them). Never
+        overwrites a value the target has."""
+        if not self.tail or not uuid:
+            return {}
+        tgt = (self.__dict__.get("_target_tail_rows") or {}).get(model, {}).get(uuid)
+        if tgt is None:
+            return {}
+        links = self.models[model]["links"]
+        return {c: payload[c] for c, t in links.items()
+                if t not in (L.FACILITY, L.DROP) and payload.get(c) not in (None, "") and tgt.get(c) in (None, "")
+                and c in tgt}
+
+    def _clone_upto(self, target: str):
+        if target not in self._tail_cache:
+            saved = self.state.load("tail", target, None)
+            with self._lock:
+                self._tail_cache.setdefault(target, saved or {})
+        return (self._tail_cache.get(target) or {}).get("clone_upto")
+
     # rows of the source org, with the model's own filter
     def source_rows(self, model: str):
         x = self.models[model]
-        for r in self.src.read_all(x["service"], x["alias"], workers=self.read_workers):
+        if self.tail:
+            t = self.tail_point(model)
+            rows = self._pages(self.src, model, t["start"], t["src_last"]) if t["start"] <= t["src_last"] else ()
+        else:
+            rows = self.src.read_all(x["service"], x["alias"], workers=self.read_workers)
+        for r in rows:
             if x["kind"] == "org_rows" and str(r.get("organization_id")) != str(self.src.organization_id):
                 continue
             yield r
 
-    def target_rows(self, model: str):
+    def target_rows(self, model: str, full: bool = False):
         x = self.models[model]
+        if self.tail and not full:
+            t = self.tail_point(model)
+            return self._pages(self.dst, model, t["start"], t["dst_last"]) if t["start"] <= t["dst_last"] else iter(())
         return self.dst.read_all(x["service"], x["alias"], workers=self.read_workers)
 
     def target_uuids(self, model: str) -> dict[str, int]:
         out = {}
+        keep = self.tail          # tail mode keeps the rows (few): empty links on them get filled
+        rows = self.__dict__.setdefault("_target_tail_rows", {}).setdefault(model, {}) if keep else None
         try:
             for r in self.target_rows(model):
                 if r.get("uuid") and r.get("id") is not None:
                     out[str(r["uuid"]).lower()] = r["id"]
+                    if keep:
+                        rows[str(r["uuid"]).lower()] = r
         except GatewayError as e:
             if _forbidden(e):        # it can't insert either — every row would only be dead-lettered
                 raise GatewayError(f"{model}: {e} — {FORBIDDEN_HINT.format(c=self.dst)}") from e
@@ -688,6 +804,10 @@ class Copier:
                     mapped = self.state.id_map(model).get(str(val))
                 if mapped is None and (model, col) in L.LINK_BY_CODE:
                     mapped = self.link_by_code(model, col, row)
+                if mapped is None and self.tail and isinstance(val, int) and not isinstance(val, bool):
+                    upto = self._clone_upto(target)
+                    if (upto is not None and val <= upto) or target.startswith(self.identity_links):
+                        mapped = val       # before the instances diverged: the same row, same id, on both
                 if mapped is not None:
                     out[col] = mapped
                 elif col in crit:
@@ -834,7 +954,7 @@ class Copier:
                 return self._key_indexes[k]
         idx: dict[str, int] = {}
         try:
-            for r in self.target_rows(model):
+            for r in self.target_rows(model, full=True):      # a clash can be with any row, not just the tail's
                 if r.get(col) not in (None, "") and r.get("id") is not None:
                     idx.setdefault(str(r[col]).strip().lower(), r["id"])
         except GatewayError as e:
@@ -925,6 +1045,15 @@ class Copier:
                 deferred_all[sid] = {**deferred, _UUID_KEY: row.get("uuid")}
                 counts["deferred"] += 1
 
+        def filled_done(row, patch, _extra, _new_id, err):     # under pool.lock
+            if err:
+                self.record_error(model, row, patch, err, stage="fill links")
+            else:
+                for c in patch:
+                    if c != "uuid":
+                        f = counts.setdefault("links_filled", {})
+                        f[c] = f.get(c, 0) + 1
+
         pool = self._post_pool(model)
         complete = False
         try:
@@ -935,7 +1064,8 @@ class Copier:
                 sid = str(row.get("id"))
                 uuid = str(row.get("uuid") or "").lower()
                 payload, missing_crit, deferred = self.translate(model, row)
-                there = (uuid and uuid in on_target) or (not uuid and sid in idm) or sid in paired
+                there = ((uuid and uuid in on_target) or (not uuid and sid in idm) or sid in paired
+                         or (self.tail and sid in idm))       # tail: mapped (posted) by an earlier run
                 if missing_crit and not there:
                     # model without a tenant column: a parent outside the source
                     # org means the row is another org's
@@ -963,11 +1093,14 @@ class Copier:
                     with pool.lock:
                         if sid in paired:
                             idm[sid] = _paired_id(paired[sid])
-                        elif uuid:
+                        elif uuid and uuid in on_target:
                             idm[sid] = on_target[uuid]
                         counts["already"] += 1
                         if deferred:
                             deferred_all[sid] = {**deferred, _UUID_KEY: row.get("uuid")}
+                    fill = self._empty_links_to_fill(model, uuid, payload) if in_window(row, self.window) else {}
+                    if fill and not self.map_only:
+                        pool.submit(row, {"uuid": row.get("uuid"), **fill}, None, filled_done)
                     continue
                 if self.map_only or (self.record_limit and new >= self.record_limit):
                     continue
@@ -988,6 +1121,8 @@ class Copier:
                 self.state.save("held", model, held)
                 self.state.save("paired_by_key", model, paired)
                 self.state.save("renamed", model, renamed)
+                if self.tail:     # the tail is only part of the source: add to the full read's list
+                    src_ids = sorted(set(self.state.load("src_ids", model, [])) | set(src_ids))
                 self.state.save("src_ids", model, src_ids)
         counts["seconds"] = round(time.time() - t0)
         v2_null = {k.split(".", 1)[1]: n for k, n in self.unrepaired.items() if k.startswith(model + ".")}
@@ -1050,12 +1185,17 @@ class Copier:
         idm = self.state.id_map(model)
         fields = L.REFERENCE_MATCH.get(model, ("code", "name"))
         by_uuid, by_key = {}, {}
-        for r in self.target_rows(model):
-            if r.get("uuid"):
-                by_uuid[str(r["uuid"]).lower()] = r["id"]
-            for f in fields:
-                if r.get(f) not in (None, ""):
-                    by_key.setdefault((f, str(r[f]).strip().lower()), r["id"])
+
+        def index(rows):
+            for r in rows:
+                if r.get("uuid"):
+                    by_uuid[str(r["uuid"]).lower()] = r["id"]
+                for f in fields:
+                    if r.get(f) not in (None, ""):
+                        by_key.setdefault((f, str(r[f]).strip().lower()), r["id"])
+
+        index(self.target_rows(model))
+        whole_target = not self.tail     # tail: only the target's tail is indexed until a row needs more
         counts = {"read": 0, "linked": 0, "posted": 0, "failed": 0}
 
         def done(row, payload, deferred, new_id, err):
@@ -1075,10 +1215,19 @@ class Copier:
                     break
                 counts["read"] += 1
                 sid = str(row["id"])
-                hit = by_uuid.get(str(row.get("uuid") or "").lower())
-                for f in fields:
-                    if hit is None and row.get(f) not in (None, ""):
-                        hit = by_key.get((f, str(row[f]).strip().lower()))
+                def match():
+                    h = by_uuid.get(str(row.get("uuid") or "").lower())
+                    for f in fields:
+                        if h is None and row.get(f) not in (None, ""):
+                            h = by_key.get((f, str(row[f]).strip().lower()))
+                    return h
+                hit = idm.get(sid) if self.tail else None     # mapped by an earlier run
+                hit = hit if hit is not None else match()
+                if hit is None and not whole_target and in_window(row, self.window):
+                    # about to post: the match may be on a page older than the tail
+                    index(self.target_rows(model, full=True))
+                    whole_target = True
+                    hit = match()
                 if hit is not None:
                     with pool.lock:
                         idm[sid] = hit
@@ -1638,6 +1787,10 @@ def main(argv=None) -> int:
     ap.add_argument("--since", default="", help="only rows created / changed since: yesterday, today, "
                                                 "YYYY-MM-DD or 'YYYY-MM-DD HH:MM:SS' (V3V3_SOURCE_TZ)")
     ap.add_argument("--until", default="", help="window end (exclusive; a date = end of that day)")
+    ap.add_argument("--tail", action="store_true",
+                    help="source is a clone of the target: read only the pages after they diverged (needs --since)")
+    ap.add_argument("--identity-links", nargs="*", default=[],
+                    help="tail: target model prefixes whose ids are the same on both (e.g. inventory/)")
     a = ap.parse_args(argv)
     window = resolve_window(a.since, a.until)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s · %(levelname)-7s · %(message)s", datefmt="%H:%M:%S")
@@ -1657,7 +1810,8 @@ def main(argv=None) -> int:
     copier = Copier(src, dst, state, plan, workers=a.workers, record_limit=a.record_limit,
                     v2_map=load_v2_map(a.source, root=a.state_dir),
                     read_workers=a.read_workers, checkpoint_seconds=a.checkpoint_seconds,
-                    max_error_streak=a.max_error_streak, window=window)
+                    max_error_streak=a.max_error_streak, window=window, tail=a.tail,
+                    identity_links=a.identity_links)
     if window:
         log.info("window: rows created / changed %s … %s (exclusive)", *window)
     todo = sorted((m for m, x in plan["models"].items() if x["selected"] and (a.tier is None or x["tier"] == a.tier)),

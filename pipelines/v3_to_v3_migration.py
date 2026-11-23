@@ -51,7 +51,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import v3_to_v3_links as L
-from v3_to_v3_client import SERVICES, GatewayError, V3Client
+from v3_to_v3_client import SERVICES, FilterUnsupported, GatewayError, V3Client
 from pipeline_checkpointing import CheckpointStore, atomic_write_json
 
 log = logging.getLogger("v3_to_v3")
@@ -614,7 +614,8 @@ class Copier:
                  record_limit: int = 0, read_workers: int = READ_WORKERS, v2_map: dict | None = None,
                  checkpoint_seconds: float = CHECKPOINT_SECONDS, max_error_streak: int = MAX_ERROR_STREAK,
                  window: tuple[datetime, datetime] | None = None, tail: bool = False,
-                 identity_links: list[str] | None = None, window_cols: tuple[str, ...] = WINDOW_COLUMNS):
+                 identity_links: list[str] | None = None, window_cols: tuple[str, ...] = WINDOW_COLUMNS,
+                 filter_reads: bool = False):
         self.src, self.dst, self.state, self.plan = src, dst, state, plan
         # [since, until): only rows created / changed in it are posted; older rows
         # already on the target are still mapped (by uuid) so new rows link to them
@@ -626,6 +627,15 @@ class Copier:
         if tail and window is None:
             raise ValueError("tail mode needs a window (since)")
         self.tail = tail
+        # filter_reads (with tail): both instances serve only the rows updated since the window's
+        # start (gateway updated_since / after_id) — two calls a table instead of a bisection.
+        # A parent unchanged since then predates the divergence (the window must start before it):
+        # the same row on both. One the source changed but the target didn't get ("unplaced")
+        # is never linked as-is. An instance without the filter falls back to the tail.
+        if filter_reads and not (tail and window is not None):
+            raise ValueError("filter_reads needs tail mode and a window")
+        self.filter_reads = filter_reads
+        self._filter_ok: dict[tuple, bool] = {}
         # target models (prefixes, e.g. "inventory/") whose ids are the same on both
         # instances and can't be mapped by reading the source (unreachable there)
         self.identity_links = tuple(identity_links or ())
@@ -799,10 +809,65 @@ class Copier:
                 self._tail_cache.setdefault(target, saved or {})
         return (self._tail_cache.get(target) or {}).get("clone_upto")
 
+    # ── filter reads ─────────────────────────────────────────────────────
+    def _since_wall(self) -> str:
+        return self.window[0].astimezone(SOURCE_TZ).strftime("%Y-%m-%d %H:%M:%S")
+
+    def _filtered(self, side: str, model: str):
+        """The rows of `model` updated since the window's start on one side (no end: a target row
+        copied in the window and edited after it must still count as there), else — the instance
+        ignores the filter — the tail pages of that side."""
+        client = self.src if side == "src" else self.dst
+        x = self.models[model]
+        key = (side, model)
+        if self._filter_ok.get(key) is not False and hasattr(client, "read_window"):
+            gen = client.read_window(x["service"], x["alias"], self._since_wall())
+            try:
+                first = next(gen)
+            except StopIteration:
+                self._filter_ok[key] = True
+                return
+            except FilterUnsupported as e:
+                self._filter_ok[key] = False
+                log.warning("%s — falling back to tail pages", e)
+            else:
+                self._filter_ok[key] = True
+                yield first
+                yield from gen
+                return
+        t = self.tail_point(model)
+        last = t["src_last"] if side == "src" else t["dst_last"]
+        if t["start"] <= last:
+            yield from self._pages(client, model, t["start"], last)
+
+    def _unplaced(self, model: str) -> set[str]:
+        """Source ids of `model` read in the window that are NOT on the target (outside the
+        created window, held, refused): a child's link to one must never be taken as-is."""
+        cache = self.__dict__.setdefault("_unplaced_sets", {})
+        if model not in cache:
+            with self._lock:
+                cache.setdefault(model, set(self.state.load("unplaced", model, [])))
+        return cache[model]
+
+    def _org_has(self, model: str, row_id: int) -> bool:
+        """Is row_id the target org's own row of `model`? (tail-less check: one after_id call,
+        cached; an instance without after_id reads the model once instead.)"""
+        cache = self.__dict__.setdefault("_org_has_cache", {})
+        k = (model, row_id)
+        if k not in cache:
+            x = self.models[model]
+            try:
+                cache[k] = self.dst.org_has(x["service"], x["alias"], row_id)
+            except (FilterUnsupported, AttributeError):
+                cache[k] = str(row_id) in self._org_ids(model)
+        return cache[k]
+
     # rows of the source org, with the model's own filter
     def source_rows(self, model: str):
         x = self.models[model]
-        if self.tail:
+        if self.filter_reads:
+            rows = self._filtered("src", model)
+        elif self.tail:
             t = self.tail_point(model)
             rows = self._pages(self.src, model, t["start"], t["src_last"]) if t["start"] <= t["src_last"] else ()
         else:
@@ -814,6 +879,8 @@ class Copier:
 
     def target_rows(self, model: str, full: bool = False):
         x = self.models[model]
+        if self.filter_reads and not full:
+            return self._filtered("dst", model)
         if self.tail and not full:
             t = self.tail_point(model)
             return self._pages(self.dst, model, t["start"], t["dst_last"]) if t["start"] <= t["dst_last"] else iter(())
@@ -878,6 +945,14 @@ class Copier:
                         if (x["kind"] in ("parent_rows", "reference") and target in self.models
                                 and self.models[target]["kind"] != "reference"):
                             mapped = val if str(val) in self._org_ids(target) else None
+                        else:
+                            mapped = val
+                    elif self.filter_reads and str(val) not in self._unplaced(target):
+                        # filter reads: a parent the window didn't touch predates the divergence — the
+                        # same row on both. Tenant-less rows: only if it is this org's own row.
+                        if (x["kind"] in ("parent_rows", "reference") and target in self.models
+                                and self.models[target]["kind"] != "reference"):
+                            mapped = val if self._org_has(target, val) else None
                         else:
                             mapped = val
                 if mapped is not None:
@@ -1081,6 +1156,7 @@ class Copier:
         paired = self.state.load("paired_by_key", model, {})   # source id → target id of a row under another uuid
         renamed = self.state.load("renamed", model, {})        # source id → value it was created under
         src_ids: list[str] = []
+        unplaced: set[str] = set()      # read here but not on the target (filter reads: never linked as-is)
         counts = {"read": 0, "already": 0, "posted": 0, "held": 0, "foreign": 0, "failed": 0, "deferred": 0}
         new = 0
         last_save = time.time()
@@ -1117,6 +1193,7 @@ class Copier:
                     counts["renamed"] = counts.get("renamed", 0) + 1
                     return
                 counts["failed"] += 1
+                unplaced.add(sid)
                 self.record_error(model, row, payload, err)
                 return
             if new_id is not None:
@@ -1159,9 +1236,11 @@ class Copier:
                     # a windowed run: not created / changed in the window — left alone
                     counts["outside_window"] = counts.get("outside_window", 0) + 1
                     src_ids.append(sid)
+                    unplaced.add(sid)
                     continue
                 if missing_crit and not there:
                     held[sid] = {c: row.get(c) for c in missing_crit}
+                    unplaced.add(sid)
                     counts["held"] += 1
                     src_ids.append(sid)
                     continue
@@ -1213,6 +1292,11 @@ class Copier:
                 if self.tail:     # the tail is only part of the source: add to the full read's list
                     src_ids = sorted(set(self.state.load("src_ids", model, [])) | set(src_ids))
                 self.state.save("src_ids", model, src_ids)
+            if self.filter_reads:
+                # posted ones (this run or an earlier one) are placed now
+                left = (set(self.state.load("unplaced", model, [])) | unplaced) - set(idm)
+                self.state.save("unplaced", model, sorted(left))
+                self.__dict__.setdefault("_unplaced_sets", {})[model] = left
         counts["seconds"] = round(time.time() - t0)
         v2_null = {k.split(".", 1)[1]: n for k, n in self.unrepaired.items() if k.startswith(model + ".")}
         if v2_null:
@@ -1290,10 +1374,12 @@ class Copier:
         index(self.target_rows(model))
         whole_target = not self.tail     # tail: only the target's tail is indexed until a row needs more
         counts = {"read": 0, "linked": 0, "posted": 0, "failed": 0}
+        unplaced: set[str] = set()
 
         def done(row, payload, deferred, new_id, err):
             if err:
                 counts["failed"] += 1
+                unplaced.add(str(row["id"]))
                 self.record_error(model, row, payload, err)
             else:
                 idm[str(row["id"])] = new_id
@@ -1328,6 +1414,7 @@ class Copier:
                     continue
                 if not in_window(row, self.window, self.window_cols):
                     counts["outside_window"] = counts.get("outside_window", 0) + 1
+                    unplaced.add(sid)
                     continue
                 if self.record_limit and posting >= self.record_limit:
                     continue
@@ -1336,6 +1423,7 @@ class Copier:
                     # a shared-table row whose parent (procedure …) is another org's:
                     # posting it would leave that link NULL on the target
                     counts["foreign"] = counts.get("foreign", 0) + 1
+                    unplaced.add(sid)
                     continue
                 if self.map_only:
                     self._would_post(counts, row)
@@ -1350,6 +1438,10 @@ class Copier:
             pool.close()
             with pool.lock:
                 self.state.save_map(model)
+            if self.filter_reads:
+                left = (set(self.state.load("unplaced", model, [])) | unplaced) - set(idm)
+                self.state.save("unplaced", model, sorted(left))
+                self.__dict__.setdefault("_unplaced_sets", {})[model] = left
         counts["status"] = "failed" if counts["failed"] or pool.aborted else "done"
         self.state.save("report", model, counts)
         log.info("%s (reference): %s", model, counts)

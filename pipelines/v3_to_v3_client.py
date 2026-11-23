@@ -39,6 +39,10 @@ MAX_PER_PAGE = 500                       # the gateway's validation cap
 # connections kept open per host: a model's POST workers and page readers
 # share them, so this bounds the useful concurrency of one client
 HTTP_POOL = int(os.getenv("V3V3_HTTP_POOL") or 96)
+# a platform account's grant: 60 calls a minute per instance over every org (429 "Try again in N s")
+PLATFORM_RATE = int(os.getenv("V3V3_PLATFORM_RATE") or 55)
+RATE_LIMIT_WAITS = 40
+_RATE_RETRY = re.compile(r"Try again in (\d+) ?s")
 
 
 _SCHEMA_ERROR_RE = re.compile(r'"sqlstate"\s*:\s*"42S(02|22)"|Base table or view not found|Unknown column '
@@ -53,6 +57,10 @@ def schema_error(text: str) -> bool:
 
 class GatewayError(RuntimeError):
     pass
+
+
+class FilterUnsupported(GatewayError):
+    """The instance ignores read filters (updated_since / after_id): fall back to tail / full reads."""
 
 
 class V3Client:
@@ -183,7 +191,11 @@ class V3Client:
         data = json.dumps(body, default=str).encode()
         transient = {429, 502, 503, 504} | ({500} if retry_500 else set())
         wait = 2
-        for attempt in range(1, retries + 1):
+        rate_waits = 0
+        attempt = 0
+        while attempt < retries:
+            attempt += 1
+            self._throttle()
             try:
                 r = self._session.post(url, headers=self._headers(service), data=data, timeout=timeout)
             except requests.RequestException as e:
@@ -200,6 +212,14 @@ class V3Client:
                     with V3Client._platform_lock:
                         V3Client._platform_tokens.pop((self.urls["core"].rstrip("/"), self.username), None)
                 continue
+            m = _RATE_RETRY.search(r.text) if r.status_code == 429 else None
+            if m and rate_waits < RATE_LIMIT_WAITS:
+                # the account's per-minute grant (60 calls over every org): wait as long as V3 says,
+                # without using up an attempt — a burst must slow down, not fail
+                rate_waits += 1
+                attempt -= 1
+                time.sleep(int(m.group(1)) + random.uniform(1, 3))
+                continue
             if r.status_code in transient and attempt < retries:
                 if r.status_code == 500 and schema_error(r.text):
                     return r                          # a missing table / column on V3: retrying can't fix it
@@ -208,6 +228,29 @@ class V3Client:
                 continue
             return r
         return r
+
+    # one bucket per instance + account: the grant is per account over every org (60 a minute)
+    _buckets: dict[tuple, deque] = {}
+    _bucket_lock = threading.Lock()
+
+    def _throttle(self) -> None:
+        """Platform accounts: at most PLATFORM_RATE calls a minute per instance, shared by every
+        client and thread of this process, so a run stays under V3's grant instead of
+        bouncing off 429s."""
+        if not self.platform or PLATFORM_RATE <= 0:
+            return
+        k = (self.urls["core"].rstrip("/"), self.username)
+        while True:
+            with V3Client._bucket_lock:
+                q = V3Client._buckets.setdefault(k, deque())
+                now = time.time()
+                while q and now - q[0] >= 60:
+                    q.popleft()
+                if len(q) < PLATFORM_RATE:
+                    q.append(now)
+                    return
+                pause = 60 - (now - q[0]) + 0.05
+            time.sleep(pause)
 
     def _call(self, service: str, body: dict, what: str, **kw) -> requests.Response:
         """post(), with a host that can't be reached (DNS, TLS, refused) as a GatewayError like any other —
@@ -228,6 +271,53 @@ class V3Client:
         if not r.ok:
             raise GatewayError(f"{self.key} {service}/{alias} describe: {r.status_code} {r.text[:200]}")
         return r.json().get("data") or {}
+
+    def read_window(self, service: str, alias: str, since: str, before: str | None = None,
+                    per_page: int = MAX_PER_PAGE, after_id: int = 0):
+        """Rows updated in [since, before) — the gateway's updated_since / updated_before,
+        paged by id with after_id / meta.next_after_id (generator). Raises
+        FilterUnsupported when this instance ignores the filter (no next_after_id in meta)."""
+        self.token()
+        after = after_id
+        while True:
+            body = {"action": "read", "model": alias, "source_tenant_id": self.organization_id,
+                    "per_page": min(per_page, MAX_PER_PAGE), "page": 1, "updated_since": since, "after_id": after}
+            if before:
+                body["updated_before"] = before
+            try:
+                r = self.post(service, body, timeout=120, retry_500=True, retries=8)
+            except requests.RequestException as e:
+                raise GatewayError(f"{self.key} {service}/{alias} read since {since}: {type(e).__name__}: {e}") from e
+            if not r.ok:
+                raise GatewayError(f"{self.key} {service}/{alias} read since {since}: {r.status_code} {r.text[:200]}")
+            j = r.json()
+            meta = j.get("meta") or {}
+            if "next_after_id" not in meta:
+                raise FilterUnsupported(f"{self.key} {service}/{alias}: updated_since / after_id not supported here")
+            rows = j.get("data") or []
+            if isinstance(rows, dict):
+                rows = rows.get("data") or list(rows.values())
+            yield from rows
+            nxt = meta.get("next_after_id")
+            if not nxt or not rows:
+                return
+            after = nxt
+
+    def org_has(self, service: str, alias: str, row_id: int) -> bool:
+        """Is row_id one of this tenant's rows? One call: the tenant's first row with id > row_id-1."""
+        self.token()
+        body = {"action": "read", "model": alias, "source_tenant_id": self.organization_id,
+                "per_page": 1, "page": 1, "after_id": int(row_id) - 1}
+        r = self.post(service, body, timeout=60, retry_500=True, retries=8)
+        if not r.ok:
+            raise GatewayError(f"{self.key} {service}/{alias} id {row_id}: {r.status_code} {r.text[:200]}")
+        j = r.json()
+        if "next_after_id" not in (j.get("meta") or {}):
+            raise FilterUnsupported(f"{self.key} {service}/{alias}: after_id not supported here")
+        rows = j.get("data") or []
+        if isinstance(rows, dict):
+            rows = rows.get("data") or []
+        return bool(rows) and rows[0].get("id") == int(row_id)
 
     def read_page(self, service: str, alias: str, page: int, per_page: int = MAX_PER_PAGE) -> tuple[list[dict], dict]:
         self.token()                                  # the tenant id comes from the login

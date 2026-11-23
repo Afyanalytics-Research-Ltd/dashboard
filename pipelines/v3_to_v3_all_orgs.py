@@ -151,6 +151,97 @@ def changed_models(plan: dict, since: str, batch: int = 20) -> tuple[dict[str, s
     return per_org, tenantless, unknown
 
 
+def is_shared(x: dict) -> bool:
+    """A table without an org column (every org's rows in one table)."""
+    return not x.get("tenant") and x.get("kind") != "org_rows"
+
+
+def shared_pass(plan: dict, models: list[str], window, orgs: dict[int, list[int]], mode: str, args) -> dict:
+    """The tables without an org column, ONCE for all orgs: each side's changed rows read a
+    single time; a new row goes to the org that owns its parent (that org's id map from the
+    per-org pass: a lab value → its result's org), posted through that org's clients. A row
+    whose parent the window didn't place in any org is skipped and counted (no_owner) —
+    never guessed."""
+    t0 = time.time()
+    out: dict[str, dict] = {}
+    if not models or not orgs:
+        return out
+    states = {o: vv.State(f"src_o{o}", f"dst_o{o}") for o in orgs}
+    copiers: dict[int, vv.Copier] = {}
+
+    def copier_for(o: int) -> vv.Copier:
+        if o not in copiers:
+            c = vv.Copier(org_client("SOURCE", o, orgs[o][0]), org_client("TARGET", o, orgs[o][0]), states[o],
+                          json.loads(json.dumps(plan)), workers=args.workers, read_workers=args.read_workers,
+                          window=window, tail=True, identity_links=args.identity_links,
+                          window_cols=("created_at",), filter_reads=True)
+            c.map_only = mode == "survey"
+            copiers[o] = c
+        return copiers[o]
+
+    owners: dict[str, dict[str, int]] = {}           # parent model → {source id: org} from every org's map
+
+    def owner_index(parent: str) -> dict[str, int]:
+        if parent not in owners:
+            idx: dict[str, int] = {}
+            for o, st in states.items():
+                for sid in st.id_map(parent, reload=True):
+                    idx.setdefault(str(sid), o)
+            owners[parent] = idx
+        return owners[parent]
+
+    any_org = next(iter(orgs))
+    reader = copier_for(any_org)
+    for m in sorted(models, key=lambda m: (plan["models"][m]["tier"] or 0, m)):
+        x = plan["models"][m]
+        counts = {"read": 0, "already": 0, "posted": 0, "would_post": 0, "no_owner": 0, "held": 0,
+                  "failed": 0, "outside_window": 0}
+        try:
+            src_rows = list(reader._filtered("src", m))          # every org's changed rows, once
+            if not src_rows:
+                out[m] = {"read": 0}
+                continue
+            on_target = {str(r["uuid"]).lower() for r in reader._filtered("dst", m) if r.get("uuid")}
+            org_links = {c: t for c, t in x["links"].items() if t in plan["models"] and not is_shared(plan["models"][t])}
+            for row in src_rows:
+                counts["read"] += 1
+                if str(row.get("uuid") or "").lower() in on_target:
+                    counts["already"] += 1
+                    continue
+                if not vv.in_window(row, window, ("created_at",)):
+                    counts["outside_window"] += 1
+                    continue
+                o = next((owner_index(t).get(str(row.get(c))) for c, t in org_links.items()
+                          if row.get(c) not in (None, "") and owner_index(t).get(str(row.get(c))) is not None), None)
+                if o is None:
+                    counts["no_owner"] += 1
+                    continue
+                cp = copier_for(o)
+                payload, missing, _ = cp.translate(m, row)
+                if missing:
+                    counts["held"] += 1
+                    continue
+                if cp.map_only:
+                    counts["would_post"] += 1
+                    continue
+                new_id, err = cp._insert(m, payload)
+                if err:
+                    counts["failed"] += 1
+                    cp.record_error(m, row, payload, err)
+                    continue
+                counts["posted"] += 1
+                if new_id is not None:
+                    cp.state.id_map(m)[str(row["id"])] = new_id
+            for cp in copiers.values():
+                cp.state.save_map(m)
+        except GatewayError as e:
+            counts["error"] = str(e)[:300]
+        out[m] = {k: v for k, v in counts.items() if v}
+        log.info("shared %s: %s", m, out[m])
+    log.info("shared pass: %d tables in %ds", len(models), time.time() - t0)
+    return out
+
+
 def run_org(org: int, facilities: list[int], plan: dict, window, mode: str, args, changed=None) -> dict:
     t0 = time.time()
     out = {"org": org, "facilities": facilities, "mode": mode, "models": {}}
@@ -169,17 +260,9 @@ def run_org(org: int, facilities: list[int], plan: dict, window, mode: str, args
             # same on both instances: nothing to copy, and their ids link as-is)
             per_org, tenantless, unknown = changed
             mine = {m for m, orgs in per_org.items() if org in orgs} | unknown
-
-            def wanted(m: str) -> bool:
-                if m in mine:
-                    return True
-                if m not in tenantless:
-                    return False
-                # a tenant-less table (every org's rows): only if one of its parents changed for this
-                # org (lab result values ← this org's results …), or it links to nothing org-owned
-                targets = {t for t in copier.models[m]["links"].values() if t in copier.models}
-                return bool(targets & (mine | tenantless)) or not targets
-            order = [m for m in order if wanted(m)]
+            # tables without an org column hold every org's rows: copied once for all orgs by
+            # shared_pass(), not re-read per org
+            order = [m for m in order if m in mine and not is_shared(copier.models[m])]
             out["models_checked"] = len(order)
         for m in order:
             try:
@@ -202,6 +285,11 @@ def run_org(org: int, facilities: list[int], plan: dict, window, mode: str, args
     tot = lambda k: sum(int(x.get(k) or 0) for x in out["models"].values())
     out.update({"would_post": tot("would_post"), "held": tot("held"), "would_patch": tot("would_patch"),
                 "posted": tot("posted"), "failed": tot("failed"), "seconds": round(time.time() - t0)})
+    if mode == "migrate" and "error" not in out:
+        # a restart skips this org (its records are on the target either way: a re-run only re-checks)
+        vv.State(f"src_o{org}", f"dst_o{org}").save("all_orgs", "done", {
+            "since": args.since, "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            **{k: out[k] for k in ("posted", "held", "failed")}})
     log.info("org %s (%s): %s", org, mode, {k: out[k] for k in ("would_post", "held", "would_patch", "posted",
                                                                  "failed", "seconds")} | ({"error": out["error"]}
                                                                                           if "error" in out else {}))
@@ -224,6 +312,8 @@ def main(argv=None) -> int:
                     help="filter: only rows updated since --since on each side (gateway updated_since / after_id; "
                          "--since must be before the instances diverged); tail: bisect the diverged pages")
     ap.add_argument("--out", type=Path, default=None, help="summary JSON (default: state dir)")
+    ap.add_argument("--redo", action="store_true", help="re-check orgs a previous migrate already finished")
+    ap.add_argument("--skip-shared", action="store_true", help="skip the pass over the tables without an org column")
     a = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s · %(levelname)-7s · %(message)s", datefmt="%H:%M:%S")
     for side in SIDES:
@@ -252,12 +342,28 @@ def main(argv=None) -> int:
         if not changed[1] and not changed[2]:
             todo = {o: f for o, f in todo.items() if o in busy}
         log.info("%d orgs have changed models", len(todo))
+    all_orgs = dict(todo)                                   # the shared pass needs every org's map
+    if a.mode == "migrate" and not a.redo:
+        done = {o for o in todo
+                if (vv.State(f"src_o{o}", f"dst_o{o}").load("all_orgs", "done", {}) or {}).get("since") == a.since}
+        if done:
+            log.info("skipping %d orgs a previous run finished (since %s; --redo to re-check): %s",
+                     len(done), a.since, sorted(done))
+        todo = {o: f for o, f in todo.items() if o not in done}
     with ThreadPoolExecutor(max(1, a.parallel_orgs)) as ex:
         results = list(ex.map(lambda kv: run_org(kv[0], kv[1], plan, window, a.mode, a, changed), todo.items()))
-    summary = {"mode": a.mode, "since": a.since, "until": a.until, "orgs": results,
-               "totals": {k: sum(r.get(k) or 0 for r in results) for k in ("would_post", "held", "would_patch",
-                                                                             "posted", "failed")},
-               "errors": {r["org"]: r["error"] for r in results if r.get("error")}}
+    shared = {}
+    if changed is not None and not a.skip_shared:
+        shared_models = sorted(m for m, x in plan["models"].items()
+                               if x.get("selected") and is_shared(x) and (m in changed[1] or m in changed[2]))
+        shared = shared_pass(plan, shared_models, window, all_orgs, a.mode, a)
+    shared_tot = lambda k: sum(int(v.get(k) or 0) for v in shared.values())
+    summary = {"mode": a.mode, "since": a.since, "until": a.until, "orgs": results, "shared": shared,
+               "totals": {k: sum(r.get(k) or 0 for r in results) + shared_tot(k)
+                          for k in ("would_post", "held", "would_patch", "posted", "failed")},
+               "shared_no_owner": shared_tot("no_owner"),
+               "errors": {**{r["org"]: r["error"] for r in results if r.get("error")},
+                          **{m: v["error"] for m, v in shared.items() if v.get("error")}}}
     out = a.out or vv.STATE_ROOT / f"all_orgs_{a.mode}_{time.strftime('%Y%m%dT%H%M%S')}.json"
     out.write_text(json.dumps(summary, indent=1, default=str))
     log.info("totals: %s — errors in %d orgs — %s", summary["totals"], len(summary["errors"]), out)

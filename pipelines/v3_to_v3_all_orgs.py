@@ -148,7 +148,11 @@ def main(argv=None) -> int:
         for name in ("USERNAME", "PASSWORD", "URL_TEMPLATE"):
             if not side_env(side, name):
                 ap.error(f"set V3V3_PLATFORM_{side}_{name}")
-    window = vv.resolve_window(a.since, a.until)
+    # "since a date" here means from then until today, not that one day (resolve_window's
+    # meaning for a bare date with no until): no until = the end of today
+    until = a.until or vv.datetime.now(vv.SOURCE_TZ).date().isoformat()
+    window = vv.resolve_window(a.since, until)
+    log.info("window: rows created %s … %s (exclusive)", *window)
     plan = json.loads(a.plan.read_text())
     found = discover_orgs(a.since)
     if a.orgs != ["auto"]:

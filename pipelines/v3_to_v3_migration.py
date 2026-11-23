@@ -1001,8 +1001,9 @@ class Copier:
             src_id = idx.get(code[:n])
         return None if src_id is None else self.state.id_map(parent).get(str(src_id))
 
-    def renamed_value(self, value) -> str:
-        return f"{value}.{self.dst.organization_id}"
+    def renamed_value(self, value, model: str | None = None) -> str:
+        suffix = getattr(L, "RENAME_SUFFIX", {}).get(model)
+        return f"{value}{suffix}" if suffix else f"{value}.{self.dst.organization_id}"
 
     def insert_renamed(self, model: str, payload: dict, err: str | None) -> int | None:
         """A model in L.RENAME_ON_CLASH refused because its key (a username) is
@@ -1016,7 +1017,7 @@ class Copier:
         # the key may be composite ("284-283-cwc" for org + facility + code): the clash is on this column
         if clash != mine and not clash.endswith("-" + mine):
             return None
-        payload[col] = self.renamed_value(payload[col])
+        payload[col] = self.renamed_value(payload[col], model)
         new_id, err2 = self._insert(model, payload)
         if err2:
             log.warning("%s: renamed insert %s=%s refused too: %s", model, col, payload[col], err2[:200])
@@ -1095,7 +1096,10 @@ class Copier:
         def done(row, payload, deferred, new_id, err):          # runs on a POST thread, under pool.lock
             sid = str(row["id"])
             if err:
-                found = self.pair_by_key(model, err)
+                # tail (a clone): a clash on a number the instances hand out independently is a
+                # different record — never paired, renamed instead
+                never_pair = self.tail and model in getattr(L, "NEVER_PAIR_IN_TAIL", ())
+                found = None if never_pair else self.pair_by_key(model, err)
                 if found is not None:
                     # the target holds this record already, under another uuid
                     # (same username / email / code): paired, so links to it resolve
@@ -1752,7 +1756,7 @@ def sync_fields(copier: Copier, model: str, patches: dict[str, dict]) -> dict:
         col = L.RENAME_ON_CLASH.get(model)
         if err and col and patch.get(col) and _DUP_KEY.search(err):
             # restoring the source's number clashes with another org's row: the rename rule, as on insert
-            retry = {**patch, col: copier.renamed_value(patch[col])}
+            retry = {**patch, col: copier.renamed_value(patch[col], model)}
             _, err = copier._insert(model, retry)
             if not err:
                 counts["patched"] += 1

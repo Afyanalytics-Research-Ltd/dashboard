@@ -562,6 +562,43 @@ def test_platform_client_acts_for_the_configured_org_and_names_the_facility(monk
         V3Client("pt")                                           # a platform client must name the org it acts for
 
 
+def test_tail_patient_number_clash_is_renamed_never_paired_with_another_patient(tmp_path, monkeypatch):
+    """After a clone both instances hand out the same next patient numbers to DIFFERENT
+    patients: the test patient goes in as '<number>-T' and keeps its own visits."""
+    from datetime import datetime
+    monkeypatch.setattr(vv, "TAIL_PAGE", 4)
+    src, dst, u1 = _cloned_pair()
+    real_insert = dst.insert
+
+    def unique_patient_no(svc, alias, data, match_on="uuid"):
+        if f"{svc}/{alias}" == "reception/patient" and data.get("patient_no"):
+            for r in dst.rows["reception/patient"]:
+                if r.get("patient_no") == data["patient_no"] and r.get("uuid") != data.get("uuid"):
+                    return _Resp(422, {"message": f"insert rejected: Duplicate entry '{data['patient_no']}' for key "
+                                                  "'patients.patients_patient_no_unique'"})
+        return real_insert(svc, alias, data, match_on=match_on)
+
+    dst.insert = unique_patient_no
+    ts = "2026-11-19T09:00:00.000000Z"
+    dst.add("reception/patient", uuid="p-prod", first_name="Other", patient_no="PAT001", facility_id=4,
+            created_by=u1, created_at=ts, updated_at=ts)                       # prod's own new patient
+    pt = src.add("reception/patient", uuid="p-test", first_name="Mine", patient_no="PAT001", facility_id=4,
+                 created_by=u1, created_at=ts, updated_at=ts)                  # test's, same number
+    src.add("evaluation/visits", uuid="v-test", patient=pt, user=u1, status="open", created_at=ts, updated_at=ts)
+    win = vv.resolve_window("2026-11-16", "2026-11-20", now=datetime(2026, 11, 20, 10, tzinfo=vv.SOURCE_TZ))
+    plan = vv.build_plan(src)
+    copier = vv.Copier(src, dst, vv.State("src", "dst", root=tmp_path), plan, workers=1, window=win, tail=True,
+                       window_cols=("created_at",))
+    for m in sorted((m for m, x in plan["models"].items() if x["selected"]), key=lambda m: plan["models"][m]["tier"]):
+        copier.copy_model(m)
+    pats = {r["uuid"]: r for r in dst.rows["reception/patient"]}
+    assert pats["p-test"]["patient_no"] == "PAT001-T" and pats["p-prod"]["patient_no"] == "PAT001"
+    visit = next(r for r in dst.rows["evaluation/visits"] if r["uuid"] == "v-test")
+    assert visit["patient"] == pats["p-test"]["id"] != pats["p-prod"]["id"]      # its own patient, not the other
+    rep = copier.state.load("report", "reception/patient", {})
+    assert rep.get("renamed") == 1 and not rep.get("paired_by_key")
+
+
 def test_canary_posts_at_most_n_per_model(tmp_path):
     src, dst = _pair()
     _, _, _, order, results = _run(src, dst, tmp_path, record_limit=1)

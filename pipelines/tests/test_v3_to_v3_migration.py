@@ -346,7 +346,7 @@ def test_shared_row_whose_parent_is_another_orgs_is_not_posted(tmp_path):
     assert res["evaluation/symptoms"]["foreign"] == 1 and res["evaluation/symptoms"]["posted"] == 1
 
 
-def _cloned_pair(n_patients=40):
+def _cloned_pair(n_patients=40, before_clone=None):
     """src = test instance, dst = its clone (same ids / uuids / org), both since grown apart."""
     import copy
     src, _ = _pair()
@@ -354,6 +354,8 @@ def _cloned_pair(n_patients=40):
     u1 = next(r["id"] for r in src.rows["core/users"] if r["uuid"] == "u1")
     for k in range(n_patients):
         src.add("reception/patient", uuid=f"bulk{k}", first_name=f"B{k}", facility_id=4, created_by=u1)
+    if before_clone:
+        before_clone(src, u1)
     for r in (row for rows in src.rows.values() for row in rows):
         r["created_at"] = r["updated_at"] = old
     dst = FakeGateway("dst", 4, 4, MODELS, id_start=1)
@@ -472,6 +474,92 @@ def test_tail_mode_identity_links_for_a_model_the_source_cant_read(tmp_path, mon
     assert ident.translate("evaluation/visits", row)[0]["drug"] == 5753122
     with pytest.raises(ValueError):
         vv.Copier(src, dst, vv.State("a", "b", root=tmp_path), plan, tail=True)
+
+
+def test_tail_never_posts_another_orgs_row_of_a_tenantless_table(tmp_path, monkeypatch):
+    """investigation_result_details has no tenant column: the gateway returns every org's
+    rows. A new row whose parent result is ANOTHER org's must not land in this org."""
+    from datetime import datetime
+    monkeypatch.setattr(vv, "TAIL_PAGE", 4)
+    ids = {}
+
+    def other_org_result_then_ours(src, u1):
+        i1 = next(r["id"] for r in src.rows["evaluation/investigations"] if r["uuid"] == "i1")
+        ids["theirs"] = src.add("evaluation/investigation_results", uuid="r-org99", investigation_id=i1,
+                                published_by=u1, status="final", organization_id=99)
+        for k in range(6):          # ours, after it: the divergence point lies beyond the other org's id
+            ids[f"ours{k}"] = src.add("evaluation/investigation_results", uuid=f"r-own{k}", investigation_id=i1,
+                                      published_by=u1, status="final")
+
+    src, dst, u1 = _cloned_pair(before_clone=other_org_result_then_ours)
+    new_ts = "2026-11-18T09:00:00.000000Z"
+    src.add("evaluation/investigation_result_details", uuid="rd-theirs", investigation_result_id=ids["theirs"],
+            value="7", created_at=new_ts, updated_at=new_ts)
+    src.add("evaluation/investigation_result_details", uuid="rd-ours", investigation_result_id=ids["ours0"],
+            value="5", created_at=new_ts, updated_at=new_ts)
+    win = vv.resolve_window("yesterday", "", now=datetime(2026, 11, 19, 10, tzinfo=vv.SOURCE_TZ))
+    plan = vv.build_plan(src)
+    copier = vv.Copier(src, dst, vv.State("src", "dst", root=tmp_path), plan, workers=1, window=win, tail=True)
+    for m in sorted((m for m, x in plan["models"].items() if x["selected"]), key=lambda m: plan["models"][m]["tier"]):
+        copier.copy_model(m)
+    assert copier.tail_point("evaluation/investigation_results")["clone_upto"] > ids["theirs"]
+    details = {r["uuid"]: r for r in dst.rows["evaluation/investigation_result_details"]}
+    assert "rd-ours" in details and details["rd-ours"]["investigation_result_id"] == ids["ours0"]
+    assert "rd-theirs" not in details
+
+
+def test_created_only_window_never_brings_back_a_row_the_target_deleted(tmp_path, monkeypatch):
+    from datetime import datetime
+    monkeypatch.setattr(vv, "TAIL_PAGE", 4)
+    src, dst, u1 = _cloned_pair()
+    p1 = next(r["id"] for r in src.rows["reception/patient"] if r["uuid"] == "p1")
+    gone = next(r for r in dst.rows["evaluation/visits"] if r["uuid"] == "v1")
+    dst.rows["evaluation/visits"].remove(gone)                  # prod deleted v1 after the clone …
+    v1 = next(r for r in src.rows["evaluation/visits"] if r["uuid"] == "v1")
+    v1["updated_at"] = "2026-11-18T09:00:00.000000Z"            # … while test edited it in the window
+    src.add("evaluation/visits", uuid="v-new", patient=p1, user=u1, status="open",
+            created_at="2026-11-18T09:00:00.000000Z", updated_at="2026-11-18T09:00:00.000000Z")
+    win = vv.resolve_window("yesterday", "", now=datetime(2026, 11, 19, 10, tzinfo=vv.SOURCE_TZ))
+    plan = vv.build_plan(src)
+    copier = vv.Copier(src, dst, vv.State("src", "dst", root=tmp_path), plan, workers=1, window=win, tail=True,
+                       window_cols=("created_at",))
+    order = sorted((m for m, x in plan["models"].items() if x["selected"]), key=lambda m: plan["models"][m]["tier"])
+    copier.map_only = True                                      # the survey: counts, writes nothing
+    before = {m: len(r) for m, r in dst.rows.items()}
+    res = {m: copier.copy_model(m) for m in order}["evaluation/visits"]
+    assert {m: len(r) for m, r in dst.rows.items()} == before
+    assert res["would_post"] == 1 and res["would_post_by_day"] == {"2026-11-18": 1}
+    copier.map_only = False
+    for m in order:
+        copier.copy_model(m)
+    uuids = {r["uuid"] for r in dst.rows["evaluation/visits"]}
+    assert "v-new" in uuids and "v1" not in uuids
+
+
+def test_platform_client_acts_for_the_configured_org_and_names_the_facility(monkeypatch):
+    from v3_to_v3_client import V3Client, GatewayError
+    for k, v in {"USERNAME": "analyst", "PASSWORD": "x", "URL_TEMPLATE": "https://{service}.example/api/",
+                 "ORGANIZATION_ID": "53", "FACILITY_ID": "52", "PLATFORM": "1"}.items():
+        monkeypatch.setenv(f"AFYA_PT_{k}", v)
+    c = V3Client("pt")
+    sent = []
+
+    class _R:
+        status_code, ok = 200, True
+
+        def json(self):
+            return {"access_token": "tok", "user": {"id": 5546, "organization_id": 89}, "tenant": {"id": 89}}
+
+    monkeypatch.setattr(c._session, "post", lambda url, **kw: _R())
+    monkeypatch.setattr(c, "post", lambda svc, body, **kw: sent.append(body) or _R())
+    V3Client._platform_tokens.clear()
+    assert c.token() == "tok" and c.organization_id == 53 and c.facility_id == 52   # not the login's org 89
+    c.insert("evaluation", "visits", {"uuid": "u"})
+    c.insert("evaluation", "visits", {"uuid": "w"}, facility_id=60)
+    assert [(b["destination_tenant_id"], b["destination_facility_id"]) for b in sent] == [(53, 52), (53, 60)]
+    monkeypatch.delenv("AFYA_PT_FACILITY_ID")
+    with pytest.raises(GatewayError):
+        V3Client("pt")                                           # a platform client must name the org it acts for
 
 
 def test_canary_posts_at_most_n_per_model(tmp_path):

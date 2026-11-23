@@ -201,6 +201,9 @@ def load_airflow_config(facilities=()) -> None:
             _set_if_missing(f"AFYA_{up}_{str(svc).upper()}_URL", url, f"conn afya_v3_{facility}", filled)
         # theatre / dialysis gateways: X-Migration-Key of that instance (Extra "migration_key")
         _set_if_missing(f"AFYA_{up}_MIGRATION_KEY", extra.get("migration_key"), f"conn afya_v3_{facility}", filled)
+        # a platform account (e.g. "analyst") acting for organization_id / facility_id: Extra {"platform": true}
+        if extra.get("platform") in (True, "true", "1", 1):
+            _set_if_missing(f"AFYA_{up}_PLATFORM", "1", f"conn afya_v3_{facility}", filled)
         # source branch → V3 facility (eagle_to_v3): Extra "branch_facilities", "001:15,002:16" or {"001": 15, …}
         branches = extra.get("branch_facilities")
         if isinstance(branches, dict):

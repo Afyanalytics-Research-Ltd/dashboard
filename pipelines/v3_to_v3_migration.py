@@ -161,11 +161,13 @@ def resolve_window(since: str | None, until: str | None, now: datetime | None = 
     return start, end
 
 
-def in_window(row: dict, window: tuple[datetime, datetime] | None) -> bool:
-    """True when there is no window, or the row was created or last changed inside it."""
+def in_window(row: dict, window: tuple[datetime, datetime] | None, cols=WINDOW_COLUMNS) -> bool:
+    """True when there is no window, or the row was created or last changed inside it
+    (cols=("created_at",): created inside it — a row created before a clone and missing
+    on the target was deleted there, and must not come back)."""
     if window is None:
         return True
-    for col in WINDOW_COLUMNS:
+    for col in cols:
         t = parse_instant(row.get(col))
         if t is not None and window[0] <= t < window[1]:
             return True
@@ -612,11 +614,12 @@ class Copier:
                  record_limit: int = 0, read_workers: int = READ_WORKERS, v2_map: dict | None = None,
                  checkpoint_seconds: float = CHECKPOINT_SECONDS, max_error_streak: int = MAX_ERROR_STREAK,
                  window: tuple[datetime, datetime] | None = None, tail: bool = False,
-                 identity_links: list[str] | None = None):
+                 identity_links: list[str] | None = None, window_cols: tuple[str, ...] = WINDOW_COLUMNS):
         self.src, self.dst, self.state, self.plan = src, dst, state, plan
         # [since, until): only rows created / changed in it are posted; older rows
         # already on the target are still mapped (by uuid) so new rows link to them
         self.window = window
+        self.window_cols = tuple(window_cols)
         # tail: the source is a clone of the target that diverged at some point. Gateway
         # pages are in id order, so page p holds the same rows on both up to the first
         # page that differs (found by bisection); only the pages from there on are read.
@@ -768,6 +771,27 @@ class Copier:
         stamp = row["updated_at"] if restore else tgt["updated_at"]
         return {**fill, "updated_at": to_wall_time(stamp)}, restore
 
+    def _org_ids(self, model: str) -> set[str]:
+        """Ids of the target org's own rows of a tenant model (read once, the target filters by
+        tenant). Tail mode checks a tenant-less row's pre-divergence parent here (a parent this
+        run posted is mapped through the id map before it gets this far)."""
+        cache = self.__dict__.setdefault("_org_id_sets", {})
+        if model not in cache:
+            with self._lock:
+                if model not in cache:
+                    ids = {str(r["id"]) for r in self.target_rows(model, full=True) if r.get("id") is not None}
+                    log.info("%s: %d of the target org's own rows (parent check for tenant-less rows)", model, len(ids))
+                    cache[model] = ids
+        return cache[model]
+
+    @staticmethod
+    def _would_post(counts: dict, row: dict) -> None:
+        t = parse_instant(row.get("created_at"))
+        day = t.astimezone(SOURCE_TZ).date().isoformat() if t else "no created_at"
+        counts["would_post"] = counts.get("would_post", 0) + 1
+        by = counts.setdefault("would_post_by_day", {})
+        by[day] = by.get(day, 0) + 1
+
     def _clone_upto(self, target: str):
         if target not in self._tail_cache:
             saved = self.state.load("tail", target, None)
@@ -824,7 +848,9 @@ class Copier:
                 out[col] = to_wall_time(val)
                 continue
             if target == L.FACILITY:
-                out[col] = self.dst.facility_id
+                # tail: the source is a clone of the target, facility ids are the same on both, and an
+                # org with several facilities keeps each row in its own
+                out[col] = val if self.tail else self.dst.facility_id
             elif target == L.DROP:
                 out[col] = None
             else:
@@ -843,8 +869,17 @@ class Copier:
                     mapped = self.link_by_code(model, col, row)
                 if mapped is None and self.tail and isinstance(val, int) and not isinstance(val, bool):
                     upto = self._clone_upto(target)
-                    if (upto is not None and val <= upto) or target.startswith(self.identity_links):
-                        mapped = val       # before the instances diverged: the same row, same id, on both
+                    if target.startswith(self.identity_links):
+                        mapped = val       # the same ids on both instances (checked), unreadable on the source
+                    elif upto is not None and val <= upto:
+                        # before the instances diverged: the same row, same id, on both. A table without a
+                        # tenant column holds EVERY org's rows: its parent must be this org's own row, or
+                        # another org's new row would be posted into this org
+                        if (x["kind"] in ("parent_rows", "reference") and target in self.models
+                                and self.models[target]["kind"] != "reference"):
+                            mapped = val if str(val) in self._org_ids(target) else None
+                        else:
+                            mapped = val
                 if mapped is not None:
                     out[col] = mapped
                 elif col in crit:
@@ -859,15 +894,20 @@ class Copier:
             out["password"] = secrets.token_urlsafe(18)
             out["enforce_password_reset"] = 1
         if x.get("facility") and self.dst.facility_id is not None:
-            out[x["facility"]] = self.dst.facility_id
+            own = row.get(x["facility"]) if self.tail else None
+            out[x["facility"]] = own if isinstance(own, int) and not isinstance(own, bool) else self.dst.facility_id
         for c in self._dropped_cols.get(model, ()):
             out.pop(c, None)
         return out, missing_crit, deferred
 
     def _insert(self, model: str, payload: dict) -> tuple[int | None, str | None]:
         x = self.models[model]
+        fac = payload.get(x["facility"]) if x.get("facility") and getattr(self.dst, "platform", False) else None
+        fac = fac if isinstance(fac, int) and not isinstance(fac, bool) else None
         for _ in range(8):
-            r = self.dst.insert(x["service"], x["alias"], payload)
+            # the row's own facility, when the model has one (a platform login names it on every write)
+            r = (self.dst.insert(x["service"], x["alias"], payload, facility_id=fac) if fac is not None
+                 else self.dst.insert(x["service"], x["alias"], payload))
             if r.ok:
                 try:
                     j = r.json()
@@ -1111,7 +1151,7 @@ class Copier:
                     if x["kind"] == "parent_rows" and not self._parent_in_source(model, row, missing_crit):
                         counts["foreign"] += 1
                         continue
-                if not there and not in_window(row, self.window):
+                if not there and not in_window(row, self.window, self.window_cols):
                     # a windowed run: not created / changed in the window — left alone
                     counts["outside_window"] = counts.get("outside_window", 0) + 1
                     src_ids.append(sid)
@@ -1138,11 +1178,16 @@ class Copier:
                         if deferred:
                             deferred_all[sid] = {**deferred, _UUID_KEY: row.get("uuid")}
                     patch, restore = (self._tail_patch(model, row, payload, uuid)
-                                      if self.tail and in_window(row, self.window) else ({}, False))
+                                      if self.tail and in_window(row, self.window, self.window_cols) else ({}, False))
                     if patch and not self.map_only:
                         pool.submit(row, {"uuid": row.get("uuid"), **patch}, restore, filled_done)
+                    elif patch:
+                        counts["would_patch"] = counts.get("would_patch", 0) + 1
                     continue
-                if self.map_only or (self.record_limit and new >= self.record_limit):
+                if self.map_only:            # a survey: what a migrate would post, by the day it was created
+                    self._would_post(counts, row)
+                    continue
+                if self.record_limit and new >= self.record_limit:
                     continue
                 new += 1
                 pool.submit(row, payload, deferred, done)
@@ -1208,6 +1253,10 @@ class Copier:
             parent = x["links"].get(col)
             if not parent or parent == model:
                 continue
+            if self.tail and parent in self.models and self.models[parent]["kind"] != "reference":
+                # tail: translate already linked this org's own parents (id map, or the org's own
+                # rows before the divergence) — one still unresolved is another org's
+                return True
             cache = self.__dict__.setdefault("_read_parent_ids", {})   # parent → set | None (never fully read)
             if parent not in cache:
                 with self._lock:
@@ -1263,7 +1312,7 @@ class Copier:
                     return h
                 hit = idm.get(sid) if self.tail else None     # mapped by an earlier run
                 hit = hit if hit is not None else match()
-                if hit is None and not whole_target and in_window(row, self.window):
+                if hit is None and not whole_target and in_window(row, self.window, self.window_cols):
                     # about to post: the match may be on a page older than the tail
                     index(self.target_rows(model, full=True))
                     whole_target = True
@@ -1273,16 +1322,19 @@ class Copier:
                         idm[sid] = hit
                         counts["linked"] += 1
                     continue
-                if not in_window(row, self.window):
+                if not in_window(row, self.window, self.window_cols):
                     counts["outside_window"] = counts.get("outside_window", 0) + 1
                     continue
-                if self.map_only or (self.record_limit and posting >= self.record_limit):
+                if self.record_limit and posting >= self.record_limit:
                     continue
                 payload, _, unresolved = self.translate(model, row)
                 if self._links_another_org(model, unresolved):
                     # a shared-table row whose parent (procedure …) is another org's:
                     # posting it would leave that link NULL on the target
                     counts["foreign"] = counts.get("foreign", 0) + 1
+                    continue
+                if self.map_only:
+                    self._would_post(counts, row)
                     continue
                 posting += 1
                 pool.submit(row, payload, None, done)
@@ -1466,7 +1518,7 @@ def verify_model(copier: Copier, model: str, examples: int = 5, canary: bool = F
         idm = copier.state.id_map(model, reload=True)
         miss = [i for i in src_ids if i not in idm]
         if copier.window is not None:   # a windowed copy links only the rows of its window
-            in_win = {str(r["id"]) for r in copier.source_rows(model) if in_window(r, copier.window)}
+            in_win = {str(r["id"]) for r in copier.source_rows(model) if in_window(r, copier.window, copier.window_cols)}
             src_ids = [i for i in src_ids if i in idm or i in in_win]
             miss = [i for i in miss if i in in_win]
         if canary:
@@ -1561,7 +1613,7 @@ def verify_model(copier: Copier, model: str, examples: int = 5, canary: bool = F
                                       "_key": [pk[1], pk[2]],
                                       **({"updated_at": payload["updated_at"]} if "updated_at" in payload else {})}
         got, got_ts = got_pair if got_pair is not None else (None, None)
-        if (got is None and canary) or not in_window(row, copier.window):
+        if (got is None and canary) or not in_window(row, copier.window, copier.window_cols):
             n_src -= 1          # canary: not posted by design; windowed: outside the window
             continue
         if got is None:

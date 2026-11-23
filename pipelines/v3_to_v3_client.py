@@ -9,6 +9,11 @@ login). Settings per side come from env, keyed like the other V3 DAGs:
   AFYA_<KEY>_ORGANIZATION_ID / _FACILITY_ID expected tenant (login must agree)
   AFYA_<KEY>_MIGRATION_KEY                  X-Migration-Key for theatre / dialysis
                                             (falls back to MODEL_GATEWAY_MIGRATION_KEY)
+  AFYA_<KEY>_PLATFORM=1                     a platform account (e.g. "analyst") acting FOR the
+                                            configured ORGANIZATION_ID / FACILITY_ID: reads send
+                                            source_tenant_id, writes destination_tenant_id and
+                                            destination_facility_id of that org — never the
+                                            login's own org. Both ids are required.
 """
 from __future__ import annotations
 
@@ -66,6 +71,10 @@ class V3Client:
         self.organization_id = organization_id if organization_id is not None else (int(org) if org.isdigit() else None)
         self.facility_id = facility_id if facility_id is not None else (int(fac) if fac.isdigit() else None)
         self.migration_key = migration_key or env("MIGRATION_KEY") or (os.getenv("MODEL_GATEWAY_MIGRATION_KEY") or "").strip()
+        self.platform = env("PLATFORM").lower() in ("1", "true", "yes")
+        if self.platform and (self.organization_id is None or self.facility_id is None):
+            raise GatewayError(f"{key}: a platform account needs AFYA_{up}_ORGANIZATION_ID and _FACILITY_ID "
+                               "(the org it acts for) — never its own")
         self.user_id: int | None = None
         self.send_facility_header = False          # X-Facility-Id on every call (eagle_to_v3: one client per facility)
         self._session = session or requests.Session()
@@ -80,9 +89,14 @@ class V3Client:
         return f"V3Client({self.key}: org {self.organization_id} / facility {self.facility_id} @ {self.urls['core']})"
 
     # ── auth ──────────────────────────────────────────────────────────────
+    _platform_tokens: dict[tuple, tuple] = {}     # (core url, username) → (token, user id, at): one login per process
+    _platform_lock = threading.Lock()
+
     def login(self) -> str:
         if not self.username or not self.password:
             raise GatewayError(f"{self.key}: set AFYA_{self.key.upper()}_USERNAME / _PASSWORD")
+        if self.platform:
+            return self._platform_login()
         url = f"{self.urls['core'].rstrip('/')}/v1/login"
         body = {"username": self.username, "password": self.password}
         r = self._session.post(url, json=body, timeout=30)
@@ -116,6 +130,31 @@ class V3Client:
         self.user_id = user.get("id")
         log.info("%s: login ok — org %s facility %s", self.key, org, self.facility_id)
         return token
+
+    def _platform_login(self) -> str:
+        """A platform account's token, shared by every client of the same instance and
+        account in this process (one client per org). Its own org / facility are NOT
+        adopted: this client acts for the configured ones."""
+        core = self.urls["core"].rstrip("/")
+        k = (core, self.username)
+        with V3Client._platform_lock:
+            hit = V3Client._platform_tokens.get(k)
+            if hit and time.time() - hit[2] < TOKEN_TTL - 60:
+                self.user_id = hit[1]
+                return hit[0]
+            r = self._session.post(f"{core}/v1/login", json={"username": self.username, "password": self.password},
+                                   timeout=60)
+            if r.status_code != 200:
+                raise GatewayError(f"{self.key}: platform login failed {r.status_code} {r.text[:200]}")
+            res = r.json()
+            token = res.get("access_token")
+            if not token:
+                raise GatewayError(f"{self.key}: no access_token in platform login response")
+            self.user_id = (res.get("user") or {}).get("id")
+            V3Client._platform_tokens[k] = (token, self.user_id, time.time())
+            log.info("%s: platform login ok (%s) — acting for org %s facility %s",
+                     self.key, self.username, self.organization_id, self.facility_id)
+            return token
 
     def token(self) -> str:
         with self._lock:
@@ -157,6 +196,9 @@ class V3Client:
             if r.status_code == 401 and attempt < retries:
                 with self._lock:
                     self._token = None
+                if self.platform:
+                    with V3Client._platform_lock:
+                        V3Client._platform_tokens.pop((self.urls["core"].rstrip("/"), self.username), None)
                 continue
             if r.status_code in transient and attempt < retries:
                 if r.status_code == 500 and schema_error(r.text):
@@ -278,9 +320,13 @@ class V3Client:
                 return
             page += 1
 
-    def insert(self, service: str, alias: str, data: dict, *, match_on: str | None = "uuid") -> requests.Response:
+    def insert(self, service: str, alias: str, data: dict, *, match_on: str | None = "uuid",
+               facility_id: int | None = None) -> requests.Response:
         self.token()
         body = {"action": "insert", "model": alias, "destination_tenant_id": self.organization_id, "data": data}
+        if self.platform or facility_id is not None:
+            # a platform login's active facility is its own: the target facility is always named
+            body["destination_facility_id"] = facility_id if facility_id is not None else self.facility_id
         if match_on and data.get(match_on):
             body["match_on"] = match_on
         return self.post(service, body, timeout=120)

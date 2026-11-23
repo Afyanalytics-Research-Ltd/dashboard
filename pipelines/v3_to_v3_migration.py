@@ -1149,6 +1149,15 @@ class Copier:
         if x["kind"] == "reference":
             return self.link_reference(model)
         t0 = time.time()
+        pre = None
+        if self.filter_reads:
+            # the source's changed rows first: none → the target isn't read at all (a call saved per
+            # table, under a 60-a-minute grant)
+            pre = list(self.source_rows(model))
+            if not pre:
+                counts = {"read": 0, "posted": 0, "status": "done", "seconds": round(time.time() - t0)}
+                self.state.save("report", model, counts)
+                return counts
         idm = self.state.id_map(model)
         on_target = self.target_uuids(model)
         held = {}
@@ -1217,7 +1226,7 @@ class Copier:
         pool = self._post_pool(model)
         complete = False
         try:
-            for row in self.source_rows(model):
+            for row in (pre if pre is not None else self.source_rows(model)):
                 if pool.aborted:
                     break
                 counts["read"] += 1
@@ -1371,6 +1380,11 @@ class Copier:
                     if r.get(f) not in (None, ""):
                         by_key.setdefault((f, str(r[f]).strip().lower()), r["id"])
 
+        pre = list(self.source_rows(model)) if self.filter_reads else None
+        if pre is not None and not pre:                    # nothing changed on the source: target not read
+            counts = {"read": 0, "linked": 0, "posted": 0, "failed": 0, "status": "done"}
+            self.state.save("report", model, counts)
+            return counts
         index(self.target_rows(model))
         whole_target = not self.tail     # tail: only the target's tail is indexed until a row needs more
         counts = {"read": 0, "linked": 0, "posted": 0, "failed": 0}
@@ -1389,7 +1403,7 @@ class Copier:
         posting = 0
         last_save = time.time()
         try:
-            for row in self.source_rows(model):
+            for row in (pre if pre is not None else self.source_rows(model)):
                 if pool.aborted:
                     break
                 counts["read"] += 1

@@ -96,7 +96,62 @@ def discover_orgs(since: str) -> dict[int, list[int]]:
     return {o: sorted(f, key=lambda x: -f[x]) for o, f in load.items() if f}
 
 
-def run_org(org: int, facilities: list[int], plan: dict, window, mode: str, args) -> dict:
+def changed_models(plan: dict, since: str, batch: int = 20) -> tuple[dict[str, set[int]], set[str], set[str]]:
+    """Which models the source changed since `since`, per org — the counts action, several
+    queries per call, so the whole instance costs ~ models/batch calls instead of 2+ per table
+    per org. Returns ({model: {orgs}} for models with an org column, {tenant-less models with
+    any change}, {models whose count failed — copied anyway})."""
+    tmpl = side_env("SOURCE", "URL_TEMPLATE")
+    core = tmpl.format(service="core").rstrip("/")
+    tok = requests.post(f"{core}/v1/login", json={"username": side_env("SOURCE", "USERNAME"),
+                                                  "password": side_env("SOURCE", "PASSWORD")}, timeout=60).json()
+    h = {"Authorization": f"Bearer {tok['access_token']}", "Accept": "application/json",
+         "Content-Type": "application/json", "X-Tenant-Id": str((tok.get("tenant") or {}).get("id") or "")}
+    where = [{"field": "updated_at", "op": ">=", "value": since}]
+    models = {m: x for m, x in plan["models"].items() if x.get("selected")}
+    per_org: dict[str, set[int]] = {}
+    tenantless: set[str] = set()
+    unknown: set[str] = set()
+    names = sorted(models)
+    for i in range(0, len(names), batch):
+        chunk = names[i:i + batch]
+        q = {}
+        for n, m in enumerate(chunk):
+            x = models[m]
+            org_col = x.get("tenant") or ("organization_id" if x.get("kind") == "org_rows" else None)
+            spec = {"service": x["service"], "model": x["alias"], "limit": 1000, "where": where}
+            if org_col:
+                spec["group_by"] = [{"field": org_col}]
+            q[f"m{n}"] = spec
+        for attempt in range(6):
+            r = requests.post(f"{core}/v1/gateway/counts", headers=h, json={"tenants": "all", "queries": q}, timeout=300)
+            if r.status_code != 429:
+                break
+            time.sleep(35)
+        results = (r.json().get("data") or {}).get("results", {}) if r.ok else {}
+        for n, m in enumerate(chunk):
+            res = results.get(f"m{n}") or {}
+            if not res.get("success"):
+                unknown.add(m)
+                continue
+            data = res.get("data") or {}
+            x = models[m]
+            org_col = x.get("tenant") or ("organization_id" if x.get("kind") == "org_rows" else None)
+            if not org_col:
+                # no org column, no group_by: the gateway answers {"total": N, "groups": []}
+                if int(data.get("total") or data.get("count") or 0) > 0:
+                    tenantless.add(m)
+                continue
+            if data.get("truncated"):
+                unknown.add(m)
+            per_org[m] = {(g.get("key") or {}).get(org_col) for g in data.get("groups") or []
+                          if isinstance((g.get("key") or {}).get(org_col), int) and int(g.get("count") or 0) > 0}
+    log.info("changed since %s: %d models with an org column (%d org/model pairs), %d tenant-less, %d unknown",
+             since, len(per_org), sum(len(v) for v in per_org.values()), len(tenantless), len(unknown))
+    return per_org, tenantless, unknown
+
+
+def run_org(org: int, facilities: list[int], plan: dict, window, mode: str, args, changed=None) -> dict:
     t0 = time.time()
     out = {"org": org, "facilities": facilities, "mode": mode, "models": {}}
     try:
@@ -109,6 +164,23 @@ def run_org(org: int, facilities: list[int], plan: dict, window, mode: str, args
         copier.map_only = mode == "survey"
         order = sorted((m for m, x in copier.models.items() if x["selected"]),
                        key=lambda m: (copier.models[m]["tier"] or 0, m))
+        if changed is not None:
+            # only the models the source changed for this org since `since` (unchanged ones are the
+            # same on both instances: nothing to copy, and their ids link as-is)
+            per_org, tenantless, unknown = changed
+            mine = {m for m, orgs in per_org.items() if org in orgs} | unknown
+
+            def wanted(m: str) -> bool:
+                if m in mine:
+                    return True
+                if m not in tenantless:
+                    return False
+                # a tenant-less table (every org's rows): only if one of its parents changed for this
+                # org (lab result values ← this org's results …), or it links to nothing org-owned
+                targets = {t for t in copier.models[m]["links"].values() if t in copier.models}
+                return bool(targets & (mine | tenantless)) or not targets
+            order = [m for m in order if wanted(m)]
+            out["models_checked"] = len(order)
         for m in order:
             try:
                 res = copier.copy_model(m)
@@ -172,8 +244,16 @@ def main(argv=None) -> int:
         log.warning("orgs with no facility seen since %s (skipped): %s", a.since, missing_fac)
     todo = {o: f for o, f in sorted(found.items()) if f and o not in set(a.exclude_orgs)}
     log.info("%s %d orgs since %s: %s", a.mode, len(todo), a.since, list(todo))
+    changed = None
+    if a.read_mode == "filter":
+        changed = changed_models(plan, window[0].astimezone(vv.SOURCE_TZ).strftime("%Y-%m-%d %H:%M:%S"))
+        # an org with no changed model at all has nothing to copy
+        busy = {o for orgs in changed[0].values() for o in orgs}
+        if not changed[1] and not changed[2]:
+            todo = {o: f for o, f in todo.items() if o in busy}
+        log.info("%d orgs have changed models", len(todo))
     with ThreadPoolExecutor(max(1, a.parallel_orgs)) as ex:
-        results = list(ex.map(lambda kv: run_org(kv[0], kv[1], plan, window, a.mode, a), todo.items()))
+        results = list(ex.map(lambda kv: run_org(kv[0], kv[1], plan, window, a.mode, a, changed), todo.items()))
     summary = {"mode": a.mode, "since": a.since, "until": a.until, "orgs": results,
                "totals": {k: sum(r.get(k) or 0 for r in results) for k in ("would_post", "held", "would_patch",
                                                                              "posted", "failed")},

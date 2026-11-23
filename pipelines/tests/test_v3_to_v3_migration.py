@@ -677,6 +677,57 @@ def test_platform_rate_limit_waits_as_v3_says_and_succeeds(monkeypatch):
     assert r.status_code == 200 and len(slept) == 6 and all(7 <= s <= 10 for s in slept)
 
 
+def test_shared_pass_gives_each_new_row_to_the_org_of_its_parent(tmp_path, monkeypatch):
+    import functools
+    import v3_to_v3_all_orgs as ao
+    from datetime import datetime
+    ts = "2026-11-19T09:00:00.000000Z"
+    src = _with_filter(FakeGateway("src", 4, 4, MODELS, id_start=1))
+    dst = _with_filter(FakeGateway("dst", 4, 4, MODELS, id_start=50_000))
+    for gw in (src, dst):
+        gw.add("evaluation/investigation_result_details", uuid="old", investigation_result_id=1, value="x",
+               created_at="2026-10-01T08:00:00.000000Z", updated_at="2026-10-01T08:00:00.000000Z")
+    src.add("evaluation/investigation_result_details", uuid="rd-a", investigation_result_id=101, value="1",
+            created_at=ts, updated_at=ts)
+    src.add("evaluation/investigation_result_details", uuid="rd-b", investigation_result_id=202, value="2",
+            created_at=ts, updated_at=ts)
+    src.add("evaluation/investigation_result_details", uuid="rd-orphan", investigation_result_id=999, value="3",
+            created_at=ts, updated_at=ts)
+    monkeypatch.setattr(ao.vv, "State", functools.partial(vv.State, root=tmp_path))
+    for org, sid, tid in ((10, "101", 7101), (20, "202", 7202)):      # each org's own result, mapped by its pass
+        st = ao.vv.State(f"src_o{org}", f"dst_o{org}")
+        st.id_map("evaluation/investigation_results")[sid] = tid
+        st.save_map("evaluation/investigation_results")
+    posted_by = {}
+
+    def fake_client(side, org, facility):
+        gw = src if side == "SOURCE" else dst
+        if side == "TARGET":
+            real = gw.insert
+
+            def insert(svc, alias, data, match_on="uuid", _org=org):
+                posted_by[data.get("uuid")] = _org
+                return real(svc, alias, data, match_on=match_on)
+            view = type("View", (), {})()
+            for k in ("read_page", "read_all", "read_window", "org_has", "organization_id", "facility_id"):
+                setattr(view, k, getattr(gw, k))
+            view.insert, view.token, view.platform = insert, (lambda: "t"), False
+            return view
+        return gw
+
+    monkeypatch.setattr(ao, "org_client", fake_client)
+    plan = vv.build_plan(src)
+    win = vv.resolve_window("2026-11-16", "2026-11-20", now=datetime(2026, 11, 20, tzinfo=vv.SOURCE_TZ))
+    args = type("A", (), {"workers": 1, "read_workers": 1, "identity_links": []})()
+    out = ao.shared_pass(plan, ["evaluation/investigation_result_details"], win, {10: [10], 20: [20]}, "migrate", args)
+    got = {r["uuid"]: r for r in dst.rows["evaluation/investigation_result_details"]}
+    assert got["rd-a"]["investigation_result_id"] == 7101 and posted_by["rd-a"] == 10
+    assert got["rd-b"]["investigation_result_id"] == 7202 and posted_by["rd-b"] == 20
+    assert "rd-orphan" not in got
+    assert out["evaluation/investigation_result_details"]["no_owner"] == 1
+    assert out["evaluation/investigation_result_details"]["posted"] == 2
+
+
 def test_canary_posts_at_most_n_per_model(tmp_path):
     src, dst = _pair()
     _, _, _, order, results = _run(src, dst, tmp_path, record_limit=1)

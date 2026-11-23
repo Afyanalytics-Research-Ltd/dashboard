@@ -599,6 +599,84 @@ def test_tail_patient_number_clash_is_renamed_never_paired_with_another_patient(
     assert rep.get("renamed") == 1 and not rep.get("paired_by_key")
 
 
+def _with_filter(gw):
+    """Give a FakeGateway the gateway's updated_since / after_id read (ids ascending)."""
+    from v3_to_v3_client import FilterUnsupported  # noqa: F401  (the real client raises it when unsupported)
+
+    def read_window(svc, alias, since, before=None, per_page=500, after_id=0):
+        gw.window_reads = getattr(gw, "window_reads", 0) + 1
+        lo = vv.parse_instant(since)
+        for r in sorted(gw._visible(f"{svc}/{alias}"), key=lambda r: r["id"]):
+            t = vv.parse_instant(r.get("updated_at"))
+            if t is not None and t >= lo and r["id"] > after_id:
+                yield dict(r)
+
+    def org_has(svc, alias, row_id):
+        return any(r["id"] == row_id for r in gw._visible(f"{svc}/{alias}"))
+
+    gw.read_window, gw.org_has = read_window, org_has
+    return gw
+
+
+def test_filter_reads_copy_only_the_window_and_link_old_parents_as_is(tmp_path, monkeypatch):
+    from datetime import datetime
+    monkeypatch.setattr(vv, "TAIL_PAGE", 4)
+    src, dst, u1 = _cloned_pair()
+    _with_filter(src), _with_filter(dst)
+    _count_reads(src), _count_reads(dst)
+    ts = "2026-11-19T09:00:00.000000Z"
+    p1 = next(r["id"] for r in src.rows["reception/patient"] if r["uuid"] == "p1")
+    dst.add("reception/patient", uuid="p-prod", first_name="Prod", facility_id=4, created_by=u1,
+            created_at=ts, updated_at=ts)                                   # prod's own new row (id collides)
+    pn = src.add("reception/patient", uuid="p-new", first_name="New", facility_id=4, created_by=u1,
+                 created_at=ts, updated_at=ts)
+    src.add("evaluation/visits", uuid="v-old-pat", patient=p1, user=u1, status="open", created_at=ts, updated_at=ts)
+    src.add("evaluation/visits", uuid="v-new-pat", patient=pn, user=u1, status="open", created_at=ts, updated_at=ts)
+    # p2: prod deleted it after the clone; test then edited it (in the window by updated_at, created before)
+    p2 = next(r for r in src.rows["reception/patient"] if r["uuid"] == "p2")
+    p2["updated_at"] = ts
+    dst.rows["reception/patient"] = [r for r in dst.rows["reception/patient"] if r["uuid"] != "p2"]
+    src.add("evaluation/visits", uuid="v-of-p2", patient=p2["id"], user=u1, status="open", created_at=ts, updated_at=ts)
+    win = vv.resolve_window("2026-11-16", "2026-11-20", now=datetime(2026, 11, 20, 10, tzinfo=vv.SOURCE_TZ))
+    plan = vv.build_plan(src)
+    src.reads = dst.reads = 0
+    copier = vv.Copier(src, dst, vv.State("src", "dst", root=tmp_path), plan, workers=1, window=win, tail=True,
+                       window_cols=("created_at",), filter_reads=True)
+    for m in sorted((m for m, x in plan["models"].items() if x["selected"]), key=lambda m: plan["models"][m]["tier"]):
+        copier.copy_model(m)
+    assert src.reads == 0 and dst.reads == 0 and src.window_reads and dst.window_reads   # no page reads at all
+    pats = {r["uuid"]: r["id"] for r in dst.rows["reception/patient"]}
+    vis = {r["uuid"]: r for r in dst.rows["evaluation/visits"]}
+    assert "p-new" in pats and pats["p-new"] != pn
+    assert vis["v-old-pat"]["patient"] == p1                       # untouched by the window: same row on both
+    assert vis["v-new-pat"]["patient"] == pats["p-new"]            # posted in this run: mapped
+    assert "p2" not in pats                                        # deleted on prod: not brought back …
+    assert "v-of-p2" not in vis                                    # … and its visit isn't linked to whatever has that id
+    assert str(p2["id"]) in copier._unplaced("reception/patient")
+
+
+def test_platform_rate_limit_waits_as_v3_says_and_succeeds(monkeypatch):
+    from v3_to_v3_client import V3Client
+    import v3_to_v3_client as vc
+    for k, v in {"USERNAME": "a", "PASSWORD": "x", "URL_TEMPLATE": "https://{service}.example/api/",
+                 "ORGANIZATION_ID": "1", "FACILITY_ID": "1", "PLATFORM": "1"}.items():
+        monkeypatch.setenv(f"AFYA_RL_{k}", v)
+    c = V3Client("rl")
+    monkeypatch.setattr(c, "token", lambda: "t")
+    slept = []
+    monkeypatch.setattr(vc.time, "sleep", lambda s: slept.append(s))
+
+    class R:
+        def __init__(self, code, text):
+            self.status_code, self.text, self.ok = code, text, code < 400
+
+    answers = [R(429, '{"message":"Too many calls under a grant over every organization (60 a minute). '
+                      'Try again in 7 s."}')] * 6 + [R(200, "{}")]
+    monkeypatch.setattr(c._session, "post", lambda *a, **k: answers.pop(0))
+    r = c.post("core", {"action": "read"}, retries=2)        # 6 rate waits don't use up the 2 attempts
+    assert r.status_code == 200 and len(slept) == 6 and all(7 <= s <= 10 for s in slept)
+
+
 def test_canary_posts_at_most_n_per_model(tmp_path):
     src, dst = _pair()
     _, _, _, order, results = _run(src, dst, tmp_path, record_limit=1)

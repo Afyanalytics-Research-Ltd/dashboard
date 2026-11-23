@@ -68,6 +68,9 @@ def _platform_env() -> None:
         "workers": Param(6, type="integer", minimum=1, maximum=32, title="Parallel POSTs per model"),
         "read_workers": Param(4, type="integer", minimum=1, maximum=16, title="Parallel page reads per table"),
         "identity_links": Param(["inventory/"], type="array", items={"type": "string"}, title="Identity links"),
+        "read_mode": Param("filter", type="string", enum=["filter", "tail"], title="Reads",
+                           description="filter: only rows updated since `since` on each side (needs the gateway's "
+                                       "updated_since / after_id; `since` must be before the clone). tail: bisection."),
     },
 )
 def v3_to_v3_all_orgs():
@@ -80,7 +83,8 @@ def v3_to_v3_all_orgs():
         import v3_to_v3_all_orgs as allorgs
         argv = [p["mode"], "--since", p["since"], "--orgs", *[str(o) for o in (p["orgs"] or ["auto"])],
                 "--parallel-orgs", str(p["parallel_orgs"]), "--workers", str(p["workers"]),
-                "--read-workers", str(p["read_workers"]), "--identity-links", *p["identity_links"]]
+                "--read-workers", str(p["read_workers"]), "--identity-links", *p["identity_links"],
+                "--read-mode", p.get("read_mode") or "filter"]
         if p.get("until"):
             argv += ["--until", p["until"]]
         if p.get("exclude_orgs"):

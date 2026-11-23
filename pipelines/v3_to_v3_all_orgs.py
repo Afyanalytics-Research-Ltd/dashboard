@@ -18,6 +18,12 @@ template plan (--plan, default: the test284 → prod284 plan) instead of being r
 per org. Only rows CREATED in the window are posted (window_cols=created_at): a row
 created before the clone and missing on the target was deleted there.
 
+Reads (--read-mode): filter (default) asks each instance only for the rows updated since
+--since (gateway updated_since / after_id: two calls a table); an instance without the
+filter falls back to tail. --since must lie BEFORE the instances diverged: a parent the
+window didn't touch is then the same row on both. The platform account's grant (60 calls
+a minute per instance) is respected client-side (V3V3_PLATFORM_RATE, default 55).
+
     python v3_to_v3_all_orgs.py survey  --since 2026-11-16 --orgs auto
     python v3_to_v3_all_orgs.py migrate --since 2026-11-16 --orgs 53 314 --parallel-orgs 2
 
@@ -98,7 +104,8 @@ def run_org(org: int, facilities: list[int], plan: dict, window, mode: str, args
         state = vv.State(f"src_o{org}", f"dst_o{org}")
         copier = vv.Copier(src, dst, state, json.loads(json.dumps(plan)), workers=args.workers,
                            read_workers=args.read_workers, window=window, tail=True,
-                           identity_links=args.identity_links, window_cols=("created_at",))
+                           identity_links=args.identity_links, window_cols=("created_at",),
+                           filter_reads=args.read_mode == "filter")
         copier.map_only = mode == "survey"
         order = sorted((m for m, x in copier.models.items() if x["selected"]),
                        key=lambda m: (copier.models[m]["tier"] or 0, m))
@@ -141,6 +148,9 @@ def main(argv=None) -> int:
     ap.add_argument("--workers", type=int, default=6)
     ap.add_argument("--read-workers", type=int, default=4)
     ap.add_argument("--identity-links", nargs="*", default=["inventory/"])
+    ap.add_argument("--read-mode", choices=["filter", "tail"], default="filter",
+                    help="filter: only rows updated since --since on each side (gateway updated_since / after_id; "
+                         "--since must be before the instances diverged); tail: bisect the diverged pages")
     ap.add_argument("--out", type=Path, default=None, help="summary JSON (default: state dir)")
     a = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s · %(levelname)-7s · %(message)s", datefmt="%H:%M:%S")

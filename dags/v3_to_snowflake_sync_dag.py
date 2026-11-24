@@ -2,8 +2,9 @@
 """
 V3 → the warehouse, kept up to date (v3_to_snowflake_sync.py — same code as the command line).
 
-The warehouse is whichever the platform runs on (System Settings → Data warehouse, i.e. afya_backends.toggles;
-a run's `warehouse_backend` conf overrides it): on Databend the same SQL runs through the translating driver.
+The warehouse is Databend: this DAG's own `warehouse_backend` param defaults to "databend", which outranks the
+platform switch (System Settings → Data warehouse) - V3_SYNC lives only in Databend (warehouse_bisync skips it;
+Snowflake's copy is frozen). Set the param to "default" to follow the platform switch instead.
 The DAG id still says snowflake for its history.
 
 Every run, for each source (a V3 tenant login, AFYA_<KEY>_* in the server's .env) and each gateway model:
@@ -147,6 +148,11 @@ def group_by_service(source: str, models, tenant_id: int | None = None) -> list[
     tags=["v3", "warehouse", "databend", "incremental"],
     default_args={"owner": "data-eng", "retries": 0},
     params={
+        # Declared here, so config/airflow_local_settings.py leaves it alone; apply_warehouse_param exports it
+        # as AFYA_WAREHOUSE_BACKEND for every task, ahead of System Settings.
+        "warehouse_backend": Param("databend", type="string", enum=["default", "snowflake", "databend"],
+                                   title="Warehouse",
+                                   description="V3_SYNC lives in Databend. 'default' follows System Settings."),
         "sources": Param([], type="array", items={"type": "string"}, title="V3 sources (AFYA_<KEY>_* logins)",
                          description="e.g. org284, gyno159. Empty = V3_SYNC_SOURCES, or when that is empty / "
                                      "'auto': every production AFYA_<KEY>_* login in the .env."),

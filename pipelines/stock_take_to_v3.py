@@ -113,6 +113,12 @@ DRUG = re.compile(r"\b(\d+(\.\d+)?\s*(mg|mcg|g|iu|i\.u|ml|mls|%)|tabs?|tablets?|
 NOT_DRUG = re.compile(r"\b(ds|dcx|tint|lens|lenses|bifocal|frame|needle|syringes?|collector|catheters?|bags?)\b", re.I)
 
 
+def is_duplicate(err) -> bool:
+    """a V3 refusal because the row already exists (unique key): a warning, not a failure — nothing was written"""
+    e = str(err or "")
+    return "Duplicate entry" in e or "UniqueConstraintViolation" in e or "1062" in e and "23000" in e
+
+
 def is_drug(name: str) -> bool:
     return bool(DRUG.search(name or "")) and not NOT_DRUG.search(name or "")
 
@@ -268,10 +274,15 @@ class Run:
                 return x, False, None, f"{type(e).__name__}: {str(e)[:200]}"
         with ThreadPoolExecutor(self.workers) as ex:
             for n, (x, ok, rid, err) in enumerate(ex.map(one, items), 1):
-                res["ok" if ok else "failed"] += 1
                 if ok:
+                    res["ok"] += 1
                     ids[x.get("_key")] = rid
+                elif is_duplicate(err):              # V3 refused it as a duplicate: nothing written, run goes on
+                    res["duplicate (skipped)"] += 1
+                    self.report.setdefault("duplicates", []).append({"kind": kind, "key": x.get("_key"), "error": err[:200]})
+                    log.warning("%s %s: duplicate, not written — %s", kind, x.get("_key"), err[:200])
                 else:
+                    res["failed"] += 1
                     self.report["failures"].append({"kind": kind, "key": x.get("_key"), "error": err})
                     log.error("%s %s: %s", kind, x.get("_key"), err)
                 if n % 500 == 0:

@@ -34,7 +34,7 @@ from pipelines_common import use_pipelines_dir
 
 log = logging.getLogger(__name__)
 
-TARGETS = ["kerugoya_prod"]
+TARGETS = ["kerugoya_prod", "kerugoya_town_prod"]
 STEPS = ["procedures", "schemes", "scheme_pricing", "product_prices"]
 
 
@@ -80,7 +80,7 @@ def _run(step: str) -> dict:
     default_args={"owner": "data-eng", "retries": 0},
     params={
         "target": Param("kerugoya_prod", type="string", enum=TARGETS, title="Target",
-                        description="kerugoya_prod = Kerugoya Medical Centre, production org 357 / facility 367."),
+                        description="kerugoya_prod = Kerugoya Medical Centre (org 357 / facility 367); kerugoya_town_prod = Kerugoya Town Clinic (facility 368, mirror)."),
         "dry_run": Param(True, type="boolean", title="Dry run", description="On: read and log the plan, post nothing."),
         "steps": Param(STEPS, type="array", items={"type": "string", "enum": STEPS}, title="Steps"),
         "limit": Param(0, type="integer", minimum=0, title="At most N changes of each kind (0 = all; 3 = canary)"),

@@ -77,6 +77,10 @@ TARGETS = {
             "Kenya Alliance": ["KENYAN ALLIANCE"], "Liaison": ["LIAISON INSURANCE"], "Pacis": ["PACIS INSURANCE"],
             "SHA": ["SHA-SHIF", "SHA-PHC", "SHA-POMSF"],
         },
+        # payers whose WHOLE card is written as scheme prices (not only where it differs from the default), on the sheet's
+        # schemes AND every other V3 scheme of these companies (SHA's template schemes Standard / Enhanced / UHC too):
+        # Dennis (2026-11-24) found SHA rates not matching where the system fell back to the default price
+        "full_card_payers": {"SHA": [2817]},
         "fallback_category": "Others",
         # sheet category → V3 category name, where the vote of matched items is wrong (COVID PCR voted "MRI")
         "category_override": {"molecular biology": "Lab", "histo pathology": "Lab", "histopathology": "Lab"},
@@ -426,11 +430,20 @@ class Run:
         for r in self.live("core", "scheme_pricing"):
             existing.setdefault((r.get("scheme_id"), r.get("priceable_type"), r.get("priceable_id")), r)
         rows, upd, same, held, per_payer = [], [], 0, Counter(), Counter()
+        full = self.cfg.get("full_card_payers", {})
+        all_schemes = [s for s in self.live("core", "insurance_schemes", 1)]
         for payer, insurers in self.cfg["payer_insurers"].items():
             schemes = [s for s in self.data["schemes"] if s["insurer"] in insurers]
+            if payer in full:                        # + every other V3 scheme of the payer's companies
+                have = {self.scheme_ids.get(s["code"]) for s in schemes}
+                for v in all_schemes:
+                    if v.get("company_id") in full[payer] and v["id"] not in have:
+                        code = f"V3-{v['id']}"
+                        self.scheme_ids[code] = v["id"]
+                        schemes.append({"insurer": f"company {v['company_id']}", "name": v["name"], "code": code})
             for i in self.items:
                 price = i["rates"].get(payer)
-                if price is None or price == i["rates"].get(dp):
+                if price is None or (price == i["rates"].get(dp) and payer not in full):
                     continue
                 p = self.matched.get(i["code"])
                 for s in schemes:

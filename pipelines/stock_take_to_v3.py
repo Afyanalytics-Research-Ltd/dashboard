@@ -345,6 +345,10 @@ class Run:
                 continue
             if c["name"] in own:
                 self.cat_map[c["id"]] = own[c["name"]]["id"]
+            elif any(o["name"].strip().lower() == c["name"].strip().lower() for o in self.all_cats):
+                # category names are unique per ORG (inv_product_categories_org_name_unique): the source's own
+                # category is the only one that can carry that name, so the mirror shares it (prod 2026-11-24)
+                self.cat_map[c["id"]] = c["id"]
             else:
                 todo.append({"_key": c["id"], "uuid": gid(self.target, "category", c["id"]), "name": c["name"],
                              "description": c.get("description"), "code": c.get("code"),

@@ -87,6 +87,11 @@ TARGETS = {
         "skip_names": {"test"},            # placeholder rows LAB001 / LAB002
     },
 }
+# Kerugoya Town Clinic (facility 368) mirrors Kerugoya Medical Centre (user, 2026-11-24): the same facility prices.
+# Only the procedures step — schemes / scheme prices are org-wide and already loaded by kerugoya_prod (a run here
+# would make duplicate schemes under this target's uuids).
+TARGETS["kerugoya_town_prod"] = {**TARGETS["kerugoya_prod"], "data_target": "kerugoya_prod", "only_steps": ["procedures"],
+                                 "label": "Kerugoya Town Clinic prices (mirror of Kerugoya Medical Centre, 2026-11)"}
 
 
 def key(v) -> str:
@@ -207,15 +212,15 @@ class Run:
         if target not in TARGETS:
             raise SystemExit(f"unknown target {target}; known: {list(TARGETS)}")
         self.target, self.dry_run, self.limit, self.workers = target, dry_run, limit, workers
-        self.steps = [s for s in STEPS if s in (steps or STEPS)]
         self.cfg = TARGETS[target]
+        self.steps = [s for s in STEPS if s in (steps or STEPS) and s in self.cfg.get("only_steps", STEPS)]
         self.c = V3Client(target)
         self.c.send_facility_header = True          # prices land in this facility
         self.c.token()
         self.org, self.fac = self.c.organization_id, self.c.facility_id
         if not self.org or not self.fac:
             raise SystemExit(f"{target}: organization_id / facility_id not set")
-        self.data = json.loads(data_path(target).read_text(encoding="utf-8"))
+        self.data = json.loads(data_path(self.cfg.get("data_target", target)).read_text(encoding="utf-8"))
         skip = {key(s) for s in self.cfg.get("skip_names", ())}
         self.items = [i for i in self.data["items"] if key(i["name"]) not in skip and i["rates"]]
         log.info("%r: %d items, %d schemes, steps %s", self.c, len(self.items), len(self.data["schemes"]), self.steps)

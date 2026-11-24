@@ -80,6 +80,28 @@ TARGETS = {
         "qty_fixes": {("pharmacy", 205): 166},
         "dental_costs": "KMC Dental Items(+cost price).xlsx",
     },
+    # Kerugoya Town Clinic (level 3) MIRRORS Kerugoya Medical Centre (367): same products, prices and — user's choice
+    # 2026-11-24 — the same 23.11 stock counts. 368 has no pharmacy store of its own (945 is org-wide and holds 367's
+    # count), so one is created; dental / optical go to 368's existing Dental Store 957 / Optical Store 958.
+    "kerugoya_town_prod": {
+        "label": "Kerugoya Town Clinic stock take 2026-11-23 (mirror of Kerugoya Medical Centre)",
+        "count_date": "2026-11-23",
+        "prefix": "KTC-ST",
+        "facility": 368,
+        "unit": "PCS",
+        "data_target": "kerugoya_prod",            # same sheets + price lists
+        "mirror_of": {"target": "kerugoya_prod", "facility": 367},
+        "sheets": {
+            "pharmacy": {"file": "23.11.26- PHARMACY STOCK.xlsx", "code": "PHARM",
+                         "create": {"name": "Pharmacy - Kerugoya Town Clinic", "code": "KTC-PHARMACY", "type": "pharmacy",
+                                    "is_consumable": 0, "parent_store_id": 944,
+                                    "description": "Pharmacy, Kerugoya Town Clinic (facility 368)"}},
+            "dental": {"file": "Dental Stock Take.xlsx", "store_id": 957, "code": "DENT"},
+            "optical": {"file": "Optical Stock Take.xlsx", "store_id": 958, "code": "OPT"},
+        },
+        "fallback_category": {"pharmacy": "PHARMACY", "dental": "Consumable", "optical": "STORES"},
+        "qty_fixes": {("pharmacy", 205): 166},
+    },
 }
 
 
@@ -188,8 +210,9 @@ class Run:
         self.org, self.fac = self.c.organization_id, self.c.facility_id
         if self.fac != self.cfg["facility"]:
             raise SystemExit(f"{target}: login facility {self.fac} ≠ {self.cfg['facility']}")
-        self.data = json.loads(find(DATA_DIRS, f"{target}.json").read_text(encoding="utf-8"))
-        rc = find(PRICE_DIRS, f"{target}.json")
+        dt_ = self.cfg.get("data_target", target)
+        self.data = json.loads(find(DATA_DIRS, f"{dt_}.json").read_text(encoding="utf-8"))
+        rc = find(PRICE_DIRS, f"{dt_}.json")
         self.prices = json.loads(rc.read_text(encoding="utf-8")) if rc.exists() else {"pharmacy": [], "costs": []}
         self.when = f"{self.data['count_date']} 12:00:00"
         names = {clean(x["code"]).upper(): clean(x["name"]) for x in self.prices.get("pharmacy", []) + self.prices.get("costs", [])}
@@ -298,14 +321,71 @@ class Run:
         self.pid = {p["id"]: p for p in self.products}
         self.batches = self.live("inventory", "batch")
         self.stock = self.live("inventory", "stock")
-        self.cats = {c["name"]: c["id"] for c in self.live("inventory", "product_category", 1)
-                     if c.get("facility_id") in (None, self.fac)}
+        self.all_cats = self.live("inventory", "product_category", 1)
+        self.cats = {c["name"]: c["id"] for c in self.all_cats if c.get("facility_id") in (None, self.fac)}
+        # a facility's own category wins over an org-wide one of the same name
+        self.cats.update({c["name"]: c["id"] for c in self.all_cats if c.get("facility_id") == self.fac})
         units = {u["name"].strip().upper(): u["id"] for u in self.live("inventory", "unit", 1)}
         self.unit = units.get(self.cfg["unit"].upper())
         if not self.unit:
             raise SystemExit(f"unit {self.cfg['unit']} not in org {self.org}")
         log.info("org %s: %d products (%d facility %s), %d batches, %d stock rows", self.org, len(self.products),
                  sum(p.get("facility_id") == self.fac for p in self.products), self.fac, len(self.batches), len(self.stock))
+
+    # ── mirror: the source facility's products + its categories, recreated in this facility ──
+    def ensure_mirror_categories(self):
+        """category id of the source facility → this facility's category of the same name (created when missing);
+        org-wide categories map to themselves."""
+        mf = self.cfg["mirror_of"]["facility"]
+        self.cat_map = {c["id"]: c["id"] for c in self.all_cats if c.get("facility_id") is None}
+        own = {c["name"]: c for c in self.all_cats if c.get("facility_id") == self.fac}
+        todo = []
+        for c in self.all_cats:
+            if c.get("facility_id") != mf:
+                continue
+            if c["name"] in own:
+                self.cat_map[c["id"]] = own[c["name"]]["id"]
+            else:
+                todo.append({"_key": c["id"], "uuid": gid(self.target, "category", c["id"]), "name": c["name"],
+                             "description": c.get("description"), "code": c.get("code"),
+                             **{k: int(bool(c.get(k))) for k in ("is_consumable", "is_drug", "is_optical")},
+                             "cash_markup": c.get("cash_markup"), "credit_markup": c.get("credit_markup")})
+        self.report["plan"]["categories_new"] = [c["name"] for c in todo]
+        ids = self.many("categories", todo, lambda c: self.insert("inventory", "product_category", c, match_on="uuid"))
+        if todo and not self.dry_run:
+            fresh = {c["name"]: c for c in self.live("inventory", "product_category", 1) if c.get("facility_id") == self.fac}
+            for c in todo:
+                got = fresh.get(c["name"]) or ({"id": ids.get(c["_key"])} if ids.get(c["_key"]) else None)
+                if got:
+                    self.cat_map[c["_key"]] = got["id"]
+                    self.cats[c["name"]] = got["id"]
+                else:                                # could not make one: keep the source category (still valid)
+                    self.cat_map[c["_key"]] = c["_key"]
+
+    def mirror_twins(self) -> dict[str, dict]:
+        """sheet key → the source facility's product for it (the one its own run used)"""
+        m = self.cfg["mirror_of"]
+        by_uuid = {str(p.get("uuid")).lower(): p for p in self.products if p.get("uuid")}
+        src_name, org_any = defaultdict(list), defaultdict(list)
+        codes = {}
+        stocked = {s["product_id"] for s in self.stock if (s.get("quantity") or 0) > 0}
+        for p in sorted(self.products, key=lambda p: p["id"]):
+            if p.get("facility_id") == m["facility"]:
+                src_name[key(p.get("generic_name"))].append(p)
+            elif p.get("facility_id") is None and p["id"] in stocked:
+                org_any[key(p.get("generic_name"))].append(p)
+            if p.get("code"):
+                codes.setdefault(str(p["code"]).strip().upper(), p)
+        twins = {}
+        for sheet, sd in self.data["sheets"].items():
+            for r in sd["rows"]:
+                k = r["code"] or f"{sheet}:{key(r['name'])}"
+                t = (by_uuid.get(gid(m["target"], "product", k)) or next(iter(src_name.get(key(r["name"]), [])), None)
+                     or (codes.get(r["code"]) if codes.get(r["code"]) and codes[r["code"]]["id"] in stocked else None)
+                     or next(iter(org_any.get(key(r["name"]), [])), None))
+                if t:
+                    twins[k] = t
+        return twins
 
     def plan_products(self):
         fac_name, org_name = defaultdict(list), defaultdict(list)
@@ -328,6 +408,8 @@ class Run:
         cost.update(self.data.get("dental_costs", {}))
         self.product_of, new, how, votes = {}, {}, Counter(), defaultdict(Counter)
         taken_codes = set(codes)
+        twins = self.mirror_twins() if self.cfg.get("mirror_of") else {}
+        self.report["plan"]["mirror_twins_found"] = len(twins) if twins else None
         for sheet, sd in self.data["sheets"].items():
             store = self.store_ids.get(sheet)
             for r in sd["rows"]:
@@ -362,6 +444,27 @@ class Run:
                           "selling_price": s or 0, "insurance_price": s or 0, "cost_price": c or 0, "trade_price": c,
                           "is_active": 1, "track_batch": 1, "track_expiry": 1,
                           "description": f"Added from {sd['file']} ({self.cfg['label']})"}
+                t = twins.get(k)
+                if t:                                # mirror: the source facility's product, field for field
+                    base = (str(t.get("code") or "").strip().upper() or r["code"] or "").replace(f"-F{self.cfg['mirror_of']['facility']}", "")
+                    code = f"{base}-F{self.fac}" if base else None
+                    if code and code in taken_codes:
+                        code = f"{code}-{r['row']}"
+                    if code:
+                        taken_codes.add(code)
+                    new[k].update({
+                        "generic_name": t["generic_name"][:255], "code": code, "item_no": t.get("item_no") or r["code"] or None,
+                        "unit_id": t.get("unit_id") or self.unit, "pack_size": t.get("pack_size") or 1,
+                        "selling_price": num(t.get("selling_price")), "insurance_price": num(t.get("insurance_price")),
+                        "cost_price": num(t.get("cost_price")), "trade_price": t.get("trade_price"),
+                        "track_batch": int(bool(t.get("track_batch", 1))), "track_expiry": int(bool(t.get("track_expiry", 1))),
+                        "requires_prescription": int(bool(t.get("requires_prescription"))),
+                        "reorder_level": t.get("reorder_level"), "strength": t.get("strength"), "formulation": t.get("formulation"),
+                        "_category": self.cat_map.get(t.get("category_id"), t.get("category_id")), "_twin": t["id"],
+                        "description": f"Mirror of facility {self.cfg['mirror_of']['facility']} product {t['id']} "
+                                       f"({self.cfg['label']})"})
+                    how["new facility product (mirror)"] += 1
+                    continue
                 how["new facility product"] += 1
         exp_keys = {r["code"] or f"{sheet}:{key(r['name'])}" for sheet, sd in self.data["sheets"].items()
                     for r in sd["rows"] if r["expiry"]}
@@ -370,6 +473,10 @@ class Run:
         drug_cat = self.cats.get(self.cfg.get("drug_category", "PHARMACY"))
         for k, p in new.items():
             sheet = p.pop("_sheet")
+            if "_category" in p:                     # mirror copy: category + flags come from the twin
+                p["category_id"] = p.pop("_category")
+                p.pop("_twin", None)
+                continue
             fb = self.cats.get(self.cfg["fallback_category"][sheet])
             if sheet == "pharmacy" and is_drug(p["generic_name"]) and drug_cat:
                 p["category_id"] = drug_cat
@@ -605,6 +712,8 @@ class Run:
             return self.report
         self.stores()
         self.read_inventory()
+        if self.cfg.get("mirror_of"):
+            self.ensure_mirror_categories()
         self.run_products()
         if "stock" in self.steps:
             if not self.dry_run:

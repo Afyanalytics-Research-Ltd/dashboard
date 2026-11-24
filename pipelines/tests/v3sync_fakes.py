@@ -16,12 +16,15 @@ import v3_to_snowflake_sync as S
 
 class FakeV3Client:
     def __init__(self, tables: dict[tuple[str, str], list[dict]] | None = None, organization_id: int = 6,
-                 fail_on: set[tuple[str, str]] | None = None, fail_after: int | None = None):
+                 fail_on: set[tuple[str, str]] | None = None, fail_after: int | None = None,
+                 window: bool = False):
         self.tables = {k: [dict(r) for r in v] for k, v in (tables or {}).items()}
         self.organization_id = organization_id
         self.fail_on = fail_on or set()
         self.fail_after = fail_after          # raise after yielding this many rows of a failing model
+        self.window = window                  # does this "gateway" honour updated_since (read_window)?
         self.reads: list[tuple[str, str]] = []
+        self.window_reads: list[tuple[str, str, str]] = []
 
     def token(self) -> str:
         return "token"
@@ -32,6 +35,20 @@ class FakeV3Client:
     def read_all(self, service: str, alias: str, per_page: int = 500, workers: int = 1):
         self.reads.append((service, alias))
         for i, row in enumerate(self.tables.get((service, alias), [])):
+            if (service, alias) in self.fail_on and i == (self.fail_after or 0):
+                raise RuntimeError(f"gateway 500 on {service}/{alias}")
+            yield deepcopy(row)
+
+    def read_window(self, service: str, alias: str, since: str, before: str | None = None, per_page: int = 500,
+                    after_id: int = 0):
+        """Like the prod gateway's updated_since read: rows whose updated_at >= since (none without one)."""
+        from v3_to_v3_client import FilterUnsupported
+        self.window_reads.append((service, alias, since))
+        if not self.window:
+            raise FilterUnsupported(f"fake {service}/{alias}: updated_since / after_id not supported here")
+        cut = S.parse_ts(since)
+        for i, row in enumerate(r for r in self.tables.get((service, alias), [])
+                                if (u := S.parse_ts(r.get("updated_at"))) is not None and u >= cut):
             if (service, alias) in self.fail_on and i == (self.fail_after or 0):
                 raise RuntimeError(f"gateway 500 on {service}/{alias}")
             yield deepcopy(row)
@@ -74,12 +91,20 @@ class FakeSink:
             cols.setdefault(S.column_name(name), sf_type)
         return cols
 
-    def get_watermark(self, tenant_id: int, model: str) -> datetime | None:
-        return (self.state.get((tenant_id, model)) or {}).get("watermark")
+    def get_state(self, tenant_id: int, model: str) -> dict:
+        s = self.state.get((tenant_id, model)) or {}
+        return {"watermark": s.get("watermark"), "last_full_read": s.get("last_full_read"),
+                "no_updated_at": s.get("no_updated_at")}
 
-    def save_state(self, tenant_id, model, source, *, watermark, status, error, started, counts) -> None:
+    def get_watermark(self, tenant_id: int, model: str) -> datetime | None:
+        return self.get_state(tenant_id, model)["watermark"]
+
+    def save_state(self, tenant_id, model, source, *, watermark, status, error, started, counts,
+                   last_full_read=None, read_mode=None, no_updated_at=None) -> None:
         self.state[(tenant_id, model.name)] = {"watermark": watermark, "status": status, "error": error,
-                                               "source": source, "counts": dict(counts), "table": model.table}
+                                               "source": source, "counts": dict(counts), "table": model.table,
+                                               "last_full_read": last_full_read, "read_mode": read_mode,
+                                               "no_updated_at": no_updated_at}
 
     def merge(self, table: str, tenant_id: int, source: str, rows: list[S.StagedRow]) -> tuple[int, int]:
         self.merges.append((table, len(rows)))

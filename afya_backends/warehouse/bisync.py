@@ -67,6 +67,20 @@ APPEND_KEYS = {
 STAGING_SUFFIX = "__BISYNC_TMP"
 OLD_SUFFIX = "__BISYNC_OLD"
 DATABEND_SKIP_DBS = {"system", "information_schema", "default", tr.COMPAT_DB.lower()}
+# Schemas bisync never touches, either way. V3_SYNC is written straight to Databend by the V3 sync
+# (pipelines/v3_to_snowflake_sync.py, warehouse backend = databend): Snowflake's copy is frozen and
+# must not be copied back over it. Override with BISYNC_SKIP_SCHEMAS="A,B" ("none" = skip nothing).
+SKIP_SCHEMAS = {"V3_SYNC"}
+
+
+def skip_schemas_from_env() -> set:
+    import os
+    raw = os.getenv("BISYNC_SKIP_SCHEMAS")
+    if raw is None:
+        return set(SKIP_SCHEMAS)
+    if raw.strip().lower() in ("", "none"):
+        return set()
+    return {x.strip().upper() for x in raw.split(",") if x.strip()}
 
 
 def _q(name: str) -> str:
@@ -248,9 +262,10 @@ class Side:
                 else:
                     continue
                 out[(schema.upper(), n.upper())] = TableInfo(schema, n, int(r or 0), str(m))
+        skip = skip_schemas_from_env()
         out = {k: v for k, v in out.items()
                if not k[1].endswith((STAGING_SUFFIX, OLD_SUFFIX))
-               and (self.schemas is None or k[0] in self.schemas)}
+               and (self.schemas is None or k[0] in self.schemas) and k[0] not in skip}
         self._names = {k: (v.schema, v.name) for k, v in out.items()}
         return out
 
@@ -271,7 +286,8 @@ class Side:
                     out[(db.upper(), n.upper())] = ""
                 elif db.upper().startswith(prefix):
                     out[(db[len(prefix):].upper(), n.upper())] = ""
-        return {k: v for k, v in out.items() if self.schemas is None or k[0] in self.schemas}
+        skip = skip_schemas_from_env()
+        return {k: v for k, v in out.items() if (self.schemas is None or k[0] in self.schemas) and k[0] not in skip}
 
     def columns(self, schema: str, table: str) -> list[Col]:
         if self.backend == "snowflake":   # DESC: metadata only, no warehouse

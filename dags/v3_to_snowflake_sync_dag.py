@@ -1,11 +1,17 @@
 # dags/v3_to_snowflake_sync_dag.py
 """
-V3 → Snowflake, kept up to date (v3_to_snowflake_sync.py — same code as the command line).
+V3 → the warehouse, kept up to date (v3_to_snowflake_sync.py — same code as the command line).
+
+The warehouse is whichever the platform runs on (System Settings → Data warehouse, i.e. afya_backends.toggles;
+a run's `warehouse_backend` conf overrides it): on Databend the same SQL runs through the translating driver.
+The DAG id still says snowflake for its history.
 
 Every run, for each source (a V3 tenant login, AFYA_<KEY>_* in the server's .env) and each gateway model:
-read all its rows, MERGE into HOSPITALS.V3_SYNC.<SERVICE>__<ALIAS> only the rows new or edited since the
-model's watermark, flag rows V3 no longer returns as _IS_DELETED, then move the watermark. Watermarks and
-the last run's counts / errors per model: HOSPITALS.V3_SYNC._SYNC_STATE.
+read the rows changed since the model's watermark (the gateway's updated_since — read_mode=auto), MERGE them
+into HOSPITALS.V3_SYNC.<SERVICE>__<ALIAS>, then move the watermark. Once a day per model (full_read_hours) —
+and on a first sync, a full refresh, or for models with rows lacking updated_at — every row is read instead,
+which is also when rows V3 no longer returns are flagged _IS_DELETED. Watermarks, the last full read and the
+last run's counts / errors per model: HOSPITALS.V3_SYNC._SYNC_STATE.
 
     resolve ──► plan ──► sync_service (one mapped task per source × service) ──► check_duplicates ──► summary
 
@@ -129,15 +135,16 @@ def group_by_service(source: str, models, tenant_id: int | None = None) -> list[
 
 @dag(
     dag_id=DAG_ID,
-    description="V3 gateway → Snowflake HOSPITALS.V3_SYNC — watermarked upserts, deletes flagged",
-    # every 6 h (was 3): a run takes ~5 h, so 3-hourly runs queued back to back and kept COMPUTE_WH busy until the
-    # CHECKER resource monitor's quota ran out (2026-11-18 17:30 UTC — every Snowflake pipeline stopped)
-    schedule="0 */6 * * *",
+    description="V3 gateway → warehouse HOSPITALS.V3_SYNC — changed rows only (updated_since), daily full read for deletes",
+    # hourly: a run reads only the rows changed since the watermark (minutes). The run that does a model's daily
+    # full read is long (eagle evaluation:activity_log: 4.3M rows, ~5 h); max_active_runs=1 just delays the next.
+    # (Every 3-6 h full reads on Snowflake ran COMPUTE_WH out of quota, 2026-11-18 and 2026-11-23.)
+    schedule="15 * * * *",
     start_date=datetime(2026, 10, 1),
     catchup=False,
     max_active_runs=1,          # never two runs MERGEing the same (tenant, model)
     max_active_tasks=6,         # each task reads 4 models × 4 pages at once — keep prod V3 and this box breathing
-    tags=["v3", "snowflake", "incremental"],
+    tags=["v3", "warehouse", "databend", "incremental"],
     default_args={"owner": "data-eng", "retries": 0},
     params={
         "sources": Param([], type="array", items={"type": "string"}, title="V3 sources (AFYA_<KEY>_* logins)",
@@ -150,6 +157,11 @@ def group_by_service(source: str, models, tenant_id: int | None = None) -> list[
         "full_refresh": Param(False, type="boolean", title="Full refresh",
                               description="Ignore watermarks and re-send every row (unchanged rows are "
                                           "still skipped by hash)."),
+        "read_mode": Param("auto", type="string", enum=["auto", "full"], title="Read mode",
+                           description="auto: only rows changed since the watermark (gateway updated_since), "
+                                       "plus a full read per model every full_read_hours; full: every row, every run."),
+        "full_read_hours": Param(24, type="number", minimum=0, title="Full read every (hours)",
+                                 description="Deletes are only noticed on a full read. 0 = always read in full."),
         "lookback_minutes": Param(60, type="integer", minimum=0, title="Watermark overlap (minutes)"),
         "detect_deletes": Param(True, type="boolean", title="Flag rows V3 no longer returns as deleted"),
         "max_delete_fraction": Param(0.2, type="number", minimum=0, maximum=1, title="Delete guard",
@@ -241,7 +253,9 @@ def v3_to_snowflake_sync():
         opts = S.SyncOptions(full_refresh=p["full_refresh"], lookback=timedelta(minutes=p["lookback_minutes"]),
                              batch_size=p["batch_size"], detect_deletes=p["detect_deletes"],
                              max_delete_fraction=p["max_delete_fraction"], page_workers=p["page_workers"],
-                             limit=p["limit"], dry_run=p["dry_run"], global_source=job.get("global_owner"))
+                             limit=p["limit"], dry_run=p["dry_run"], global_source=job.get("global_owner"),
+                             read_mode=p.get("read_mode") or "auto",
+                             full_read_hours=float(p.get("full_read_hours", 24)))
         results = S.sync(job["source"], [S.parse_model(m) for m in job["models"]], opts=opts,
                          workers=p["workers"], database=database, schema=schema)
         log.info("%s\n%s", ctx["job_label"], S.summarize(results))

@@ -28,6 +28,11 @@ def _follow_warehouse_switch():
     query reconnects to the new warehouse (afya_backends.toggles asks Django
     over HTTP - see _http_source there)."""
     try:
+        # The dashboards load .env themselves (load_dotenv in their connection helpers) - after this runs.
+        # Load it first: the switch is read over HTTP with AFYA_INTERNAL_API_TOKEN from .env, and an answer
+        # read without it (the deploy default) would be cached for the dashboard's first connection.
+        from dotenv import load_dotenv
+        load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", ".env"))
         from afya_backends import toggles
         now = toggles.warehouse_backend()
     except Exception:  # noqa: BLE001 - a dashboard must still render

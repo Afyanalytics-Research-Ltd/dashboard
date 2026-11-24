@@ -47,3 +47,7 @@ downloaded_files/
 failed_mapped_logs/
 v3_ready/
 .pytest_cache/
+
+# book translation pipeline: the prebuilt notebooks ARE needed (the root .gitignore drops *.ipynb);
+# exported from the book-translation-pipeline repo, see book_translation/README.md
+!book_translation/notebooks/*.ipynb

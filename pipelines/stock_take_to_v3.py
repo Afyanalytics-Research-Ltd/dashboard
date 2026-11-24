@@ -217,8 +217,10 @@ class Run:
 
     def _ok(self, r):
         body = (r.json() if r.content else {}) if r.ok else {}
-        ok = r.ok and body.get("success", True)
-        return ok, (body.get("data") or {}).get("id") if ok else None, None if ok else f"{r.status_code} {r.text[:300]}"
+        ok = r.ok and (body.get("success", True) if isinstance(body, dict) else True)
+        data = body.get("data") if isinstance(body, dict) else None
+        rid = data.get("id") if isinstance(data, dict) else None      # update answers with a list of rows
+        return ok, rid if ok else None, None if ok else f"{r.status_code} {r.text[:300]}"
 
     def insert(self, svc, alias, data, match_on=None):
         return self._ok(self.c.insert(svc, alias, {k: v for k, v in data.items() if not k.startswith("_") and v is not None},
@@ -422,9 +424,17 @@ class Run:
         for b in self.batches:
             if (b.get("quantity_available") or 0) > 0:
                 held[(b["product_id"], b["store_id"])].append(b)
+        # quantity before this count = V3 now minus what this loader's own batches added (a re-run keeps the
+        # stock-take lines' expected / variance as first recorded)
+        ours = {gid(self.target, "batch", f"{sheet}|{r['code'] or sheet + ':' + key(r['name'])}|"
+                                          f"{r['batch_no'] or cfg['prefix'] + '-' + date.replace('-', '') + '-' + str(r['code'] or r['row'])}")
+                for sheet, sd in self.data["sheets"].items() for r in sd["rows"]}
+        own_batch = {b["id"]: int(b.get("quantity_available") or 0) for b in self.batches if str(b.get("uuid")).lower() in ours}
         qty_now = defaultdict(int)
         for s in self.stock:
-            qty_now[(s["product_id"], s["store_id"])] += int(s.get("quantity") or 0)
+            if s.get("batch_id") not in own_batch:
+                qty_now[(s["product_id"], s["store_id"])] += int(s.get("quantity") or 0)
+        self.report["plan"]["own_batches_already_in_v3"] = len(own_batch)
         new_b, upd_b, same, zeroed, take_items, no_exp, no_exp_off = [], [], 0, [], defaultdict(list), [], {}
         for sheet, sd in self.data["sheets"].items():
             store = self.store_ids.get(sheet)

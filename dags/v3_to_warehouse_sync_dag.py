@@ -1,11 +1,11 @@
-# dags/v3_to_snowflake_sync_dag.py
+# dags/v3_to_warehouse_sync_dag.py
 """
 V3 → the warehouse, kept up to date (v3_to_snowflake_sync.py — same code as the command line).
 
 The warehouse is Databend: this DAG's own `warehouse_backend` param defaults to "databend", which outranks the
 platform switch (System Settings → Data warehouse) - V3_SYNC lives only in Databend (warehouse_bisync skips it;
 Snowflake's copy is frozen). Set the param to "default" to follow the platform switch instead.
-The DAG id still says snowflake for its history.
+Renamed from v3_to_snowflake_sync on 2026-11-24 (its run history stays under the old id); the pipeline module keeps its name.
 
 Every run, for each source (a V3 tenant login, AFYA_<KEY>_* in the server's .env) and each gateway model:
 read the rows changed since the model's watermark (the gateway's updated_since — read_mode=auto), MERGE them
@@ -57,7 +57,7 @@ from pipelines_common import clean_list, use_pipelines_dir
 
 log = logging.getLogger(__name__)
 
-DAG_ID = "v3_to_snowflake_sync"
+DAG_ID = "v3_to_warehouse_sync"
 SERVICES = ["core", "reception", "evaluation", "inventory", "finance", "theatre", "inpatient", "dialysis"]
 
 
@@ -184,7 +184,7 @@ def group_by_service(source: str, models, tenant_id: int | None = None) -> list[
                         description="Empty = V3_SYNC_SCHEMA (env / Variable), else V3_SYNC. Staging sets its own."),
     },
 )
-def v3_to_snowflake_sync():
+def v3_to_warehouse_sync():
 
     @task(retries=3, retry_delay=timedelta(minutes=5))     # logins only: a short V3 outage shouldn't lose the run
     def resolve() -> dict:
@@ -326,4 +326,4 @@ def v3_to_snowflake_sync():
     summary(resolved, synced, check_duplicates(synced))
 
 
-v3_to_snowflake_sync()
+v3_to_warehouse_sync()

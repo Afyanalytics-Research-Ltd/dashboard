@@ -63,7 +63,7 @@ USAGE
 
   --source is a V3Client key: AFYA_<KEY>_USERNAME / _PASSWORD / _URL_TEMPLATE … in .env (v3_to_v3_client.py).
   Snowflake: SNOWFLAKE_USER / ACCOUNT / WAREHOUSE / ROLE + SNOWFLAKE_PRIVATE_KEY_PATH (or SNOWFLAKE_PASSWORD).
-  Airflow: dags/v3_to_snowflake_sync_dag.py.
+  Airflow: dags/v3_to_warehouse_sync_dag.py (DAG v3_to_warehouse_sync).
 """
 from __future__ import annotations
 

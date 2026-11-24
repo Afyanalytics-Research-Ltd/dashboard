@@ -388,3 +388,20 @@ def test_snowflake_reads_guard_timestamps_outside_the_nanosecond_range():
             assert 'IFF(YEAR("LMP") BETWEEN 1678 AND 2261, "LMP", NULL) AS "LMP"' in sql and sql.startswith('SELECT "ID", ')
         else:                                   # Databend reads are untouched (names only)
             assert sql.startswith('SELECT "ID", "LMP" FROM')
+
+
+def test_v3_sync_schema_is_never_bisynced(monkeypatch):
+    """V3_SYNC is written straight to Databend by the V3 sync: bisync must not see it on either side, so a
+    frozen Snowflake copy can never be copied over it (nor Databend's copied back)."""
+    monkeypatch.delenv("BISYNC_SKIP_SCHEMAS", raising=False)
+    side = bisync.Side("databend", None, "HOSPITALS")
+    monkeypatch.setattr(side, "run", lambda sql, *a, **k: (
+        [("V3_SYNC", "V")] if "'VIEW'" in sql and "engine =" in sql else
+        [("V3_SYNC", "FINANCE__INVOICE", 5, "t"), ("TENRI", "T", 1, "t")]))
+    assert set(side.tables()) == {("TENRI", "T")}
+    assert side.views() == {}
+    monkeypatch.setenv("BISYNC_SKIP_SCHEMAS", "none")
+    assert set(side.tables()) == {("TENRI", "T"), ("V3_SYNC", "FINANCE__INVOICE")}
+    monkeypatch.setenv("BISYNC_SKIP_SCHEMAS", "tenri, x")
+    assert bisync.skip_schemas_from_env() == {"TENRI", "X"}
+    assert set(side.tables()) == {("V3_SYNC", "FINANCE__INVOICE")}

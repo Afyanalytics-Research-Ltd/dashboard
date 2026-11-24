@@ -819,3 +819,123 @@ def test_snowflake_sessions_are_kept_alive(monkeypatch):
     monkeypatch.delenv("SNOWFLAKE_PRIVATE_KEY_PATH", raising=False)
     S.snowflake_connect()
     assert seen["client_session_keep_alive"] is True
+
+
+def test_databend_backend_needs_no_snowflake_credentials(monkeypatch):
+    """warehouse_backend=databend: the session is the translating Databend driver; no Snowflake key/password."""
+    seen = {}
+    import afya_backends.warehouse as W
+    monkeypatch.setattr(W, "connect", lambda **kw: seen.update(kw) or _Conn())
+    monkeypatch.setenv("AFYA_WAREHOUSE_BACKEND", "databend")
+    monkeypatch.delenv("SNOWFLAKE_PASSWORD", raising=False)
+    monkeypatch.delenv("SNOWFLAKE_PRIVATE_KEY_PATH", raising=False)
+    S.snowflake_connect("HOSPITALS", "V3_SYNC")
+    assert seen["backend"] == "databend" and (seen["database"], seen["schema"]) == ("HOSPITALS", "V3_SYNC")
+
+
+# ── window reads (gateway updated_since) ──────────────────────────────────
+
+@pytest.mark.parametrize("state, opts, mode", [
+    ({}, {}, "full"),                                                                    # first sync
+    ({"watermark": NOW, "last_full_read": NOW - timedelta(hours=1)}, {}, "window"),
+    ({"watermark": NOW, "last_full_read": NOW - timedelta(hours=24)}, {}, "full"),        # daily full read
+    ({"watermark": NOW, "last_full_read": NOW - timedelta(hours=7)}, {"full_read_hours": 6}, "full"),
+    ({"watermark": NOW, "last_full_read": None}, {}, "full"),                             # state from before
+    ({"watermark": NOW, "last_full_read": NOW, "no_updated_at": 3}, {}, "full"),          # rows a window can't see
+    ({"watermark": NOW, "last_full_read": NOW}, {"read_mode": "full"}, "full"),
+    ({"watermark": NOW, "last_full_read": NOW}, {"full_refresh": True}, "full"),
+    ({"watermark": NOW, "last_full_read": NOW}, {"limit": 3}, "full"),
+])
+def test_read_plan(state, opts, mode):
+    assert S.read_plan(state, S.SyncOptions(**opts), NOW)[0] == mode
+
+
+def windowed(n: int) -> FakeV3Client:
+    c = tenant_with(n)
+    c.window = True
+    return c
+
+
+def test_window_reads_only_changed_rows_then_a_full_read_catches_deletes():
+    client, sink = windowed(10), FakeSink()
+    r = run(client, sink)                                                   # first sync: full
+    assert (r.read_mode, r.read, r.inserted) == ("full", 10, 10)
+    st = sink.state[(6, PATIENT.name)]
+    assert st["last_full_read"] == NOW and st["no_updated_at"] == 0 and st["read_mode"] == "full"
+
+    client.edit("reception", "patient", 3, first_name="Edited", updated_at="2026-10-29T12:30:00Z")
+    client.rows("reception", "patient").append(patient(11, "2026-10-29T12:40:00Z"))
+    client.delete("reception", "patient", 7)                                 # invisible to a window read
+    later = NOW + timedelta(hours=1)
+    r = run(client, sink, now=later)
+    assert r.read_mode == "window" and r.read == 3     # the 2 changed + patient 10 (lookback overlap), not 11
+    assert (r.inserted, r.updated, r.deleted) == (1, 1, 0)
+    assert client.window_reads[-1][2] == "2026-10-10 07:00:00"              # watermark 10-10 08:00 - 60 min
+    assert sink.state[(6, PATIENT.name)]["last_full_read"] == NOW            # kept from the full read
+    assert sink.get_watermark(6, PATIENT.name) == datetime(2026, 10, 29, 12, 40)
+    assert "7" in sink.live_keys(T)                                          # not flagged yet
+
+    r = run(client, sink, now=NOW + timedelta(hours=25))                     # a day after the last full read
+    assert (r.read_mode, r.read, r.deleted) == ("full", 10, 1)
+    assert "7" in sink.deleted_keys(T)
+    assert sink.state[(6, PATIENT.name)]["last_full_read"] == NOW + timedelta(hours=25)
+
+
+def test_window_run_with_nothing_changed_reads_nothing():
+    client, sink = windowed(5), FakeSink()
+    run(client, sink)
+    wm = sink.get_watermark(6, PATIENT.name)
+    r = run(client, sink, now=NOW + timedelta(hours=1))
+    assert (r.read_mode, r.read, r.sent, r.inserted, r.updated) == ("window", 1, 1, 0, 0)   # lookback overlap only
+    assert sink.get_watermark(6, PATIENT.name) == wm
+
+
+def test_model_with_rows_without_updated_at_is_always_read_in_full():
+    client = FakeV3Client({("core", "model_has_role"): [{"role_id": 1, "model_id": 9}, {"role_id": 2, "model_id": 9}]},
+                          window=True)
+    model, sink = S.Model("core", "model_has_role"), FakeSink()
+    assert run(client, sink, model=model).read_mode == "full"
+    assert sink.state[(6, model.name)]["no_updated_at"] == 2
+    client.rows("core", "model_has_role").append({"role_id": 3, "model_id": 9})
+    r = run(client, sink, model=model, now=NOW + timedelta(hours=1))
+    assert (r.read_mode, r.inserted) == ("full", 1)        # no updated_at at all -> never a watermark either
+    assert client.window_reads == []
+    # a model where only SOME rows lack updated_at has a watermark - the count alone forces the full read
+    mixed = FakeV3Client({("core", "mixed"): [patient(1), {"id": 2, "name": "no timestamp"}]}, window=True)
+    m2 = S.Model("core", "mixed")
+    run(mixed, sink, model=m2)
+    assert sink.get_watermark(6, m2.name) is not None and sink.state[(6, m2.name)]["no_updated_at"] == 1
+    r = run(mixed, sink, model=m2, now=NOW + timedelta(hours=1))
+    assert r.read_mode == "full" and "without updated_at" in r.read_why and mixed.window_reads == []
+
+
+def test_gateway_without_window_support_falls_back_to_full_reads():
+    client, sink = tenant_with(4), FakeSink()                               # window=False
+    run(client, sink)
+    client.delete("reception", "patient", 2)
+    r = run(client, sink, now=NOW + timedelta(hours=1), max_delete_fraction=1)
+    assert r.read_mode == "full" and "unavailable" in r.read_why and r.deleted == 1
+    assert len(client.window_reads) == 1 and client.reads.count(("reception", "patient")) == 2
+
+
+def test_window_read_failure_keeps_the_watermark_and_the_last_full_read():
+    client, sink = windowed(6), FakeSink()
+    run(client, sink)
+    for i in (5, 6):
+        client.edit("reception", "patient", i, updated_at=f"2026-10-29T1{i}:00:00Z")
+    client.fail_on, client.fail_after = {("reception", "patient")}, 1      # dies after the first changed row
+    r = run(client, sink, now=NOW + timedelta(hours=1))
+    assert r.status == "failed" and r.read_mode == "window"
+    st = sink.state[(6, PATIENT.name)]
+    assert st["watermark"] == datetime(2026, 10, 6, 8) and st["last_full_read"] == NOW
+    client.fail_on = set()
+    r = run(client, sink, now=NOW + timedelta(hours=2))
+    assert (r.read_mode, r.updated) == ("window", 2)
+
+
+def test_unscoped_models_and_canaries_are_unaffected_by_window_mode():
+    client, sink = windowed(5), FakeSink()
+    run(client, sink)
+    r = run(client, sink, now=NOW + timedelta(hours=1), limit=2)
+    assert (r.read_mode, r.status) == ("full", "partial")
+    assert sink.state[(6, PATIENT.name)]["last_full_read"] == NOW          # a canary is not a full read

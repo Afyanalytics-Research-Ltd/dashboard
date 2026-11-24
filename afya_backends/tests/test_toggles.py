@@ -6,7 +6,7 @@ from afya_backends import toggles
 @pytest.fixture(autouse=True)
 def clean(monkeypatch):
     for k in ("AFYA_WAREHOUSE_BACKEND", "WAREHOUSE_BACKEND", "AFYA_LLM_PROVIDER", "LLM_PROVIDER",
-              "LLM_PROVIDER_DEFAULT"):
+              "LLM_PROVIDER_DEFAULT", "AFYA_TOGGLE_URL", "AFYA_INTERNAL_API_TOKEN"):
         monkeypatch.delenv(k, raising=False)
     saved = list(toggles._sources)
     toggles._sources.clear()
@@ -76,3 +76,66 @@ def test_state_paths_only_change_on_databend(tmp_path):
         assert toggles.state_path(p).name == ".watermarks.databend.json"
         assert toggles.state_key("wm__x") == "wm__x__databend"
     assert toggles.state_key("wm__x") == "wm__x"
+
+
+class _Resp:
+    def __init__(self, body, status=200):
+        self.body, self.status_code = body, status
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise RuntimeError(self.status_code)
+
+    def json(self):
+        return self.body
+
+
+def _no_airflow(monkeypatch):
+    import sys
+    monkeypatch.delitem(sys.modules, "airflow", raising=False)
+    toggles._http_last.clear()
+
+
+def test_streamlit_asks_django_and_keeps_the_last_answer_when_django_is_down(monkeypatch):
+    import requests
+    _no_airflow(monkeypatch)
+    monkeypatch.setenv("WAREHOUSE_BACKEND", "snowflake")
+    monkeypatch.setenv("AFYA_TOGGLE_URL", "http://web:8000/core/api/warehouse/translate/")
+    monkeypatch.setenv("AFYA_INTERNAL_API_TOKEN", "t0k")
+    calls = []
+
+    def get(url, headers=None, timeout=None):
+        calls.append((url, headers))
+        return _Resp({"warehouse_backend": "databend", "llm_provider": "api"})
+    monkeypatch.setattr(requests, "get", get)
+    assert toggles.warehouse_backend() == "databend"
+    assert calls == [("http://web:8000/core/api/warehouse/translate/", {"X-Afya-Token": "t0k"})]
+
+    def down(*a, **k):
+        raise requests.ConnectionError("web restarting")
+    monkeypatch.setattr(requests, "get", down)
+    toggles.clear_cache()
+    assert toggles.warehouse_backend() == "databend"          # not the deploy default
+
+
+def test_http_source_is_not_used_inside_django_or_without_a_token(monkeypatch):
+    import requests
+    _no_airflow(monkeypatch)
+    monkeypatch.setenv("AFYA_TOGGLE_URL", "http://web:8000/x/")
+    monkeypatch.setattr(requests, "get", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no HTTP expected")))
+    assert toggles.warehouse_backend() == "snowflake"         # no token: no call
+    monkeypatch.setenv("AFYA_INTERNAL_API_TOKEN", "t0k")
+    toggles.register_source(lambda s: None)                   # Django registered (setting unset)
+    toggles.clear_cache()
+    assert toggles.warehouse_backend() == "snowflake"
+
+
+def test_http_source_defaults_on_only_inside_streamlit(monkeypatch):
+    import sys
+    monkeypatch.delenv("AFYA_TOGGLE_URL", raising=False)
+    monkeypatch.delitem(sys.modules, "streamlit", raising=False)
+    assert toggles._toggle_url() is None
+    monkeypatch.setitem(sys.modules, "streamlit", object())
+    assert toggles._toggle_url() == toggles.DEFAULT_TOGGLE_URL
+    monkeypatch.setenv("AFYA_TOGGLE_URL", "off")
+    assert toggles._toggle_url() is None

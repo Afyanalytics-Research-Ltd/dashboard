@@ -15,6 +15,12 @@ The same answer must be reachable from three very different processes:
   ``afya_llm_provider`` (afya_backends.sync), and this module reads them
   inside a task.  A DAG run can override the warehouse with its
   ``warehouse_backend`` trigger param (config/airflow_local_settings.py).
+* Streamlit (and any other process that is neither Django nor an Airflow
+  task) asks Django over HTTP - the same endpoint Cube polls:
+  GET AFYA_TOGGLE_URL (default http://web:8000/core/api/warehouse/translate/
+  inside Streamlit) with the AFYA_INTERNAL_API_TOKEN header. If Django is
+  briefly unreachable the last answer is kept, so a process never flaps back
+  to the deploy default.
 * Anything else (CLI scripts, tests) uses environment variables.
 
 Resolution order for each switch (first hit wins):
@@ -116,7 +122,7 @@ def current(switch: str) -> str:
         if hit and now - hit[0] < CACHE_SECONDS:
             return hit[1]
     value = None
-    for fn in list(_sources) + [_airflow_variable_source]:
+    for fn in list(_sources) + [_airflow_variable_source, _http_source]:
         try:
             value = normalize(switch, fn(switch))
         except Exception as exc:  # a broken source must never break queries
@@ -200,6 +206,42 @@ class override:
         else:
             _local.overrides[self.switch] = self.prev
         return False
+
+
+TOGGLE_URL_ENV = "AFYA_TOGGLE_URL"
+DEFAULT_TOGGLE_URL = "http://web:8000/core/api/warehouse/translate/"
+_http_last: dict = {}
+
+
+def _toggle_url() -> Optional[str]:
+    url = os.getenv(TOGGLE_URL_ENV)
+    if url:
+        return None if url.strip().lower() in ("off", "none", "0") else url
+    return DEFAULT_TOGGLE_URL if "streamlit" in __import__("sys").modules else None
+
+
+def _http_source(switch: str) -> Optional[str]:
+    """Outside Django and Airflow (Streamlit): ask Django for the switch.
+
+    Not used inside Django (its own SystemSettings source is registered) nor
+    inside an Airflow task. On any failure the last good answer is returned.
+    """
+    if _sources or "airflow" in __import__("sys").modules:
+        return None
+    url, token = _toggle_url(), os.getenv("AFYA_INTERNAL_API_TOKEN")
+    if not url or not token:
+        return None
+    try:
+        import requests
+        resp = requests.get(url, headers={"X-Afya-Token": token}, timeout=3)
+        resp.raise_for_status()
+        value = normalize(switch, resp.json().get(switch))
+    except Exception as exc:  # noqa: BLE001 - never break a query over this
+        logger.debug("toggle HTTP source failed for %s: %s", switch, exc)
+        return _http_last.get(switch)
+    if value:
+        _http_last[switch] = value
+    return value or _http_last.get(switch)
 
 
 def _airflow_variable_source(switch: str) -> Optional[str]:

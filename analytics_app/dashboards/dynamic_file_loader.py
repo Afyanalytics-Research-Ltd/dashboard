@@ -16,6 +16,34 @@ page = params.get("page")
 st.set_page_config(layout="wide")
 
 
+@st.cache_resource(show_spinner=False)
+def _warehouse_seen() -> dict:
+    return {}
+
+
+def _follow_warehouse_switch():
+    """System Settings -> Data warehouse: every dashboard caches one warehouse
+    connection (st.cache_resource) and its query results (st.cache_data) for
+    the life of this container. When the switch flips, drop both so the next
+    query reconnects to the new warehouse (afya_backends.toggles asks Django
+    over HTTP - see _http_source there)."""
+    try:
+        from afya_backends import toggles
+        now = toggles.warehouse_backend()
+    except Exception:  # noqa: BLE001 - a dashboard must still render
+        return
+    seen = _warehouse_seen()
+    before = seen.get("backend")
+    if before and before != now:
+        st.cache_resource.clear()
+        st.cache_data.clear()
+        seen = _warehouse_seen()
+    seen["backend"] = now
+
+
+_follow_warehouse_switch()
+
+
 def _run_file(file_path):
     with open(file_path, encoding='utf-8') as f:
         code = f.read()

@@ -14490,6 +14490,1036 @@
     "Pacis": 20000.0,
     "SHA": 20000.0
    }
+  },
+  {
+   "code": "WRD-01-BED",
+   "name": "Female Ward - Bed Charges (per day)",
+   "category": "WARD CHARGES",
+   "sheet": "Ward Charges",
+   "ward": "Female Ward",
+   "part": "BED",
+   "rates": {
+    "AAR": 6000.0,
+    "APA": 4500.0,
+    "Britam": 5000.0,
+    "Cash": 3000.0,
+    "Jubilee": 6000.0,
+    "Kenya Alliance": 6000.0,
+    "Other": 6000.0,
+    "SHA": 3920.0
+   }
+  },
+  {
+   "code": "WRD-01-MEALS",
+   "name": "Female Ward - Non-Pharms (Meals Included) (per day)",
+   "category": "WARD CHARGES",
+   "sheet": "Ward Charges",
+   "ward": "Female Ward",
+   "part": "MEALS",
+   "rates": {
+    "AAR": 600.0,
+    "APA": 0.0,
+    "Britam": 600.0,
+    "Cash": 300.0,
+    "Jubilee": 600.0,
+    "Kenya Alliance": 600.0,
+    "Other": 600.0,
+    "SHA": 300.0
+   }
+  },
+  {
+   "code": "WRD-01-NURSING",
+   "name": "Female Ward - Nursing Care (per day)",
+   "category": "WARD CHARGES",
+   "sheet": "Ward Charges",
+   "ward": "Female Ward",
+   "part": "NURSING",
+   "rates": {
+    "AAR": 1500.0,
+    "APA": 0.0,
+    "Britam": 1500.0,
+    "Cash": 1500.0,
+    "Jubilee": 1500.0,
+    "Kenya Alliance": 1500.0,
+    "Other": 1500.0,
+    "SHA": 500.0
+   }
+  },
+  {
+   "code": "WRD-01-REVIEW",
+   "name": "Female Ward - Daily Review (per day)",
+   "category": "WARD CHARGES",
+   "sheet": "Ward Charges",
+   "ward": "Female Ward",
+   "part": "REVIEW",
+   "rates": {
+    "AAR": 2500.0,
+    "APA": 2000.0,
+    "Britam": 2000.0,
+    "Cash": 2000.0,
+    "Jubilee": 2500.0,
+    "Kenya Alliance": 2500.0,
+    "Other": 2500.0,
+    "SHA": 1000.0
+   }
+  },
+  {
+   "code": "WRD-01B-BED",
+   "name": "Female Ward (Beds 56-65) - Bed Charges (per day)",
+   "category": "WARD CHARGES",
+   "sheet": "Ward Charges",
+   "ward": "Female Ward",
+   "part": "BED",
+   "rates": {
+    "AAR": 3500.0,
+    "APA": 3500.0,
+    "Britam": 5000.0,
+    "Cash": 3500.0,
+    "Jubilee": 3500.0,
+    "Kenya Alliance": 3500.0,
+    "Other": 3500.0,
+    "SHA": 3920.0
+   }
+  },
+  {
+   "code": "WRD-01B-MEALS",
+   "name": "Female Ward (Beds 56-65) - Non-Pharms (Meals Included) (per day)",
+   "category": "WARD CHARGES",
+   "sheet": "Ward Charges",
+   "ward": "Female Ward",
+   "part": "MEALS",
+   "rates": {
+    "AAR": 300.0,
+    "APA": 300.0,
+    "Britam": 600.0,
+    "Cash": 300.0,
+    "Jubilee": 300.0,
+    "Kenya Alliance": 300.0,
+    "Other": 300.0,
+    "SHA": 300.0
+   }
+  },
+  {
+   "code": "WRD-01B-NURSING",
+   "name": "Female Ward (Beds 56-65) - Nursing Care (per day)",
+   "category": "WARD CHARGES",
+   "sheet": "Ward Charges",
+   "ward": "Female Ward",
+   "part": "NURSING",
+   "rates": {
+    "AAR": 500.0,
+    "APA": 500.0,
+    "Britam": 1500.0,
+    "Cash": 500.0,
+    "Jubilee": 500.0,
+    "Kenya Alliance": 500.0,
+    "Other": 500.0,
+    "SHA": 500.0
+   }
+  },
+  {
+   "code": "WRD-01B-REVIEW",
+   "name": "Female Ward (Beds 56-65) - Daily Review (per day)",
+   "category": "WARD CHARGES",
+   "sheet": "Ward Charges",
+   "ward": "Female Ward",
+   "part": "REVIEW",
+   "rates": {
+    "AAR": 1000.0,
+    "APA": 1000.0,
+    "Britam": 2000.0,
+    "Cash": 1000.0,
+    "Jubilee": 1000.0,
+    "Kenya Alliance": 1000.0,
+    "Other": 1000.0,
+    "SHA": 1000.0
+   }
+  },
+  {
+   "code": "WRD-02-ICU1-BED",
+   "name": "ICU Ward (Bed ICU1) - Bed Charges (per day)",
+   "category": "WARD CHARGES",
+   "sheet": "Ward Charges",
+   "ward": "ICU Ward",
+   "part": "BED",
+   "rates": {
+    "AAR": 35000.0,
+    "APA": 20000.0,
+    "Britam": 18500.0,
+    "Cash": 28000.0,
+    "Jubilee": 40000.0,
+    "Kenya Alliance": 45000.0,
+    "Other": 45000.0,
+    "SHA": 28000.0
+   }
+  },
+  {
+   "code": "WRD-02-ICU1-MEALS",
+   "name": "ICU Ward (Bed ICU1) - Non-Pharms (Meals Included) (per day)",
+   "category": "WARD CHARGES",
+   "sheet": "Ward Charges",
+   "ward": "ICU Ward",
+   "part": "MEALS",
+   "rates": {
+    "AAR": 3000.0,
+    "APA": 0.0,
+    "Britam": 1500.0,
+    "Cash": 2000.0,
+    "Jubilee": 1000.0,
+    "Kenya Alliance": 1000.0,
+    "Other": 1000.0,
+    "SHA": 2000.0
+   }
+  },
+  {
+   "code": "WRD-02-ICU1-NURSING",
+   "name": "ICU Ward (Bed ICU1) - Nursing Care (per day)",
+   "category": "WARD CHARGES",
+   "sheet": "Ward Charges",
+   "ward": "ICU Ward",
+   "part": "NURSING",
+   "rates": {
+    "AAR": 10000.0,
+    "APA": 0.0,
+    "Britam": 3000.0,
+    "Cash": 10000.0,
+    "Jubilee": 12000.0,
+    "Kenya Alliance": 12000.0,
+    "Other": 12000.0,
+    "SHA": 8000.0
+   }
+  },
+  {
+   "code": "WRD-02-ICU1-REVIEW",
+   "name": "ICU Ward (Bed ICU1) - Daily Review (per day)",
+   "category": "WARD CHARGES",
+   "sheet": "Ward Charges",
+   "ward": "ICU Ward",
+   "part": "REVIEW",
+   "rates": {
+    "AAR": 12000.0,
+    "APA": 8000.0,
+    "Britam": 4500.0,
+    "Cash": 10000.0,
+    "Jubilee": 15000.0,
+    "Kenya Alliance": 15000.0,
+    "Other": 15000.0,
+    "SHA": 10000.0
+   }
+  },
+  {
+   "code": "WRD-02-ICU2-BED",
+   "name": "ICU Ward (Bed ICU2) - Bed Charges (per day)",
+   "category": "WARD CHARGES",
+   "sheet": "Ward Charges",
+   "ward": "ICU Ward",
+   "part": "BED",
+   "rates": {
+    "AAR": 35000.0,
+    "APA": 20000.0,
+    "Britam": 18500.0,
+    "Cash": 28000.0,
+    "Jubilee": 40000.0,
+    "Kenya Alliance": 45000.0,
+    "Other": 80000.0,
+    "SHA": 28000.0
+   }
+  },
+  {
+   "code": "WRD-02-ICU2-MEALS",
+   "name": "ICU Ward (Bed ICU2) - Non-Pharms (Meals Included) (per day)",
+   "category": "WARD CHARGES",
+   "sheet": "Ward Charges",
+   "ward": "ICU Ward",
+   "part": "MEALS",
+   "rates": {
+    "AAR": 3000.0,
+    "APA": 0.0,
+    "Britam": 1500.0,
+    "Cash": 2000.0,
+    "Jubilee": 1000.0,
+    "Kenya Alliance": 1000.0,
+    "Other": 1000.0,
+    "SHA": 2000.0
+   }
+  },
+  {
+   "code": "WRD-02-ICU2-NURSING",
+   "name": "ICU Ward (Bed ICU2) - Nursing Care (per day)",
+   "category": "WARD CHARGES",
+   "sheet": "Ward Charges",
+   "ward": "ICU Ward",
+   "part": "NURSING",
+   "rates": {
+    "AAR": 10000.0,
+    "APA": 0.0,
+    "Britam": 3000.0,
+    "Cash": 10000.0,
+    "Jubilee": 12000.0,
+    "Kenya Alliance": 12000.0,
+    "Other": 2000.0,
+    "SHA": 8000.0
+   }
+  },
+  {
+   "code": "WRD-02-ICU2-REVIEW",
+   "name": "ICU Ward (Bed ICU2) - Daily Review (per day)",
+   "category": "WARD CHARGES",
+   "sheet": "Ward Charges",
+   "ward": "ICU Ward",
+   "part": "REVIEW",
+   "rates": {
+    "AAR": 12000.0,
+    "APA": 8000.0,
+    "Britam": 4500.0,
+    "Cash": 10000.0,
+    "Jubilee": 15000.0,
+    "Kenya Alliance": 15000.0,
+    "Other": 2500.0,
+    "SHA": 10000.0
+   }
+  },
+  {
+   "code": "WRD-02-ICU3-BED",
+   "name": "ICU Ward (Bed ICU3) - Bed Charges (per day)",
+   "category": "WARD CHARGES",
+   "sheet": "Ward Charges",
+   "ward": "ICU Ward",
+   "part": "BED",
+   "rates": {
+    "AAR": 35000.0,
+    "APA": 20000.0,
+    "Britam": 18500.0,
+    "Cash": 28000.0,
+    "Jubilee": 40000.0,
+    "Kenya Alliance": 20000.0,
+    "Other": 20000.0,
+    "SHA": 28000.0
+   }
+  },
+  {
+   "code": "WRD-02-ICU3-MEALS",
+   "name": "ICU Ward (Bed ICU3) - Non-Pharms (Meals Included) (per day)",
+   "category": "WARD CHARGES",
+   "sheet": "Ward Charges",
+   "ward": "ICU Ward",
+   "part": "MEALS",
+   "rates": {
+    "AAR": 3000.0,
+    "APA": 0.0,
+    "Britam": 1500.0,
+    "Cash": 2000.0,
+    "Jubilee": 1000.0,
+    "Kenya Alliance": 1000.0,
+    "Other": 1000.0,
+    "SHA": 2000.0
+   }
+  },
+  {
+   "code": "WRD-02-ICU3-NURSING",
+   "name": "ICU Ward (Bed ICU3) - Nursing Care (per day)",
+   "category": "WARD CHARGES",
+   "sheet": "Ward Charges",
+   "ward": "ICU Ward",
+   "part": "NURSING",
+   "rates": {
+    "AAR": 10000.0,
+    "APA": 0.0,
+    "Britam": 3000.0,
+    "Cash": 8000.0,
+    "Jubilee": 12000.0,
+    "Kenya Alliance": 8000.0,
+    "Other": 8000.0,
+    "SHA": 8000.0
+   }
+  },
+  {
+   "code": "WRD-02-ICU3-REVIEW",
+   "name": "ICU Ward (Bed ICU3) - Daily Review (per day)",
+   "category": "WARD CHARGES",
+   "sheet": "Ward Charges",
+   "ward": "ICU Ward",
+   "part": "REVIEW",
+   "rates": {
+    "AAR": 12000.0,
+    "APA": 8000.0,
+    "Britam": 4500.0,
+    "Cash": 10000.0,
+    "Jubilee": 15000.0,
+    "Kenya Alliance": 10000.0,
+    "Other": 10000.0,
+    "SHA": 12000.0
+   }
+  },
+  {
+   "code": "WRD-03-BED",
+   "name": "Male Ward - Bed Charges (per day)",
+   "category": "WARD CHARGES",
+   "sheet": "Ward Charges",
+   "ward": "Male Ward",
+   "part": "BED",
+   "rates": {
+    "AAR": 6000.0,
+    "APA": 4500.0,
+    "Britam": 5000.0,
+    "Cash": 3000.0,
+    "Jubilee": 3500.0,
+    "Kenya Alliance": 6000.0,
+    "Other": 6000.0,
+    "SHA": 3920.0
+   }
+  },
+  {
+   "code": "WRD-03-MEALS",
+   "name": "Male Ward - Non-Pharms (Meals Included) (per day)",
+   "category": "WARD CHARGES",
+   "sheet": "Ward Charges",
+   "ward": "Male Ward",
+   "part": "MEALS",
+   "rates": {
+    "AAR": 600.0,
+    "APA": 0.0,
+    "Britam": 600.0,
+    "Cash": 300.0,
+    "Jubilee": 600.0,
+    "Kenya Alliance": 600.0,
+    "Other": 600.0,
+    "SHA": 300.0
+   }
+  },
+  {
+   "code": "WRD-03-NURSING",
+   "name": "Male Ward - Nursing Care (per day)",
+   "category": "WARD CHARGES",
+   "sheet": "Ward Charges",
+   "ward": "Male Ward",
+   "part": "NURSING",
+   "rates": {
+    "AAR": 1500.0,
+    "APA": 0.0,
+    "Britam": 1500.0,
+    "Cash": 1500.0,
+    "Jubilee": 1500.0,
+    "Kenya Alliance": 1500.0,
+    "Other": 1500.0,
+    "SHA": 500.0
+   }
+  },
+  {
+   "code": "WRD-03-REVIEW",
+   "name": "Male Ward - Daily Review (per day)",
+   "category": "WARD CHARGES",
+   "sheet": "Ward Charges",
+   "ward": "Male Ward",
+   "part": "REVIEW",
+   "rates": {
+    "AAR": 2500.0,
+    "APA": 2000.0,
+    "Britam": 2000.0,
+    "Cash": 2000.0,
+    "Jubilee": 2500.0,
+    "Kenya Alliance": 2500.0,
+    "Other": 2500.0,
+    "SHA": 1000.0
+   }
+  },
+  {
+   "code": "WRD-03B-BED",
+   "name": "Male Ward (Beds 56-65) - Bed Charges (per day)",
+   "category": "WARD CHARGES",
+   "sheet": "Ward Charges",
+   "ward": "Male Ward",
+   "part": "BED",
+   "rates": {
+    "AAR": 3500.0,
+    "APA": 3500.0,
+    "Britam": 5000.0,
+    "Cash": 3500.0,
+    "Jubilee": 3500.0,
+    "Kenya Alliance": 3500.0,
+    "Other": 3500.0,
+    "SHA": 3920.0
+   }
+  },
+  {
+   "code": "WRD-03B-MEALS",
+   "name": "Male Ward (Beds 56-65) - Non-Pharms (Meals Included) (per day)",
+   "category": "WARD CHARGES",
+   "sheet": "Ward Charges",
+   "ward": "Male Ward",
+   "part": "MEALS",
+   "rates": {
+    "AAR": 300.0,
+    "APA": 300.0,
+    "Britam": 600.0,
+    "Cash": 300.0,
+    "Jubilee": 300.0,
+    "Kenya Alliance": 300.0,
+    "Other": 300.0,
+    "SHA": 300.0
+   }
+  },
+  {
+   "code": "WRD-03B-NURSING",
+   "name": "Male Ward (Beds 56-65) - Nursing Care (per day)",
+   "category": "WARD CHARGES",
+   "sheet": "Ward Charges",
+   "ward": "Male Ward",
+   "part": "NURSING",
+   "rates": {
+    "AAR": 500.0,
+    "APA": 500.0,
+    "Britam": 1500.0,
+    "Cash": 500.0,
+    "Jubilee": 500.0,
+    "Kenya Alliance": 500.0,
+    "Other": 500.0,
+    "SHA": 500.0
+   }
+  },
+  {
+   "code": "WRD-03B-REVIEW",
+   "name": "Male Ward (Beds 56-65) - Daily Review (per day)",
+   "category": "WARD CHARGES",
+   "sheet": "Ward Charges",
+   "ward": "Male Ward",
+   "part": "REVIEW",
+   "rates": {
+    "AAR": 1000.0,
+    "APA": 1000.0,
+    "Britam": 2000.0,
+    "Cash": 1000.0,
+    "Jubilee": 1000.0,
+    "Kenya Alliance": 1000.0,
+    "Other": 1000.0,
+    "SHA": 1000.0
+   }
+  },
+  {
+   "code": "WRD-04-BED",
+   "name": "Maternity Ward - Bed Charges (per day)",
+   "category": "WARD CHARGES",
+   "sheet": "Ward Charges",
+   "ward": "Maternity Ward",
+   "part": "BED",
+   "rates": {
+    "AAR": 6000.0,
+    "APA": 4500.0,
+    "Britam": 5000.0,
+    "Cash": 3000.0,
+    "Jubilee": 3500.0,
+    "Kenya Alliance": 6000.0,
+    "Other": 6000.0,
+    "SHA": 3920.0
+   }
+  },
+  {
+   "code": "WRD-04-MEALS",
+   "name": "Maternity Ward - Non-Pharms (Meals Included) (per day)",
+   "category": "WARD CHARGES",
+   "sheet": "Ward Charges",
+   "ward": "Maternity Ward",
+   "part": "MEALS",
+   "rates": {
+    "AAR": 600.0,
+    "APA": 0.0,
+    "Britam": 600.0,
+    "Cash": 300.0,
+    "Jubilee": 600.0,
+    "Kenya Alliance": 600.0,
+    "Other": 600.0,
+    "SHA": 300.0
+   }
+  },
+  {
+   "code": "WRD-04-NURSING",
+   "name": "Maternity Ward - Nursing Care (per day)",
+   "category": "WARD CHARGES",
+   "sheet": "Ward Charges",
+   "ward": "Maternity Ward",
+   "part": "NURSING",
+   "rates": {
+    "AAR": 1500.0,
+    "APA": 0.0,
+    "Britam": 1500.0,
+    "Cash": 1500.0,
+    "Jubilee": 1500.0,
+    "Kenya Alliance": 1500.0,
+    "Other": 1500.0,
+    "SHA": 500.0
+   }
+  },
+  {
+   "code": "WRD-04-REVIEW",
+   "name": "Maternity Ward - Daily Review (per day)",
+   "category": "WARD CHARGES",
+   "sheet": "Ward Charges",
+   "ward": "Maternity Ward",
+   "part": "REVIEW",
+   "rates": {
+    "AAR": 2500.0,
+    "APA": 2000.0,
+    "Britam": 2000.0,
+    "Cash": 2000.0,
+    "Jubilee": 2500.0,
+    "Kenya Alliance": 2500.0,
+    "Other": 2500.0,
+    "SHA": 1000.0
+   }
+  },
+  {
+   "code": "WRD-05-BED",
+   "name": "New Born Unit Ward - Bed Charges (per day)",
+   "category": "WARD CHARGES",
+   "sheet": "Ward Charges",
+   "ward": "New Born Unit Ward",
+   "part": "BED",
+   "rates": {
+    "AAR": 6000.0,
+    "APA": 4500.0,
+    "Britam": 5000.0,
+    "Cash": 3000.0,
+    "Jubilee": 3500.0,
+    "Kenya Alliance": 6000.0,
+    "Other": 6000.0,
+    "SHA": 3920.0
+   }
+  },
+  {
+   "code": "WRD-05-MEALS",
+   "name": "New Born Unit Ward - Non-Pharms (Meals Included) (per day)",
+   "category": "WARD CHARGES",
+   "sheet": "Ward Charges",
+   "ward": "New Born Unit Ward",
+   "part": "MEALS",
+   "rates": {
+    "AAR": 600.0,
+    "APA": 0.0,
+    "Britam": 600.0,
+    "Cash": 300.0,
+    "Jubilee": 600.0,
+    "Kenya Alliance": 600.0,
+    "Other": 600.0,
+    "SHA": 300.0
+   }
+  },
+  {
+   "code": "WRD-05-NURSING",
+   "name": "New Born Unit Ward - Nursing Care (per day)",
+   "category": "WARD CHARGES",
+   "sheet": "Ward Charges",
+   "ward": "New Born Unit Ward",
+   "part": "NURSING",
+   "rates": {
+    "AAR": 1500.0,
+    "APA": 0.0,
+    "Britam": 1500.0,
+    "Cash": 1500.0,
+    "Jubilee": 1500.0,
+    "Kenya Alliance": 1500.0,
+    "Other": 1500.0,
+    "SHA": 500.0
+   }
+  },
+  {
+   "code": "WRD-05-REVIEW",
+   "name": "New Born Unit Ward - Daily Review (per day)",
+   "category": "WARD CHARGES",
+   "sheet": "Ward Charges",
+   "ward": "New Born Unit Ward",
+   "part": "REVIEW",
+   "rates": {
+    "AAR": 2500.0,
+    "APA": 2000.0,
+    "Britam": 2000.0,
+    "Cash": 2000.0,
+    "Jubilee": 2500.0,
+    "Kenya Alliance": 2500.0,
+    "Other": 2500.0,
+    "SHA": 1000.0
+   }
+  },
+  {
+   "code": "WRD-06-BED",
+   "name": "Pediatric Ward - Bed Charges (per day)",
+   "category": "WARD CHARGES",
+   "sheet": "Ward Charges",
+   "ward": "Pediatric Ward",
+   "part": "BED",
+   "rates": {
+    "AAR": 6000.0,
+    "APA": 4500.0,
+    "Britam": 5000.0,
+    "Cash": 3000.0,
+    "Jubilee": 6000.0,
+    "Kenya Alliance": 6000.0,
+    "Other": 6000.0,
+    "SHA": 3920.0
+   }
+  },
+  {
+   "code": "WRD-06-MEALS",
+   "name": "Pediatric Ward - Non-Pharms (Meals Included) (per day)",
+   "category": "WARD CHARGES",
+   "sheet": "Ward Charges",
+   "ward": "Pediatric Ward",
+   "part": "MEALS",
+   "rates": {
+    "AAR": 600.0,
+    "APA": 0.0,
+    "Britam": 600.0,
+    "Cash": 300.0,
+    "Jubilee": 600.0,
+    "Kenya Alliance": 600.0,
+    "Other": 600.0,
+    "SHA": 300.0
+   }
+  },
+  {
+   "code": "WRD-06-NURSING",
+   "name": "Pediatric Ward - Nursing Care (per day)",
+   "category": "WARD CHARGES",
+   "sheet": "Ward Charges",
+   "ward": "Pediatric Ward",
+   "part": "NURSING",
+   "rates": {
+    "AAR": 1500.0,
+    "APA": 0.0,
+    "Britam": 1500.0,
+    "Cash": 1500.0,
+    "Jubilee": 1500.0,
+    "Kenya Alliance": 1500.0,
+    "Other": 1500.0,
+    "SHA": 500.0
+   }
+  },
+  {
+   "code": "WRD-06-REVIEW",
+   "name": "Pediatric Ward - Daily Review (per day)",
+   "category": "WARD CHARGES",
+   "sheet": "Ward Charges",
+   "ward": "Pediatric Ward",
+   "part": "REVIEW",
+   "rates": {
+    "AAR": 2500.0,
+    "APA": 2000.0,
+    "Britam": 2000.0,
+    "Cash": 2000.0,
+    "Jubilee": 2500.0,
+    "Kenya Alliance": 2500.0,
+    "Other": 2500.0,
+    "SHA": 1000.0
+   }
+  },
+  {
+   "code": "WRD-07-BED",
+   "name": "Private Ward - Bed Charges (per day)",
+   "category": "WARD CHARGES",
+   "sheet": "Ward Charges",
+   "ward": "Private Ward",
+   "part": "BED",
+   "rates": {
+    "AAR": 12000.0,
+    "APA": 8000.0,
+    "Britam": 8000.0,
+    "Cash": 10000.0,
+    "Jubilee": 10500.0,
+    "Kenya Alliance": 12000.0,
+    "Other": 12000.0,
+    "SHA": 10000.0
+   }
+  },
+  {
+   "code": "WRD-07-MEALS",
+   "name": "Private Ward - Non-Pharms (Meals Included) (per day)",
+   "category": "WARD CHARGES",
+   "sheet": "Ward Charges",
+   "ward": "Private Ward",
+   "part": "MEALS",
+   "rates": {
+    "AAR": 600.0,
+    "APA": 0.0,
+    "Britam": 600.0,
+    "Cash": 300.0,
+    "Jubilee": 600.0,
+    "Kenya Alliance": 600.0,
+    "Other": 600.0,
+    "SHA": 300.0
+   }
+  },
+  {
+   "code": "WRD-07-NURSING",
+   "name": "Private Ward - Nursing Care (per day)",
+   "category": "WARD CHARGES",
+   "sheet": "Ward Charges",
+   "ward": "Private Ward",
+   "part": "NURSING",
+   "rates": {
+    "AAR": 1500.0,
+    "APA": 0.0,
+    "Britam": 1500.0,
+    "Cash": 1500.0,
+    "Jubilee": 1500.0,
+    "Kenya Alliance": 1500.0,
+    "Other": 1500.0,
+    "SHA": 500.0
+   }
+  },
+  {
+   "code": "WRD-07-REVIEW",
+   "name": "Private Ward - Daily Review (per day)",
+   "category": "WARD CHARGES",
+   "sheet": "Ward Charges",
+   "ward": "Private Ward",
+   "part": "REVIEW",
+   "rates": {
+    "AAR": 2500.0,
+    "APA": 2000.0,
+    "Britam": 2000.0,
+    "Cash": 2000.0,
+    "Jubilee": 2500.0,
+    "Kenya Alliance": 2500.0,
+    "Other": 2500.0,
+    "SHA": 1000.0
+   }
+  },
+  {
+   "code": "WRD-08-BED",
+   "name": "Renal Ward - Bed Charges (per day)",
+   "category": "WARD CHARGES",
+   "sheet": "Ward Charges",
+   "ward": "Renal Ward",
+   "part": "BED",
+   "rates": {
+    "AAR": 15000.0,
+    "APA": 10000.0,
+    "Britam": 5000.0,
+    "Cash": 10000.0,
+    "Jubilee": 15000.0,
+    "Kenya Alliance": 15000.0,
+    "Other": 15000.0,
+    "SHA": 10000.0
+   }
+  },
+  {
+   "code": "WRD-08-MEALS",
+   "name": "Renal Ward - Non-Pharms (Meals Included) (per day)",
+   "category": "WARD CHARGES",
+   "sheet": "Ward Charges",
+   "ward": "Renal Ward",
+   "part": "MEALS",
+   "rates": {
+    "AAR": 600.0,
+    "APA": 0.0,
+    "Britam": 600.0,
+    "Cash": 300.0,
+    "Jubilee": 600.0,
+    "Kenya Alliance": 600.0,
+    "Other": 600.0,
+    "SHA": 300.0
+   }
+  },
+  {
+   "code": "WRD-08-NURSING",
+   "name": "Renal Ward - Nursing Care (per day)",
+   "category": "WARD CHARGES",
+   "sheet": "Ward Charges",
+   "ward": "Renal Ward",
+   "part": "NURSING",
+   "rates": {
+    "AAR": 2000.0,
+    "APA": 0.0,
+    "Britam": 1500.0,
+    "Cash": 2000.0,
+    "Jubilee": 2000.0,
+    "Kenya Alliance": 2000.0,
+    "Other": 2000.0,
+    "SHA": 1000.0
+   }
+  },
+  {
+   "code": "WRD-08-REVIEW",
+   "name": "Renal Ward - Daily Review (per day)",
+   "category": "WARD CHARGES",
+   "sheet": "Ward Charges",
+   "ward": "Renal Ward",
+   "part": "REVIEW",
+   "rates": {
+    "AAR": 2500.0,
+    "APA": 2000.0,
+    "Britam": 2000.0,
+    "Cash": 2000.0,
+    "Jubilee": 2500.0,
+    "Kenya Alliance": 2500.0,
+    "Other": 2500.0,
+    "SHA": 2000.0
+   }
+  },
+  {
+   "code": "WRD-10-BED",
+   "name": "HDU Ward - Bed Charges (per day)",
+   "category": "WARD CHARGES",
+   "sheet": "Ward Charges",
+   "ward": "HDU Ward",
+   "part": "BED",
+   "rates": {
+    "Cash": 28000.0,
+    "SHA": 28000.0
+   }
+  },
+  {
+   "code": "WRD-10-MEALS",
+   "name": "HDU Ward - Non-Pharms (Meals Included) (per day)",
+   "category": "WARD CHARGES",
+   "sheet": "Ward Charges",
+   "ward": "HDU Ward",
+   "part": "MEALS",
+   "rates": {
+    "Cash": 1000.0,
+    "SHA": 1000.0
+   }
+  },
+  {
+   "code": "WRD-10-NURSING",
+   "name": "HDU Ward - Nursing Care (per day)",
+   "category": "WARD CHARGES",
+   "sheet": "Ward Charges",
+   "ward": "HDU Ward",
+   "part": "NURSING",
+   "rates": {
+    "Cash": 4000.0,
+    "SHA": 4000.0
+   }
+  },
+  {
+   "code": "WRD-10-REVIEW",
+   "name": "HDU Ward - Daily Review (per day)",
+   "category": "WARD CHARGES",
+   "sheet": "Ward Charges",
+   "ward": "HDU Ward",
+   "part": "REVIEW",
+   "rates": {
+    "Cash": 6000.0,
+    "SHA": 6000.0
+   }
+  }
+ ],
+ "ward_outliers": [
+  {
+   "code": "WRD-01-NURSING",
+   "payer": "AAR",
+   "tier_price": 1500.0,
+   "beds": {
+    "F24": 1300.0
+   }
+  },
+  {
+   "code": "WRD-01B-BED",
+   "payer": "Other",
+   "tier_price": 3500.0,
+   "beds": {
+    "F64": 6000.0,
+    "F56": 6000.0
+   }
+  },
+  {
+   "code": "WRD-01B-MEALS",
+   "payer": "Other",
+   "tier_price": 300.0,
+   "beds": {
+    "F64": 600.0,
+    "F56": 600.0
+   }
+  },
+  {
+   "code": "WRD-01B-NURSING",
+   "payer": "Other",
+   "tier_price": 500.0,
+   "beds": {
+    "F64": 1500.0,
+    "F56": 1500.0
+   }
+  },
+  {
+   "code": "WRD-01B-REVIEW",
+   "payer": "Other",
+   "tier_price": 1000.0,
+   "beds": {
+    "F64": 2500.0,
+    "F56": 2500.0
+   }
+  },
+  {
+   "code": "WRD-03-BED",
+   "payer": "Cash",
+   "tier_price": 3000.0,
+   "beds": {
+    "G47": 3500.0
+   }
+  },
+  {
+   "code": "WRD-03-BED",
+   "payer": "Jubilee",
+   "tier_price": 3500.0,
+   "beds": {
+    "G1": 6000.0
+   }
+  },
+  {
+   "code": "WRD-03-NURSING",
+   "payer": "Cash",
+   "tier_price": 1500.0,
+   "beds": {
+    "G7": 1000.0
+   }
+  },
+  {
+   "code": "WRD-07-BED",
+   "payer": "APA",
+   "tier_price": 8000.0,
+   "beds": {
+    "PW4": 80000.0
+   }
+  },
+  {
+   "code": "WRD-07-MEALS",
+   "payer": "SHA",
+   "tier_price": 300.0,
+   "beds": {
+    "PW1": 400.0
+   }
+  },
+  {
+   "code": "WRD-07-NURSING",
+   "payer": "AAR",
+   "tier_price": 1500.0,
+   "beds": {
+    "PW1": 2000.0
+   }
+  },
+  {
+   "code": "WRD-07-NURSING",
+   "payer": "SHA",
+   "tier_price": 500.0,
+   "beds": {
+    "PW1": 2000.0
+   }
+  },
+  {
+   "code": "WRD-07-REVIEW",
+   "payer": "AAR",
+   "tier_price": 2500.0,
+   "beds": {
+    "PW1": 3500.0
+   }
+  },
+  {
+   "code": "WRD-07-REVIEW",
+   "payer": "SHA",
+   "tier_price": 1000.0,
+   "beds": {
+    "PW1": 3000.0
+   }
   }
  ],
  "schemes": [

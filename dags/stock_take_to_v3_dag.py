@@ -29,7 +29,7 @@ from pipelines_common import use_pipelines_dir
 
 log = logging.getLogger(__name__)
 
-TARGETS = ["kerugoya_prod"]
+TARGETS = ["kerugoya_prod", "kerugoya_town_prod"]
 STEPS = ["stores", "products", "stock", "store_rows"]
 
 
@@ -44,7 +44,7 @@ STEPS = ["stores", "products", "stock", "store_rows"]
     default_args={"owner": "data-eng", "retries": 0},
     params={
         "target": Param("kerugoya_prod", type="string", enum=TARGETS, title="Target",
-                        description="kerugoya_prod = Kerugoya Medical Centre, production org 357 / facility 367."),
+                        description="kerugoya_prod = Kerugoya Medical Centre (org 357 / facility 367); kerugoya_town_prod = Kerugoya Town Clinic (facility 368, mirror)."),
         "dry_run": Param(True, type="boolean", title="Dry run", description="On: read and log the plan, post nothing."),
         "steps": Param(STEPS, type="array", items={"type": "string", "enum": STEPS}, title="Steps"),
         "workers": Param(8, type="integer", minimum=1, maximum=32, title="Parallel V3 posts"),

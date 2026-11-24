@@ -73,7 +73,8 @@ STEPS = ("patients", "visits", "vitals", "doctor_notes", "discharges", "nurse_no
          "procedure_prices", "investigations", "products", "prescriptions", "payments", "appointments", "users", "user_profiles", "visit_doctors", "insurance", "invoices",
          "extra_notes", "documents", "stock", "procurement", "destinations", "destinations_reception", "payment_links", "receipts", "admissions", "inpatient_discharges",
          "inpatient_links", "prescription_fix", "close_admissions", "wards", "po_history", "theatre_bookings", "evaluation_payments", "evaluation_payment_details",
-         "mch_destinations", "patient_meta", "immunizations", "anc_enrollments", "fp_services", "drug_insurance_prices", "prescription_dose", "insurance_schemes", "procedure_price_facility", "prescription_drug_links", "lab_catalogue_prices", "opening_batches", "pharmacy_store", "consumables", "hide_unused_catalogue", "theatre_booking_money", "invoice_insurers", "activity")
+         "mch_destinations", "patient_meta", "immunizations", "anc_enrollments", "fp_services", "drug_insurance_prices", "prescription_dose", "insurance_schemes", "procedure_price_facility", "prescription_drug_links", "lab_catalogue_prices", "opening_batches", "pharmacy_store", "consumables", "hide_unused_catalogue", "theatre_booking_money", "invoice_insurers", "activity",
+         "lab_ranges")      # opt-in, gyno159 only: the 2026-11-24 reference-range sheet (gyno_lab_ranges.py)
 
 
 # ── pure helpers (tests/test_gyno_to_v3.py) ────────────────────────────────
@@ -913,6 +914,13 @@ class Run:
         if skipped:
             res["already in V3 (skipped)"] = skipped
         return res
+
+    def lab_ranges(self) -> dict:
+        """Adult reference ranges from the lab's 2026-11-24 sheet onto Gyno prod's own tests (gyno_lab_ranges.py)."""
+        if TARGET != "gyno159":
+            raise RuntimeError("lab_ranges is written for production org 159 (its tests are matched by GYN-LAB codes)")
+        from gyno_lab_ranges import lab_ranges
+        return lab_ranges(self, gid)
 
     def patients(self) -> dict:
         src = self.rows("patients")

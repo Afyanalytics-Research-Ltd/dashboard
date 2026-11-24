@@ -53,7 +53,7 @@ _HERE = Path(__file__).resolve().parent
 DATA_DIRS = (_HERE.parent / "dags" / "jsons" / "stock_takes", Path("/opt/airflow/dags/jsons/stock_takes"))
 PRICE_DIRS = (_HERE.parent / "dags" / "jsons" / "rate_cards", Path("/opt/airflow/dags/jsons/rate_cards"))
 NS = uuid.UUID("7a4e2c1d-9b3f-4e8a-b6d5-1f0c3e2a9d47")
-STEPS = ["stores", "products", "stock"]
+STEPS = ["stores", "products", "stock", "store_rows"]
 
 TARGETS = {
     "kerugoya_prod": {
@@ -575,7 +575,34 @@ class Run:
                               "is_reconciled": 1, "is_unexpected": 0, "notes": r["notes"]})
         self.many("stock_take_items", lines, lambda l: self.insert("inventory", "stock_take_item", l, match_on="uuid"))
 
+    # ── per-store base rows ──
+    def run_store_rows(self):
+        """A product shows in a store only through a base stock row (batch NULL, quantity 0) — the app makes one in
+        every store when a product is created; products made through the gateway had none, so Dennis could not find
+        e.g. PARACETAMOL 500MG TABS (1,030 units in Pharmacy) — 2026-11-24. Adds the missing base rows for every active
+        facility product, and every product holding stock, in every store of the facility (and the org-wide stores)."""
+        stores = [s for s in self.live("inventory", "store", 1)
+                  if s.get("is_active", True) and s.get("facility_id") in (None, self.fac)]
+        stocked = {s["product_id"] for s in self.stock if (s.get("quantity") or 0) > 0}
+        prods = [p for p in self.products if p.get("is_active", True)
+                 and (p.get("facility_id") == self.fac or (p.get("facility_id") is None and p["id"] in stocked))]
+        have = {(s["product_id"], s["store_id"]) for s in self.stock if not s.get("batch_id")}
+        rows = [{"_key": f"{p['id']}|{st['id']}", "uuid": gid(self.target, "base_row", f"{p['id']}|{st['id']}"),
+                 "product_id": p["id"], "store_id": st["id"], "quantity": 0, "available_quantity": 0,
+                 "reserved_quantity": 0, "average_cost": 0, "total_value": 0}
+                for p in prods for st in stores if (p["id"], st["id"]) not in have]
+        self.report["plan"].update(base_row_stores=[f"{s['id']} {s['name']}" for s in stores], base_row_products=len(prods),
+                                   base_rows_missing=len(rows),
+                                   base_rows_missing_by_store=dict(Counter(r["store_id"] for r in rows)))
+        self.many("base_rows", rows, lambda r: self.insert("inventory", "stock", r))
+
     def load(self) -> dict:
+        if self.steps == ["store_rows"]:              # only the base rows: no stores / products / stock planning
+            self.read_inventory()
+            self.run_store_rows()
+            log.info("plan: %s", json.dumps(self.report["plan"], default=str))
+            log.info("result: %s", json.dumps(self.report["result"], default=str))
+            return self.report
         self.stores()
         self.read_inventory()
         self.run_products()
@@ -584,6 +611,10 @@ class Run:
                 self.read_inventory()                # new products' ids, fresh quantities
                 self.product_of.update({k: self.pid.get(p["id"], p) for k, p in self.product_of.items() if p.get("id")})
             self.run_stock()
+        if "store_rows" in self.steps:
+            if not self.dry_run:
+                self.read_inventory()
+            self.run_store_rows()
         log.info("plan: %s", json.dumps(self.report["plan"], default=str))
         log.info("result: %s", json.dumps(self.report["result"], default=str))
         return self.report

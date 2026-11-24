@@ -30,7 +30,7 @@ from pipelines_common import use_pipelines_dir
 log = logging.getLogger(__name__)
 
 TARGETS = ["kerugoya_prod"]
-STEPS = ["stores", "products", "stock"]
+STEPS = ["stores", "products", "stock", "store_rows"]
 
 
 @dag(

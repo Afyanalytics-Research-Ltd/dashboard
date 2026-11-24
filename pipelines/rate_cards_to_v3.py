@@ -112,6 +112,12 @@ def money(v) -> float | None:
     return x if x >= 0 else None
 
 
+def is_duplicate(err) -> bool:
+    """a V3 refusal because the row already exists (unique key): a warning, not a failure — nothing was written"""
+    e = str(err or "")
+    return "Duplicate entry" in e or "UniqueConstraintViolation" in e or "1062" in e and "23000" in e
+
+
 def num(v) -> float:
     try:
         return round(float(v), 2)
@@ -250,9 +256,15 @@ class Run:
             return x, ok, err
         with ThreadPoolExecutor(self.workers) as ex:
             for x, ok, err in ex.map(one, items):
-                res["ok" if ok else "failed"] += 1
                 done += 1
-                if not ok:
+                if ok:
+                    res["ok"] += 1
+                elif is_duplicate(err):              # V3 refused it as a duplicate: nothing written, run goes on
+                    res["duplicate (skipped)"] += 1
+                    self.report.setdefault("duplicates", []).append({"kind": kind, "key": x.get("_key"), "error": err[:200]})
+                    log.warning("%s %s: duplicate, not written — %s", kind, x.get("_key"), err[:200])
+                else:
+                    res["failed"] += 1
                     self.report["failures"].append({"kind": kind, "key": x.get("_key"), "error": err})
                     log.error("%s %s: %s", kind, x.get("_key"), err)
                 if done % 1000 == 0:

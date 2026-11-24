@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
 """
-v3_to_snowflake_sync.py — keep Snowflake up to date with V3, one gateway model at a time.
+v3_to_snowflake_sync.py — keep the warehouse up to date with V3, one gateway model at a time.
 
-    V3 gateway (read, every page)  →  rows new/edited since the watermark  →  MERGE in batches  →  Snowflake
+    V3 gateway (rows updated since the watermark)  →  MERGE in batches  →  the warehouse
+
+WHICH WAREHOUSE
+  The platform's (afya_backends.toggles: System Settings → Data warehouse, a DAG run's warehouse_backend, or
+  AFYA_WAREHOUSE_BACKEND). The SQL below is Snowflake's; on Databend it runs through the translating driver
+  (afya_backends.warehouse.dbapi) and needs no Snowflake credentials. "Snowflake" below means either.
 
 WHAT LANDS IN SNOWFLAKE  ({database}.{schema}, default HOSPITALS.V3_SYNC)
   One table per model, named <SERVICE>__<ALIAS> (reception:patient → RECEPTION__PATIENT), shaped like the
@@ -25,8 +30,13 @@ WHAT LANDS IN SNOWFLAKE  ({database}.{schema}, default HOSPITALS.V3_SYNC)
   _RAW. A column V3 adds later is added to the table (ALTER TABLE ADD COLUMN) the first time a row carries it.
 
 HOW "INCREMENTAL" WORKS
-  The V3 gateway can only filter on equality, so it can't be asked for "rows changed since X". Each run
-  therefore reads every page of a model, and the watermark decides what gets WRITTEN:
+  read_mode=auto (default): the gateway is asked for the rows updated since watermark − lookback
+  (updated_since, paged by id with after_id — read_window), so a run reads only what changed. A full read
+  (every page) still happens: on a model's first sync, on full_refresh / a canary limit, once a model's last
+  full read is full_read_hours (24) old — the only time deletes can be noticed — for models whose last full read
+  found rows without updated_at (a window can't see those), and whenever the gateway can't filter (it ignored
+  updated_since until 2026-11; FilterUnsupported). _SYNC_STATE keeps LAST_FULL_READ / READ_MODE / NO_UPDATED_AT.
+  read_mode=full reads every page every run. Either way the watermark decides what gets WRITTEN:
     * since     = watermark − lookback   (the overlap absorbs clock skew between V3 and us)
     * a row is sent to Snowflake when updated_at >= since, or when it has no updated_at at all
     * MERGE inserts new keys and updates a matched row only if its hash changed, so the overlap is free
@@ -38,8 +48,9 @@ HOW "INCREMENTAL" WORKS
   straight in the V3 database, which don't move updated_at.
 
 DELETES
-  Soft-deleted V3 rows stop coming back from the gateway. Since each run reads the whole model, keys
-  that are in Snowflake but weren't read are flagged _IS_DELETED (and un-flagged if they come back).
+  Soft-deleted V3 rows stop coming back from the gateway. On a full read (the whole model), keys that are in
+  Snowflake but weren't read are flagged _IS_DELETED (and un-flagged if they come back); window reads don't
+  check deletes, so a delete shows within full_read_hours.
   Guard: if more than max_delete_fraction of a tenant's live rows would be flagged at once, nothing is
   flagged and the result says why — a half-empty read must not look like a mass delete.
 
@@ -58,6 +69,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import itertools
 import json
 import logging
 import os
@@ -291,6 +303,12 @@ def _cast(v3_name: str, sf_type: str) -> str:
     return text
 
 
+STATE_EXTRA_COLUMNS = {                # _SYNC_STATE columns added after its first version (window reads)
+    "LAST_FULL_READ": "TIMESTAMP_NTZ",  # when the model was last read in full (deletes are checked then)
+    "READ_MODE": "STRING",              # how the last run read it: full | window
+    "NO_UPDATED_AT": "NUMBER",          # rows without updated_at in the last full read (> 0: always read in full)
+}
+
 META_COLUMNS = {                       # the pipeline's own columns, after V3's
     "_TENANT_ID": "NUMBER NOT NULL",
     "_KEY": "STRING NOT NULL",
@@ -307,8 +325,13 @@ META_COLUMNS = {                       # the pipeline's own columns, after V3's
 # ── Snowflake ─────────────────────────────────────────────────────────────
 
 def snowflake_connect(database: str = DEFAULT_DATABASE, schema: str = DEFAULT_SCHEMA):
-    import snowflake.connector
+    """A session on the active warehouse (afya_backends.toggles: System Settings, the run's warehouse_backend
+    param, or AFYA_WAREHOUSE_BACKEND). On Databend the same Snowflake SQL runs through the translating driver
+    (afya_backends.warehouse.dbapi), and no Snowflake credentials are needed."""
     from afya_backends import warehouse as afya_warehouse
+    if afya_warehouse.is_databend():
+        return afya_warehouse.connect(database=database, schema=schema, backend=afya_warehouse.DATABEND,
+                                      session_parameters={"TIMEZONE": "UTC", "QUERY_TAG": "v3_to_snowflake_sync"})
     kwargs = dict(user=os.getenv("SNOWFLAKE_USER", "").strip(),
                   account=os.getenv("SNOWFLAKE_ACCOUNT", "").strip(),
                   warehouse=os.getenv("SNOWFLAKE_WAREHOUSE", "").strip(),
@@ -387,7 +410,19 @@ class SnowflakeSink:
                 ROWS_INSERTED      NUMBER,
                 ROWS_UPDATED       NUMBER,
                 ROWS_DELETED       NUMBER,
+                LAST_FULL_READ     TIMESTAMP_NTZ,
+                READ_MODE          STRING,
+                NO_UPDATED_AT      NUMBER,
                 PRIMARY KEY (TENANT_ID, MODEL))""")
+        # columns added after the table's first version (window reads): add them where they're missing
+        have = self.table_columns(STATE_TABLE)
+        missing = {c: t for c, t in STATE_EXTRA_COLUMNS.items() if c not in have}
+        for c, t in missing.items():
+            self._exec(f"ALTER TABLE {self.fq}.{STATE_TABLE} ADD COLUMN IF NOT EXISTS {c} {t}")
+        if missing:
+            self._columns.pop(STATE_TABLE, None)
+            if self.is_databend:
+                self._rewrite_blocks(STATE_TABLE)
 
     def table_columns(self, table: str) -> dict[str, str]:
         """{column: type} of an existing table, in table order ({} when it doesn't exist yet)."""
@@ -418,6 +453,7 @@ class SnowflakeSink:
         # a column made STRING only because it was empty gets its real type once values show up — as long
         # as it is still empty in Snowflake (drop + add loses nothing; the column moves to the end)
         filled = self._filled.setdefault(table, set())
+        changed = False
         for c, t in wanted.items():
             if known.get(c) == STRING and t != STRING and c not in filled:
                 (non_null,), = self._exec(f'SELECT COUNT("{c}") FROM {self.fq}.{table}')
@@ -428,6 +464,7 @@ class SnowflakeSink:
                 self._exec(f'ALTER TABLE {self.fq}.{table} ADD COLUMN "{c}" {t}')
                 known.pop(c)
                 known[c] = t
+                changed = True
                 log.info("%s: empty column %s retyped STRING → %s", table, c, t)
         added = {c: t for c, t in wanted.items() if c not in known}
         for c, t in added.items():
@@ -435,21 +472,46 @@ class SnowflakeSink:
         if added:
             log.info("%s: new V3 column(s) added: %s", table, ", ".join(f"{c} {t}" for c, t in added.items()))
             known.update(added)
+        if (added or changed) and self.is_databend:
+            self._rewrite_blocks(table)
         return known
 
+    @property
+    def is_databend(self) -> bool:
+        return getattr(self.conn, "backend", None) == "databend"
+
+    def _rewrite_blocks(self, table: str) -> None:
+        """Databend 1.2.881: blocks written before a column was added carry no statistics for it, and once a
+        compaction merges them with newer blocks COUNT(column) comes back wrong (it wrapped to 2^64-2 in tests)
+        - the values themselves stay right. Rewriting every block once gives each one real statistics for the
+        new column, after which COUNT stays right through later compactions. Atomic; runs only when a column was
+        added or retyped, which V3 rarely does."""
+        self._exec(f"INSERT OVERWRITE INTO {self.fq}.{table} SELECT * FROM {self.fq}.{table}")
+        log.info("%s: blocks rewritten after the column change (Databend column statistics)", table)
+
     # watermark / state ---------------------------------------------------------
-    def get_watermark(self, tenant_id: int, model: str) -> datetime | None:
+    def get_state(self, tenant_id: int, model: str) -> dict:
+        """{watermark, last_full_read, no_updated_at} of (tenant, model); all None when it was never synced."""
+        none = {"watermark": None, "last_full_read": None, "no_updated_at": None}
         try:
-            rows = self._exec(f"SELECT WATERMARK FROM {self.fq}.{STATE_TABLE} "
+            rows = self._exec(f"SELECT WATERMARK, LAST_FULL_READ, NO_UPDATED_AT FROM {self.fq}.{STATE_TABLE} "
                               f"WHERE TENANT_ID = %(t)s AND MODEL = %(m)s", {"t": tenant_id, "m": model})
         except Exception as e:                 # no state table yet (e.g. a dry run before the first real one)
-            if "does not exist" in str(e):
-                return None
+            if "does not exist" in str(e) or "Unknown" in str(e):
+                return none
             raise
-        return rows[0][0] if rows else None
+        if not rows:
+            return none
+        wm, full, no_upd = rows[0]
+        return {"watermark": wm, "last_full_read": full, "no_updated_at": None if no_upd is None else int(no_upd)}
+
+    def get_watermark(self, tenant_id: int, model: str) -> datetime | None:
+        return self.get_state(tenant_id, model)["watermark"]
 
     def save_state(self, tenant_id: int, model: Model, source: str, *, watermark: datetime | None,
-                   status: str, error: str | None, started: datetime, counts: dict) -> None:
+                   status: str, error: str | None, started: datetime, counts: dict,
+                   last_full_read: datetime | None = None, read_mode: str | None = None,
+                   no_updated_at: int | None = None) -> None:
         self._exec(f"""
             MERGE INTO {self.fq}.{STATE_TABLE} t
             USING (SELECT %(t)s TENANT_ID, %(m)s MODEL) s
@@ -459,16 +521,20 @@ class SnowflakeSink:
                 LAST_STATUS = %(st)s, LAST_ERROR = %(err)s,
                 LAST_RUN_STARTED = %(started)s::TIMESTAMP_NTZ, LAST_RUN_FINISHED = SYSDATE(),
                 ROWS_READ = %(read)s, ROWS_SENT = %(sent)s, ROWS_INSERTED = %(ins)s,
-                ROWS_UPDATED = %(upd)s, ROWS_DELETED = %(dele)s
+                ROWS_UPDATED = %(upd)s, ROWS_DELETED = %(dele)s,
+                LAST_FULL_READ = %(full)s::TIMESTAMP_NTZ, READ_MODE = %(mode)s, NO_UPDATED_AT = %(noupd)s
             WHEN NOT MATCHED THEN INSERT (TENANT_ID, MODEL, TARGET_TABLE, SOURCE, WATERMARK, LAST_STATUS, LAST_ERROR,
-                LAST_RUN_STARTED, LAST_RUN_FINISHED, ROWS_READ, ROWS_SENT, ROWS_INSERTED, ROWS_UPDATED, ROWS_DELETED)
+                LAST_RUN_STARTED, LAST_RUN_FINISHED, ROWS_READ, ROWS_SENT, ROWS_INSERTED, ROWS_UPDATED, ROWS_DELETED,
+                LAST_FULL_READ, READ_MODE, NO_UPDATED_AT)
             VALUES (%(t)s, %(m)s, %(tbl)s, %(src)s, %(wm)s::TIMESTAMP_NTZ, %(st)s, %(err)s,
-                %(started)s::TIMESTAMP_NTZ, SYSDATE(), %(read)s, %(sent)s, %(ins)s, %(upd)s, %(dele)s)""",
+                %(started)s::TIMESTAMP_NTZ, SYSDATE(), %(read)s, %(sent)s, %(ins)s, %(upd)s, %(dele)s,
+                %(full)s::TIMESTAMP_NTZ, %(mode)s, %(noupd)s)""",
                    {"t": tenant_id, "m": model.name, "tbl": model.table, "src": source, "wm": _fmt(watermark),
                     "st": status, "err": (error or None) and error[:4000], "started": _fmt(started),
                     "read": counts.get("read", 0), "sent": counts.get("sent", 0),
                     "ins": counts.get("inserted", 0), "upd": counts.get("updated", 0),
-                    "dele": counts.get("deleted", 0)})
+                    "dele": counts.get("deleted", 0), "full": _fmt(last_full_read), "mode": read_mode,
+                    "noupd": no_updated_at})
 
     # loading -------------------------------------------------------------------
     def _stage(self, name: str, columns: tuple[str, ...], rows: list[tuple]) -> str:
@@ -723,6 +789,40 @@ class SyncOptions:
     limit: int = 0                 # stop after N rows read (canary): no deletes, watermark not moved
     dry_run: bool = False          # read and count only; nothing written
     global_source: str | None = None   # the one source that keeps unscoped models (tenant 0); others skip them
+    # auto: only rows changed since the watermark are read (gateway updated_since / after_id), with a full read
+    # - and the delete check - once the model's last full read is full_read_hours old; full: always read every row
+    read_mode: str = "auto"
+    full_read_hours: float = 24.0
+
+
+READ_MODES = ("auto", "full")
+
+
+def read_plan(state: dict, opts: SyncOptions, now: datetime) -> tuple[str, str]:
+    """('window' | 'full', why) for one model. A window read only sees rows whose updated_at moved, so it can
+    neither notice deletes (a soft-deleted row just stops coming back) nor rows without updated_at: those need
+    a full read, and the first sync, a full refresh, a canary limit and a model whose last full read found
+    rows without updated_at always get one."""
+    if opts.read_mode != "auto":
+        return "full", "read_mode=full"
+    if opts.full_refresh or opts.limit:
+        return "full", "full refresh" if opts.full_refresh else "canary limit"
+    if state.get("watermark") is None:
+        return "full", "first sync"
+    if state.get("no_updated_at"):
+        return "full", f"{state['no_updated_at']} row(s) without updated_at"
+    last = state.get("last_full_read")
+    if last is None:
+        return "full", "no full read recorded yet"
+    if now - last >= timedelta(hours=opts.full_read_hours):
+        return "full", f"last full read {now - last} ago (every {opts.full_read_hours:g} h)"
+    return "window", f"changed rows only (full read {now - last} ago)"
+
+
+def _window_rows(client, model: Model, since: datetime):
+    """The rows the gateway reports updated since `since` (seconds floor - the window only gets wider).
+    Raises before yielding anything if the gateway can't filter (FilterUnsupported) or refuses."""
+    return client.read_window(model.service, model.alias, since.strftime("%Y-%m-%d %H:%M:%S"))
 
 
 @dataclass
@@ -742,6 +842,8 @@ class ModelResult:
     note: str | None = None
     error: str | None = None
     seconds: float = 0.0
+    read_mode: str | None = None   # full | window (see read_plan)
+    read_why: str | None = None
 
     def as_dict(self) -> dict:
         return dict(self.__dict__)
@@ -791,6 +893,7 @@ def sync_model(client, sink, model: Model, *, source: str, opts: SyncOptions = S
     unchanged, so the next run retries the same window."""
     started = clock()
     res = ModelResult(model.name, model.table)
+    state: dict = {}
     stored: datetime | None = None
     tenant: int | None = None
     batch: list[StagedRow] = []
@@ -821,14 +924,31 @@ def sync_model(client, sink, model: Model, *, source: str, opts: SyncOptions = S
                 return res
             tenant = res.tenant_id = GLOBAL_TENANT
             res.note = f"not scoped to an organisation by the gateway — kept under tenant {GLOBAL_TENANT}"
-        stored = sink.get_watermark(tenant, model.name)
+        state = sink.get_state(tenant, model.name)
+        stored = state["watermark"]
         since = None if (opts.full_refresh or stored is None) else stored - opts.lookback
         res.watermark_before = _fmt(stored)
+        mode, why = read_plan(state, opts, started)
+
+        rows = None
+        if mode == "window":
+            try:
+                rows = _window_rows(client, model, since)
+                first = next(rows, None)            # the gateway's answer to the first page decides
+                rows = iter(()) if first is None else itertools.chain([first], rows)
+            except Exception as e:                  # can't filter here / refused: read everything instead
+                mode, why, rows = "full", f"window read unavailable ({type(e).__name__}: {str(e)[:160]})", None
+        if rows is None:
+            rows = client.read_all(model.service, model.alias, workers=opts.page_workers)
+        res.read_mode, res.read_why = mode, why
+        no_updated_at = 0
 
         # the table is created by the first MERGE, from the columns its rows carry
-        for row in client.read_all(model.service, model.alias, workers=opts.page_workers):
+        for row in rows:
             res.read += 1
             updated_at = parse_ts(row.get("updated_at"))
+            if updated_at is None:
+                no_updated_at += 1
             if updated_at and (newest is None or updated_at > newest):
                 newest = updated_at
             if is_changed(updated_at, since):
@@ -838,7 +958,7 @@ def sync_model(client, sink, model: Model, *, source: str, opts: SyncOptions = S
                 key = staged.key
             else:
                 key = row_key(row)
-            if opts.detect_deletes:
+            if opts.detect_deletes and mode == "full":
                 seen.append(key)
             if len(batch) >= opts.batch_size:
                 flush()
@@ -847,23 +967,31 @@ def sync_model(client, sink, model: Model, *, source: str, opts: SyncOptions = S
                 break
         flush()
 
+        # what the state keeps for the next run's read_plan: a full read resets both; a window read can't see
+        # rows without updated_at, so it keeps the last full read's count
+        full_done = mode == "full" and complete
+        last_full = started if full_done else state.get("last_full_read")
+        no_upd = no_updated_at if full_done else state.get("no_updated_at")
         if opts.dry_run:
             res.status, res.watermark_after = "dry_run", res.watermark_before
         elif not complete:
             res.status, res.watermark_after = "partial", res.watermark_before
             res.note = f"stopped at limit {opts.limit}: deletes not checked, watermark not moved"
             _with_retries(f"{model.name} state", sink.save_state, tenant, model, source, watermark=stored,
-                          status="partial", error=None, started=started, counts=res.as_dict())
+                          status="partial", error=None, started=started, counts=res.as_dict(),
+                          last_full_read=state.get("last_full_read"), read_mode=mode,
+                          no_updated_at=state.get("no_updated_at"))
         else:
             sink.ensure_table(model.table, {})          # a model with no rows yet still gets its table
-            if opts.detect_deletes:
+            if opts.detect_deletes and mode == "full":
                 res.deleted, res.restored, res.note = _with_retries(
                     f"{model.name} delete check", sink.flag_deleted, model.table, tenant, seen,
                     opts.max_delete_fraction)
             wm = next_watermark(stored, newest, started)
             res.watermark_after = _fmt(wm)
             _with_retries(f"{model.name} state", sink.save_state, tenant, model, source, watermark=wm,
-                          status="ok", error=res.note, started=started, counts=res.as_dict())
+                          status="ok", error=res.note, started=started, counts=res.as_dict(),
+                          last_full_read=last_full, read_mode=mode, no_updated_at=no_upd)
     except Exception as e:
         res.watermark_after = res.watermark_before
         if unreadable(e, res.read):
@@ -876,7 +1004,8 @@ def sync_model(client, sink, model: Model, *, source: str, opts: SyncOptions = S
             try:
                 _with_retries(f"{model.name} state", sink.save_state, tenant, model, source, watermark=stored,
                               status=res.status, error=res.error or res.note, started=started,
-                              counts=res.as_dict())
+                              counts=res.as_dict(), last_full_read=state.get("last_full_read"),
+                              read_mode=res.read_mode, no_updated_at=state.get("no_updated_at"))
             except Exception:
                 log.exception("%s: could not record the failure in %s", model.name, STATE_TABLE)
     res.seconds = round((clock() - started).total_seconds(), 1)
@@ -936,10 +1065,10 @@ def sync(source: str, models: list[Model], *, opts: SyncOptions = SyncOptions(),
 
 def summarize(results: list[ModelResult | dict]) -> str:
     rows = [r.as_dict() if isinstance(r, ModelResult) else r for r in results]
-    lines = [f"{'model':40} {'status':8} {'read':>8} {'sent':>8} {'ins':>7} {'upd':>7} {'del':>6}  watermark"]
+    lines = [f"{'model':40} {'status':8} {'read':>6} {'read':>8} {'sent':>8} {'ins':>7} {'upd':>7} {'del':>6}  watermark"]
     for r in rows:
-        lines.append(f"{r['model']:40} {r['status']:8} {r['read']:>8} {r['sent']:>8} {r['inserted']:>7} "
-                     f"{r['updated']:>7} {r['deleted']:>6}  {r.get('watermark_after') or '-'}"
+        lines.append(f"{r['model']:40} {r['status']:8} {r.get('read_mode') or '-':>6} {r['read']:>8} {r['sent']:>8} "
+                     f"{r['inserted']:>7} {r['updated']:>7} {r['deleted']:>6}  {r.get('watermark_after') or '-'}"
                      + (f"  ERROR {r['error']}" if r.get("error") else "")
                      + (f"  NOTE {r['note']}" if r.get("note") else ""))
     failed = sum(r["status"] == "failed" for r in rows)
@@ -948,7 +1077,9 @@ def summarize(results: list[ModelResult | dict]) -> str:
     lines.append(f"{len(rows)} model(s), {failed} failed" + (f", {refused} unreadable on V3" if refused else "")
                  + (f", {shared} unscoped (kept once under tenant {GLOBAL_TENANT})" if shared else "") + "; "
                  f"{sum(r['inserted'] for r in rows)} inserted, {sum(r['updated'] for r in rows)} updated, "
-                 f"{sum(r['deleted'] for r in rows)} flagged deleted")
+                 f"{sum(r['deleted'] for r in rows)} flagged deleted; "
+                 f"{sum(r.get('read_mode') == 'window' for r in rows)} read changed rows only, "
+                 f"{sum(r.get('read_mode') == 'full' for r in rows)} in full")
     return "\n".join(lines)
 
 
@@ -962,6 +1093,9 @@ def main(argv=None) -> int:
     p.add_argument("--models", default="", help="service:alias list; empty = every readable model")
     p.add_argument("--services", default=",".join(SERVICES), help="services to discover models on")
     p.add_argument("--full-refresh", action="store_true", help="ignore the watermark; send every row")
+    p.add_argument("--read-mode", choices=READ_MODES, default="auto",
+                   help="auto: rows changed since the watermark (+ a full read every --full-read-hours); full: all rows")
+    p.add_argument("--full-read-hours", type=float, default=24.0)
     p.add_argument("--lookback-minutes", type=int, default=int(DEFAULT_LOOKBACK.total_seconds() // 60))
     p.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
     p.add_argument("--no-deletes", action="store_true", help="don't flag rows V3 no longer returns")
@@ -980,7 +1114,7 @@ def main(argv=None) -> int:
     opts = SyncOptions(full_refresh=a.full_refresh, lookback=timedelta(minutes=a.lookback_minutes),
                        batch_size=a.batch_size, detect_deletes=not a.no_deletes,
                        max_delete_fraction=a.max_delete_fraction, page_workers=a.page_workers,
-                       limit=a.limit, dry_run=a.dry_run)
+                       limit=a.limit, dry_run=a.dry_run, read_mode=a.read_mode, full_read_hours=a.full_read_hours)
     log.info("%s → %s.%s: %d model(s)%s", a.source, a.database, a.schema, len(models),
              " (dry run)" if a.dry_run else "")
     results = sync(a.source, models, opts=opts, workers=a.workers, database=a.database, schema=a.schema,

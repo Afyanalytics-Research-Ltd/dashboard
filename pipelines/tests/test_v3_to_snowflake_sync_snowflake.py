@@ -1,12 +1,16 @@
 """
-v3_to_snowflake_sync against REAL Snowflake: the MERGE / delete-flag / state SQL and write_pandas staging.
+v3_to_snowflake_sync against a REAL warehouse: the MERGE / delete-flag / state SQL and write_pandas staging.
 
-Opt-in (needs the .env's Snowflake credentials and CREATE SCHEMA on HOSPITALS):
+Every test runs once per enabled backend - the same Snowflake SQL, the same assertions:
 
-    V3SYNC_SNOWFLAKE_IT=1 python -m pytest tests/test_v3_to_snowflake_sync_snowflake.py -v
+    V3SYNC_SNOWFLAKE_IT=1 python -m pytest tests/test_v3_to_snowflake_sync_snowflake.py -v   # real Snowflake
+    V3SYNC_DATABEND_IT=1  python -m pytest tests/test_v3_to_snowflake_sync_snowflake.py -v   # real Databend
+                                                                       (DATABEND_HTTP_URL / _USER / _PASSWORD)
+On Databend the sink's SQL - and the checks' SQL below - go through the translating driver
+(afya_backends.warehouse.dbapi), exactly as in production with warehouse_backend=databend.
 
-Everything happens in a throwaway schema HOSPITALS.V3_SYNC_IT_<random>, dropped at the end. V3 is faked
-(tests/v3sync_fakes.py), so no gateway is touched.
+Everything happens in a throwaway schema HOSPITALS.V3_SYNC_IT_<random> (a Databend database of that name),
+dropped at the end. V3 is faked (tests/v3sync_fakes.py), so no gateway is touched.
 """
 from __future__ import annotations
 
@@ -21,29 +25,37 @@ import pytest
 import v3_to_snowflake_sync as S
 from tests.v3sync_fakes import FakeV3Client, patient
 
-pytestmark = pytest.mark.skipif(os.getenv("V3SYNC_SNOWFLAKE_IT") != "1",
-                                reason="set V3SYNC_SNOWFLAKE_IT=1 to run against real Snowflake")
+BACKENDS = [b for b, flag in (("snowflake", "V3SYNC_SNOWFLAKE_IT"), ("databend", "V3SYNC_DATABEND_IT"))
+            if os.getenv(flag) == "1"]
+pytestmark = pytest.mark.skipif(not BACKENDS, reason="set V3SYNC_SNOWFLAKE_IT=1 and/or V3SYNC_DATABEND_IT=1")
 
 PATIENT = S.Model("reception", "patient")
 T = PATIENT.table
 NOW = datetime(2026, 10, 29, 12, 0, 0)
 
 
-@pytest.fixture(scope="module")
-def sink():
+@pytest.fixture(scope="module", params=BACKENDS or ["none"])
+def sink(request):
     from dotenv import load_dotenv
     root = Path(__file__).resolve().parent.parent
     load_dotenv(root / ".env")
     os.chdir(root)                                   # SNOWFLAKE_PRIVATE_KEY_PATH is relative to the repo
+    before = os.environ.get("AFYA_WAREHOUSE_BACKEND")
+    os.environ["AFYA_WAREHOUSE_BACKEND"] = request.param          # what a DAG run's warehouse_backend param sets
     schema = f"V3_SYNC_IT_{uuid.uuid4().hex[:8].upper()}"
     conn = S.snowflake_connect("HOSPITALS", schema)
-    s = S.SnowflakeSink(conn, "HOSPITALS", schema)
+    s = S.SnowflakeSink(conn, "HOSPITALS", schema, reconnect=lambda: S.snowflake_connect("HOSPITALS", schema))
+    s.backend = request.param
     s.ensure_schema()
     try:
         yield s
     finally:
-        conn.cursor().execute(f"DROP SCHEMA IF EXISTS HOSPITALS.{schema}")
-        conn.close()
+        s.conn.cursor().execute(f"DROP SCHEMA IF EXISTS HOSPITALS.{schema}")
+        s.conn.close()
+        if before is None:
+            os.environ.pop("AFYA_WAREHOUSE_BACKEND", None)
+        else:
+            os.environ["AFYA_WAREHOUSE_BACKEND"] = before
 
 
 def run(client, sink, model=PATIENT, now=NOW, **opts):
@@ -228,6 +240,121 @@ def test_model_with_no_rows_still_gets_a_table(sink):
     assert q(sink, "SELECT COUNT(*) FROM {fq}.CORE__EMPTY_THING") == [(0,)]
 
 
+def test_values_survive_exactly(sink):
+    """Awkward V3 values: quoting and %-binding, non-ASCII, control characters, numbers past 2^53, extreme
+    decimals, timestamps with offsets, nested JSON, '' and the text 'null'. Typed columns hold the right value
+    and _RAW is the row exactly as V3 sent it."""
+    import json as _json
+    model = S.Model("reception", "edge")
+    row = {"id": 1, "name": "O'Brien %s %(x)s 100% \"q\" 💉 ñ Ωμέγα 日本", "notes": "line1\nline2\ttab \\ back",
+           "big": 9007199254740993, "neg_small": "-0.000001", "wide": "12345678901234567890.123456",
+           "tiny": 1e-7, "flag": False, "empty": "", "nullword": "null",
+           "at_offset": "2026-10-01T05:00:00+03:00", "at_plain": "2026-10-01 05:00:00", "day": "2026-02-28",
+           "doc": {"a": [1, {"b": "ü"}, None], "s": "x'y"}, "updated_at": "2026-10-01T08:00:00.000000Z"}
+    client = FakeV3Client({("reception", "edge"): [row]})
+    assert run(client, sink, model=model).inserted == 1
+    (name, notes, big, neg, wide, tiny, flag, empty, nullword, at_off, at_plain, day, b), = q(
+        sink, 'SELECT NAME, NOTES, BIG, NEG_SMALL, WIDE, TINY, FLAG, EMPTY, NULLWORD, AT_OFFSET, AT_PLAIN, DAY, '
+              'DOC:a[1]:b::string FROM {fq}.RECEPTION__EDGE')
+    assert (name, notes) == (row["name"], row["notes"])
+    assert int(big) == 9007199254740993                                    # not rounded through a double
+    assert Decimal(str(neg)) == Decimal("-0.000001") and Decimal(str(wide)) == Decimal("12345678901234567890.123456")
+    assert abs(float(tiny) - 1e-7) < 1e-15 and flag is False
+    assert (empty, nullword) == ("", "null")
+    assert at_off == datetime(2026, 10, 1, 2, 0) and at_plain == datetime(2026, 10, 1, 5, 0)   # stored as UTC
+    assert day == date(2026, 2, 28) and b == "ü"
+    (raw,), = q(sink, "SELECT TO_JSON(_RAW) FROM {fq}.RECEPTION__EDGE")
+    assert _json.loads(raw) == row                                          # _RAW is the row as V3 sent it
+
+
+def test_parallel_writers_like_production(sink):
+    """Production runs up to 6 service tasks x 4 models at once: every one MERGEs into the shared _SYNC_STATE,
+    and the same model of different tenants MERGEs into the same table at the same time. Each writer has its
+    own session (as in sync()). Nothing may fail, be lost or be duplicated."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    def writer(i):
+        tenant, model = 500 + i % 4, S.Model("finance", f"par_{i % 3}")
+        rows = [{"id": n, "v": f"t{tenant}-{n}", "updated_at": f"2026-10-{1 + n % 27:02d}T00:00:00Z"}
+                for n in range(1, 801)]
+        conn = S.snowflake_connect("HOSPITALS", sink.schema)
+        try:
+            w = S.SnowflakeSink(conn, "HOSPITALS", sink.schema)
+            return S.sync_model(FakeV3Client({(model.service, model.alias): rows}, organization_id=tenant), w, model,
+                                source=f"w{i}", opts=S.SyncOptions(batch_size=300), clock=lambda: NOW)
+        finally:
+            conn.close()
+
+    with ThreadPoolExecutor(12) as pool:
+        results = list(pool.map(writer, range(12)))
+    assert [r.status for r in results] == ["ok"] * 12, [r.error for r in results if r.status != "ok"]
+    # 12 writers = 4 tenants x 3 tables, each (tenant, table) pair written by exactly one writer
+    for t in ("FINANCE__PAR_0", "FINANCE__PAR_1", "FINANCE__PAR_2"):
+        assert sink.duplicate_keys(t) == 0
+        per_tenant = dict(q(sink, "SELECT _TENANT_ID, COUNT(*) FROM {fq}." + t + " GROUP BY 1"))
+        assert all(n == 800 for n in per_tenant.values()) and len(per_tenant) == 4, per_tenant
+    states = q(sink, "SELECT COUNT(*), COUNT(DISTINCT TENANT_ID, MODEL), COUNT_IF(LAST_STATUS = 'ok') "
+                     "FROM {fq}._SYNC_STATE WHERE MODEL LIKE 'finance:par_%'")
+    assert states == [(12, 12, 12)]
+
+
+def test_window_reads_on_a_real_warehouse(sink):
+    """auto read mode end to end: full first sync -> window run (changed rows only, state columns kept) ->
+    a day later a full read that flags the delete the window couldn't see."""
+    model = S.Model("reception", "win")
+    client = FakeV3Client({("reception", "win"): [patient(i, f"2026-10-{i:02d}T08:00:00.000000Z") for i in range(1, 9)]},
+                          window=True)
+    r = run(client, sink, model=model)
+    assert (r.read_mode, r.inserted) == ("full", 8)
+    (full, mode, noupd), = q(sink, "SELECT LAST_FULL_READ, READ_MODE, NO_UPDATED_AT FROM {fq}._SYNC_STATE "
+                                   "WHERE MODEL = 'reception:win'")
+    assert (full, mode, noupd) == (NOW, "full", 0)
+    client.edit("reception", "win", 2, first_name="Edited", updated_at="2026-10-29T12:30:00Z")
+    client.delete("reception", "win", 4)
+    r = run(client, sink, model=model, now=NOW + timedelta(hours=1))
+    assert (r.read_mode, r.read, r.updated, r.deleted) == ("window", 2, 1, 0)    # patient 8 (overlap) + the edit
+    assert q(sink, "SELECT LAST_FULL_READ, READ_MODE FROM {fq}._SYNC_STATE WHERE MODEL = 'reception:win'") == \
+        [(NOW, "window")]
+    assert q(sink, "SELECT FIRST_NAME FROM {fq}.RECEPTION__WIN WHERE ID = 2") == [("Edited",)]
+    r = run(client, sink, model=model, now=NOW + timedelta(hours=25), max_delete_fraction=1)
+    assert (r.read_mode, r.read, r.deleted) == ("full", 7, 1)
+    assert q(sink, "SELECT COUNT_IF(_IS_DELETED) FROM {fq}.RECEPTION__WIN") == [(1,)]
+
+
+def test_state_table_from_before_window_reads_gets_the_new_columns(sink):
+    """Prod's _SYNC_STATE predates LAST_FULL_READ / READ_MODE / NO_UPDATED_AT: ensure_schema adds them, keeps
+    every row, and (Databend) COUNT over the new columns stays right through compaction."""
+    schema = sink.schema + "_OLD"
+    conn = S.snowflake_connect("HOSPITALS", schema)
+    try:
+        old = S.SnowflakeSink(conn, "HOSPITALS", schema)
+        old._exec(f"CREATE SCHEMA IF NOT EXISTS {old.fq}")
+        old._exec(f"""CREATE TABLE {old.fq}._SYNC_STATE (TENANT_ID NUMBER NOT NULL, MODEL STRING NOT NULL,
+            TARGET_TABLE STRING, SOURCE STRING, WATERMARK TIMESTAMP_NTZ, LAST_STATUS STRING, LAST_ERROR STRING,
+            LAST_RUN_STARTED TIMESTAMP_NTZ, LAST_RUN_FINISHED TIMESTAMP_NTZ, ROWS_READ NUMBER, ROWS_SENT NUMBER,
+            ROWS_INSERTED NUMBER, ROWS_UPDATED NUMBER, ROWS_DELETED NUMBER, PRIMARY KEY (TENANT_ID, MODEL))""")
+        old._exec(f"INSERT INTO {old.fq}._SYNC_STATE (TENANT_ID, MODEL, WATERMARK, LAST_STATUS) VALUES "
+                  "(6, 'reception:patient', '2026-10-20 08:00:00', 'ok'), (7, 'finance:invoice', NULL, 'failed')")
+        fresh = S.SnowflakeSink(S.snowflake_connect("HOSPITALS", schema), "HOSPITALS", schema)
+        fresh.ensure_schema()
+        assert {"LAST_FULL_READ", "READ_MODE", "NO_UPDATED_AT"} <= set(fresh.table_columns("_SYNC_STATE"))
+        assert fresh.get_state(6, "reception:patient") == \
+            {"watermark": datetime(2026, 10, 20, 8), "last_full_read": None, "no_updated_at": None}
+        fresh.ensure_schema()                                              # idempotent
+        if sink.backend == "databend":                                     # Databend's own statement: raw
+            fresh.conn._t.run(f'OPTIMIZE TABLE "{schema}"."_SYNC_STATE" COMPACT')
+        assert fresh._exec(f"SELECT COUNT(*), COUNT(LAST_FULL_READ), COUNT(WATERMARK) FROM {fresh.fq}._SYNC_STATE") \
+            == [(2, 0, 1)]
+        # and the first run on it is a full read (no LAST_FULL_READ yet), then windows
+        client = FakeV3Client({("reception", "patient"): [patient(1, "2026-10-21T08:00:00Z")]}, window=True)
+        assert run(client, fresh).read_mode == "full"
+        assert run(client, fresh, now=NOW + timedelta(hours=1)).read_mode == "window"
+        fresh.conn.close()
+    finally:
+        conn.cursor().execute(f"DROP SCHEMA IF EXISTS HOSPITALS.{schema}")
+        conn.close()
+
+
 def test_duplicate_check_and_repair_on_real_snowflake(sink):
     """Snowflake doesn't enforce PRIMARY KEY: plant duplicates the way a racing MERGE would, then prove the
     check finds them and INSERT OVERWRITE … QUALIFY keeps exactly the newest row per key."""
@@ -236,9 +363,12 @@ def test_duplicate_check_and_repair_on_real_snowflake(sink):
     run(client, sink, model)
     assert sink.duplicate_keys(model.table) == 0
     assert model.table in sink.sync_tables() and "_SYNC_STATE" not in sink.sync_tables()
-    # two stale copies of key 1 and one of key 2 (older _LAST_LOADED_AT, different content)
-    q(sink, "INSERT INTO {fq}." + model.table + " SELECT * REPLACE ('stale' AS \"FIRST_NAME\") FROM {fq}."
-          + model.table + " WHERE _KEY IN ('1', '2')")
+    # two stale copies of key 1 and one of key 2 (older _LAST_LOADED_AT, different content); the column list is
+    # spelled out (Databend has no SELECT * REPLACE)
+    cols = list(sink.table_columns(model.table))
+    sel = ", ".join("'stale'" if c == "FIRST_NAME" else f'"{c}"' for c in cols)
+    q(sink, "INSERT INTO {fq}." + model.table + f" ({', '.join(chr(34) + c + chr(34) for c in cols)}) SELECT {sel} "
+          "FROM {fq}." + model.table + " WHERE _KEY IN ('1', '2')")
     q(sink, "UPDATE {fq}." + model.table + " SET _LAST_LOADED_AT = DATEADD(day, -1, _LAST_LOADED_AT) "
           "WHERE \"FIRST_NAME\" = 'stale'")
     q(sink, "INSERT INTO {fq}." + model.table + " SELECT * FROM {fq}." + model.table + " WHERE \"FIRST_NAME\" = 'stale' AND _KEY = '1'")

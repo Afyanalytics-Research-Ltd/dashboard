@@ -16,6 +16,39 @@ page = params.get("page")
 st.set_page_config(layout="wide")
 
 
+@st.cache_resource(show_spinner=False)
+def _warehouse_seen() -> dict:
+    return {}
+
+
+def _follow_warehouse_switch():
+    """System Settings -> Data warehouse: every dashboard caches one warehouse
+    connection (st.cache_resource) and its query results (st.cache_data) for
+    the life of this container. When the switch flips, drop both so the next
+    query reconnects to the new warehouse (afya_backends.toggles asks Django
+    over HTTP - see _http_source there)."""
+    try:
+        # The dashboards load .env themselves (load_dotenv in their connection helpers) - after this runs.
+        # Load it first: the switch is read over HTTP with AFYA_INTERNAL_API_TOKEN from .env, and an answer
+        # read without it (the deploy default) would be cached for the dashboard's first connection.
+        from dotenv import load_dotenv
+        load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", ".env"))
+        from afya_backends import toggles
+        now = toggles.warehouse_backend()
+    except Exception:  # noqa: BLE001 - a dashboard must still render
+        return
+    seen = _warehouse_seen()
+    before = seen.get("backend")
+    if before and before != now:
+        st.cache_resource.clear()
+        st.cache_data.clear()
+        seen = _warehouse_seen()
+    seen["backend"] = now
+
+
+_follow_warehouse_switch()
+
+
 def _run_file(file_path):
     with open(file_path, encoding='utf-8') as f:
         code = f.read()

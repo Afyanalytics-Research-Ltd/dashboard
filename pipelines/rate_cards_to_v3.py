@@ -48,7 +48,19 @@ log = logging.getLogger("rate_cards_to_v3")
 _HERE = Path(__file__).resolve().parent
 DATA_DIRS = (_HERE.parent / "dags" / "jsons" / "rate_cards", Path("/opt/airflow/dags/jsons/rate_cards"))
 NS = uuid.UUID("0c1f6f0e-3b0a-4d55-9a3e-7c2b8e5d4a21")
-STEPS = ["procedures", "schemes", "scheme_pricing", "product_prices"]
+STEPS = ["procedures", "schemes", "scheme_pricing", "product_prices", "inpatient_charges"]
+
+# Ward charges ("<payer> Bed Charges" sheets: one row per bed — Ward no., Type, Bed Name, Non Pharms(Meals Included),
+# Bed Charges, Nursing Care, Daily Review). Loaded as inpatient charges (user, 2026-11-24): one procedure per ward
+# (tier) × charge holds the payer prices like every other rate; an inpatient `charge` names it (V2 convention:
+# associated_procedure = the procedure's name, type = how often). The ward number is the stable key across sheets.
+WARDS = {1: "Female Ward", 2: "ICU Ward", 3: "Male Ward", 4: "Maternity Ward", 5: "New Born Unit Ward",
+         6: "Pediatric Ward", 7: "Private Ward", 8: "Renal Ward", 10: "HDU Ward"}
+SPLIT_FROM = {1: 56, 3: 56}          # Female / Male beds 56-65 are a cheaper tier on every card
+PER_BED = {2}                        # ICU: each of the 3 beds has its own prices (Other: 20,000 / 45,000 / 80,000)
+WARD_PARTS = {"non pharms meals included": ("MEALS", "Non-Pharms (Meals Included)"), "bed charges": ("BED", "Bed Charges"),
+              "nursing care": ("NURSING", "Nursing Care"), "daily review": ("REVIEW", "Daily Review"),
+              "daily mo review": ("REVIEW", "Daily Review")}
 
 # target → what its rate cards need; the V3 login is AFYA_<TARGET>_* / Airflow connection afya_v3_<target>
 TARGETS = {
@@ -83,14 +95,16 @@ TARGETS = {
         "full_card_payers": {"SHA": [2817]},
         "fallback_category": "Others",
         # sheet category → V3 category name, where the vote of matched items is wrong (COVID PCR voted "MRI")
-        "category_override": {"molecular biology": "Lab", "histo pathology": "Lab", "histopathology": "Lab"},
+        "category_override": {"molecular biology": "Lab", "histo pathology": "Lab", "histopathology": "Lab",
+                              "ward charges": "Inpatient"},
         "skip_names": {"test"},            # placeholder rows LAB001 / LAB002
     },
 }
 # Kerugoya Town Clinic (facility 368) mirrors Kerugoya Medical Centre (user, 2026-11-24): the same facility prices.
 # Only the procedures step — schemes / scheme prices are org-wide and already loaded by kerugoya_prod (a run here
 # would make duplicate schemes under this target's uuids).
-TARGETS["kerugoya_town_prod"] = {**TARGETS["kerugoya_prod"], "data_target": "kerugoya_prod", "only_steps": ["procedures"],
+TARGETS["kerugoya_town_prod"] = {**TARGETS["kerugoya_prod"], "data_target": "kerugoya_prod",
+                                 "only_steps": ["procedures", "inpatient_charges"],
                                  "label": "Kerugoya Town Clinic prices (mirror of Kerugoya Medical Centre, 2026-11)"}
 
 
@@ -152,10 +166,50 @@ def _frames(path: Path):
         yield sheet, [dict(zip(cols, r)) for r in body.itertuples(index=False, name=None)]
 
 
+def ward_items(beds: dict[str, list[dict]]) -> tuple[list[dict], list[dict]]:
+    """bed rows per payer → one item per ward (tier) × charge, each payer's price = the one most of the tier's beds
+    carry; beds priced otherwise are returned as outliers (reported, not loaded)."""
+    by = defaultdict(lambda: defaultdict(Counter))          # (code) → payer → Counter(price)
+    meta, beds_of, outliers = {}, defaultdict(lambda: defaultdict(dict)), []
+    for payer, rows in beds.items():
+        for r in rows:
+            try:
+                w = int(float(r.get("ward")))
+            except (TypeError, ValueError):
+                continue
+            if w not in WARDS:
+                continue
+            bed = clean(r.get("bed name"))
+            n = int(re.sub(r"\D", "", bed) or 0)
+            tier = "B" if w in SPLIT_FROM and n >= SPLIT_FROM[w] else (f"-{bed.upper()}" if w in PER_BED else "")
+            for col, v in r.items():
+                part = WARD_PARTS.get(key(col))
+                price = money(v)
+                if not part or price is None:
+                    continue
+                code = f"WRD-{w:02d}{tier}-{part[0]}"
+                label = WARDS[w] + (f" (Beds {SPLIT_FROM[w]}-65)" if tier == "B" else f" (Bed {bed.upper()})" if tier else "")
+                meta[code] = {"code": code, "name": f"{label} - {part[1]} (per day)", "category": "WARD CHARGES",
+                              "sheet": "Ward Charges", "ward": WARDS[w], "part": part[0]}
+                by[code][payer][price] += 1
+                beds_of[code][payer][bed] = price
+    items = []
+    for code, m in sorted(meta.items()):
+        rates = {}
+        for payer, cnt in by[code].items():
+            rates[payer] = cnt.most_common(1)[0][0]
+            odd = {b: p for b, p in beds_of[code][payer].items() if p != rates[payer]}
+            if odd:
+                outliers.append({"code": code, "payer": payer, "tier_price": rates[payer], "beds": odd})
+        items.append({**m, "rates": rates})
+    return items, outliers
+
+
 def convert(folder: str, target: str) -> Path:
     folder = Path(folder)
     items: dict[str, dict] = {}
     pharmacy, costs, schemes, sources = [], [], [], []
+    beds: dict[str, list[dict]] = defaultdict(list)
     for f in sorted(folder.iterdir()):
         n = f.name
         if not f.suffix.lower().startswith(".xls"):
@@ -165,7 +219,8 @@ def convert(folder: str, target: str) -> Path:
             payer = re.sub(r"^KMC - | (Insurance )?(Procedure )?Rates.*$", "", n)
             for sheet, rows in _frames(f):
                 for r in rows:
-                    if "bed name" in r:          # bed charges: per bed, not a procedure price — not loaded
+                    if "bed name" in r:          # bed charges → ward_items()
+                        beds[payer].append(r)
                         continue
                     code, name = clean(r.get("item code")).upper(), clean(r.get("item name"))
                     if not code or not name:
@@ -195,10 +250,13 @@ def convert(folder: str, target: str) -> Path:
                         schemes.append({"insurer": insurer, "name": clean(r.get("scheme")), "code": clean(r.get("code"))})
     for it in items.values():
         it.pop("_from_cash", None)
+    wards, outliers = ward_items(beds)
     out = DATA_DIRS[0] / f"{target}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps({"sources": sources, "items": sorted(items.values(), key=lambda x: x["code"]),
-                               "schemes": schemes, "pharmacy": pharmacy, "costs": costs}, indent=1), encoding="utf-8")
+    out.write_text(json.dumps({"sources": sources, "items": sorted(items.values(), key=lambda x: x["code"]) + wards,
+                               "ward_outliers": outliers, "schemes": schemes, "pharmacy": pharmacy, "costs": costs},
+                              indent=1), encoding="utf-8")
+    log.info("%d ward charge items (%d beds priced off their tier — see ward_outliers)", len(wards), len(outliers))
     log.info("%d items, %d schemes, %d pharmacy prices, %d cost prices → %s", len(items), len(schemes), len(pharmacy),
              len(costs), out)
     return out
@@ -525,6 +583,47 @@ class Run:
         self.report["detail"]["product_price_updates"] = upd
         self._many("product_price_updates", upd, lambda u: self.update("inventory", "product", u["id"], u["data"]))
 
+    # ── ward charges → inpatient charges ──
+    def run_inpatient_charges(self):
+        """one inpatient charge per ward-charge procedure: name, cost = the cash price, type 'daily',
+        associated_procedure = the procedure's name (V2/V3 convention). Payer prices live on the procedure."""
+        if not hasattr(self, "matched"):
+            self.read_procedures()
+            self.matched = self.match()
+        wards = [i for i in self.items if i.get("sheet") == "Ward Charges"]
+        have = [c for c in self.c.read_all("inpatient", "charge")
+                if not c.get("deleted_at") and c.get("organization_id") == self.org
+                and c.get("facility_id") in (None, self.fac)]
+        by_uuid = {str(c.get("uuid")).lower(): c for c in have if c.get("uuid")}
+        by_name = {key(c.get("name")): c for c in have}
+        new, upd, same, held = [], [], 0, []
+        for i in wards:
+            p = self.matched.get(i["code"])
+            if not p or not p.get("id"):
+                held.append(i["code"])
+                if not self.dry_run:
+                    continue
+            r = i["rates"]
+            cost = r.get("Cash", r.get(self.cfg["default_payer"], max(r.values())))
+            name = (p or {}).get("name") or i["name"]
+            data = {"name": name[:200], "cost": cost, "type": "daily", "post_on_admission": 0,
+                    "associated_procedure": name[:200]}
+            ex = by_uuid.get(gid(self.target, "charge", i["code"])) or by_name.get(key(name))
+            if ex:
+                if num(ex.get("cost")) == cost and ex.get("associated_procedure") == data["associated_procedure"] \
+                        and ex.get("type") == "daily":
+                    same += 1
+                else:
+                    upd.append({"_key": i["code"], "id": ex["id"], "before": {"cost": ex.get("cost")}, "data": data})
+                continue
+            new.append({"_key": i["code"], "uuid": gid(self.target, "charge", i["code"]), **data})
+        self.report["plan"].update(inpatient_charges_new=len(new), inpatient_charges_update=len(upd),
+                                   inpatient_charges_unchanged=same, inpatient_charges_held_no_procedure=len(held),
+                                   ward_outliers=len(self.data.get("ward_outliers", [])))
+        self.report["detail"].update(inpatient_charges_new=new, ward_outliers=self.data.get("ward_outliers", []))
+        self._many("inpatient_charges", new, lambda c: self.insert("inpatient", "charge", c))
+        self._many("inpatient_charge_updates", upd, lambda u: self.update("inpatient", "charge", u["id"], u["data"]))
+
     def load(self) -> dict:
         if "procedures" in self.steps:
             self.run_procedures()
@@ -534,6 +633,8 @@ class Run:
             self.run_scheme_pricing()
         if "product_prices" in self.steps:
             self.run_product_prices()
+        if "inpatient_charges" in self.steps:
+            self.run_inpatient_charges()
         log.info("plan: %s", self.report["plan"])
         log.info("result: %s", self.report["result"])
         return self.report

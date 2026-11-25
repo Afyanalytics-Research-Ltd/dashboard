@@ -7,7 +7,11 @@ models kept on Google Drive), run by `dags/book_translation_dag.py`.
 |---|---|
 | `tools/`, `notebooks/` | verbatim export from book-translation-pipeline (`tools/export_to_airflow.sh` there); revision in `SOURCE_REVISION` — **do not edit here**, change the source repo and re-export |
 | `btp_airflow.py` | the Airflow wiring: credentials → env / temp file, running a tool, input checks |
-| `../state/book_translation/` | scheduler state + log (git-ignored, survives restarts) |
+| `../state/book_translation/` | scheduler state + log, and `venv/` (git-ignored, survives restarts) |
+
+The Airflow image has no `kaggle` package. The first task that needs it builds `state/book_translation/venv`
+(`--system-site-packages`: adds only `kaggle==2.2.5` and its missing dependencies, a few minutes once), so
+deploying this needs no image rebuild and restarts nothing. Delete that folder to force a rebuild.
 
 ## DAGs
 

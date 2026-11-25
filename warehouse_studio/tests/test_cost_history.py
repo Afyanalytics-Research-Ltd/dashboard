@@ -452,6 +452,14 @@ class HistoryTests(SimpleTestCase):
         self.assertEqual(out['rows'][0]['usd'], 0.5)
         self.assertEqual(out['rows'][0]['query_text'], '')
 
+    def test_search_on_databend_says_unavailable_instead_of_failing(self):
+        from afya_backends import toggles
+        with toggles.override(toggles.WAREHOUSE, toggles.DATABEND),                 mock.patch.object(executor, 'records') as rec:
+            out = history.search({'scope': 'live'})
+        rec.assert_not_called()
+        self.assertEqual(out['rows'], [])
+        self.assertIn('Databend', out['unavailable'])
+
     def test_search_account_without_attribution(self):
         def rel(n, s=None):
             if n == 'query_attribution':

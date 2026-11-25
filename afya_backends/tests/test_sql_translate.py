@@ -324,3 +324,14 @@ def test_coerce_text_aggregates_is_opt_in():
     assert 'SUM(TRY_CAST("AMOUNT" AS DECIMAL(38, 6)))' in out
     assert 'WHEN NOT "C" IS NULL THEN TRY_CAST("AMOUNT" AS DECIMAL(38, 6)) ELSE 0 END' in out
     assert 'AVG(TRY_CAST("X" AS DECIMAL(38, 6)))' in out
+
+
+def test_snowflake_context_functions_databend_lacks_become_literals():
+    """Warehouse Studio's session query (warehouse_studio/services/session.py) failed on Databend:
+    no function matches the given name: 'current_account_name'."""
+    sql = tr.translate_sql("SELECT CURRENT_ACCOUNT_NAME() AS a, CURRENT_ORGANIZATION_NAME() AS o, "
+                           "CURRENT_REGION() AS r, CURRENT_CLIENT() AS c, CURRENT_USER() AS u")
+    up = sql.upper()
+    for fn in ("CURRENT_ACCOUNT_NAME", "CURRENT_ORGANIZATION_NAME", "CURRENT_REGION", "CURRENT_CLIENT"):
+        assert fn not in up, sql
+    assert "'DATABEND' AS" in up and "CURRENT_USER()" in up

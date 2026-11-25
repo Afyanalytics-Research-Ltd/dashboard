@@ -94,6 +94,13 @@ def _where(f: dict, binds: dict, *, hours_col: str = 'start_time') -> list[str]:
 
 def search(filters: dict) -> dict:
     scope = 'account' if filters.get('scope') == 'account' else 'live'
+    from afya_backends import toggles
+    if toggles.is_databend():
+        # Query history is Snowflake's (INFORMATION_SCHEMA.QUERY_HISTORY / ACCOUNT_USAGE); Databend keeps
+        # nothing the Studio can read. Say so instead of failing the panel with a compile error.
+        return {'scope': scope, 'rows': [], 'limit': 0, 'credit_price_usd': get_config().credit_price_usd,
+                'unavailable': 'Query history comes from Snowflake. The platform is on Databend, which keeps no '
+                               'query history the Studio can read. Your own runs are under My runs.'}
     try:
         limit = max(1, min(int(filters.get('limit') or 200), 1000))
     except (TypeError, ValueError):

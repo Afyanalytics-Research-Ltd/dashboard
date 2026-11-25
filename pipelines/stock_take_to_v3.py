@@ -117,6 +117,12 @@ TARGETS = {
             "deactivate_template_products": True,   # facility-NULL products still active (the 96 kept yesterday)
             "exact_names": True,                    # 368 product names = the sheet's spelling
         },
+        # 2026-11-25 (user): each store lists ONLY its own sheet (every store showed all 3,346 products after the
+        # app-style "base row in every store"). Stock rows cannot be deleted through the gateway, so the extra base rows
+        # (batch NULL, qty 0) are moved into the inactive store 990 ("Laboratory Store - Town Clinic"), out of sight.
+        "store_scope": {"Pharmacy Store": "pharmacy", "Dental Store": "dental", "Optical Store": "optical",
+                        "Main Store": None, "Nursing Store": None, "Laboratory Store": None},
+        "parking_store": 990,
     },
 }
 
@@ -714,7 +720,79 @@ class Run:
         self.many("stock_take_items", lines, lambda l: self.insert("inventory", "stock_take_item", l, match_on="uuid"))
 
     # ── per-store base rows ──
+    def run_store_scope(self):
+        """each scoped store lists exactly its sheet's products: missing base rows added, other base rows moved to the
+        (inactive) parking store. Batch rows (counted stock) are never moved."""
+        scope, park = self.cfg["store_scope"], self.cfg["parking_store"]
+        stores = {s["name"]: s for s in self.live("inventory", "store", 1)
+                  if s.get("is_active", True) and s.get("facility_id") == self.fac}
+        missing_st = [n for n in scope if n not in stores]
+        if missing_st:
+            raise SystemExit(f"stores not found in facility {self.fac}: {missing_st}")
+        live = [p for p in self.products if p.get("is_active", True)]
+        by_uuid = {str(p.get("uuid")).lower(): p for p in live if p.get("uuid")}
+        by_name, by_code = {}, {}
+        for p in sorted(live, key=lambda p: p["id"]):
+            if p.get("facility_id") == self.fac:
+                by_name.setdefault(key(p.get("generic_name")), p)
+                if p.get("code"):
+                    by_code.setdefault(str(p["code"]).upper(), p)
+        allowed, unmatched = defaultdict(set), []
+        for sheet, sd in self.data["sheets"].items():
+            for r in sd["rows"]:
+                k = r["code"] or f"{sheet}:{key(r['name'])}"
+                p = (by_uuid.get(gid(self.target, "product", k)) or by_name.get(key(r["name"]))
+                     or by_code.get(r["code"]) or by_code.get(f"{r['code']}-F{self.fac}"))
+                if p and p.get("facility_id") == self.fac:
+                    allowed[sheet].add(p["id"])
+                else:
+                    unmatched.append(f"{sheet}: {r['name']}")
+        moves, adds, keep = [], [], Counter()
+        for name, sheet in scope.items():
+            st = stores[name]["id"]
+            ok_ids = allowed[sheet] if sheet else set()
+            have = set()
+            for s in self.stock:
+                if s["store_id"] != st:
+                    continue
+                if s.get("batch_id") or (s.get("quantity") or 0):
+                    have.add(s["product_id"])        # counted stock stays where it is
+                    continue
+                if s["product_id"] in ok_ids and s["product_id"] not in have:
+                    have.add(s["product_id"])
+                    keep[name] += 1
+                else:                                # not this store's item (or a second base row): out of sight
+                    moves.append({"_key": f"{name}|{s['id']}", "id": s["id"], "data": {"store_id": park}})
+            for pid in sorted(ok_ids - have):
+                adds.append({"_key": f"{pid}|{st}", "uuid": gid(self.target, "scope_row", f"{pid}|{st}"),
+                             "product_id": pid, "store_id": st, "quantity": 0, "available_quantity": 0,
+                             "reserved_quantity": 0, "average_cost": 0, "total_value": 0})
+        self.report["plan"].update(scope_expected={n: len(allowed[s]) if s else 0 for n, s in scope.items()},
+                                   scope_rows_kept=dict(keep), scope_rows_move_out=len(moves),
+                                   scope_rows_move_out_by_store=dict(Counter(m["_key"].split("|")[0] for m in moves)),
+                                   scope_rows_add=len(adds), scope_unmatched_sheet_rows=unmatched[:20])
+        if self.dry_run:
+            return
+        # canary: move 3, confirm the gateway really changed store_id before moving the rest
+        first, rest = moves[:3], moves[3:]
+        self.many("scope_move_canary", first, lambda m: self.update("inventory", "stock", m["id"], m["data"]))
+        if first:
+            check = {s["id"]: s for s in self.live("inventory", "stock") if s["id"] in {m["id"] for m in first}}
+            if any(check.get(m["id"], {}).get("store_id") != park for m in first):
+                raise SystemExit(f"stock store_id update did not take: {[(i, c.get('store_id')) for i, c in check.items()]}")
+        self.many("scope_move_out", rest, lambda m: self.update("inventory", "stock", m["id"], m["data"]))
+        self.many("scope_add", adds, lambda r: self.insert("inventory", "stock", r))
+        fresh = [s for s in self.live("inventory", "stock") if s["store_id"] in {stores[n]["id"] for n in scope}]
+        listed = {n: len({s["product_id"] for s in fresh if s["store_id"] == stores[n]["id"]}) for n in scope}
+        self.report["result"]["products_listed_per_store"] = listed
+        exp = self.report["plan"]["scope_expected"]
+        bad = {n: (listed[n], exp[n]) for n in scope if listed[n] != exp[n]}
+        if bad:
+            self.report["failures"].append({"kind": "store_scope", "key": "counts", "error": f"listed vs sheet: {bad}"})
+
     def run_store_rows(self):
+        if self.cfg.get("store_scope"):              # scoped facility: each store lists only its sheet
+            return self.run_store_scope()
         """A product shows in a store only through a base stock row (batch NULL, quantity 0) — the app makes one in
         every store when a product is created; products made through the gateway had none, so Dennis could not find
         e.g. PARACETAMOL 500MG TABS (1,030 units in Pharmacy) — 2026-11-24. Adds the missing base rows for every active

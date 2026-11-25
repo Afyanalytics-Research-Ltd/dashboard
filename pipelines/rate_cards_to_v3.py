@@ -440,7 +440,9 @@ class Run:
     def match(self) -> dict[str, dict]:
         by_uuid = {str(p.get("uuid")).lower(): p for p in self.procs if p.get("uuid")}
         by_code, by_name = defaultdict(list), defaultdict(list)
-        for p in sorted(self.procs, key=lambda p: (not p.get("active", True), p["id"] not in self.prices, p["id"])):
+        # stable across steps: a code or name on several procedures always resolves to the oldest active one (a
+        # "has a price here" preference flipped between tasks once prices were added — 2026-11-25)
+        for p in sorted(self.procs, key=lambda p: (not p.get("active", True), p["id"])):
             if p.get("code"):
                 by_code[clean(p["code"]).upper()].append(p)
             by_name[key(p["name"])].append(p)

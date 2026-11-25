@@ -48,7 +48,28 @@ log = logging.getLogger("rate_cards_to_v3")
 _HERE = Path(__file__).resolve().parent
 DATA_DIRS = (_HERE.parent / "dags" / "jsons" / "rate_cards", Path("/opt/airflow/dags/jsons/rate_cards"))
 NS = uuid.UUID("0c1f6f0e-3b0a-4d55-9a3e-7c2b8e5d4a21")
-STEPS = ["procedures", "schemes", "scheme_pricing", "product_prices", "inpatient_charges", "company_pricing"]
+STEPS = ["procedures", "schemes", "scheme_pricing", "product_prices", "inpatient_charges", "company_pricing", "verify"]
+
+# Company price rules (user / KMC, 2026-11-25, level 3 Town Clinic): pre-negotiated cards for AAR, APA, Jubilee,
+# Britam, Kenya Alliance (all lab + radiology + procedure rates); Pacis and Liaison negotiated PROCEDURES only (lab /
+# radiology from the Other card); SHA its own card; EVERY other insurer = "KMC - Other Insurance Rates".
+# rule: ("own", payer) = payer's card, Other card where the payer's card lacks the item
+#       ("own_procedures", payer) = payer's card for Procedure Rates rows, Other card for everything else
+#       ("card", payer) = that card only;   default = ("card", "Other")
+COMPANY_RULES = {2818: ("own", "AAR"), 2824: ("own", "APA"), 2819: ("own", "Jubilee"), 2821: ("own", "Britam"),
+                 2971: ("own", "Kenya Alliance"), 2962: ("own_procedures", "Pacis"),
+                 2969: ("own_procedures", "Liaison"), 2817: ("card", "SHA")}
+PRICED_SHEETS = {"Lab Rates", "Radiology Rates", "Procedure Rates", "Ward Charges"}
+
+
+def company_price(rule, item):
+    kind, payer = rule
+    r = item["rates"]
+    if kind == "own":
+        return r.get(payer, r.get("Other"))
+    if kind == "own_procedures":
+        return r.get(payer, r.get("Other")) if item.get("sheet") == "Procedure Rates" else r.get("Other")
+    return r.get(payer)
 
 # Ward charges ("<payer> Bed Charges" sheets: one row per bed — Ward no., Type, Bed Name, Non Pharms(Meals Included),
 # Bed Charges, Nursing Care, Daily Review). Loaded as inpatient charges (user, 2026-11-24): one procedure per ward
@@ -104,7 +125,7 @@ TARGETS = {
 # Only the procedures step — schemes / scheme prices are org-wide and already loaded by kerugoya_prod (a run here
 # would make duplicate schemes under this target's uuids).
 TARGETS["kerugoya_town_prod"] = {**TARGETS["kerugoya_prod"], "data_target": "kerugoya_prod",
-                                 "only_steps": ["procedures", "inpatient_charges", "company_pricing"],
+                                 "only_steps": ["procedures", "inpatient_charges", "company_pricing", "verify"],
                                  "label": "Kerugoya Town Clinic prices (mirror of Kerugoya Medical Centre, 2026-11)"}
 
 
@@ -631,26 +652,34 @@ class Run:
         if not hasattr(self, "matched"):
             self.read_procedures()
             self.matched = self.match()
-        companies = self.cfg["companies"]
-        payer_cos = {payer: sorted({companies[i] for i in ins}) for payer, ins in self.cfg["payer_insurers"].items()}
         uid_target = self.cfg.get("data_target", self.target)
-        existing = {}
-        for r in self.live("core", "company_pricing", 1):
-            if r.get("priceable_type") == "procedure":
-                existing.setdefault((r.get("company_id"), r.get("priceable_id")), r)
+        all_cos = [c for c in self.live("core", "insurance_companies", 1)]
+        rules = {c["id"]: COMPANY_RULES.get(c["id"], ("card", "Other")) for c in all_cos}
+        existing, dups = {}, []
+        for r in sorted(self.live("core", "company_pricing", 1), key=lambda r: r["id"]):
+            if r.get("priceable_type") != "procedure":
+                continue
+            k = (r.get("company_id"), r.get("priceable_id"))
+            if k in existing:                        # a second row for the same insurer + procedure: switch it off
+                if r.get("status") != "inactive":
+                    dups.append({"_key": f"dup|{r['id']}", "id": r["id"], "data": {"status": "inactive"}})
+                continue
+            existing[k] = r
         new, upd, same, held = [], [], 0, Counter()
-        for payer, cos in payer_cos.items():
+        for co, rule in rules.items():
             for i in self.items:
-                price = i["rates"].get(payer)
+                if i.get("sheet") not in PRICED_SHEETS:
+                    continue
+                price = company_price(rule, i)
                 if price is None:
                     continue
                 p = self.matched.get(i["code"])
                 pid = (p or {}).get("id")
                 if not pid:
-                    held[payer] += 1
+                    held[co] += 1
                     if not self.dry_run:
                         continue
-                for co in cos:
+                if True:
                     ex = existing.get((co, pid)) if pid else None
                     if ex:
                         if num(ex.get("price")) == price and ex.get("status") in ("active", None):
@@ -664,10 +693,97 @@ class Run:
                                 "priceable_code": i["code"], "price": price, "requires_preauth": 0, "status": "active"})
         self.report["plan"].update(company_prices_new=len(new), company_prices_update=len(upd),
                                    company_prices_unchanged=same, company_prices_held=dict(held),
+                                   company_prices_duplicates_off=len(dups), companies=len(rules),
                                    company_prices_by_company=dict(Counter(x["company_id"] for x in new)))
         self.report["detail"]["company_price_updates"] = upd
         self._many("company_prices", new, lambda r: self.insert("core", "company_pricing", r))
         self._many("company_price_updates", upd, lambda u: self.update("core", "company_pricing", u["id"], u["data"]))
+        self._many("company_price_duplicates_off", dups,
+                   lambda u: self.update("core", "company_pricing", u["id"], u["data"]))
+
+    # ── read-only, record by record: facility prices + company prices vs the sheets ──
+    def run_verify(self):
+        self.read_procedures()
+        self.matched = self.match()
+        dp = self.cfg["default_payer"]
+        all_rows = [p for p in self.c.read_all("evaluation", "procedure_prices", workers=8)
+                    if p.get("facility_id") == self.fac and not p.get("deleted_at")]
+        rows_by_proc = defaultdict(list)
+        for p in all_rows:
+            rows_by_proc[p["evaluation_procedure_id"]].append(p)
+        fac_bad, fac_dup, fac_missing, fac_ok = [], [], [], 0
+        for i in self.items:
+            if i.get("sheet") not in PRICED_SHEETS:
+                continue
+            p = self.matched.get(i["code"])
+            if not p:
+                fac_missing.append(f"{i['code']} {i['name']}: no procedure")
+                continue
+            rs = rows_by_proc.get(p["id"], [])
+            if not rs:
+                fac_missing.append(f"{i['code']} {i['name']}: no facility price")
+                continue
+            if len(rs) > 1:
+                fac_dup.append(f"{i['code']} {i['name']}: {len(rs)} price rows")
+            r0, want_c, want_i = rs[0], i["rates"].get("Cash"), i["rates"].get(dp)
+            bad = []
+            if want_c is not None and num(r0.get("cash_charge")) != want_c:
+                bad.append(f"cash {num(r0.get('cash_charge'))}≠{want_c}")
+            if want_i is not None and num(r0.get("insurance_charge")) != want_i:
+                bad.append(f"insurance {num(r0.get('insurance_charge'))}≠{want_i}")
+            if bad:
+                fac_bad.append(f"{i['code']} {i['name']}: {', '.join(bad)}")
+            else:
+                fac_ok += 1
+        cos = {c["id"]: c["name"] for c in self.live("core", "insurance_companies", 1)}
+        cp = defaultdict(list)
+        for r in self.live("core", "company_pricing", 1):
+            if r.get("priceable_type") == "procedure" and r.get("status") != "inactive":
+                cp[(r["company_id"], r["priceable_id"])].append(r)
+        per_co = {}
+        cp_bad, cp_missing, cp_dup = [], [], []
+        for co, name in cos.items():
+            rule = COMPANY_RULES.get(co, ("card", "Other"))
+            ok = miss = bad = 0
+            for i in self.items:
+                if i.get("sheet") not in PRICED_SHEETS:
+                    continue
+                want = company_price(rule, i)
+                p = self.matched.get(i["code"])
+                if want is None or not p:
+                    continue
+                rs = cp.get((co, p["id"]), [])
+                if not rs:
+                    miss += 1
+                    if len(cp_missing) < 60:
+                        cp_missing.append(f"{name}: {i['code']} {i['name']}")
+                    continue
+                if len(rs) > 1:
+                    cp_dup.append(f"{name}: {i['code']} ({len(rs)} rows)")
+                if num(rs[0].get("price")) != want:
+                    bad += 1
+                    if len(cp_bad) < 60:
+                        cp_bad.append(f"{name}: {i['code']} {num(rs[0].get('price'))}≠{want}")
+                else:
+                    ok += 1
+            per_co[name] = {"rule": f"{rule[0]}:{rule[1]}", "ok": ok, "missing": miss, "wrong": bad}
+        self.report["plan"].update(
+            verify_facility_prices={"ok": fac_ok, "wrong": len(fac_bad), "missing": len(fac_missing),
+                                    "duplicate_rows": len(fac_dup)},
+            verify_company_prices={"companies": len(per_co), "ok": sum(v["ok"] for v in per_co.values()),
+                                   "missing": sum(v["missing"] for v in per_co.values()),
+                                   "wrong": sum(v["wrong"] for v in per_co.values()), "duplicate_rows": len(cp_dup)})
+        self.report["detail"].update(verify_per_company=per_co, verify_facility_wrong=fac_bad[:100],
+                                     verify_facility_missing=fac_missing[:100], verify_facility_dup=fac_dup[:100],
+                                     verify_company_missing=cp_missing, verify_company_wrong=cp_bad,
+                                     verify_company_dup=cp_dup[:100])
+        for k in ("verify_per_company", "verify_facility_wrong", "verify_facility_missing", "verify_facility_dup",
+                  "verify_company_missing", "verify_company_wrong", "verify_company_dup"):
+            log.info("%s: %s", k, json.dumps(self.report["detail"][k], default=str))
+        problems = len(fac_bad) + len(fac_missing) + len(fac_dup) + len(cp_dup) + \
+            sum(v["missing"] + v["wrong"] for v in per_co.values())
+        if problems:
+            self.report["failures"].append({"kind": "verify", "key": "prices", "error": f"{problems} mismatches (see log)"})
 
     def load(self) -> dict:
         if "procedures" in self.steps:
@@ -682,6 +798,8 @@ class Run:
             self.run_inpatient_charges()
         if "company_pricing" in self.steps:
             self.run_company_pricing()
+        if "verify" in self.steps:
+            self.run_verify()
         log.info("plan: %s", self.report["plan"])
         log.info("result: %s", self.report["result"])
         return self.report

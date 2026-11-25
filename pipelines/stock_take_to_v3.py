@@ -53,7 +53,7 @@ _HERE = Path(__file__).resolve().parent
 DATA_DIRS = (_HERE.parent / "dags" / "jsons" / "stock_takes", Path("/opt/airflow/dags/jsons/stock_takes"))
 PRICE_DIRS = (_HERE.parent / "dags" / "jsons" / "rate_cards", Path("/opt/airflow/dags/jsons/rate_cards"))
 NS = uuid.UUID("7a4e2c1d-9b3f-4e8a-b6d5-1f0c3e2a9d47")
-STEPS = ["stores", "products", "stock", "tidy", "store_rows"]
+STEPS = ["stores", "products", "stock", "tidy", "store_rows", "verify"]
 
 TARGETS = {
     "kerugoya_prod": {
@@ -796,6 +796,78 @@ class Run:
         if bad:
             self.report["failures"].append({"kind": "store_scope", "key": "counts", "error": f"listed vs sheet: {bad}"})
 
+    def run_verify(self):
+        """read-only, record by record: every sheet row vs the facility's stores (product once, quantity, batch no.,
+        expiry, right store, nothing in the wrong store, no duplicate batch rows)."""
+        live = [p for p in self.products if p.get("is_active", True)]
+        mine = [p for p in live if p.get("facility_id") == self.fac]
+        dup_names = {n: k for n, k in Counter(key(p.get("generic_name")) for p in mine).items() if k > 1}
+        visible_org = [p for p in live if p.get("facility_id") is None]
+        by_uuid = {str(p.get("uuid")).lower(): p for p in mine if p.get("uuid")}
+        by_name, by_code = defaultdict(list), {}
+        for p in mine:
+            by_name[key(p.get("generic_name"))].append(p)
+            if p.get("code"):
+                by_code.setdefault(str(p["code"]).upper(), p)
+        stores = {s["name"]: s["id"] for s in self.live("inventory", "store", 1)
+                  if s.get("is_active", True) and s.get("facility_id") == self.fac}
+        where = {sheet: stores.get(n) for n, sheet in (self.cfg.get("store_scope") or {}).items() if sheet}
+        batches = {b["id"]: b for b in self.batches}
+        pos = defaultdict(list)                      # (store, product) → stock rows with quantity
+        for s in self.stock:
+            if (s.get("quantity") or 0) > 0:
+                pos[(s["store_id"], s["product_id"])].append(s)
+        res, issues = Counter(), []
+        expected_pos = set()
+        for sheet, sd in self.data["sheets"].items():
+            st = where.get(sheet)
+            for r in sd["rows"]:
+                k = r["code"] or f"{sheet}:{key(r['name'])}"
+                p = (by_uuid.get(gid(self.target, "product", k)) or (by_name.get(key(r["name"])) or [None])[0]
+                     or by_code.get(r["code"]) or by_code.get(f"{r['code']}-F{self.fac}"))
+                if not p:
+                    res["no product"] += 1; issues.append(f"{sheet} row {r['row']} {r['name']}: no product"); continue
+                rows = pos.get((st, p["id"]), [])
+                qty = sum(int(s.get("quantity") or 0) for s in rows)
+                if r["qty"] > 0:
+                    expected_pos.add((st, p["id"]))
+                    want_b = r["batch_no"] or f"{self.cfg['prefix']}-{self.data['count_date'].replace('-', '')}-{r['code'] or r['row']}"
+                    bs = [batches.get(s.get("batch_id")) or {} for s in rows]
+                    bnos = [clean(b.get("batch_no")) for b in bs]
+                    exps = [str(b.get("expiry_date") or "")[:10] or None for b in bs]
+                    prob = []
+                    if qty != r["qty"]:
+                        prob.append(f"qty {qty}≠{r['qty']}")
+                    if want_b not in bnos:
+                        prob.append(f"batch {bnos}≠{want_b}")
+                    if len(bnos) != len(set(bnos)):
+                        prob.append(f"duplicate batch rows {bnos}")
+                    if r["expiry"] and r["expiry"] not in exps:
+                        prob.append(f"expiry {exps}≠{r['expiry']}")
+                    if prob:
+                        res["mismatch"] += 1; issues.append(f"{sheet} row {r['row']} {r['name']}: {'; '.join(prob)}")
+                    else:
+                        res["ok"] += 1
+                elif qty:
+                    res["mismatch"] += 1; issues.append(f"{sheet} row {r['row']} {r['name']}: counted 0 but store holds {qty}")
+                else:
+                    res["ok (0)"] += 1
+        stray = [(sid, pid) for (sid, pid) in pos if sid in set(where.values()) | set(stores.values())
+                 and (sid, pid) not in expected_pos]
+        sname = {v: k for k, v in stores.items()}
+        pname = {p["id"]: p.get("generic_name") for p in self.products}
+        self.report["plan"].update(verify_rows=dict(res), verify_stock_not_on_sheet=len(stray),
+                                   verify_duplicate_product_names=len(dup_names),
+                                   verify_org_wide_products_visible=len(visible_org))
+        self.report["detail"].update(verify_issues=issues[:200],
+                                     verify_stray=[f"{sname.get(s)}: {pname.get(p)}" for s, p in stray[:100]],
+                                     verify_dup_names=list(dup_names.items())[:100])
+        for k in ("verify_issues", "verify_stray", "verify_dup_names"):
+            log.info("%s: %s", k, json.dumps(self.report["detail"][k], default=str))
+        n = res["mismatch"] + res["no product"] + len(stray) + len(dup_names) + len(visible_org)
+        if n:
+            self.report["failures"].append({"kind": "verify", "key": "stock", "error": f"{n} issues (see log)"})
+
     def run_store_rows(self):
         if self.cfg.get("store_scope"):              # scoped facility: each store lists only its sheet
             return self.run_store_scope()
@@ -912,6 +984,11 @@ class Run:
                 self.report["failures"].append({"kind": "tidy", "key": "stores", "error": f"store list is {mine}"})
 
     def load(self) -> dict:
+        if self.steps == ["verify"]:                  # read-only check
+            self.read_inventory()
+            self.run_verify()
+            log.info("plan: %s", json.dumps(self.report["plan"], default=str))
+            return self.report
         if set(self.steps) <= {"tidy", "store_rows"}:  # tidy / base rows only: no stores / products / stock planning
             self.read_inventory()
             if "tidy" in self.steps:

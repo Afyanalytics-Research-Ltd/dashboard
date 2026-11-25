@@ -121,6 +121,11 @@ TARGETS = {
             "exact_names": True,                    # 368 product names = the sheet's spelling
             "deactivate_unlisted": True,            # 368 products on none of the sheets → off (user 2026-11-25)
             "dedupe_products": True,                # same product name twice in 368 → keep one (LOMOH 60MG INJ)
+            # 2026-11-25: the 54 dental items held DOUBLE the sheet — stock moved in the app on 11-24 landed on top
+            # of the loaded batches. Where a sheet store holds MORE than the count and the stock-take batch alone
+            # holds exactly the count, the other batch rows go to 0 (adjustment-out recorded). Never touches
+            # quantities at or below the count (dispensing).
+            "dedupe_batches": True,
         },
         # 2026-11-25 (user): each store lists ONLY its own sheet (every store showed all 3,346 products after the
         # app-style "base row in every store"). Stock rows cannot be deleted through the gateway, so the extra base rows
@@ -828,6 +833,71 @@ class Run:
         if bad:
             self.report["failures"].append({"kind": "store_scope", "key": "counts", "error": f"listed vs sheet: {bad}"})
 
+    def dedupe_batches(self):
+        """sheet store holds more than the count: keep the stock-take batch (sheet / generated batch no.) when it alone
+        holds exactly the count; the other batch rows of that product in that store → 0, with an adjustment-out."""
+        scope = {sheet: n for n, sheet in (self.cfg.get("store_scope") or {}).items() if sheet}
+        stores = {s["name"]: s["id"] for s in self.live("inventory", "store", 1)
+                  if s.get("is_active", True) and s.get("facility_id") == self.fac}
+        live = [p for p in self.products if p.get("is_active", True) and p.get("facility_id") == self.fac]
+        by_uuid = {str(p.get("uuid")).lower(): p for p in live if p.get("uuid")}
+        by_name = {}
+        for p in sorted(live, key=lambda p: p["id"]):
+            by_name.setdefault(key(p.get("generic_name")), p)
+        batches = {b["id"]: b for b in self.batches}
+        rows = defaultdict(list)
+        for s in self.stock:
+            if (s.get("quantity") or 0) > 0 and s.get("batch_id"):
+                rows[(s["store_id"], s["product_id"])].append(s)
+        date, user = self.data["count_date"], self.c.user_id
+        zero = []
+        for sheet, sd in self.data["sheets"].items():
+            st = stores.get(scope.get(sheet))
+            for r in sd["rows"]:
+                if r["qty"] <= 0:
+                    continue
+                k = r["code"] or f"{sheet}:{key(r['name'])}"
+                p = by_uuid.get(gid(self.target, "product", k)) or by_name.get(key(r["name"]))
+                if not p or not st:
+                    continue
+                rs = rows.get((st, p["id"]), [])
+                total = sum(int(s["quantity"]) for s in rs)
+                if total <= r["qty"] or len(rs) < 2:
+                    continue
+                want_b = r["batch_no"] or f"{self.cfg['prefix']}-{date.replace('-', '')}-{r['code'] or r['row']}"
+                keep = [s for s in rs if clean(batches.get(s["batch_id"], {}).get("batch_no")) == want_b]
+                if len(keep) != 1 or int(keep[0]["quantity"]) != r["qty"]:
+                    continue                         # not the clear-cut duplicate: leave for a person to look at
+                for s in rs:
+                    if s["id"] != keep[0]["id"]:
+                        zero.append({"_key": f"{sheet}|{k}|{s['id']}", "stock": s, "batch": batches.get(s["batch_id"]),
+                                     "product": p, "store": st, "before": int(s["quantity"])})
+        self.report["plan"]["duplicate_batches_to_zero"] = len(zero)
+        self.report["detail"]["duplicate_batches_to_zero"] = [
+            {"key": z["_key"], "product": z["product"].get("generic_name"), "batch_no": (z["batch"] or {}).get("batch_no"),
+             "before": z["before"]} for z in zero]
+        if self.dry_run:
+            return
+
+        def put(z):
+            s, b = z["stock"], z["batch"]
+            ok, _, err = self.update("inventory", "stock", s["id"], {"quantity": 0, "available_quantity": 0, "total_value": 0})
+            if not ok:
+                return False, None, f"stock: {err}"
+            if b:
+                ok, _, err = self.update("inventory", "batch", b["id"], {"quantity_available": 0, "status": "depleted"})
+                if not ok:
+                    return False, None, f"batch: {err}"
+            return self.insert("inventory", "stock_movement", {
+                "uuid": gid(self.target, "dedupe_movement", z["_key"]), "product_id": z["product"]["id"],
+                "batch_id": (b or {}).get("id"), "batch_no": (b or {}).get("batch_no"), "type": "adjustment",
+                "direction": "out", "from_store_id": z["store"], "quantity": z["before"],
+                "opening_balance": z["before"], "closing_balance": 0, "reference_type": "stock_take",
+                "idempotency_key": f"stock_take_to_v3:dedupe:{z['_key']}"[:191], "user_id": user, "done_by": user,
+                "reason": "Duplicate of the 23.11 stock-take batch", "notes": "stock moved in the app on 2026-11-24 "
+                "landed on top of the loaded stock-take batch; zeroed so the store matches the count"})
+        self.many("duplicate_batches_zeroed", zero, put)
+
     def run_departments(self):
         cfg_sd, scope = self.cfg.get("store_departments"), self.cfg.get("store_scope") or {}
         if not cfg_sd:
@@ -1100,6 +1170,8 @@ class Run:
         self.many("template_products_off", [{"_key": p["id"], "id": p["id"], "data": {"is_active": 0}} for p in tpl],
                   upd("product"))
         self.many("product_renames", renames_p, upd("product"))
+        if t.get("dedupe_batches"):
+            self.dedupe_batches()
         if not self.dry_run:                         # the kept list must now be exactly the client's
             mine = sorted(s["name"] for s in self.live("inventory", "store", 1)
                           if s.get("is_active", True) and s.get("facility_id") in (self.fac, None))

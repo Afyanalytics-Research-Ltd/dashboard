@@ -37,6 +37,7 @@ def ops(tmp_path, monkeypatch):
     mod = _load_ops()
     monkeypatch.setattr(mod, "STATE_DIR", tmp_path / "state")
     monkeypatch.setattr(mod, "SCHED_STATE", tmp_path / "state" / "scheduler.json")
+    monkeypatch.setattr(mod, "VENV", tmp_path / "state" / "venv")
     return mod
 
 
@@ -63,6 +64,7 @@ def fake_tools(ops, tmp_path, monkeypatch):
                  "push_notebook.py"):
         (tools / name).write_text(body)
     monkeypatch.setattr(ops, "TOOLS", tools)
+    monkeypatch.setattr(ops, "tool_python", lambda: sys.executable)
     return tools
 
 
@@ -121,6 +123,62 @@ def test_drive_token_file_removed_even_when_the_tool_fails(ops, fake_tools, monk
     with pytest.raises(ops.ToolError):
         ops.models_to_drive(ENV, TOKEN)
     assert not Path(seen["path"]).exists()
+
+
+# ─── the tools' Python: image or state-folder venv ───────────────────────
+def test_tool_python_uses_the_image_when_it_has_kaggle(ops, monkeypatch):
+    monkeypatch.setattr(ops.importlib.util, "find_spec", lambda name: object() if name == "kaggle" else None)
+    monkeypatch.setattr(ops, "_create_venv", lambda: pytest.fail("must not build a venv"))
+    assert ops.tool_python() == sys.executable and not ops.VENV.exists()
+
+
+def _no_kaggle_in_image(ops, monkeypatch, built):
+    monkeypatch.setattr(ops.importlib.util, "find_spec", lambda name: None)
+
+    def fake_create():
+        (ops.VENV / "bin").mkdir(parents=True, exist_ok=True)
+        (ops.VENV / "bin" / "python").write_text("")
+        (ops.VENV / ".btp_requirement").write_text(ops.KAGGLE_REQUIREMENT + "\n")
+        built.append(1)
+    monkeypatch.setattr(ops, "_create_venv", fake_create)
+    monkeypatch.setattr(ops, "_has_kaggle", lambda py: Path(py).is_file())
+
+
+def test_tool_python_builds_the_venv_once(ops, monkeypatch):
+    built = []
+    _no_kaggle_in_image(ops, monkeypatch, built)
+    py = ops.tool_python()
+    assert py == str(ops.VENV / "bin" / "python") and built == [1]
+    assert ops.tool_python() == py and built == [1], "second call must reuse the venv"
+    assert (ops.STATE_DIR / "venv.lock").exists()
+
+
+def test_tool_python_rebuilds_when_the_pin_changes_or_python_moved(ops, monkeypatch):
+    built = []
+    _no_kaggle_in_image(ops, monkeypatch, built)
+    ops.tool_python()
+    monkeypatch.setattr(ops, "KAGGLE_REQUIREMENT", "kaggle==9.9.9")
+    ops.tool_python()
+    assert built == [1, 1]
+    (ops.VENV / "bin" / "python").unlink()          # e.g. the image's Python was upgraded
+    ops.tool_python()
+    assert built == [1, 1, 1]
+
+
+def test_create_venv_failure_cleans_up_and_reports(ops, monkeypatch):
+    def fake_run(cmd, **kw):
+        ops.VENV.mkdir(parents=True, exist_ok=True)
+        return subprocess.CompletedProcess(cmd, 1, "", "No matching distribution found for kaggle==2.2.5")
+    monkeypatch.setattr(ops.subprocess, "run", fake_run)
+    with pytest.raises(ops.ToolError, match="No matching distribution"):
+        ops._create_venv()
+    assert not ops.VENV.exists()
+
+
+def test_has_kaggle_checks_without_importing(ops):
+    """`import kaggle` authenticates at import time; the check must only look the package up."""
+    assert ops._has_kaggle(sys.executable) in (True, False)
+    assert ops._has_kaggle("/nonexistent/python") is False
 
 
 # ─── running tools ───────────────────────────────────────────────────────

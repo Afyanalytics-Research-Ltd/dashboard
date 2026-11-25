@@ -15,12 +15,20 @@ Credentials (never written into the repo or the task log):
 
 State: the Kaggle scheduler's state + log live in pipelines/state/book_translation/ (git-ignored,
 bind-mounted, so they survive container restarts).
+
+The `kaggle` package: used from the Airflow image if it has it; otherwise the tools run in a small venv in
+the state folder (created on first use, `--system-site-packages`, so it adds only kaggle and its missing
+dependencies and uses the image's versions of everything else). This keeps the Airflow image -- and every
+running task on the cluster -- untouched when this DAG is deployed.
 """
 from __future__ import annotations
 
 import collections
 import contextlib
+import fcntl
+import importlib.util
 import json
+import shutil
 import logging
 import os
 import re
@@ -34,6 +42,8 @@ TOOLS = HERE / "tools"
 NOTEBOOKS = HERE / "notebooks"
 STATE_DIR = Path(os.getenv("BTP_STATE_DIR", HERE.parent / "state" / "book_translation"))
 SCHED_STATE = STATE_DIR / "scheduler.json"
+VENV = STATE_DIR / "venv"
+KAGGLE_REQUIREMENT = "kaggle==2.2.5"
 
 KAGGLE_CONN_ID = "kaggle_default"
 GDRIVE_TOKEN_VARIABLE = "btp_gdrive_token_json"
@@ -88,11 +98,56 @@ def drive_token_file(token_json: str):
         yield str(path)
 
 
+# ─── the Python the tools run with ───────────────────────────────────────
+def _has_kaggle(python: str) -> bool:
+    # find_spec, not import: `import kaggle` tries to authenticate at import time
+    code = "import importlib.util as u, sys; sys.exit(0 if u.find_spec('kaggle') else 1)"
+    try:
+        return subprocess.run([python, "-c", code], capture_output=True, timeout=120).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def _venv_ready() -> bool:
+    py, marker = VENV / "bin" / "python", VENV / ".btp_requirement"
+    return (py.is_file() and marker.is_file() and marker.read_text().strip() == KAGGLE_REQUIREMENT
+            and _has_kaggle(str(py)))
+
+
+def _create_venv() -> None:
+    shutil.rmtree(VENV, ignore_errors=True)
+    steps = [[sys.executable, "-m", "venv", "--system-site-packages", str(VENV)],
+             [str(VENV / "bin" / "python"), "-m", "pip", "install", "--quiet", "--disable-pip-version-check",
+              KAGGLE_REQUIREMENT]]
+    for cmd in steps:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
+        if r.returncode:
+            shutil.rmtree(VENV, ignore_errors=True)
+            raise ToolError(f"setting up {VENV} failed ({' '.join(cmd[-3:])}):\n{(r.stdout + r.stderr)[-1500:]}")
+    (VENV / ".btp_requirement").write_text(KAGGLE_REQUIREMENT + "\n")
+
+
+def tool_python() -> str:
+    """The image's Python if it has `kaggle`, else the state-folder venv (created once, under a lock so
+    two tasks never build it at the same time; rebuilt if the pin changes or the image's Python moved)."""
+    if importlib.util.find_spec("kaggle") is not None:
+        return sys.executable
+    if _venv_ready():
+        return str(VENV / "bin" / "python")
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    with open(STATE_DIR / "venv.lock", "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if not _venv_ready():
+            log.info("installing %s into %s (first use; a few minutes)", KAGGLE_REQUIREMENT, VENV)
+            _create_venv()
+    return str(VENV / "bin" / "python")
+
+
 # ─── running a tool ──────────────────────────────────────────────────────
 def run_tool(script: str, *args, env: dict[str, str] | None = None, keep: int = 400) -> str:
-    """Run tools/<script> with this Python, streaming its output into the task log.
+    """Run tools/<script> with tool_python(), streaming its output into the task log.
     Returns the last `keep` lines; raises ToolError on a non-zero exit."""
-    cmd = [sys.executable, str(TOOLS / script), *map(str, args)]
+    cmd = [tool_python(), str(TOOLS / script), *map(str, args)]
     full_env = {**os.environ, **(env or {}), "BTP_SCHED_STATE": str(SCHED_STATE), "PYTHONUNBUFFERED": "1"}
     log.info("running tools/%s %s", script, " ".join(map(str, args)))
     tail: collections.deque[str] = collections.deque(maxlen=keep)

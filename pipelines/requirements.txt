@@ -38,5 +38,3 @@ anthropic
 ollama
 chromadb
 sentry-sdk>=2.35,<3
-# book translation pipeline (dags/book_translation_dag.py): Kaggle CLI/SDK
-kaggle==2.2.5

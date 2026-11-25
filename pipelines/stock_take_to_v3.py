@@ -92,10 +92,8 @@ TARGETS = {
         "data_target": "kerugoya_prod",            # same sheets + price lists
         "mirror_of": {"target": "kerugoya_prod", "facility": 367},
         "sheets": {
-            "pharmacy": {"file": "23.11.26- PHARMACY STOCK.xlsx", "code": "PHARM",
-                         "create": {"name": "Pharmacy - Kerugoya Town Clinic", "code": "KTC-PHARMACY", "type": "pharmacy",
-                                    "is_consumable": 0, "parent_store_id": 944,
-                                    "description": "Pharmacy, Kerugoya Town Clinic (facility 368)"}},
+            # store 988, created 2026-11-24 as "Pharmacy - Kerugoya Town Clinic", renamed "Pharmacy Store" 2026-11-25
+            "pharmacy": {"file": "23.11.26- PHARMACY STOCK.xlsx", "code": "PHARM", "store_id": 988},
             "dental": {"file": "Dental Stock Take.xlsx", "store_id": 957, "code": "DENT"},
             "optical": {"file": "Optical Stock Take.xlsx", "store_id": 958, "code": "OPT"},
         },
@@ -112,12 +110,13 @@ TARGETS = {
                         "description": "Main store, Kerugoya Town Clinic (facility 368)"}],
             # + 968 (367's lab store, renamed "Laboratory Store - KMC"): user, 2026-11-25 — no suffixed stores at all
             "deactivate_stores": [944, 945, 986, 987, 990, 968],
-            # switched-off stores still show under the store list's "All Status" (user saw 11): soft-delete them too
-            "delete_stores": [944, 945, 986, 987, 990, 968],
+            # switched-off stores still show under "All Status"; the gateway IGNORES deleted_at on stores (tried
+            # 2026-11-25, ok but still listed) → deleting 944/945/986/987/990/968 needs the V3 app / DB. Not attempted.
             "keep_stores": ["Main Store", "Pharmacy Store", "Nursing Store", "Laboratory Store", "Optical Store",
                             "Dental Store"],
             "deactivate_template_products": True,   # facility-NULL products still active (the 96 kept yesterday)
             "exact_names": True,                    # 368 product names = the sheet's spelling
+            "deactivate_unlisted": True,            # 368 products on none of the sheets → off (user 2026-11-25)
         },
         # 2026-11-25 (user): each store lists ONLY its own sheet (every store showed all 3,346 products after the
         # app-style "base row in every store"). Stock rows cannot be deleted through the gateway, so the extra base rows
@@ -709,13 +708,18 @@ class Run:
 
         # 4. stock take lines: one per sheet row
         by_key = {x["_key"].split("|")[1]: x for x in new_b + upd_b}
+        own_batch_id = {(b["product_id"], b["store_id"], clean(b["batch_no"])): b["id"] for b in self.batches}
         lines = []
         for sheet, items in take_items.items():
             for it in items:
                 x, r = by_key.get(it["k"]), it["r"]
+                # counted line without a sheet batch no. → the generated one its batch carries (user: batch nos. matter)
+                gen_bno = r["batch_no"] or (f"{cfg['prefix']}-{date.replace('-', '')}-{r['code'] or r['row']}"
+                                            if r["qty"] > 0 else None)
                 lines.append({"_key": f"{sheet}|{it['k']}", "uuid": gid(self.target, "stock_take_item", f"{sheet}|{it['k']}"),
                               "stock_take_id": take_ids[sheet], "product_id": it["p"]["id"],
-                              "batch_id": (x or {}).get("batch_id"), "counted_batch_no": r["batch_no"],
+                              "batch_id": (x or {}).get("batch_id") or own_batch_id.get((it["p"]["id"], self.store_ids[sheet], gen_bno)),
+                              "counted_batch_no": gen_bno,
                               "counted_expiry_date": r["expiry"], "expected_quantity": it["expected"],
                               "counted_quantity": r["qty"], "variance": r["qty"] - it["expected"],
                               "is_reconciled": 1, "is_unexpected": 0, "notes": r["notes"]})
@@ -842,6 +846,15 @@ class Run:
                     plan["stock_in_deactivated"][f"{sid} {s['name']}"] = qty[sid]
         tpl = [p for p in self.products if p.get("facility_id") is None and p.get("is_active", True)] \
             if t.get("deactivate_template_products") else []
+        if t.get("deactivate_unlisted"):             # facility products that are on none of the sheets
+            names = {key(r["name"]) for sd in self.data["sheets"].values() for r in sd["rows"]}
+            codes = {r["code"] for sd in self.data["sheets"].values() for r in sd["rows"] if r["code"]}
+            unl = [p for p in self.products if p.get("facility_id") == self.fac and p.get("is_active", True)
+                   and key(p.get("generic_name")) not in names
+                   and str(p.get("code") or "").upper().replace(f"-F{self.fac}", "") not in codes
+                   and str(p.get("item_no") or "").upper() not in codes]
+            self.report["detail"]["unlisted_products_off"] = [(p["id"], p.get("generic_name")) for p in unl]
+            tpl = tpl + unl
         renames_p = []
         if t.get("exact_names"):
             sheet_name = {}
@@ -923,6 +936,10 @@ class Run:
                 self.read_inventory()                # new products' ids, fresh quantities
                 self.product_of.update({k: self.pid.get(p["id"], p) for k, p in self.product_of.items() if p.get("id")})
             self.run_stock()
+        if "tidy" in self.steps:
+            if not self.dry_run:
+                self.read_inventory()
+            self.run_tidy()
         if "store_rows" in self.steps:
             if not self.dry_run:
                 self.read_inventory()

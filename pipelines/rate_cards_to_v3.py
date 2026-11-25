@@ -49,7 +49,7 @@ _HERE = Path(__file__).resolve().parent
 DATA_DIRS = (_HERE.parent / "dags" / "jsons" / "rate_cards", Path("/opt/airflow/dags/jsons/rate_cards"))
 NS = uuid.UUID("0c1f6f0e-3b0a-4d55-9a3e-7c2b8e5d4a21")
 STEPS = ["procedures", "schemes", "scheme_pricing", "product_prices", "inpatient_charges", "company_pricing", "verify",
-         "sha_move", "copy_facility_prices"]
+         "sha_move", "copy_facility_prices", "catalog"]
 SHA_COMPANY = 2817
 
 # Company price rules (user / KMC, 2026-11-25, level 3 Town Clinic): pre-negotiated cards for AAR, APA, Jubilee,
@@ -128,7 +128,7 @@ TARGETS = {
 # would make duplicate schemes under this target's uuids).
 TARGETS["kerugoya_town_prod"] = {**TARGETS["kerugoya_prod"], "data_target": "kerugoya_prod",
                                  "only_steps": ["procedures", "inpatient_charges", "company_pricing", "verify", "sha_move",
-                                                "copy_facility_prices"],
+                                                "copy_facility_prices", "catalog"],
                                  # KMC team 2026-11-25: insurers (SHA included) are priced through their companies;
                                  # the facility's DEFAULT insurance column stays 0
                                  "no_default_insurance": True,
@@ -235,9 +235,67 @@ def ward_items(beds: dict[str, list[dict]]) -> tuple[list[dict], list[dict]]:
     return items, outliers
 
 
+def build_items(raw: list[dict]) -> tuple[dict, list]:
+    """One item per (code, service). The payer files reuse codes for DIFFERENT services (SER013 = AMBULANCE - SAGANA
+    in every file but CKMB in SHA's; LAB018 = CORTISOL in Cash, ESTRADIOL elsewhere), so a code's lines are grouped by
+    service — same sheet kind + same first word of the name (spelling variants like TOTAL BILIRUBIN / BILIRUBIN LEVEL
+    differ in the first word only when they are really different, see the collision report). The main group keeps
+    the code (the one the SHA card names for lab, the Cash card for procedures — KMC 2026-11-25); every other group
+    becomes its own item "<code>~<WORD>" that is matched to a V3 procedure by NAME only."""
+    from difflib import SequenceMatcher
+    kind = lambda s: "Lab" if "Lab" in s else "Radiology" if "Radiology" in s else "Procedure"
+    squash = lambda n: key(n).replace(" ", "")
+
+    # same kind of sheet = the same service under another name (CENTRAL LINE INSERTION / CENTRAL VENOUS CATHETER,
+    # REPAIR OF TORN TENDONS / TENDON REPAIR, TOTAL BILIRUBIN / BILIRUBIN LEVEL) — except these, which are not
+    SAME_KIND_DIFFERENT = {"LAB018"}                  # CORTISOL in the Cash file, ESTRADIOL in every other
+
+    def same_service(a, b, code=None):
+        if code not in SAME_KIND_DIFFERENT:
+            return True
+        a, b = squash(a), squash(b)
+        return a == b or a in b or b in a or SequenceMatcher(None, a, b).ratio() >= 0.6
+
+    by_code = defaultdict(list)
+    for e in raw:
+        by_code[e["code"]].append(e)
+    items, collisions = {}, []
+    for code, es in by_code.items():
+        groups = {}                                  # (kind, representative name) -> lines
+        for e in sorted(es, key=lambda e: e["payer"] not in ("Cash", "SHA")):
+            g = next((g for g in groups if g[0] == kind(e["sheet"]) and same_service(g[1], e["name"], code)), None)
+            if g is None:
+                g = (kind(e["sheet"]), e["name"])
+                groups[g] = []
+            groups[g].append(e)
+
+        def rank(g):
+            payers = {e["payer"] for e in groups[g]}
+            return (g[0] == "Lab" and "SHA" in payers, "Cash" in payers, "SHA" in payers, len(payers))
+        order = sorted(groups, key=rank, reverse=True)
+        if len(order) > 1:
+            collisions.append({"code": code, "groups": [{"service": groups[g][0]["name"],
+                                                         "payers": sorted({e["payer"] for e in groups[g]})} for g in order]})
+        for n, g in enumerate(order):
+            es_g = groups[g]
+            best = "SHA" if g[0] == "Lab" else "Cash"
+            head = (next((e for e in es_g if e["payer"] == best), None)
+                    or next((e for e in es_g if e["payer"] in ("Cash", "SHA")), None) or es_g[0])
+            ic = code if n == 0 else f"{code}~{squash(g[1]).upper()[:12] or n}"
+            it = {"code": ic, "name": head["name"], "category": head["category"], "sheet": head["sheet"], "rates": {}}
+            if n:
+                it["match_by_name"] = True
+                it["source_code"] = code
+            for e in es_g:
+                if e["price"] is not None:
+                    it["rates"][e["payer"]] = e["price"]
+            items[ic] = it
+    return items, collisions
+
+
 def convert(folder: str, target: str) -> Path:
     folder = Path(folder)
-    items: dict[str, dict] = {}
+    raw: list[dict] = []
     pharmacy, costs, schemes, sources = [], [], [], []
     beds: dict[str, list[dict]] = defaultdict(list)
     for f in sorted(folder.iterdir()):
@@ -255,14 +313,9 @@ def convert(folder: str, target: str) -> Path:
                     code, name = clean(r.get("item code")).upper(), clean(r.get("item name"))
                     if not code or not name:
                         continue
-                    it = items.setdefault(code, {"code": code, "name": name, "category": clean(r.get("category")),
-                                                 "sheet": re.sub(r"^\S+ ", "", sheet), "rates": {}})
-                    if payer == "Cash" or not it.get("_from_cash"):
-                        it.update(name=name, category=clean(r.get("category")) or it["category"])
-                        it["_from_cash"] = payer == "Cash"
-                    price = money(r.get("charges") if "charges" in r else r.get("unit charges"))
-                    if price is not None:
-                        it["rates"][payer] = price
+                    raw.append({"code": code, "payer": payer, "sheet": re.sub(r"^\S+ ", "", sheet), "name": name,
+                                "category": clean(r.get("category")),
+                                "price": money(r.get("charges") if "charges" in r else r.get("unit charges"))})
         elif "Pharmacy Rates" in n:
             for _, rows in _frames(f):
                 pharmacy += [{"code": clean(r.get("item code")), "name": clean(r.get("item name")),
@@ -278,14 +331,16 @@ def convert(folder: str, target: str) -> Path:
                     insurer = clean(r.get("insurance")) or insurer
                     if clean(r.get("scheme")):
                         schemes.append({"insurer": insurer, "name": clean(r.get("scheme")), "code": clean(r.get("code"))})
-    for it in items.values():
-        it.pop("_from_cash", None)
+    items, collisions = build_items(raw)
     wards, outliers = ward_items(beds)
     out = DATA_DIRS[0] / f"{target}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps({"sources": sources, "items": sorted(items.values(), key=lambda x: x["code"]) + wards,
+                               "code_collisions": collisions,
                                "ward_outliers": outliers, "schemes": schemes, "pharmacy": pharmacy, "costs": costs},
                               indent=1), encoding="utf-8")
+    log.info("%d item codes name different services in different payer files → split (see code_collisions)",
+             len(collisions))
     log.info("%d ward charge items (%d beds priced off their tier — see ward_outliers)", len(wards), len(outliers))
     log.info("%d items, %d schemes, %d pharmacy prices, %d cost prices → %s", len(items), len(schemes), len(pharmacy),
              len(costs), out)
@@ -390,8 +445,28 @@ class Run:
                 by_code[clean(p["code"]).upper()].append(p)
             by_name[key(p["name"])].append(p)
         got, used, how = {}, set(), Counter()
+        # a code the sheets reuse for two services: the V3 procedure holding that code keeps ITS service (the sheet
+        # item whose name is closest to the procedure's current name), the other service goes by name / is created
+        from difflib import SequenceMatcher
+        squash = lambda n: key(n).replace(" ", "")
+        family = defaultdict(list)
+        for i in self.items:
+            family[i.get("source_code") or i["code"]].append(i)
+        code_owner = {}
+        for code, its in family.items():
+            if len(its) > 1 and by_code.get(code):
+                pn = squash(by_code[code][0]["name"])
+                best = max(its, key=lambda i: SequenceMatcher(None, pn, squash(i["name"])).ratio())
+                code_owner[code] = best["code"]
+        code_of = lambda i: (i.get("source_code") or i["code"])
+
+        def by_code_for(i):
+            c = code_of(i)
+            if c in code_owner:
+                return by_code.get(c, []) if code_owner[c] == i["code"] else []
+            return [] if i.get("match_by_name") else by_code.get(i["code"], [])
         for kind, find in (("uuid", lambda i: [by_uuid.get(gid(self.target, "procedure", i["code"]))]),
-                           ("code", lambda i: by_code.get(i["code"], [])),
+                           ("code", by_code_for),
                            ("name", lambda i: by_name.get(key(i["name"]), []))):
             for i in self.items:
                 if i["code"] in got:
@@ -426,11 +501,21 @@ class Run:
         cat_name = {c["id"]: c["name"] for c in self.cats}
         taken = Counter(key(p["name"]) for p in self.procs)
         dp = self.cfg["default_payer"]
-        new_procs, price_new, price_upd, same, inactive = [], [], [], 0, []
+        new_procs, price_new, price_upd, same, inactive, split_unmatched = [], [], [], 0, [], []
         for i in self.items:
             rates = i["rates"]
             p = matched.get(i["code"])
-            if p is None:
+            if p is None and i.get("match_by_name"):  # a reused code's other service, not in V3 by name: a real
+                split_unmatched.append(f"{i['source_code']} {i['name']}")  # service on the sheet → create it once
+                suffix = {"Lab Rates": "L", "Radiology Rates": "R"}.get(i.get("sheet"), "P")
+                name = i["name"] if not taken[key(i["name"])] else f"{i['name']} ({i['source_code']}-{suffix})"
+                taken[key(name)] += 1
+                p = {"uuid": gid(self.target, "procedure", i["code"]), "code": f"{i['source_code']}-{suffix}",
+                     "name": name[:255], "category": cat[key(i["category"])], "active": 1,
+                     "description": f"{self.cfg['label']}: {i['sheet']} · {i['category']} (code {i['source_code']} "
+                                    f"is reused in the sheets for another service)", "_key": i["code"]}
+                new_procs.append(p)
+            elif p is None:
                 name = i["name"] if not taken[key(i["name"])] else f"{i['name']} ({i['code']})"
                 taken[key(name)] += 1
                 p = {"uuid": gid(self.target, "procedure", i["code"]), "code": i["code"], "name": name[:255],
@@ -443,6 +528,8 @@ class Run:
             want = {}
             if rates.get("Cash") is not None:
                 want["cash_charge"] = rates["Cash"]
+            elif i.get("sheet") == "Lab Rates" and rates.get("SHA") is not None:
+                want["cash_charge"] = rates["SHA"]    # lab test not on the Cash card: KMC's lab list is the SHA card
             if self.cfg.get("no_default_insurance"):
                 want["insurance_charge"] = 0.0
             elif rates.get(dp) is not None:
@@ -466,7 +553,9 @@ class Run:
                                      category_map={d: f"{c} {cat_name.get(c)}" for d, c in cat.items()})
         self.report["plan"].update(items=len(self.items), new_procedures=len(new_procs), price_inserts=len(price_new),
                                    price_updates=len(price_upd), prices_unchanged=same,
-                                   matched_but_inactive=len(inactive))
+                                   matched_but_inactive=len(inactive), split_services_not_in_v3=len(split_unmatched))
+        self.report["detail"]["split_services_not_in_v3"] = split_unmatched
+        log.info("reused codes: other services with no same-named V3 procedure (not loaded): %s", split_unmatched)
         return {"new": new_procs, "ins": price_new, "upd": price_upd}
 
     def run_procedures(self):
@@ -665,6 +754,8 @@ class Run:
             self.matched = self.match()
         uid_target = self.cfg.get("data_target", self.target)
         all_cos = [c for c in self.live("core", "insurance_companies", 1)]
+        cos_name = {c["id"]: c["name"] for c in all_cos}
+        proc_name = {p["id"]: f"{p.get('code')} {p.get('name')}" for p in self.procs}
         rules = {c["id"]: COMPANY_RULES.get(c["id"], ("card", "Other")) for c in all_cos}
         existing, dups = {}, []
         for r in sorted(self.live("core", "company_pricing", 1), key=lambda r: r["id"]):
@@ -676,7 +767,9 @@ class Run:
                     dups.append({"_key": f"dup|{r['id']}", "id": r["id"], "data": {"status": "inactive"}})
                 continue
             existing[k] = r
-        new, upd, same, held = [], [], 0, Counter()
+        new, upd, same, held, expected = [], [], 0, Counter(), set()
+        sheet_pids = {p["id"] for k, p in self.matched.items() if p and p.get("id")
+                      and any(i["code"] == k and i.get("sheet") in PRICED_SHEETS for i in self.items)}
         for co, rule in rules.items():
             for i in self.items:
                 if i.get("sheet") not in PRICED_SHEETS:
@@ -686,6 +779,8 @@ class Run:
                     continue
                 p = self.matched.get(i["code"])
                 pid = (p or {}).get("id")
+                if pid:
+                    expected.add((co, pid))
                 if not pid:
                     held[co] += 1
                     if not self.dry_run:
@@ -701,7 +796,22 @@ class Run:
                         continue
                     new.append({"_key": f"{co}|{i['code']}", "uuid": gid(uid_target, "company_price", f"{co}|{i['code']}"),
                                 "company_id": co, "priceable_type": "procedure", "priceable_id": pid,
-                                "priceable_code": i["code"], "price": price, "requires_preauth": 0, "status": "active"})
+                                "priceable_code": (p or {}).get("code") if i.get("match_by_name") else i["code"],
+                                "price": price, "requires_preauth": 0, "status": "active"})
+        # a sheet procedure's company price that its insurer's card no longer gives (a reused code's OTHER service
+        # had been priced on it) → off
+        # (SHA prices the team entered — moved from the default insurance column by sha_move — always stay)
+        team_sha = {gid(uid_target, "sha_move", f"procedure|{pid}") for pid in sheet_pids}
+        stale = [{"_key": f"stale|{r['id']}", "id": r["id"], "data": {"status": "inactive"},
+                  "before": f"{cos_name.get(k[0], k[0])}: {proc_name.get(k[1], k[1])} {num(r.get('price'))}"}
+                 for k, r in existing.items() if k[1] in sheet_pids and k[0] in rules and k not in expected
+                 and r.get("status") != "inactive" and str(r.get("uuid")).lower() not in team_sha]
+        self.report["detail"]["company_prices_stale_off"] = [s["before"] for s in stale]
+        log.info("company prices switched off (no longer on the insurer's card for that service): %s",
+                 json.dumps([s["before"] for s in stale][:300]))
+        self._many("company_prices_stale_off", stale,
+                   lambda u: self.update("core", "company_pricing", u["id"], u["data"]))
+        self.report["plan"]["company_prices_stale_off"] = len(stale)
         self.report["plan"].update(company_prices_new=len(new), company_prices_update=len(upd),
                                    company_prices_unchanged=same, company_prices_held=dict(held),
                                    company_prices_duplicates_off=len(dups), companies=len(rules),
@@ -765,6 +875,40 @@ class Run:
         self._many("default_insurance_cleared_products",
                    [{"_key": p["id"], "id": p["id"]} for p in pd_ok],
                    lambda u: self.update("inventory", "product", u["id"], {"insurance_price": 0}))
+
+    # ── service list = the sheets: code, category, name (Cash card for procedures, SHA card for lab) ──
+    def run_catalog(self):
+        self.read_procedures()
+        self.matched = matched = self.match()
+        cat = self.categories(matched)
+        cat_name = {c["id"]: c["name"] for c in self.cats}
+        upd, same = [], 0
+        for i in self.items:
+            if i.get("sheet") not in PRICED_SHEETS or i.get("sheet") == "Ward Charges":
+                continue
+            p = matched.get(i["code"])
+            if not p or not p.get("id"):
+                continue
+            want = {}
+            if clean(p.get("name")) != i["name"][:255]:
+                want["name"] = i["name"][:255]
+            c = cat.get(key(i["category"]))
+            if c and p.get("category") != c:
+                want["category"] = c
+            if not want:
+                same += 1
+                continue
+            upd.append({"_key": i["code"], "id": p["id"], "before": {"name": p.get("name"),
+                        "category": cat_name.get(p.get("category"), p.get("category"))},
+                        "after": {"name": want.get("name", p.get("name")),
+                                  "category": cat_name.get(want.get("category", p.get("category")))}, "data": want})
+        self.report["plan"].update(catalog_updates=len(upd), catalog_unchanged=same,
+                                   catalog_renamed=sum(1 for u in upd if "name" in u["data"]),
+                                   catalog_recategorised=sum(1 for u in upd if "category" in u["data"]))
+        self.report["detail"]["catalog_updates"] = upd
+        for u in upd[:400]:
+            log.info("catalog %s: %s → %s", u["_key"], u["before"], u["after"])
+        self._many("catalog_updates", upd, lambda u: self.update("evaluation", "procedures", u["id"], u["data"]))
 
     # ── procedures priced only at another facility (the team's own, at level 5) → this facility ──
     def run_copy_facility_prices(self):
@@ -838,15 +982,20 @@ class Run:
                 continue
             p = self.matched.get(i["code"])
             if not p:
-                fac_missing.append(f"{i['code']} {i['name']}: no procedure")
+                if not i.get("match_by_name"):        # split services absent from V3 are reported, not required
+                    fac_missing.append(f"{i['code']} {i['name']}: no procedure")
                 continue
             rs = rows_by_proc.get(p["id"], [])
+            want_c = i["rates"].get("Cash")
+            if want_c is None and i.get("sheet") == "Lab Rates":
+                want_c = i["rates"].get("SHA")
             if not rs:
-                fac_missing.append(f"{i['code']} {i['name']}: no facility price")
+                if want_c is not None:
+                    fac_missing.append(f"{i['code']} {i['name']}: no facility price")
                 continue
             if len(rs) > 1:
                 fac_dup.append(f"{i['code']} {i['name']}: {len(rs)} price rows")
-            r0, want_c = rs[0], i["rates"].get("Cash")
+            r0 = rs[0]
             want_i = 0.0 if self.cfg.get("no_default_insurance") else i["rates"].get(dp)
             bad = []
             if want_c is not None and num(r0.get("cash_charge")) != want_c:
@@ -924,6 +1073,8 @@ class Run:
             self.run_sha_move()
         if "copy_facility_prices" in self.steps:
             self.run_copy_facility_prices()
+        if "catalog" in self.steps:
+            self.run_catalog()
         if "verify" in self.steps:
             self.run_verify()
         log.info("plan: %s", self.report["plan"])

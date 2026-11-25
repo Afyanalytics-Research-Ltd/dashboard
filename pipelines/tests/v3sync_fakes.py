@@ -94,14 +94,17 @@ class FakeSink:
     def get_state(self, tenant_id: int, model: str) -> dict:
         s = self.state.get((tenant_id, model)) or {}
         return {"watermark": s.get("watermark"), "last_full_read": s.get("last_full_read"),
-                "no_updated_at": s.get("no_updated_at")}
+                "no_updated_at": s.get("no_updated_at"), "last_run_started": s.get("started"),
+                "last_status": s.get("status")}
 
     def get_watermark(self, tenant_id: int, model: str) -> datetime | None:
         return self.get_state(tenant_id, model)["watermark"]
 
     def save_state(self, tenant_id, model, source, *, watermark, status, error, started, counts,
                    last_full_read=None, read_mode=None, no_updated_at=None) -> None:
+        self.state_writes = getattr(self, "state_writes", 0) + 1
         self.state[(tenant_id, model.name)] = {"watermark": watermark, "status": status, "error": error,
+                                               "started": started,
                                                "source": source, "counts": dict(counts), "table": model.table,
                                                "last_full_read": last_full_read, "read_mode": read_mode,
                                                "no_updated_at": no_updated_at}

@@ -110,7 +110,8 @@ TARGETS = {
             "create": [{"name": "Main Store", "code": "KTC-MAIN", "type": "main", "is_main_store": 1,
                         "can_order_from_suppliers": 1, "can_update_product_prices": 1, "is_consumable": 0,
                         "description": "Main store, Kerugoya Town Clinic (facility 368)"}],
-            "deactivate_stores": [944, 945, 986, 987, 990],
+            # + 968 (367's lab store, renamed "Laboratory Store - KMC"): user, 2026-11-25 — no suffixed stores at all
+            "deactivate_stores": [944, 945, 986, 987, 990, 968],
             "keep_stores": ["Main Store", "Pharmacy Store", "Nursing Store", "Laboratory Store", "Optical Store",
                             "Dental Store"],
             "deactivate_template_products": True,   # facility-NULL products still active (the 96 kept yesterday)

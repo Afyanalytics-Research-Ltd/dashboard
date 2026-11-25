@@ -53,7 +53,7 @@ _HERE = Path(__file__).resolve().parent
 DATA_DIRS = (_HERE.parent / "dags" / "jsons" / "stock_takes", Path("/opt/airflow/dags/jsons/stock_takes"))
 PRICE_DIRS = (_HERE.parent / "dags" / "jsons" / "rate_cards", Path("/opt/airflow/dags/jsons/rate_cards"))
 NS = uuid.UUID("7a4e2c1d-9b3f-4e8a-b6d5-1f0c3e2a9d47")
-STEPS = ["stores", "products", "stock", "tidy", "store_rows", "verify"]
+STEPS = ["stores", "products", "stock", "tidy", "store_rows", "departments", "verify"]
 
 TARGETS = {
     "kerugoya_prod": {
@@ -124,6 +124,17 @@ TARGETS = {
         "store_scope": {"Pharmacy Store": "pharmacy", "Dental Store": "dental", "Optical Store": "optical",
                         "Main Store": None, "Nursing Store": None, "Laboratory Store": None},
         "parking_store": 990,
+        # 2026-11-25 (user): each store's "Manage products" screen should show only its items → every product gets
+        # its store's department; Pharmacy / Main Store had none, so departments are created for them (Main stays
+        # empty). An item on two sheets takes the department of the store where it was counted (else the first).
+        "store_departments": {
+            "Dental Store": {"id": 483}, "Optical Store": {"id": 484}, "Nursing Store": {"id": 485},
+            "Laboratory Store": {"id": 486},
+            "Pharmacy Store": {"create": {"name": "Pharmacy Department", "code": "pharmacy-department-368",
+                                          "type": "clinical", "status": "active", "description": "Pharmacy Department"}},
+            "Main Store": {"create": {"name": "Main Store Department", "code": "main-store-department-368",
+                                      "type": "administrative", "status": "active", "description": "Main Store"}},
+        },
     },
 }
 
@@ -796,6 +807,72 @@ class Run:
         if bad:
             self.report["failures"].append({"kind": "store_scope", "key": "counts", "error": f"listed vs sheet: {bad}"})
 
+    def run_departments(self):
+        cfg_sd, scope = self.cfg.get("store_departments"), self.cfg.get("store_scope") or {}
+        if not cfg_sd:
+            log.info("no store_departments for %s", self.target)
+            return
+        stores = {s["name"]: s for s in self.live("inventory", "store", 1)
+                  if s.get("is_active", True) and s.get("facility_id") == self.fac}
+        deps = {d["code"]: d for d in self.live("core", "departments", 1) if d.get("code")}
+        dep_of_store, new_deps, store_upd = {}, [], []
+        for name, spec in cfg_sd.items():
+            st = stores.get(name)
+            if not st:
+                raise SystemExit(f"store {name} not found in facility {self.fac}")
+            if "id" in spec:
+                dep_of_store[name] = spec["id"]
+            else:
+                ex = deps.get(spec["create"]["code"])
+                if ex:
+                    dep_of_store[name] = ex["id"]
+                else:
+                    new_deps.append({"_key": name, "uuid": gid(self.target, "department", spec["create"]["code"]),
+                                     **spec["create"]})
+        ids = self.many("departments_new", new_deps, lambda d: self.insert("core", "departments", d, match_on="uuid"))
+        if new_deps and not self.dry_run:
+            deps = {d["code"]: d for d in self.live("core", "departments", 1) if d.get("code")}
+            for d in new_deps:
+                got = deps.get(d["code"])
+                if got:
+                    if got.get("facility_id") not in (self.fac, None):
+                        raise SystemExit(f"department {d['name']} landed in facility {got.get('facility_id')}")
+                    dep_of_store[d["_key"]] = got["id"]
+        for name, dep in dep_of_store.items():
+            if dep and stores[name].get("department_id") != dep:
+                store_upd.append({"_key": name, "id": stores[name]["id"], "data": {"department_id": dep}})
+        self.many("store_departments", store_upd, lambda u: self.update("inventory", "store", u["id"], u["data"]))
+        # product → department of its store (counted store first)
+        live = [p for p in self.products if p.get("is_active", True) and p.get("facility_id") == self.fac]
+        by_uuid = {str(p.get("uuid")).lower(): p for p in live if p.get("uuid")}
+        by_name, by_code = {}, {}
+        for p in sorted(live, key=lambda p: p["id"]):
+            by_name.setdefault(key(p.get("generic_name")), p)
+            if p.get("code"):
+                by_code.setdefault(str(p["code"]).upper(), p)
+        store_of_sheet = {sheet: n for n, sheet in scope.items() if sheet}
+        want, counted = {}, set()
+        for sheet, sd in self.data["sheets"].items():
+            dep = dep_of_store.get(store_of_sheet.get(sheet))
+            for r in sd["rows"]:
+                k = r["code"] or f"{sheet}:{key(r['name'])}"
+                p = (by_uuid.get(gid(self.target, "product", k)) or by_name.get(key(r["name"]))
+                     or by_code.get(r["code"]) or by_code.get(f"{r['code']}-F{self.fac}"))
+                if not p or not dep:
+                    continue
+                if p["id"] not in want or (r["qty"] > 0 and p["id"] not in counted):
+                    want[p["id"]] = dep
+                if r["qty"] > 0:
+                    counted.add(p["id"])
+        cur = {p["id"]: p.get("department_id") for p in live}
+        prod_upd = [{"_key": pid, "id": pid, "data": {"department_id": dep}} for pid, dep in want.items() if cur.get(pid) != dep]
+        self.report["plan"].update(departments_new=[d["name"] for d in new_deps],
+                                   store_departments=[f"{u['_key']} → {u['data']['department_id']}" for u in store_upd],
+                                   products_department_update=len(prod_upd),
+                                   products_by_department=dict(Counter(want.values())),
+                                   products_without_department=len([p for p in live if p["id"] not in want]))
+        self.many("product_departments", prod_upd, lambda u: self.update("inventory", "product", u["id"], u["data"]))
+
     def run_verify(self):
         """read-only, record by record: every sheet row vs the facility's stores (product once, quantity, batch no.,
         expiry, right store, nothing in the wrong store, no duplicate batch rows)."""
@@ -984,9 +1061,14 @@ class Run:
                 self.report["failures"].append({"kind": "tidy", "key": "stores", "error": f"store list is {mine}"})
 
     def load(self) -> dict:
-        if self.steps == ["verify"]:                  # read-only check
+        if set(self.steps) <= {"departments", "verify"}:  # departments and / or the read-only check
             self.read_inventory()
-            self.run_verify()
+            if "departments" in self.steps:
+                self.run_departments()
+                if not self.dry_run and "verify" in self.steps:
+                    self.read_inventory()
+            if "verify" in self.steps:
+                self.run_verify()
             log.info("plan: %s", json.dumps(self.report["plan"], default=str))
             return self.report
         if set(self.steps) <= {"tidy", "store_rows"}:  # tidy / base rows only: no stores / products / stock planning

@@ -53,7 +53,7 @@ _HERE = Path(__file__).resolve().parent
 DATA_DIRS = (_HERE.parent / "dags" / "jsons" / "stock_takes", Path("/opt/airflow/dags/jsons/stock_takes"))
 PRICE_DIRS = (_HERE.parent / "dags" / "jsons" / "rate_cards", Path("/opt/airflow/dags/jsons/rate_cards"))
 NS = uuid.UUID("7a4e2c1d-9b3f-4e8a-b6d5-1f0c3e2a9d47")
-STEPS = ["stores", "products", "stock", "store_rows"]
+STEPS = ["stores", "products", "stock", "tidy", "store_rows"]
 
 TARGETS = {
     "kerugoya_prod": {
@@ -101,6 +101,21 @@ TARGETS = {
         },
         "fallback_category": {"pharmacy": "PHARMACY", "dental": "Consumable", "optical": "STORES"},
         "qty_fixes": {("pharmacy", 205): 166},
+        # 2026-11-25 (user): the data belongs in 368; 367 is not in use. 368's stores must be exactly Main Store,
+        # Pharmacy Store, Nursing Store, Laboratory Store, Optical Store, Dental Store; the org-wide Main / Pharmacy
+        # (they carried 367's items = duplicates in 368), the wrongly-made 986 / 987 and the extra lab store go off.
+        # Store names are unique per org, so 367's "Laboratory Store" is renamed first. All reversible (is_active).
+        "tidy": {
+            "renames": [(968, "Laboratory Store - KMC"), (960, "Laboratory Store"), (988, "Pharmacy Store")],
+            "create": [{"name": "Main Store", "code": "KTC-MAIN", "type": "main", "is_main_store": 1,
+                        "can_order_from_suppliers": 1, "can_update_product_prices": 1, "is_consumable": 0,
+                        "description": "Main store, Kerugoya Town Clinic (facility 368)"}],
+            "deactivate_stores": [944, 945, 986, 987, 990],
+            "keep_stores": ["Main Store", "Pharmacy Store", "Nursing Store", "Laboratory Store", "Optical Store",
+                            "Dental Store"],
+            "deactivate_template_products": True,   # facility-NULL products still active (the 96 kept yesterday)
+            "exact_names": True,                    # 368 product names = the sheet's spelling
+        },
     },
 }
 
@@ -718,9 +733,93 @@ class Run:
                                    base_rows_missing_by_store=dict(Counter(r["store_id"] for r in rows)))
         self.many("base_rows", rows, lambda r: self.insert("inventory", "stock", r))
 
+    # ── facility tidy-up: exact store list, no template / duplicate products, sheet names ──
+    def run_tidy(self):
+        t = self.cfg.get("tidy")
+        if not t:
+            log.info("no tidy plan for %s", self.target)
+            return
+        stores = {s["id"]: s for s in self.live("inventory", "store", 1)}
+        by_name = {s["name"].strip().lower(): s for s in stores.values()}
+        qty = defaultdict(int)
+        for s in self.stock:
+            qty[s["store_id"]] += int(s.get("quantity") or 0)
+        plan = {"renames": [], "create": [], "deactivate_stores": [], "stock_in_deactivated": {}}
+        for sid, name in t["renames"]:
+            s = stores.get(sid)
+            if s and s["name"] != name:
+                plan["renames"].append({"_key": sid, "id": sid, "before": s["name"], "data": {"name": name}})
+        for c in t["create"]:
+            ex = by_name.get(c["name"].lower())
+            if not ex:
+                plan["create"].append({"_key": c["name"], "uuid": gid(self.target, "store", c["name"]), "is_active": 1, **c})
+        for sid in t["deactivate_stores"]:
+            s = stores.get(sid)
+            if s and s.get("is_active", True):
+                plan["deactivate_stores"].append({"_key": sid, "id": sid, "name": s["name"], "data": {"is_active": 0}})
+                if qty.get(sid):
+                    plan["stock_in_deactivated"][f"{sid} {s['name']}"] = qty[sid]
+        tpl = [p for p in self.products if p.get("facility_id") is None and p.get("is_active", True)] \
+            if t.get("deactivate_template_products") else []
+        renames_p = []
+        if t.get("exact_names"):
+            sheet_name = {}
+            for sheet, sd in self.data["sheets"].items():
+                for r in sd["rows"]:
+                    sheet_name.setdefault(r["code"] or f"{sheet}:{key(r['name'])}", r["name"])
+            uuid_of = {str(p.get("uuid")).lower(): p for p in self.products if p.get("uuid")}
+            mine_by_name, mine_by_code = {}, {}
+            for q in sorted(self.products, key=lambda q: q["id"]):
+                if q.get("facility_id") == self.fac and q.get("is_active", True):
+                    mine_by_name.setdefault(key(q.get("generic_name")), q)
+                    if q.get("code"):
+                        mine_by_code.setdefault(str(q["code"]).upper(), q)
+            for sheet, sd in self.data["sheets"].items():
+                for r in sd["rows"]:
+                    k = r["code"] or f"{sheet}:{key(r['name'])}"
+                    p = uuid_of.get(gid(self.target, "product", k))
+                    if not p:                         # an existing 368 product the mirror reused (same name / code)
+                        p = (mine_by_name.get(key(r["name"])) or mine_by_code.get(r["code"])
+                             or mine_by_code.get(f"{r['code']}-F{self.fac}"))
+                    want = sheet_name[k][:255]
+                    if p and p.get("facility_id") == self.fac and p.get("generic_name") != want \
+                            and not any(x["id"] == p["id"] for x in renames_p):
+                        renames_p.append({"_key": p["id"], "id": p["id"], "before": p.get("generic_name"),
+                                          "data": {"generic_name": want}})
+        self.report["plan"].update(
+            tidy_store_renames=[f"{x['before']} → {x['data']['name']}" for x in plan["renames"]],
+            tidy_stores_new=[c["name"] for c in plan["create"]],
+            tidy_stores_off=[f"{x['id']} {x['name']}" for x in plan["deactivate_stores"]],
+            tidy_stock_in_stores_off=plan["stock_in_deactivated"],
+            tidy_template_products_off=len(tpl), tidy_product_renames=len(renames_p))
+        self.report["detail"]["tidy_product_renames"] = renames_p[:500]
+        upd = lambda alias: (lambda x: self.update("inventory", alias, x["id"], x["data"]))
+        w, self.workers = self.workers, 1            # renames strictly in order: 968 frees the name 960 takes
+        self.many("store_renames", plan["renames"], upd("store"))
+        self.workers = w
+        self.many("stores_new", plan["create"], lambda s: self.insert("inventory", "store", s, match_on="uuid"))
+        self.many("stores_off", plan["deactivate_stores"], upd("store"))
+        self.many("template_products_off", [{"_key": p["id"], "id": p["id"], "data": {"is_active": 0}} for p in tpl],
+                  upd("product"))
+        self.many("product_renames", renames_p, upd("product"))
+        if not self.dry_run:                         # the kept list must now be exactly the client's
+            mine = sorted(s["name"] for s in self.live("inventory", "store", 1)
+                          if s.get("is_active", True) and s.get("facility_id") in (self.fac, None))
+            self.report["result"]["stores_now"] = mine
+            if sorted(t["keep_stores"]) != mine:
+                self.report["failures"].append({"kind": "tidy", "key": "stores", "error": f"store list is {mine}"})
+
     def load(self) -> dict:
-        if self.steps == ["store_rows"]:              # only the base rows: no stores / products / stock planning
+        if set(self.steps) <= {"tidy", "store_rows"}:  # tidy / base rows only: no stores / products / stock planning
             self.read_inventory()
+            if "tidy" in self.steps:
+                self.run_tidy()
+                if not self.dry_run:
+                    self.read_inventory()
+            if "store_rows" not in self.steps:
+                log.info("plan: %s", json.dumps(self.report["plan"], default=str))
+                log.info("result: %s", json.dumps(self.report["result"], default=str))
+                return self.report
             self.run_store_rows()
             log.info("plan: %s", json.dumps(self.report["plan"], default=str))
             log.info("result: %s", json.dumps(self.report["result"], default=str))

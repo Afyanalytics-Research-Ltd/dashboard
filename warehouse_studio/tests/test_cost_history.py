@@ -385,6 +385,19 @@ class SessionInfoTests(SimpleTestCase):
 
 
 @override_settings(WAREHOUSE_STUDIO=SETTINGS)
+class SessionOnDatabendTests(SimpleTestCase):
+    def test_show_warehouses_rows_without_a_name_are_ignored(self):
+        from warehouse_studio.services import session
+        row = {'account_locator': 'DATABEND', 'roles': '["public"]'}
+        def records(sql, *a, **k):
+            return [dict(row)] if sql.startswith('SELECT') else [{'warehouse': 'default', 'status': 'Running'}]
+        cache.clear()
+        with mock.patch.object(executor, 'records', side_effect=records),                 mock.patch.object(sources, 'probe', return_value={}):
+            out = session.info(refresh=True)
+        self.assertEqual(out['warehouses'], [])
+        self.assertEqual(out['account_locator'], 'DATABEND')
+
+
 class HistoryTests(SimpleTestCase):
     EVIL = "x' OR 1=1 --"
 

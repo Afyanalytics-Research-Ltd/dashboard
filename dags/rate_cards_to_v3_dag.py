@@ -36,7 +36,7 @@ log = logging.getLogger(__name__)
 
 TARGETS = ["kerugoya_prod", "kerugoya_town_prod"]
 STEPS = ["procedures", "schemes", "scheme_pricing", "product_prices", "inpatient_charges", "company_pricing", "verify",
-         "sha_move"]
+         "sha_move", "copy_facility_prices", "catalog"]
 
 
 def _run(step: str) -> dict:
@@ -126,8 +126,18 @@ def rate_cards_to_v3():
         """default insurance columns (procedures + products) → SHA company prices, then cleared to 0"""
         return _run("sha_move")
 
-    (procedures() >> schemes() >> scheme_pricing() >> product_prices() >> inpatient_charges() >> company_pricing()
-     >> sha_move() >> verify())
+    @task(execution_timeout=timedelta(hours=1))
+    def catalog() -> dict:
+        """service list = the sheets: names / categories (Cash card for procedures, SHA card for lab)"""
+        return _run("catalog")
+
+    @task(execution_timeout=timedelta(hours=1))
+    def copy_facility_prices() -> dict:
+        """procedure prices this facility lacks, copied from the source facility (level 5)"""
+        return _run("copy_facility_prices")
+
+    (procedures() >> catalog() >> schemes() >> scheme_pricing() >> product_prices() >> inpatient_charges()
+     >> company_pricing() >> sha_move() >> copy_facility_prices() >> verify())
 
 
 rate_cards_to_v3()

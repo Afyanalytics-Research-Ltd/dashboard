@@ -29,7 +29,7 @@ import build_notebook as B  # noqa: E402
 USER = os.environ.get("KAGGLE_USERNAME", "lutherlunyamwi")
 SLUG = B.KAGGLE_SLUG
 TITLE = "adventproclaimer_multilingual_translator"
-SECRETS = f"{USER}/btp-secrets"
+PRIVATE_DATASET = f"{USER}/btp-secrets"   # holds only the W&B key (tools/kaggle_secrets.py)
 
 
 def kaggle_exe() -> str:
@@ -132,27 +132,13 @@ def set_params(nb: dict, params: dict[str, str]) -> dict:
 
 
 def write_secrets_dataset() -> None:
-    env = {}
-    for line in (REPO / ".env").read_text(encoding="utf-8").splitlines():
-        if "=" in line and not line.startswith("#"):
-            k, v = line.split("=", 1)
-            env[k.strip()] = v.strip()
-    if "WANDB_API_KEY" not in env:
-        raise SystemExit("WANDB_API_KEY missing from .env")
-    with tempfile.TemporaryDirectory() as d:
-        # only the W&B key goes to Kaggle -- Google/Kaggle credentials stay on this machine
-        Path(d, "btp.env").write_text(f"WANDB_API_KEY={env['WANDB_API_KEY']}\nWANDB_PROJECT="
-                                      f"{env.get('WANDB_PROJECT', 'kenyan-speech-mt')}\n", encoding="utf-8")
-        Path(d, "dataset-metadata.json").write_text(json.dumps(
-            {"title": "btp-secrets", "id": SECRETS, "licenses": [{"name": "other"}]}), encoding="utf-8")
-        exists = kaggle("datasets", "status", SECRETS, check=False).returncode == 0
-        if exists:
-            r = kaggle("datasets", "version", "-p", d, "-m", "update W&B key")
-        else:
-            r = kaggle("datasets", "create", "-p", d)       # private unless --public
-        print(r.stdout.strip())
-    meta = kaggle("datasets", "metadata", SECRETS, "-p", tempfile.gettempdir(), check=False)
-    print("private dataset ready:", SECRETS, "(" + ("ok" if meta.returncode == 0 else meta.stderr.strip()) + ")")
+    """`secrets`: a one-time developer step, in its own file so it is not exported to Airflow."""
+    try:
+        from kaggle_secrets import write_secrets_dataset as write
+    except ImportError:
+        raise SystemExit("`secrets` runs from a full checkout of book-translation-pipeline "
+                         "(tools/kaggle_secrets.py), not from the Airflow copy") from None
+    write()
 
 
 def kaggle_notebook() -> dict:
@@ -192,7 +178,7 @@ def cmd_push(args) -> None:
         Path(d, f"{TITLE}.ipynb").write_text(B.render(nb), encoding="utf-8")
         meta = {"id": f"{USER}/{SLUG}", "title": TITLE, "code_file": f"{TITLE}.ipynb", "language": "python",
                 "kernel_type": "notebook", "is_private": True, "enable_gpu": True, "enable_tpu": False,
-                "enable_internet": True, "dataset_sources": [SECRETS], "competition_sources": [],
+                "enable_internet": True, "dataset_sources": [PRIVATE_DATASET], "competition_sources": [],
                 "kernel_sources": [f"{USER}/{SLUG}"] if args.resume else [], "model_sources": []}
         if args.machine:
             meta["machine_shape"] = args.machine

@@ -99,6 +99,9 @@ TARGETS = {
         },
         "fallback_category": {"pharmacy": "PHARMACY", "dental": "Consumable", "optical": "STORES"},
         "qty_fixes": {("pharmacy", 205): 166},
+        # 2026-11-25 (user): the Town Clinic is DISPENSING — a batch already in V3 keeps its quantity (no recount to
+        # the 23.11 sheet); only missing batches are added. The check counts "below the sheet" as dispensed.
+        "never_recount": True,
         # 2026-11-25 (user): the data belongs in 368; 367 is not in use. 368's stores must be exactly Main Store,
         # Pharmacy Store, Nursing Store, Laboratory Store, Optical Store, Dental Store; the org-wide Main / Pharmacy
         # (they carried 367's items = duplicates in 368), the wrongly-made 986 / 987 and the extra lab store go off.
@@ -117,6 +120,7 @@ TARGETS = {
             "deactivate_template_products": True,   # facility-NULL products still active (the 96 kept yesterday)
             "exact_names": True,                    # 368 product names = the sheet's spelling
             "deactivate_unlisted": True,            # 368 products on none of the sheets → off (user 2026-11-25)
+            "dedupe_products": True,                # same product name twice in 368 → keep one (LOMOH 60MG INJ)
         },
         # 2026-11-25 (user): each store lists ONLY its own sheet (every store showed all 3,346 products after the
         # app-style "base row in every store"). Stock rows cannot be deleted through the gateway, so the extra base rows
@@ -145,6 +149,20 @@ DRUG = re.compile(r"\b(\d+(\.\d+)?\s*(mg|mcg|g|iu|i\.u|ml|mls|%)|tabs?|tablets?|
                   r"susp|suspension|cream|oint|ointment|drops?|gel|lotion|vial|amp|ampoule|inhaler|pessar\w*|suppos\w*|"
                   r"sachets?|elixir|solution|mixture)\b", re.I)
 NOT_DRUG = re.compile(r"\b(ds|dcx|tint|lens|lenses|bifocal|frame|needle|syringes?|collector|catheters?|bags?)\b", re.I)
+
+
+def local_date(v):
+    """V3 returns a date as UTC midnight-of-Nairobi (2026-12-30T21:00:00Z = 2026-12-31 EAT): the Kenya date."""
+    s = str(v or "")
+    if not s:
+        return None
+    if "T" in s:
+        try:
+            d = dt.datetime.fromisoformat(s.replace("Z", "+00:00")) + dt.timedelta(hours=3)
+            return d.date().isoformat()
+        except ValueError:
+            pass
+    return s[:10]
 
 
 def is_duplicate(err) -> bool:
@@ -617,13 +635,16 @@ class Run:
                     note = (f"{cfg['label']} ({sd['file']} row {r['row']})" +
                             ("" if r["batch_no"] else "; no batch no. on the sheet") +
                             ("" if r["expiry"] else "; no expiry on the sheet"))
+                    if b and cfg.get("never_recount"):     # dispensing facility: V3's quantity is the truth now
+                        same += 1
+                        continue
                     if b:
                         upd_b.append({"_key": f"{sheet}|{k}|{bno}", "batch": b, "p": p, "store": store, "qty": r["qty"],
                                       "before": int(b.get("quantity_available") or 0), "note": note, "cost": cost})
                     else:
                         new_b.append({"_key": f"{sheet}|{k}|{bno}", "p": p, "store": store, "qty": r["qty"], "bno": bno,
                                       "expiry": r["expiry"], "cost": cost, "sell": sell, "note": note})
-                elif pid and held.get((pid, store)):
+                elif pid and held.get((pid, store)) and not cfg.get("never_recount"):
                     for b in held[(pid, store)]:
                         zeroed.append({"_key": f"{sheet}|{k}|{b['batch_no']}|zero", "batch": b, "p": p, "store": store,
                                        "qty": 0, "before": int(b.get("quantity_available") or 0), "cost": cost,
@@ -894,7 +915,7 @@ class Run:
         for s in self.stock:
             if (s.get("quantity") or 0) > 0:
                 pos[(s["store_id"], s["product_id"])].append(s)
-        res, issues = Counter(), []
+        res, issues, dispensed = Counter(), [], []
         expected_pos = set()
         for sheet, sd in self.data["sheets"].items():
             st = where.get(sheet)
@@ -911,10 +932,13 @@ class Run:
                     want_b = r["batch_no"] or f"{self.cfg['prefix']}-{self.data['count_date'].replace('-', '')}-{r['code'] or r['row']}"
                     bs = [batches.get(s.get("batch_id")) or {} for s in rows]
                     bnos = [clean(b.get("batch_no")) for b in bs]
-                    exps = [str(b.get("expiry_date") or "")[:10] or None for b in bs]
+                    exps = [local_date(b.get("expiry_date")) for b in bs]
                     prob = []
-                    if qty != r["qty"]:
-                        prob.append(f"qty {qty}≠{r['qty']}")
+                    if qty > r["qty"]:
+                        prob.append(f"qty {qty} above the sheet's {r['qty']}")
+                    elif qty < r["qty"]:
+                        res["below sheet (dispensed)"] += 1
+                        dispensed.append(f"{sheet} row {r['row']} {r['name']}: {qty} of {r['qty']}")
                     if want_b not in bnos:
                         prob.append(f"batch {bnos}≠{want_b}")
                     if len(bnos) != len(set(bnos)):
@@ -925,17 +949,25 @@ class Run:
                         res["mismatch"] += 1; issues.append(f"{sheet} row {r['row']} {r['name']}: {'; '.join(prob)}")
                     else:
                         res["ok"] += 1
-                elif qty:
+                elif qty and not self.cfg.get("never_recount"):
                     res["mismatch"] += 1; issues.append(f"{sheet} row {r['row']} {r['name']}: counted 0 but store holds {qty}")
+                elif qty:
+                    res["counted 0, stock received since"] += 1
                 else:
                     res["ok (0)"] += 1
-        stray = [(sid, pid) for (sid, pid) in pos if sid in set(where.values()) | set(stores.values())
-                 and (sid, pid) not in expected_pos]
+        # stock in a SHEET store that its sheet doesn't count (stores without a sheet — e.g. the Laboratory Store the
+        # team stocked directly — are not judged)
+        stray = [(sid, pid) for (sid, pid) in pos if sid in set(where.values()) and (sid, pid) not in expected_pos]
+        other = Counter(sname for (sid, pid) in pos for sname in [{v: k for k, v in stores.items()}.get(sid)]
+                        if sid not in set(where.values()) and sname)
+        log.info("stock in stores without a sheet (not judged): %s", dict(other))
         sname = {v: k for k, v in stores.items()}
         pname = {p["id"]: p.get("generic_name") for p in self.products}
         self.report["plan"].update(verify_rows=dict(res), verify_stock_not_on_sheet=len(stray),
                                    verify_duplicate_product_names=len(dup_names),
                                    verify_org_wide_products_visible=len(visible_org))
+        self.report["detail"]["verify_dispensed"] = dispensed[:300]
+        log.info("verify_dispensed (below the 23.11 count — dispensing): %s", json.dumps(dispensed[:300]))
         self.report["detail"].update(verify_issues=issues[:200],
                                      verify_stray=[f"{sname.get(s)}: {pname.get(p)}" for s, p in stray[:100]],
                                      verify_dup_names=list(dup_names.items())[:100])
@@ -1004,6 +1036,21 @@ class Run:
                    and str(p.get("item_no") or "").upper() not in codes]
             self.report["detail"]["unlisted_products_off"] = [(p["id"], p.get("generic_name")) for p in unl]
             tpl = tpl + unl
+        if t.get("dedupe_products"):                 # same name twice in the facility: keep the stocked / our one
+            stocked = {s["product_id"] for s in self.stock if (s.get("quantity") or 0) > 0}
+            ours = {str(gid(self.target, "product", r["code"] or f"{sh}:{key(r['name'])}"))
+                    for sh, sd in self.data["sheets"].items() for r in sd["rows"]}
+            groups = defaultdict(list)
+            for p in self.products:
+                if p.get("facility_id") == self.fac and p.get("is_active", True):
+                    groups[key(p.get("generic_name"))].append(p)
+            drop = []
+            for name, ps in groups.items():
+                if len(ps) > 1:
+                    ps = sorted(ps, key=lambda p: (p["id"] not in stocked, str(p.get("uuid")).lower() not in ours, p["id"]))
+                    drop += ps[1:]
+            self.report["detail"]["duplicate_products_off"] = [(p["id"], p.get("generic_name")) for p in drop]
+            tpl = tpl + [p for p in drop if p["id"] not in {x["id"] for x in tpl}]
         renames_p = []
         if t.get("exact_names"):
             sheet_name = {}
@@ -1061,14 +1108,13 @@ class Run:
                 self.report["failures"].append({"kind": "tidy", "key": "stores", "error": f"store list is {mine}"})
 
     def load(self) -> dict:
-        if set(self.steps) <= {"departments", "verify"}:  # departments and / or the read-only check
+        if set(self.steps) <= {"tidy", "departments", "verify"}:  # follow-ups on loaded data + the read-only check
             self.read_inventory()
-            if "departments" in self.steps:
-                self.run_departments()
-                if not self.dry_run and "verify" in self.steps:
-                    self.read_inventory()
-            if "verify" in self.steps:
-                self.run_verify()
+            for step, fn in (("tidy", self.run_tidy), ("departments", self.run_departments), ("verify", self.run_verify)):
+                if step in self.steps:
+                    fn()
+                    if not self.dry_run and step != "verify":
+                        self.read_inventory()
             log.info("plan: %s", json.dumps(self.report["plan"], default=str))
             return self.report
         if set(self.steps) <= {"tidy", "store_rows"}:  # tidy / base rows only: no stores / products / stock planning

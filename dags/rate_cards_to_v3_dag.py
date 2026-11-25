@@ -35,7 +35,7 @@ from pipelines_common import use_pipelines_dir
 log = logging.getLogger(__name__)
 
 TARGETS = ["kerugoya_prod", "kerugoya_town_prod"]
-STEPS = ["procedures", "schemes", "scheme_pricing", "product_prices", "inpatient_charges", "company_pricing"]
+STEPS = ["procedures", "schemes", "scheme_pricing", "product_prices", "inpatient_charges", "company_pricing", "verify"]
 
 
 def _run(step: str) -> dict:
@@ -115,7 +115,12 @@ def rate_cards_to_v3():
         """each insurer's whole card as company prices (Procedures Pricing — <insurer> → Company Price)"""
         return _run("company_pricing")
 
-    procedures() >> schemes() >> scheme_pricing() >> product_prices() >> inpatient_charges() >> company_pricing()
+    @task(execution_timeout=timedelta(hours=1), trigger_rule="all_done")
+    def verify() -> dict:
+        """read-only, record by record: facility prices + every insurer's company prices vs the sheets"""
+        return _run("verify")
+
+    procedures() >> schemes() >> scheme_pricing() >> product_prices() >> inpatient_charges() >> company_pricing() >> verify()
 
 
 rate_cards_to_v3()

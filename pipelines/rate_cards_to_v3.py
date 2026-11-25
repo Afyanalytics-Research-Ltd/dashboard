@@ -49,7 +49,7 @@ _HERE = Path(__file__).resolve().parent
 DATA_DIRS = (_HERE.parent / "dags" / "jsons" / "rate_cards", Path("/opt/airflow/dags/jsons/rate_cards"))
 NS = uuid.UUID("0c1f6f0e-3b0a-4d55-9a3e-7c2b8e5d4a21")
 STEPS = ["procedures", "schemes", "scheme_pricing", "product_prices", "inpatient_charges", "company_pricing", "verify",
-         "sha_move"]
+         "sha_move", "copy_facility_prices"]
 SHA_COMPANY = 2817
 
 # Company price rules (user / KMC, 2026-11-25, level 3 Town Clinic): pre-negotiated cards for AAR, APA, Jubilee,
@@ -127,10 +127,14 @@ TARGETS = {
 # Only the procedures step — schemes / scheme prices are org-wide and already loaded by kerugoya_prod (a run here
 # would make duplicate schemes under this target's uuids).
 TARGETS["kerugoya_town_prod"] = {**TARGETS["kerugoya_prod"], "data_target": "kerugoya_prod",
-                                 "only_steps": ["procedures", "inpatient_charges", "company_pricing", "verify", "sha_move"],
+                                 "only_steps": ["procedures", "inpatient_charges", "company_pricing", "verify", "sha_move",
+                                                "copy_facility_prices"],
                                  # KMC team 2026-11-25: insurers (SHA included) are priced through their companies;
                                  # the facility's DEFAULT insurance column stays 0
                                  "no_default_insurance": True,
+                                 # KMC team 2026-11-25: the procedures THEY created were priced under level 5 (367)
+                                 # only → copy each 367 price the Town Clinic lacks (cash as-is; insurance → SHA)
+                                 "copy_prices_from_facility": 367,
                                  "label": "Kerugoya Town Clinic prices (mirror of Kerugoya Medical Centre, 2026-11)"}
 
 
@@ -762,6 +766,62 @@ class Run:
                    [{"_key": p["id"], "id": p["id"]} for p in pd_ok],
                    lambda u: self.update("inventory", "product", u["id"], {"insurance_price": 0}))
 
+    # ── procedures priced only at another facility (the team's own, at level 5) → this facility ──
+    def run_copy_facility_prices(self):
+        src = self.cfg.get("copy_prices_from_facility")
+        if not src:
+            log.info("no copy_prices_from_facility for %s", self.target)
+            return
+        uid_t = self.cfg.get("data_target", self.target)
+        procs = {p["id"]: p for p in self.live("evaluation", "procedures")}
+        rows = [p for p in self.c.read_all("evaluation", "procedure_prices", workers=8) if not p.get("deleted_at")]
+        mine = {}
+        for p in rows:
+            if p.get("facility_id") == self.fac:
+                mine.setdefault(p["evaluation_procedure_id"], p)
+        theirs = {}
+        for p in sorted(rows, key=lambda p: p["id"]):
+            if p.get("facility_id") == src:
+                theirs.setdefault(p["evaluation_procedure_id"], p)
+        sha = {r.get("priceable_id") for r in self.live("core", "company_pricing", 1)
+               if r.get("company_id") == SHA_COMPANY and r.get("priceable_type") == "procedure" and r.get("status") != "inactive"}
+        new, sha_new, differ, inactive = [], [], [], 0
+        for pid, s in theirs.items():
+            pr = procs.get(pid)
+            if not pr:
+                continue
+            if not pr.get("active", True):
+                inactive += 1
+            if pid in mine:
+                m = mine[pid]
+                if num(m.get("cash_charge")) != num(s.get("cash_charge")):
+                    differ.append(f"{pr.get('code')} {pr.get('name')}: {src} cash {num(s.get('cash_charge'))} | "
+                                  f"{self.fac} cash {num(m.get('cash_charge'))}")
+                continue
+            ins = num(s.get("insurance_charge"))
+            new.append({"_key": pid, "uuid": gid(uid_t, "copied_price", f"{pid}|{self.fac}"),
+                        "evaluation_procedure_id": pid, "facility_id": self.fac,
+                        "cash_charge": num(s.get("cash_charge")),
+                        "insurance_charge": 0.0 if self.cfg.get("no_default_insurance") else ins,
+                        "charge_insurance": int(bool(s.get("charge_insurance"))), "precharge": int(bool(s.get("precharge"))),
+                        "status": int(bool(s.get("status", 1))), "variable_pricing": int(bool(s.get("variable_pricing")))})
+            if ins and self.cfg.get("no_default_insurance") and pid not in sha:
+                sha.add(pid)
+                sha_new.append({"_key": f"sha|{pid}", "uuid": gid(uid_t, "sha_move", f"procedure|{pid}"),
+                                "company_id": SHA_COMPANY, "priceable_type": "procedure", "priceable_id": pid,
+                                "priceable_code": pr.get("code"), "price": ins, "requires_preauth": 0, "status": "active"})
+        self.report["plan"].update(copy_prices_source_facility=src, copy_prices_new=len(new),
+                                   copy_prices_sha_new=len(sha_new), copy_prices_already_here=len(theirs) - len(new),
+                                   copy_prices_cash_differs=len(differ), copy_prices_of_inactive_procedures=inactive)
+        self.report["detail"]["copy_prices_cash_differs"] = differ
+        log.info("procedures priced at both facilities with a different cash price (left as they are): %s",
+                 json.dumps(differ, default=str))
+        for x in new[:5]:
+            log.info("  copy: %s %s cash %s", x["evaluation_procedure_id"],
+                     procs.get(x["evaluation_procedure_id"], {}).get("name"), x["cash_charge"])
+        self._many("copied_prices", new, lambda r: self.insert("evaluation", "procedure_prices", r))
+        self._many("copied_prices_sha", sha_new, lambda r: self.insert("core", "company_pricing", r))
+
     # ── read-only, record by record: facility prices + company prices vs the sheets ──
     def run_verify(self):
         self.read_procedures()
@@ -862,6 +922,8 @@ class Run:
             self.run_company_pricing()
         if "sha_move" in self.steps:
             self.run_sha_move()
+        if "copy_facility_prices" in self.steps:
+            self.run_copy_facility_prices()
         if "verify" in self.steps:
             self.run_verify()
         log.info("plan: %s", self.report["plan"])

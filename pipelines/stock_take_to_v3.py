@@ -53,7 +53,7 @@ _HERE = Path(__file__).resolve().parent
 DATA_DIRS = (_HERE.parent / "dags" / "jsons" / "stock_takes", Path("/opt/airflow/dags/jsons/stock_takes"))
 PRICE_DIRS = (_HERE.parent / "dags" / "jsons" / "rate_cards", Path("/opt/airflow/dags/jsons/rate_cards"))
 NS = uuid.UUID("7a4e2c1d-9b3f-4e8a-b6d5-1f0c3e2a9d47")
-STEPS = ["stores", "products", "stock", "tidy", "store_rows"]
+STEPS = ["stores", "products", "stock", "tidy", "store_rows", "verify"]
 
 TARGETS = {
     "kerugoya_prod": {
@@ -92,10 +92,8 @@ TARGETS = {
         "data_target": "kerugoya_prod",            # same sheets + price lists
         "mirror_of": {"target": "kerugoya_prod", "facility": 367},
         "sheets": {
-            "pharmacy": {"file": "23.11.26- PHARMACY STOCK.xlsx", "code": "PHARM",
-                         "create": {"name": "Pharmacy - Kerugoya Town Clinic", "code": "KTC-PHARMACY", "type": "pharmacy",
-                                    "is_consumable": 0, "parent_store_id": 944,
-                                    "description": "Pharmacy, Kerugoya Town Clinic (facility 368)"}},
+            # store 988, created 2026-11-24 as "Pharmacy - Kerugoya Town Clinic", renamed "Pharmacy Store" 2026-11-25
+            "pharmacy": {"file": "23.11.26- PHARMACY STOCK.xlsx", "code": "PHARM", "store_id": 988},
             "dental": {"file": "Dental Stock Take.xlsx", "store_id": 957, "code": "DENT"},
             "optical": {"file": "Optical Stock Take.xlsx", "store_id": 958, "code": "OPT"},
         },
@@ -112,10 +110,13 @@ TARGETS = {
                         "description": "Main store, Kerugoya Town Clinic (facility 368)"}],
             # + 968 (367's lab store, renamed "Laboratory Store - KMC"): user, 2026-11-25 — no suffixed stores at all
             "deactivate_stores": [944, 945, 986, 987, 990, 968],
+            # switched-off stores still show under "All Status"; the gateway IGNORES deleted_at on stores (tried
+            # 2026-11-25, ok but still listed) → deleting 944/945/986/987/990/968 needs the V3 app / DB. Not attempted.
             "keep_stores": ["Main Store", "Pharmacy Store", "Nursing Store", "Laboratory Store", "Optical Store",
                             "Dental Store"],
             "deactivate_template_products": True,   # facility-NULL products still active (the 96 kept yesterday)
             "exact_names": True,                    # 368 product names = the sheet's spelling
+            "deactivate_unlisted": True,            # 368 products on none of the sheets → off (user 2026-11-25)
         },
         # 2026-11-25 (user): each store lists ONLY its own sheet (every store showed all 3,346 products after the
         # app-style "base row in every store"). Stock rows cannot be deleted through the gateway, so the extra base rows
@@ -707,13 +708,18 @@ class Run:
 
         # 4. stock take lines: one per sheet row
         by_key = {x["_key"].split("|")[1]: x for x in new_b + upd_b}
+        own_batch_id = {(b["product_id"], b["store_id"], clean(b["batch_no"])): b["id"] for b in self.batches}
         lines = []
         for sheet, items in take_items.items():
             for it in items:
                 x, r = by_key.get(it["k"]), it["r"]
+                # counted line without a sheet batch no. → the generated one its batch carries (user: batch nos. matter)
+                gen_bno = r["batch_no"] or (f"{cfg['prefix']}-{date.replace('-', '')}-{r['code'] or r['row']}"
+                                            if r["qty"] > 0 else None)
                 lines.append({"_key": f"{sheet}|{it['k']}", "uuid": gid(self.target, "stock_take_item", f"{sheet}|{it['k']}"),
                               "stock_take_id": take_ids[sheet], "product_id": it["p"]["id"],
-                              "batch_id": (x or {}).get("batch_id"), "counted_batch_no": r["batch_no"],
+                              "batch_id": (x or {}).get("batch_id") or own_batch_id.get((it["p"]["id"], self.store_ids[sheet], gen_bno)),
+                              "counted_batch_no": gen_bno,
                               "counted_expiry_date": r["expiry"], "expected_quantity": it["expected"],
                               "counted_quantity": r["qty"], "variance": r["qty"] - it["expected"],
                               "is_reconciled": 1, "is_unexpected": 0, "notes": r["notes"]})
@@ -790,6 +796,78 @@ class Run:
         if bad:
             self.report["failures"].append({"kind": "store_scope", "key": "counts", "error": f"listed vs sheet: {bad}"})
 
+    def run_verify(self):
+        """read-only, record by record: every sheet row vs the facility's stores (product once, quantity, batch no.,
+        expiry, right store, nothing in the wrong store, no duplicate batch rows)."""
+        live = [p for p in self.products if p.get("is_active", True)]
+        mine = [p for p in live if p.get("facility_id") == self.fac]
+        dup_names = {n: k for n, k in Counter(key(p.get("generic_name")) for p in mine).items() if k > 1}
+        visible_org = [p for p in live if p.get("facility_id") is None]
+        by_uuid = {str(p.get("uuid")).lower(): p for p in mine if p.get("uuid")}
+        by_name, by_code = defaultdict(list), {}
+        for p in mine:
+            by_name[key(p.get("generic_name"))].append(p)
+            if p.get("code"):
+                by_code.setdefault(str(p["code"]).upper(), p)
+        stores = {s["name"]: s["id"] for s in self.live("inventory", "store", 1)
+                  if s.get("is_active", True) and s.get("facility_id") == self.fac}
+        where = {sheet: stores.get(n) for n, sheet in (self.cfg.get("store_scope") or {}).items() if sheet}
+        batches = {b["id"]: b for b in self.batches}
+        pos = defaultdict(list)                      # (store, product) → stock rows with quantity
+        for s in self.stock:
+            if (s.get("quantity") or 0) > 0:
+                pos[(s["store_id"], s["product_id"])].append(s)
+        res, issues = Counter(), []
+        expected_pos = set()
+        for sheet, sd in self.data["sheets"].items():
+            st = where.get(sheet)
+            for r in sd["rows"]:
+                k = r["code"] or f"{sheet}:{key(r['name'])}"
+                p = (by_uuid.get(gid(self.target, "product", k)) or (by_name.get(key(r["name"])) or [None])[0]
+                     or by_code.get(r["code"]) or by_code.get(f"{r['code']}-F{self.fac}"))
+                if not p:
+                    res["no product"] += 1; issues.append(f"{sheet} row {r['row']} {r['name']}: no product"); continue
+                rows = pos.get((st, p["id"]), [])
+                qty = sum(int(s.get("quantity") or 0) for s in rows)
+                if r["qty"] > 0:
+                    expected_pos.add((st, p["id"]))
+                    want_b = r["batch_no"] or f"{self.cfg['prefix']}-{self.data['count_date'].replace('-', '')}-{r['code'] or r['row']}"
+                    bs = [batches.get(s.get("batch_id")) or {} for s in rows]
+                    bnos = [clean(b.get("batch_no")) for b in bs]
+                    exps = [str(b.get("expiry_date") or "")[:10] or None for b in bs]
+                    prob = []
+                    if qty != r["qty"]:
+                        prob.append(f"qty {qty}≠{r['qty']}")
+                    if want_b not in bnos:
+                        prob.append(f"batch {bnos}≠{want_b}")
+                    if len(bnos) != len(set(bnos)):
+                        prob.append(f"duplicate batch rows {bnos}")
+                    if r["expiry"] and r["expiry"] not in exps:
+                        prob.append(f"expiry {exps}≠{r['expiry']}")
+                    if prob:
+                        res["mismatch"] += 1; issues.append(f"{sheet} row {r['row']} {r['name']}: {'; '.join(prob)}")
+                    else:
+                        res["ok"] += 1
+                elif qty:
+                    res["mismatch"] += 1; issues.append(f"{sheet} row {r['row']} {r['name']}: counted 0 but store holds {qty}")
+                else:
+                    res["ok (0)"] += 1
+        stray = [(sid, pid) for (sid, pid) in pos if sid in set(where.values()) | set(stores.values())
+                 and (sid, pid) not in expected_pos]
+        sname = {v: k for k, v in stores.items()}
+        pname = {p["id"]: p.get("generic_name") for p in self.products}
+        self.report["plan"].update(verify_rows=dict(res), verify_stock_not_on_sheet=len(stray),
+                                   verify_duplicate_product_names=len(dup_names),
+                                   verify_org_wide_products_visible=len(visible_org))
+        self.report["detail"].update(verify_issues=issues[:200],
+                                     verify_stray=[f"{sname.get(s)}: {pname.get(p)}" for s, p in stray[:100]],
+                                     verify_dup_names=list(dup_names.items())[:100])
+        for k in ("verify_issues", "verify_stray", "verify_dup_names"):
+            log.info("%s: %s", k, json.dumps(self.report["detail"][k], default=str))
+        n = res["mismatch"] + res["no product"] + len(stray) + len(dup_names) + len(visible_org)
+        if n:
+            self.report["failures"].append({"kind": "verify", "key": "stock", "error": f"{n} issues (see log)"})
+
     def run_store_rows(self):
         if self.cfg.get("store_scope"):              # scoped facility: each store lists only its sheet
             return self.run_store_scope()
@@ -840,6 +918,15 @@ class Run:
                     plan["stock_in_deactivated"][f"{sid} {s['name']}"] = qty[sid]
         tpl = [p for p in self.products if p.get("facility_id") is None and p.get("is_active", True)] \
             if t.get("deactivate_template_products") else []
+        if t.get("deactivate_unlisted"):             # facility products that are on none of the sheets
+            names = {key(r["name"]) for sd in self.data["sheets"].values() for r in sd["rows"]}
+            codes = {r["code"] for sd in self.data["sheets"].values() for r in sd["rows"] if r["code"]}
+            unl = [p for p in self.products if p.get("facility_id") == self.fac and p.get("is_active", True)
+                   and key(p.get("generic_name")) not in names
+                   and str(p.get("code") or "").upper().replace(f"-F{self.fac}", "") not in codes
+                   and str(p.get("item_no") or "").upper() not in codes]
+            self.report["detail"]["unlisted_products_off"] = [(p["id"], p.get("generic_name")) for p in unl]
+            tpl = tpl + unl
         renames_p = []
         if t.get("exact_names"):
             sheet_name = {}
@@ -878,6 +965,14 @@ class Run:
         self.workers = w
         self.many("stores_new", plan["create"], lambda s: self.insert("inventory", "store", s, match_on="uuid"))
         self.many("stores_off", plan["deactivate_stores"], upd("store"))
+        dels = [{"_key": sid, "id": sid, "data": {"is_active": 0, "deleted_at": time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())}}
+                for sid in t.get("delete_stores", []) if sid in stores]
+        self.report["plan"]["tidy_stores_deleted"] = [f"{x['id']} {stores[x['id']]['name']}" for x in dels]
+        self.many("stores_deleted", dels, upd("store"))
+        if dels and not self.dry_run:
+            left = {s["id"] for s in self.live("inventory", "store", 1)} & {x["id"] for x in dels}
+            if left:
+                self.report["failures"].append({"kind": "tidy", "key": "delete_stores", "error": f"still listed: {sorted(left)}"})
         self.many("template_products_off", [{"_key": p["id"], "id": p["id"], "data": {"is_active": 0}} for p in tpl],
                   upd("product"))
         self.many("product_renames", renames_p, upd("product"))
@@ -889,6 +984,11 @@ class Run:
                 self.report["failures"].append({"kind": "tidy", "key": "stores", "error": f"store list is {mine}"})
 
     def load(self) -> dict:
+        if self.steps == ["verify"]:                  # read-only check
+            self.read_inventory()
+            self.run_verify()
+            log.info("plan: %s", json.dumps(self.report["plan"], default=str))
+            return self.report
         if set(self.steps) <= {"tidy", "store_rows"}:  # tidy / base rows only: no stores / products / stock planning
             self.read_inventory()
             if "tidy" in self.steps:
@@ -913,6 +1013,10 @@ class Run:
                 self.read_inventory()                # new products' ids, fresh quantities
                 self.product_of.update({k: self.pid.get(p["id"], p) for k, p in self.product_of.items() if p.get("id")})
             self.run_stock()
+        if "tidy" in self.steps:
+            if not self.dry_run:
+                self.read_inventory()
+            self.run_tidy()
         if "store_rows" in self.steps:
             if not self.dry_run:
                 self.read_inventory()

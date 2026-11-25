@@ -112,6 +112,8 @@ TARGETS = {
                         "description": "Main store, Kerugoya Town Clinic (facility 368)"}],
             # + 968 (367's lab store, renamed "Laboratory Store - KMC"): user, 2026-11-25 — no suffixed stores at all
             "deactivate_stores": [944, 945, 986, 987, 990, 968],
+            # switched-off stores still show under the store list's "All Status" (user saw 11): soft-delete them too
+            "delete_stores": [944, 945, 986, 987, 990, 968],
             "keep_stores": ["Main Store", "Pharmacy Store", "Nursing Store", "Laboratory Store", "Optical Store",
                             "Dental Store"],
             "deactivate_template_products": True,   # facility-NULL products still active (the 96 kept yesterday)
@@ -878,6 +880,14 @@ class Run:
         self.workers = w
         self.many("stores_new", plan["create"], lambda s: self.insert("inventory", "store", s, match_on="uuid"))
         self.many("stores_off", plan["deactivate_stores"], upd("store"))
+        dels = [{"_key": sid, "id": sid, "data": {"is_active": 0, "deleted_at": time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())}}
+                for sid in t.get("delete_stores", []) if sid in stores]
+        self.report["plan"]["tidy_stores_deleted"] = [f"{x['id']} {stores[x['id']]['name']}" for x in dels]
+        self.many("stores_deleted", dels, upd("store"))
+        if dels and not self.dry_run:
+            left = {s["id"] for s in self.live("inventory", "store", 1)} & {x["id"] for x in dels}
+            if left:
+                self.report["failures"].append({"kind": "tidy", "key": "delete_stores", "error": f"still listed: {sorted(left)}"})
         self.many("template_products_off", [{"_key": p["id"], "id": p["id"], "data": {"is_active": 0}} for p in tpl],
                   upd("product"))
         self.many("product_renames", renames_p, upd("product"))

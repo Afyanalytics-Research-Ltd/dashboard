@@ -32,9 +32,11 @@ def info(context: Context | None = None, refresh: bool = False) -> dict:
         except ValueError:
             roles = [roles]
     try:
+        # Databend answers SHOW WAREHOUSES with its own columns (no `name`): treat any other shape as none.
         warehouses = [{'name': w['name'], 'size': w.get('size'), 'state': w.get('state'), 'type': w.get('type'),
                        'auto_suspend': w.get('auto_suspend')}
-                      for w in executor.records('SHOW WAREHOUSES', context=ctx, tag=executor.statement_tag('session'))]
+                      for w in executor.records('SHOW WAREHOUSES', context=ctx, tag=executor.statement_tag('session'))
+                      if 'name' in w]
     except executor.QueryError:
         warehouses = []
     if refresh:

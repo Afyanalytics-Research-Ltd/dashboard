@@ -385,6 +385,19 @@ class SessionInfoTests(SimpleTestCase):
 
 
 @override_settings(WAREHOUSE_STUDIO=SETTINGS)
+class SessionOnDatabendTests(SimpleTestCase):
+    def test_show_warehouses_rows_without_a_name_are_ignored(self):
+        from warehouse_studio.services import session
+        row = {'account_locator': 'DATABEND', 'roles': '["public"]'}
+        def records(sql, *a, **k):
+            return [dict(row)] if sql.startswith('SELECT') else [{'warehouse': 'default', 'status': 'Running'}]
+        cache.clear()
+        with mock.patch.object(executor, 'records', side_effect=records),                 mock.patch.object(sources, 'probe', return_value={}):
+            out = session.info(refresh=True)
+        self.assertEqual(out['warehouses'], [])
+        self.assertEqual(out['account_locator'], 'DATABEND')
+
+
 class HistoryTests(SimpleTestCase):
     EVIL = "x' OR 1=1 --"
 
@@ -451,6 +464,14 @@ class HistoryTests(SimpleTestCase):
         self.assertIn('ORDER BY total_elapsed_time DESC', sql)
         self.assertEqual(out['rows'][0]['usd'], 0.5)
         self.assertEqual(out['rows'][0]['query_text'], '')
+
+    def test_search_on_databend_says_unavailable_instead_of_failing(self):
+        from afya_backends import toggles
+        with toggles.override(toggles.WAREHOUSE, toggles.DATABEND),                 mock.patch.object(executor, 'records') as rec:
+            out = history.search({'scope': 'live'})
+        rec.assert_not_called()
+        self.assertEqual(out['rows'], [])
+        self.assertIn('Databend', out['unavailable'])
 
     def test_search_account_without_attribution(self):
         def rel(n, s=None):

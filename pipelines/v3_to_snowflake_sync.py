@@ -37,7 +37,13 @@ HOW "INCREMENTAL" WORKS
   found rows without updated_at (a window can't see those), and whenever the gateway can't filter (it ignored
   updated_since until 2026-11; FilterUnsupported). _SYNC_STATE keeps LAST_FULL_READ / READ_MODE / NO_UPDATED_AT.
   read_mode=full reads every page every run. Either way the watermark decides what gets WRITTEN:
-    * since     = watermark − lookback   (the overlap absorbs clock skew between V3 and us)
+    * since     = watermark − lookback   (the overlap absorbs clock skew between V3 and us, and rows whose
+                  transaction committed after our previous read) — but only as far back as that previous read
+                  needs: since = max(watermark − lookback, min(watermark, previous read start − lookback)).
+                  A row older than the watermark that we haven't seen would need a transaction open longer than
+                  the lookback, so once the previous read started more than a lookback after the watermark the
+                  overlap is dropped. (Without this, a watermark stuck on a bulk-import hour re-read and re-sent
+                  every row of that hour every run: 139k / 249k rows an hour, 2026-11-25.)
     * a row is sent to Snowflake when updated_at >= since, or when it has no updated_at at all
     * MERGE inserts new keys and updates a matched row only if its hash changed, so the overlap is free
     * the new watermark = min(newest updated_at seen, time the read started) — a row edited while the
@@ -46,6 +52,10 @@ HOW "INCREMENTAL" WORKS
       was, so the next run re-sends the same window (MERGE makes that harmless)
   full_refresh ignores the watermark and sends every row (still hash-guarded); use it after edits made
   straight in the V3 database, which don't move updated_at.
+  A window read that changed nothing (no insert / update, same watermark, last status ok) doesn't rewrite its
+  _SYNC_STATE row: on Databend every MERGE into that table takes a table lock, and ~2,300 no-op writes an hour
+  from parallel tasks queued behind each other ("Table is locked"). So LAST_RUN_* / ROWS_* there describe the
+  last run that changed something (or failed, or read in full).
 
 DELETES
   Soft-deleted V3 rows stop coming back from the gateway. On a full read (the whole model), keys that are in
@@ -176,6 +186,19 @@ def is_changed(updated_at: datetime | None, since: datetime | None) -> bool:
     """Should this row be written? Everything on a first / full run; a row without updated_at always
     (we can't tell — the MERGE's hash check decides); otherwise only if edited since `since`."""
     return since is None or updated_at is None or updated_at >= since
+
+
+def window_start(watermark: datetime | None, lookback: timedelta,
+                 previous_read: datetime | None) -> datetime | None:
+    """`since` for a run: the watermark minus the lookback, but no further back than the previous read of
+    this model needs. Never later than the watermark (a failed run leaves the watermark, so everything after
+    it is read again)."""
+    if watermark is None:
+        return None
+    since = watermark - lookback
+    if previous_read is not None:
+        since = max(since, min(watermark, previous_read - lookback))
+    return since
 
 
 def next_watermark(previous: datetime | None, newest_seen: datetime | None,
@@ -492,9 +515,11 @@ class SnowflakeSink:
     # watermark / state ---------------------------------------------------------
     def get_state(self, tenant_id: int, model: str) -> dict:
         """{watermark, last_full_read, no_updated_at} of (tenant, model); all None when it was never synced."""
-        none = {"watermark": None, "last_full_read": None, "no_updated_at": None}
+        none = {"watermark": None, "last_full_read": None, "no_updated_at": None, "last_run_started": None,
+                "last_status": None}
         try:
-            rows = self._exec(f"SELECT WATERMARK, LAST_FULL_READ, NO_UPDATED_AT FROM {self.fq}.{STATE_TABLE} "
+            rows = self._exec(f"SELECT WATERMARK, LAST_FULL_READ, NO_UPDATED_AT, LAST_RUN_STARTED, LAST_STATUS "
+                              f"FROM {self.fq}.{STATE_TABLE} "
                               f"WHERE TENANT_ID = %(t)s AND MODEL = %(m)s", {"t": tenant_id, "m": model})
         except Exception as e:                 # no state table yet (e.g. a dry run before the first real one)
             if "does not exist" in str(e) or "Unknown" in str(e):
@@ -502,8 +527,9 @@ class SnowflakeSink:
             raise
         if not rows:
             return none
-        wm, full, no_upd = rows[0]
-        return {"watermark": wm, "last_full_read": full, "no_updated_at": None if no_upd is None else int(no_upd)}
+        wm, full, no_upd, last_started, last_status = rows[0]
+        return {"watermark": wm, "last_full_read": full, "no_updated_at": None if no_upd is None else int(no_upd),
+                "last_run_started": last_started, "last_status": last_status}
 
     def get_watermark(self, tenant_id: int, model: str) -> datetime | None:
         return self.get_state(tenant_id, model)["watermark"]
@@ -839,6 +865,7 @@ class ModelResult:
     restored: int = 0
     watermark_before: str | None = None
     watermark_after: str | None = None
+    state_saved: bool = True                 # False: a no-op window read, _SYNC_STATE left as it was
     note: str | None = None
     error: str | None = None
     seconds: float = 0.0
@@ -926,7 +953,7 @@ def sync_model(client, sink, model: Model, *, source: str, opts: SyncOptions = S
             res.note = f"not scoped to an organisation by the gateway — kept under tenant {GLOBAL_TENANT}"
         state = sink.get_state(tenant, model.name)
         stored = state["watermark"]
-        since = None if (opts.full_refresh or stored is None) else stored - opts.lookback
+        since = None if opts.full_refresh else window_start(stored, opts.lookback, state.get("last_run_started"))
         res.watermark_before = _fmt(stored)
         mode, why = read_plan(state, opts, started)
 
@@ -989,9 +1016,15 @@ def sync_model(client, sink, model: Model, *, source: str, opts: SyncOptions = S
                     opts.max_delete_fraction)
             wm = next_watermark(stored, newest, started)
             res.watermark_after = _fmt(wm)
-            _with_retries(f"{model.name} state", sink.save_state, tenant, model, source, watermark=wm,
-                          status="ok", error=res.note, started=started, counts=res.as_dict(),
-                          last_full_read=last_full, read_mode=mode, no_updated_at=no_upd)
+            noop = (mode == "window" and wm == stored and not (res.inserted or res.updated or res.deleted
+                                                                or res.restored)
+                    and state.get("last_status") == "ok")
+            if noop:
+                res.state_saved = False          # nothing to record - see "A window read that changed nothing"
+            else:
+                _with_retries(f"{model.name} state", sink.save_state, tenant, model, source, watermark=wm,
+                              status="ok", error=res.note, started=started, counts=res.as_dict(),
+                              last_full_read=last_full, read_mode=mode, no_updated_at=no_upd)
     except Exception as e:
         res.watermark_after = res.watermark_before
         if unreadable(e, res.read):

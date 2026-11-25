@@ -317,7 +317,7 @@ class SnowflakeTablesAPIView(APIView):
         try:
             client = SnowflakeClient()
             df = client.get_tables()
-            df = df.where(pd.notnull(df), None)
+            df = df.astype(object).where(pd.notnull(df), None)   # object first: a float column turns None back into NaN
             tables = df.to_dict(orient="records")
         except (SnowflakeQueryError, Exception) as exc:
             logger.error("SnowflakeTablesAPIView error: %s", exc)

@@ -48,7 +48,9 @@ log = logging.getLogger("rate_cards_to_v3")
 _HERE = Path(__file__).resolve().parent
 DATA_DIRS = (_HERE.parent / "dags" / "jsons" / "rate_cards", Path("/opt/airflow/dags/jsons/rate_cards"))
 NS = uuid.UUID("0c1f6f0e-3b0a-4d55-9a3e-7c2b8e5d4a21")
-STEPS = ["procedures", "schemes", "scheme_pricing", "product_prices", "inpatient_charges", "company_pricing", "verify"]
+STEPS = ["procedures", "schemes", "scheme_pricing", "product_prices", "inpatient_charges", "company_pricing", "verify",
+         "sha_move"]
+SHA_COMPANY = 2817
 
 # Company price rules (user / KMC, 2026-11-25, level 3 Town Clinic): pre-negotiated cards for AAR, APA, Jubilee,
 # Britam, Kenya Alliance (all lab + radiology + procedure rates); Pacis and Liaison negotiated PROCEDURES only (lab /
@@ -125,7 +127,10 @@ TARGETS = {
 # Only the procedures step — schemes / scheme prices are org-wide and already loaded by kerugoya_prod (a run here
 # would make duplicate schemes under this target's uuids).
 TARGETS["kerugoya_town_prod"] = {**TARGETS["kerugoya_prod"], "data_target": "kerugoya_prod",
-                                 "only_steps": ["procedures", "inpatient_charges", "company_pricing", "verify"],
+                                 "only_steps": ["procedures", "inpatient_charges", "company_pricing", "verify", "sha_move"],
+                                 # KMC team 2026-11-25: insurers (SHA included) are priced through their companies;
+                                 # the facility's DEFAULT insurance column stays 0
+                                 "no_default_insurance": True,
                                  "label": "Kerugoya Town Clinic prices (mirror of Kerugoya Medical Centre, 2026-11)"}
 
 
@@ -434,7 +439,9 @@ class Run:
             want = {}
             if rates.get("Cash") is not None:
                 want["cash_charge"] = rates["Cash"]
-            if rates.get(dp) is not None:
+            if self.cfg.get("no_default_insurance"):
+                want["insurance_charge"] = 0.0
+            elif rates.get(dp) is not None:
                 want["insurance_charge"] = rates[dp]
             if pr is None:
                 fill = rates.get("Cash", rates.get(dp, max(rates.values())))
@@ -701,6 +708,60 @@ class Run:
         self._many("company_price_duplicates_off", dups,
                    lambda u: self.update("core", "company_pricing", u["id"], u["data"]))
 
+    # ── default insurance columns → SHA company prices, then cleared (KMC team, 2026-11-25) ──
+    def run_sha_move(self):
+        """The team had used the DEFAULT insurance columns (procedure insurance_charge, product insurance_price) as
+        SHA rates; SHA now lives under the SHA company. Each default value becomes an SHA company price where SHA has
+        none (a sheet's SHA rate already loaded always wins), and the default is set to 0 ONLY once that SHA price is
+        confirmed in V3."""
+        co, uid_t = SHA_COMPANY, self.cfg.get("data_target", self.target)
+        proc_code = {p["id"]: p.get("code") for p in self.live("evaluation", "procedures")}
+        prices = [p for p in self.c.read_all("evaluation", "procedure_prices", workers=8)
+                  if p.get("facility_id") == self.fac and not p.get("deleted_at")]
+        prods = [p for p in self.live("inventory", "product") if p.get("facility_id") == self.fac and p.get("is_active", True)]
+
+        def sha_rows():
+            return {(r.get("priceable_type"), r.get("priceable_id")) for r in self.live("core", "company_pricing", 1)
+                    if r.get("company_id") == co and r.get("status") != "inactive"}
+        have = sha_rows()
+        new = []
+        for p in prices:
+            v, pid = num(p.get("insurance_charge")), p["evaluation_procedure_id"]
+            if v and ("procedure", pid) not in have:
+                have.add(("procedure", pid))
+                new.append({"_key": f"proc|{pid}", "uuid": gid(uid_t, "sha_move", f"procedure|{pid}"), "company_id": co,
+                            "priceable_type": "procedure", "priceable_id": pid, "priceable_code": proc_code.get(pid),
+                            "price": v, "requires_preauth": 0, "status": "active"})
+        for p in prods:
+            v = num(p.get("insurance_price"))
+            if v and ("product", p["id"]) not in have:
+                have.add(("product", p["id"]))
+                new.append({"_key": f"prod|{p['id']}", "uuid": gid(uid_t, "sha_move", f"product|{p['id']}"),
+                            "company_id": co, "priceable_type": "product", "priceable_id": p["id"],
+                            "priceable_code": p.get("code") or p.get("item_no"), "price": v, "requires_preauth": 0,
+                            "status": "active"})
+        clear_pr = [p for p in prices if num(p.get("insurance_charge"))]
+        clear_pd = [p for p in prods if num(p.get("insurance_price"))]
+        self.report["plan"].update(sha_prices_new=len(new), sha_new_procedures=sum(1 for x in new if x["_key"].startswith("proc")),
+                                   sha_new_products=sum(1 for x in new if x["_key"].startswith("prod")),
+                                   default_insurance_to_clear={"procedure_prices": len(clear_pr), "products": len(clear_pd)})
+        self._many("sha_prices_new", new, lambda r: self.insert("core", "company_pricing", r))
+        if self.dry_run:
+            return
+        confirmed = sha_rows()                       # clear a default only where SHA now has the price
+        pr_ok = [p for p in clear_pr if ("procedure", p["evaluation_procedure_id"]) in confirmed]
+        pd_ok = [p for p in clear_pd if ("product", p["id"]) in confirmed]
+        held = (len(clear_pr) - len(pr_ok)) + (len(clear_pd) - len(pd_ok))
+        if held:
+            self.report["failures"].append({"kind": "sha_move", "key": "held",
+                                            "error": f"{held} defaults NOT cleared — no SHA price confirmed"})
+        self._many("default_insurance_cleared_procedures",
+                   [{"_key": p["id"], "id": p["id"]} for p in pr_ok],
+                   lambda u: self.update("evaluation", "procedure_prices", u["id"], {"insurance_charge": 0}))
+        self._many("default_insurance_cleared_products",
+                   [{"_key": p["id"], "id": p["id"]} for p in pd_ok],
+                   lambda u: self.update("inventory", "product", u["id"], {"insurance_price": 0}))
+
     # ── read-only, record by record: facility prices + company prices vs the sheets ──
     def run_verify(self):
         self.read_procedures()
@@ -725,7 +786,8 @@ class Run:
                 continue
             if len(rs) > 1:
                 fac_dup.append(f"{i['code']} {i['name']}: {len(rs)} price rows")
-            r0, want_c, want_i = rs[0], i["rates"].get("Cash"), i["rates"].get(dp)
+            r0, want_c = rs[0], i["rates"].get("Cash")
+            want_i = 0.0 if self.cfg.get("no_default_insurance") else i["rates"].get(dp)
             bad = []
             if want_c is not None and num(r0.get("cash_charge")) != want_c:
                 bad.append(f"cash {num(r0.get('cash_charge'))}≠{want_c}")
@@ -798,6 +860,8 @@ class Run:
             self.run_inpatient_charges()
         if "company_pricing" in self.steps:
             self.run_company_pricing()
+        if "sha_move" in self.steps:
+            self.run_sha_move()
         if "verify" in self.steps:
             self.run_verify()
         log.info("plan: %s", self.report["plan"])

@@ -502,6 +502,7 @@ class Run:
         taken = Counter(key(p["name"]) for p in self.procs)
         dp = self.cfg["default_payer"]
         new_procs, price_new, price_upd, same, inactive, split_unmatched = [], [], [], 0, [], []
+        codes_taken = {clean(p.get("code")).upper() for p in self.procs if p.get("code")}
         for i in self.items:
             rates = i["rates"]
             p = matched.get(i["code"])
@@ -510,7 +511,11 @@ class Run:
                 suffix = {"Lab Rates": "L", "Radiology Rates": "R"}.get(i.get("sheet"), "P")
                 name = i["name"] if not taken[key(i["name"])] else f"{i['name']} ({i['source_code']}-{suffix})"
                 taken[key(name)] += 1
-                p = {"uuid": gid(self.target, "procedure", i["code"]), "code": f"{i['source_code']}-{suffix}",
+                new_code = f"{i['source_code']}-{suffix}"
+                if new_code in codes_taken:
+                    new_code = f"{new_code}{len([c for c in codes_taken if c.startswith(new_code)]) + 1}"
+                codes_taken.add(new_code)
+                p = {"uuid": gid(self.target, "procedure", i["code"]), "code": new_code,
                      "name": name[:255], "category": cat[key(i["category"])], "active": 1,
                      "description": f"{self.cfg['label']}: {i['sheet']} · {i['category']} (code {i['source_code']} "
                                     f"is reused in the sheets for another service)", "_key": i["code"]}
@@ -518,7 +523,11 @@ class Run:
             elif p is None:
                 name = i["name"] if not taken[key(i["name"])] else f"{i['name']} ({i['code']})"
                 taken[key(name)] += 1
-                p = {"uuid": gid(self.target, "procedure", i["code"]), "code": i["code"], "name": name[:255],
+                new_code = i["code"]
+                if new_code in codes_taken:          # code held by the other service of a reused code
+                    new_code = f"{i['code']}-{ {'Lab Rates': 'L', 'Radiology Rates': 'R'}.get(i.get('sheet'), 'P') }"
+                codes_taken.add(new_code)
+                p = {"uuid": gid(self.target, "procedure", i["code"]), "code": new_code, "name": name[:255],
                      "category": cat[key(i["category"])], "active": 1,
                      "description": f"{self.cfg['label']}: {i['sheet']} · {i['category']}", "_key": i["code"]}
                 new_procs.append(p)

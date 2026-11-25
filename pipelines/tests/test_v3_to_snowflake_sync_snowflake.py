@@ -338,8 +338,9 @@ def test_state_table_from_before_window_reads_gets_the_new_columns(sink):
         fresh = S.SnowflakeSink(S.snowflake_connect("HOSPITALS", schema), "HOSPITALS", schema)
         fresh.ensure_schema()
         assert {"LAST_FULL_READ", "READ_MODE", "NO_UPDATED_AT"} <= set(fresh.table_columns("_SYNC_STATE"))
-        assert fresh.get_state(6, "reception:patient") == \
-            {"watermark": datetime(2026, 10, 20, 8), "last_full_read": None, "no_updated_at": None}
+        st = fresh.get_state(6, "reception:patient")
+        assert {k: st[k] for k in ("watermark", "last_full_read", "no_updated_at", "last_status")} == \
+            {"watermark": datetime(2026, 10, 20, 8), "last_full_read": None, "no_updated_at": None, "last_status": "ok"}
         fresh.ensure_schema()                                              # idempotent
         if sink.backend == "databend":                                     # Databend's own statement: raw
             fresh.conn._t.run(f'OPTIMIZE TABLE "{schema}"."_SYNC_STATE" COMPACT')

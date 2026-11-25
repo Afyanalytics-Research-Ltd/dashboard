@@ -249,13 +249,14 @@ def test_new_and_edited_rows_are_the_only_ones_sent():
 
 def test_lookback_catches_a_late_commit_with_an_older_timestamp():
     client, sink = tenant_with(10), FakeSink()
-    run(client, sink)                                                     # watermark Oct 10 08:00
+    run(client, sink, now=datetime(2026, 10, 10, 8, 10))                 # watermark Oct 10 08:00, read at 08:10
     # a transaction that committed after our read but stamped 30 min before the watermark
     client.edit("reception", "patient", 4, first_name="Late", updated_at="2026-10-10T07:30:00.000000Z")
-    missed = run(client, sink, lookback=timedelta(minutes=0))
+    missed = run(client, sink, now=datetime(2026, 10, 10, 8, 20), lookback=timedelta(minutes=0))
     assert missed.updated == 0                                            # no overlap: lost
     client.edit("reception", "patient", 4, first_name="Late2")
-    caught = run(client, sink, lookback=timedelta(hours=1))
+    # previous read 08:20 -> since = 07:20 (not the full 07:00: rows before that were committed by 08:20)
+    caught = run(client, sink, now=datetime(2026, 10, 10, 8, 30), lookback=timedelta(hours=1))
     assert caught.updated == 1
 
 
@@ -870,7 +871,8 @@ def test_window_reads_only_changed_rows_then_a_full_read_catches_deletes():
     r = run(client, sink, now=later)
     assert r.read_mode == "window" and r.read == 3     # the 2 changed + patient 10 (lookback overlap), not 11
     assert (r.inserted, r.updated, r.deleted) == (1, 1, 0)
-    assert client.window_reads[-1][2] == "2026-10-10 07:00:00"              # watermark 10-10 08:00 - 60 min
+    # watermark 10-10 08:00; the previous read (NOW, weeks later) needs no overlap: since = the watermark
+    assert client.window_reads[-1][2] == "2026-10-10 08:00:00"
     assert sink.state[(6, PATIENT.name)]["last_full_read"] == NOW            # kept from the full read
     assert sink.get_watermark(6, PATIENT.name) == datetime(2026, 10, 29, 12, 40)
     assert "7" in sink.live_keys(T)                                          # not flagged yet
@@ -939,3 +941,38 @@ def test_unscoped_models_and_canaries_are_unaffected_by_window_mode():
     r = run(client, sink, now=NOW + timedelta(hours=1), limit=2)
     assert (r.read_mode, r.status) == ("full", "partial")
     assert sink.state[(6, PATIENT.name)]["last_full_read"] == NOW          # a canary is not a full read
+
+
+def test_window_start_overlaps_only_as_far_back_as_the_previous_read_needs():
+    wm, lb = datetime(2026, 10, 30, 13, 15), timedelta(hours=1)
+    assert S.window_start(None, lb, None) is None
+    assert S.window_start(wm, lb, None) == wm - lb                                    # no previous read known
+    assert S.window_start(wm, lb, wm + timedelta(minutes=5)) == wm - timedelta(minutes=55)  # read right after: ~full overlap
+    assert S.window_start(wm, lb, wm + timedelta(minutes=90)) == wm                  # capped at the watermark
+    assert S.window_start(wm, lb, wm + timedelta(minutes=30)) == wm - timedelta(minutes=30)
+    assert S.window_start(wm, lb, wm + timedelta(days=25)) == wm                     # stale watermark: no overlap
+
+
+def test_stale_watermark_on_a_bulk_import_hour_is_not_re_sent_every_run():
+    """2026-11-25 prod: evaluation:investigations re-read and re-sent all 138,783 rows every hour - every row was
+    stamped inside the hour before its weeks-old watermark (a bulk import) and the 60-min overlap kept covering it."""
+    rows = [patient(i, "2026-10-10T07:%02d:00.000000Z" % (i % 60)) for i in range(1, 200)]
+    rows.append(patient(500, "2026-10-10T08:00:00.000000Z"))
+    client, sink = FakeV3Client({("reception", "patient"): rows}, window=True), FakeSink()
+    run(client, sink)                                                        # NOW = Oct 29: watermark Oct 10 08:00
+    r = run(client, sink, now=NOW + timedelta(hours=1))
+    assert r.read_mode == "window"
+    assert (r.read, r.sent) == (1, 1)                    # only the row AT the watermark, not the 199 before it
+
+
+def test_window_read_that_changed_nothing_does_not_rewrite_its_state_row():
+    client, sink = windowed(5), FakeSink()
+    run(client, sink)
+    writes = sink.state_writes
+    r = run(client, sink, now=NOW + timedelta(hours=1))
+    assert (r.read_mode, r.inserted, r.updated, r.state_saved) == ("window", 0, 0, False)
+    assert sink.state_writes == writes                                       # no table-locking MERGE on Databend
+    client.edit("reception", "patient", 2, first_name="Edited", updated_at="2026-10-29T12:30:00Z")
+    r = run(client, sink, now=NOW + timedelta(hours=2))
+    assert (r.updated, r.state_saved) == (1, True) and sink.state_writes == writes + 1
+    assert sink.get_watermark(6, PATIENT.name) == datetime(2026, 10, 29, 12, 30)

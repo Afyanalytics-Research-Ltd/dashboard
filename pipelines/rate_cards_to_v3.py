@@ -48,7 +48,7 @@ log = logging.getLogger("rate_cards_to_v3")
 _HERE = Path(__file__).resolve().parent
 DATA_DIRS = (_HERE.parent / "dags" / "jsons" / "rate_cards", Path("/opt/airflow/dags/jsons/rate_cards"))
 NS = uuid.UUID("0c1f6f0e-3b0a-4d55-9a3e-7c2b8e5d4a21")
-STEPS = ["procedures", "schemes", "scheme_pricing", "product_prices", "inpatient_charges"]
+STEPS = ["procedures", "schemes", "scheme_pricing", "product_prices", "inpatient_charges", "company_pricing"]
 
 # Ward charges ("<payer> Bed Charges" sheets: one row per bed — Ward no., Type, Bed Name, Non Pharms(Meals Included),
 # Bed Charges, Nursing Care, Daily Review). Loaded as inpatient charges (user, 2026-11-24): one procedure per ward
@@ -104,7 +104,7 @@ TARGETS = {
 # Only the procedures step — schemes / scheme prices are org-wide and already loaded by kerugoya_prod (a run here
 # would make duplicate schemes under this target's uuids).
 TARGETS["kerugoya_town_prod"] = {**TARGETS["kerugoya_prod"], "data_target": "kerugoya_prod",
-                                 "only_steps": ["procedures", "inpatient_charges"],
+                                 "only_steps": ["procedures", "inpatient_charges", "company_pricing"],
                                  "label": "Kerugoya Town Clinic prices (mirror of Kerugoya Medical Centre, 2026-11)"}
 
 
@@ -624,6 +624,51 @@ class Run:
         self._many("inpatient_charges", new, lambda c: self.insert("inpatient", "charge", c))
         self._many("inpatient_charge_updates", upd, lambda u: self.update("inpatient", "charge", u["id"], u["data"]))
 
+    # ── insurer card → company price (the "Company Price" column of Procedures Pricing — <insurer>) ──
+    def run_company_pricing(self):
+        """core company_pricing: each insurer's WHOLE card on its V3 company (2026-11-25: the app's per-insurer
+        pricing page reads company prices, not scheme prices, so the cards did not show). Org-wide (no facility)."""
+        if not hasattr(self, "matched"):
+            self.read_procedures()
+            self.matched = self.match()
+        companies = self.cfg["companies"]
+        payer_cos = {payer: sorted({companies[i] for i in ins}) for payer, ins in self.cfg["payer_insurers"].items()}
+        uid_target = self.cfg.get("data_target", self.target)
+        existing = {}
+        for r in self.live("core", "company_pricing", 1):
+            if r.get("priceable_type") == "procedure":
+                existing.setdefault((r.get("company_id"), r.get("priceable_id")), r)
+        new, upd, same, held = [], [], 0, Counter()
+        for payer, cos in payer_cos.items():
+            for i in self.items:
+                price = i["rates"].get(payer)
+                if price is None:
+                    continue
+                p = self.matched.get(i["code"])
+                pid = (p or {}).get("id")
+                if not pid:
+                    held[payer] += 1
+                    if not self.dry_run:
+                        continue
+                for co in cos:
+                    ex = existing.get((co, pid)) if pid else None
+                    if ex:
+                        if num(ex.get("price")) == price and ex.get("status") in ("active", None):
+                            same += 1
+                        else:
+                            upd.append({"_key": f"{co}|{i['code']}", "id": ex["id"], "before": num(ex.get("price")),
+                                        "data": {"price": price, "status": "active"}})
+                        continue
+                    new.append({"_key": f"{co}|{i['code']}", "uuid": gid(uid_target, "company_price", f"{co}|{i['code']}"),
+                                "company_id": co, "priceable_type": "procedure", "priceable_id": pid,
+                                "priceable_code": i["code"], "price": price, "requires_preauth": 0, "status": "active"})
+        self.report["plan"].update(company_prices_new=len(new), company_prices_update=len(upd),
+                                   company_prices_unchanged=same, company_prices_held=dict(held),
+                                   company_prices_by_company=dict(Counter(x["company_id"] for x in new)))
+        self.report["detail"]["company_price_updates"] = upd
+        self._many("company_prices", new, lambda r: self.insert("core", "company_pricing", r))
+        self._many("company_price_updates", upd, lambda u: self.update("core", "company_pricing", u["id"], u["data"]))
+
     def load(self) -> dict:
         if "procedures" in self.steps:
             self.run_procedures()
@@ -635,6 +680,8 @@ class Run:
             self.run_product_prices()
         if "inpatient_charges" in self.steps:
             self.run_inpatient_charges()
+        if "company_pricing" in self.steps:
+            self.run_company_pricing()
         log.info("plan: %s", self.report["plan"])
         log.info("result: %s", self.report["result"])
         return self.report

@@ -35,8 +35,13 @@ from pipelines_common import _connection, use_pipelines_dir
 log = logging.getLogger(__name__)
 
 
-def _platform_env() -> None:
-    for side, conn_id in (("SOURCE", "afya_v3_platform_source"), ("TARGET", "afya_v3_platform_target")):
+# source instance → (its platform Connection, its state namespace). Each source keeps its own
+# id maps: two clones reuse the same new ids for different records.
+SOURCES = {"test": ("afya_v3_platform_source", ""), "beta": ("afya_v3_platform_beta", "beta_")}
+
+
+def _platform_env(source: str = "test") -> None:
+    for side, conn_id in (("SOURCE", SOURCES[source][0]), ("TARGET", "afya_v3_platform_target")):
         c = _connection(conn_id)
         if c is None:
             raise AirflowFailException(f"Connection {conn_id} is missing")
@@ -70,6 +75,11 @@ def _platform_env() -> None:
         "identity_links": Param(["inventory/"], type="array", items={"type": "string"}, title="Identity links"),
         "redo": Param(False, type="boolean", title="Re-check finished orgs",
                       description="By default a migrate skips orgs a previous run (same `since`) finished."),
+        "source": Param("test", type="string", enum=["test", "beta"], title="Source instance",
+                        description="test: test*.afyaanalytics.ai (Connection afya_v3_platform_source). beta: "
+                                    "*.beta.afyaanalytics.ai (Connection afya_v3_platform_beta). Separate state each."),
+        "rate_per_minute": Param(55, type="integer", minimum=10, maximum=5000, title="Calls a minute per instance",
+                                 description="The platform account's grant (V3 default 60/min). Raise when V3 raises it."),
         "read_mode": Param("filter", type="string", enum=["filter", "tail"], title="Reads",
                            description="filter: only rows updated since `since` on each side (needs the gateway's "
                                        "updated_since / after_id; `since` must be before the clone). tail: bisection."),
@@ -81,9 +91,14 @@ def v3_to_v3_all_orgs():
     def run() -> dict:
         p = get_current_context()["params"]
         use_pipelines_dir([])
-        _platform_env()
+        source = p.get("source") or "test"
+        _platform_env(source)
+        os.environ["V3V3_PLATFORM_RATE"] = str(p.get("rate_per_minute") or 55)
         import v3_to_v3_all_orgs as allorgs
+        import v3_to_v3_client
+        v3_to_v3_client.PLATFORM_RATE = int(p.get("rate_per_minute") or 55)   # in case it was imported already
         argv = [p["mode"], "--since", p["since"], "--orgs", *[str(o) for o in (p["orgs"] or ["auto"])],
+                "--state-prefix", SOURCES[source][1],
                 "--parallel-orgs", str(p["parallel_orgs"]), "--workers", str(p["workers"]),
                 "--read-workers", str(p["read_workers"]), "--identity-links", *p["identity_links"],
                 "--read-mode", p.get("read_mode") or "filter"]

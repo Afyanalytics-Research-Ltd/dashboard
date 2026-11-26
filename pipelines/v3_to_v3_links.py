@@ -268,12 +268,15 @@ RENAME_ON_CLASH: dict[str, str] = {
     # a clone and its target hand out the same next patient numbers to DIFFERENT patients
     # (test284 → prod, 2026-11-23: PAT2026324001 …): copied under "<number>-T"
     "reception/patient": "patient_no",
+    # the same with discharge request numbers (beta → prod, 2026-11-26: DR202611230002 …): "<number>-B"
+    "inpatient/discharge_request": "request_number",
 }
 # the rename's form per model (default "<value>.<target org>")
-RENAME_SUFFIX: dict[str, str] = {"reception/patient": "-T"}
+RENAME_SUFFIX: dict[str, str] = {"reception/patient": "-T", "inpatient/discharge_request": "-B"}
 # tail mode (a clone): a clash on these numbers is a different record under the same number —
 # never paired with the target's row (that would link a test patient to another person)
-NEVER_PAIR_IN_TAIL: frozenset[str] = frozenset({"reception/patient", "finance/invoice", "inpatient/admission"})
+NEVER_PAIR_IN_TAIL: frozenset[str] = frozenset({"reception/patient", "finance/invoice", "inpatient/admission",
+                                                "inpatient/discharge_request"})
 
 # Fields the TARGET computes itself (not stored): a patch can't set them, so they're reported, never
 # patched. model → {column: why}

@@ -728,6 +728,15 @@ def test_shared_pass_gives_each_new_row_to_the_org_of_its_parent(tmp_path, monke
     assert out["evaluation/investigation_result_details"]["posted"] == 2
 
 
+def test_discharge_request_number_clash_is_renamed_with_b_and_never_paired():
+    assert L.RENAME_ON_CLASH["inpatient/discharge_request"] == "request_number"
+    assert L.RENAME_SUFFIX["inpatient/discharge_request"] == "-B"
+    assert "inpatient/discharge_request" in L.NEVER_PAIR_IN_TAIL
+    copier = vv.Copier.__new__(vv.Copier)
+    copier.dst = type("D", (), {"organization_id": 84})()
+    assert copier.renamed_value("DR202611230002", "inpatient/discharge_request") == "DR202611230002-B"
+
+
 def test_canary_posts_at_most_n_per_model(tmp_path):
     src, dst = _pair()
     _, _, _, order, results = _run(src, dst, tmp_path, record_limit=1)

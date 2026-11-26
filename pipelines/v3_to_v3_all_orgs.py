@@ -48,6 +48,10 @@ from v3_to_v3_client import GatewayError, V3Client
 log = logging.getLogger("v3_all_orgs")
 
 TEMPLATE_PLAN = vv.STATE_ROOT / "v3v3_test284_to_prod284" / "plan.json"
+# state namespace per SOURCE instance: two clones of the target share ids up to their clone
+# points but reuse the same NEW ids for different records — one source's id maps must never
+# be read for another ("" = the test instance, as before; "beta_" for *.beta.afyaanalytics.ai)
+STATE_PREFIX = ""
 SIDES = ("SOURCE", "TARGET")
 
 
@@ -166,7 +170,7 @@ def shared_pass(plan: dict, models: list[str], window, orgs: dict[int, list[int]
     out: dict[str, dict] = {}
     if not models or not orgs:
         return out
-    states = {o: vv.State(f"src_o{o}", f"dst_o{o}") for o in orgs}
+    states = {o: vv.State(f"{STATE_PREFIX}src_o{o}", f"{STATE_PREFIX}dst_o{o}") for o in orgs}
     copiers: dict[int, vv.Copier] = {}
 
     def copier_for(o: int) -> vv.Copier:
@@ -247,7 +251,7 @@ def run_org(org: int, facilities: list[int], plan: dict, window, mode: str, args
     out = {"org": org, "facilities": facilities, "mode": mode, "models": {}}
     try:
         src, dst = org_client("SOURCE", org, facilities[0]), org_client("TARGET", org, facilities[0])
-        state = vv.State(f"src_o{org}", f"dst_o{org}")
+        state = vv.State(f"{STATE_PREFIX}src_o{org}", f"{STATE_PREFIX}dst_o{org}")
         copier = vv.Copier(src, dst, state, json.loads(json.dumps(plan)), workers=args.workers,
                            read_workers=args.read_workers, window=window, tail=True,
                            identity_links=args.identity_links, window_cols=("created_at",),
@@ -287,7 +291,7 @@ def run_org(org: int, facilities: list[int], plan: dict, window, mode: str, args
                 "posted": tot("posted"), "failed": tot("failed"), "seconds": round(time.time() - t0)})
     if mode == "migrate" and "error" not in out:
         # a restart skips this org (its records are on the target either way: a re-run only re-checks)
-        vv.State(f"src_o{org}", f"dst_o{org}").save("all_orgs", "done", {
+        vv.State(f"{STATE_PREFIX}src_o{org}", f"{STATE_PREFIX}dst_o{org}").save("all_orgs", "done", {
             "since": args.since, "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             **{k: out[k] for k in ("posted", "held", "failed")}})
     log.info("org %s (%s): %s", org, mode, {k: out[k] for k in ("would_post", "held", "would_patch", "posted",
@@ -313,8 +317,11 @@ def main(argv=None) -> int:
                          "--since must be before the instances diverged); tail: bisect the diverged pages")
     ap.add_argument("--out", type=Path, default=None, help="summary JSON (default: state dir)")
     ap.add_argument("--redo", action="store_true", help="re-check orgs a previous migrate already finished")
+    ap.add_argument("--state-prefix", default="", help="state namespace of this source instance (beta_ for beta)")
     ap.add_argument("--skip-shared", action="store_true", help="skip the pass over the tables without an org column")
     a = ap.parse_args(argv)
+    global STATE_PREFIX
+    STATE_PREFIX = a.state_prefix
     logging.basicConfig(level=logging.INFO, format="%(asctime)s · %(levelname)-7s · %(message)s", datefmt="%H:%M:%S")
     for side in SIDES:
         for name in ("USERNAME", "PASSWORD", "URL_TEMPLATE"):
@@ -345,7 +352,7 @@ def main(argv=None) -> int:
     all_orgs = dict(todo)                                   # the shared pass needs every org's map
     if a.mode == "migrate" and not a.redo:
         done = {o for o in todo
-                if (vv.State(f"src_o{o}", f"dst_o{o}").load("all_orgs", "done", {}) or {}).get("since") == a.since}
+                if (vv.State(f"{STATE_PREFIX}src_o{o}", f"{STATE_PREFIX}dst_o{o}").load("all_orgs", "done", {}) or {}).get("since") == a.since}
         if done:
             log.info("skipping %d orgs a previous run finished (since %s; --redo to re-check): %s",
                      len(done), a.since, sorted(done))

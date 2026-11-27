@@ -62,8 +62,9 @@ def test_request_body_is_the_teams_query():
     assert b["queries"]["diseases"] == {"service": "evaluation", "model": "visit_icd10_diagnoses",
                                         "group_by": ["facility_id", "icd10_variation_id"], "distinct": "patient_id",
                                         "labels": True, "limit": 1000}
+    # + limit 1000: without it the gateway returns only its default 100 groups (prod has 283 facilities with notes)
     assert b["queries"]["notes"] == {"service": "evaluation", "model": "doctor_notes", "group_by": ["facility_id"],
-                                     "distinct": "patient_id"}
+                                     "distinct": "patient_id", "limit": 1000}
 
 
 def test_rows_carry_keys_labels_and_counts():
@@ -137,7 +138,7 @@ def test_run_writes_snapshot_and_latest_tables(monkeypatch, caplog):
     assert any(s.startswith("INSERT INTO HOSPITALS.COMMERCIALIZATION.LATEST_DISEASES_BY_FACILITY ") for s in sqls)
     assert conn.committed and conn.closed
     assert summary["queries"]["diseases"]["truncated"] is True
-    assert "hit the 1000-group limit" in caplog.text
+    assert "diseases was truncated by the gateway (1 of 1500 groups returned, limit 1000)" in caplog.text
 
 
 def test_one_failed_query_doesnt_stop_the_others(monkeypatch):

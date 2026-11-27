@@ -1,0 +1,6124 @@
+{
+ "count_date": "2026-11-27",
+ "file": "CHACAWEST_Drug_Stock (1).xlsx updated with prizes (3).xlsx",
+ "items": [
+  {
+   "row": 2,
+   "no": "1",
+   "sheet_name": "Ibuprofen 200mg tablets",
+   "strength": "200mg",
+   "cost": 0.75,
+   "sell": 5.0,
+   "ins": 10.0,
+   "qty": 1700,
+   "notes": null,
+   "batches": [
+    {
+     "row": 2,
+     "batch_no": "T26F030",
+     "expiry": "2029-05-31",
+     "expiry_sheet": "05/29",
+     "expiry_problem": null,
+     "notes": null
+    },
+    {
+     "row": 3,
+     "batch_no": "91744",
+     "expiry": "2029-01-31",
+     "expiry_sheet": "01/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Ibuprofen 200mg tablets"
+  },
+  {
+   "row": 4,
+   "no": "2",
+   "sheet_name": "Ibuprofen 400mg tablets",
+   "strength": "400mg",
+   "cost": 1.25,
+   "sell": 5.0,
+   "ins": 5.0,
+   "qty": 900,
+   "notes": null,
+   "batches": [
+    {
+     "row": 4,
+     "batch_no": "T51066",
+     "expiry": "2028-09-30",
+     "expiry_sheet": "09/28",
+     "expiry_problem": null,
+     "notes": null
+    },
+    {
+     "row": 5,
+     "batch_no": "92309",
+     "expiry": "2029-03-31",
+     "expiry_sheet": "03/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Ibuprofen 400mg tablets"
+  },
+  {
+   "row": 6,
+   "no": "3",
+   "sheet_name": "Gabapentin 300mg",
+   "strength": "300mg",
+   "cost": 10.0,
+   "sell": 30.0,
+   "ins": 30.0,
+   "qty": 360,
+   "notes": null,
+   "batches": [
+    {
+     "row": 6,
+     "batch_no": "0972518",
+     "expiry": "2027-08-31",
+     "expiry_sheet": "08/27",
+     "expiry_problem": null,
+     "notes": null
+    },
+    {
+     "row": 7,
+     "batch_no": "T26E017",
+     "expiry": "2029-04-30",
+     "expiry_sheet": "04/29",
+     "expiry_problem": null,
+     "notes": null
+    },
+    {
+     "row": 8,
+     "batch_no": "EF047",
+     "expiry": "2028-05-31",
+     "expiry_sheet": "05/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Gabapentin 300mg"
+  },
+  {
+   "row": 9,
+   "no": "4",
+   "sheet_name": "Pregabalin 75mg",
+   "strength": "75mg",
+   "cost": 7.0,
+   "sell": 20.0,
+   "ins": 30.0,
+   "qty": 120,
+   "notes": null,
+   "batches": [
+    {
+     "row": 9,
+     "batch_no": "C25090",
+     "expiry": "2028-10-31",
+     "expiry_sheet": "10/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Pregabalin 75mg"
+  },
+  {
+   "row": 10,
+   "no": "5",
+   "sheet_name": "Oral Rehydration Salts 10.5g",
+   "strength": "10.5g",
+   "cost": 7.0,
+   "sell": 50.0,
+   "ins": 80.0,
+   "qty": 210,
+   "notes": null,
+   "batches": [
+    {
+     "row": 10,
+     "batch_no": "SF26001",
+     "expiry": "2029-03-31",
+     "expiry_sheet": "03/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Oral Rehydration Salts 10.5g"
+  },
+  {
+   "row": 11,
+   "no": "6",
+   "sheet_name": "Vitamin B complex + B12",
+   "strength": null,
+   "cost": 3.0,
+   "sell": 30.0,
+   "ins": 35.0,
+   "qty": 900,
+   "notes": null,
+   "batches": [
+    {
+     "row": 11,
+     "batch_no": "6157C84301",
+     "expiry": "2027-11-30",
+     "expiry_sheet": "11/27",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Vitamin B complex + B12"
+  },
+  {
+   "row": 12,
+   "no": "7",
+   "sheet_name": "Paracetamol 500mg tablets",
+   "strength": "500mg",
+   "cost": 2.0,
+   "sell": 5.0,
+   "ins": 10.0,
+   "qty": 12000,
+   "notes": null,
+   "batches": [
+    {
+     "row": 12,
+     "batch_no": "92026",
+     "expiry": "2029-02-28",
+     "expiry_sheet": "02/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Paracetamol 500mg tablets"
+  },
+  {
+   "row": 13,
+   "no": "8",
+   "sheet_name": "Diphenhydramine 5mg + Promethazine 0.5mg + Sodium citrate 45mg syrup(Tripozed cough cyrup)",
+   "strength": "100ml",
+   "cost": 140.0,
+   "sell": 400.0,
+   "ins": 450.0,
+   "qty": 3,
+   "notes": null,
+   "batches": [
+    {
+     "row": 13,
+     "batch_no": "126416",
+     "expiry": "2029-06-30",
+     "expiry_sheet": "06/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Diphenhydramine 5mg + Promethazine 0.5mg + Sodium citrate 45mg syrup(Tripozed cough cyrup)"
+  },
+  {
+   "row": 14,
+   "no": "9",
+   "sheet_name": "Pseudoephedrine 30mg + CPM 4mg + Paracetamol 300mg + Caffeine anhydrous capsules(Flugone)",
+   "strength": "364mg",
+   "cost": 13.5,
+   "sell": 15.0,
+   "ins": 20.0,
+   "qty": 910,
+   "notes": null,
+   "batches": [
+    {
+     "row": 14,
+     "batch_no": "R34BB",
+     "expiry": "2028-11-30",
+     "expiry_sheet": "11/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Pseudoephedrine 30mg + CPM 4mg + Paracetamol 300mg + Caffeine anhydrous capsules(Flugone)"
+  },
+  {
+   "row": 15,
+   "no": "10",
+   "sheet_name": "Meloxicam 15mg",
+   "strength": "15mg",
+   "cost": 3.0,
+   "sell": 10.0,
+   "ins": 15.0,
+   "qty": 2800,
+   "notes": null,
+   "batches": [
+    {
+     "row": 15,
+     "batch_no": "T26C099",
+     "expiry": "2029-02-28",
+     "expiry_sheet": "02/29",
+     "expiry_problem": null,
+     "notes": null
+    },
+    {
+     "row": 16,
+     "batch_no": "TE6056",
+     "expiry": "2029-01-31",
+     "expiry_sheet": "01/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Meloxicam 15mg"
+  },
+  {
+   "row": 17,
+   "no": "11",
+   "sheet_name": "Albendazole 400mg tablets",
+   "strength": "400mg",
+   "cost": 7.0,
+   "sell": 50.0,
+   "ins": 50.0,
+   "qty": 200,
+   "notes": "Units hard to read (looks like 200) - please check",
+   "batches": [
+    {
+     "row": 17,
+     "batch_no": "262501",
+     "expiry": "2028-03-31",
+     "expiry_sheet": "03/28",
+     "expiry_problem": null,
+     "notes": "Units hard to read (looks like 200) - please check"
+    },
+    {
+     "row": 18,
+     "batch_no": "25070553",
+     "expiry": "2029-11-30",
+     "expiry_sheet": "11/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Albendazole 400mg tablets"
+  },
+  {
+   "row": 19,
+   "no": "12",
+   "sheet_name": "Albendazole 400mg/10ml suspension",
+   "strength": "10ml",
+   "cost": 25.0,
+   "sell": 50.0,
+   "ins": 50.0,
+   "qty": 200,
+   "notes": null,
+   "batches": [
+    {
+     "row": 19,
+     "batch_no": "6390218",
+     "expiry": "2029-05-31",
+     "expiry_sheet": "05/29",
+     "expiry_problem": null,
+     "notes": null
+    },
+    {
+     "row": 20,
+     "batch_no": "25051123",
+     "expiry": "2028-11-30",
+     "expiry_sheet": "11/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Albendazole 400mg/10ml suspension"
+  },
+  {
+   "row": 21,
+   "no": "13",
+   "sheet_name": "Amoxicillin dry suspension 125mg",
+   "strength": "60ml",
+   "cost": 35.0,
+   "sell": 150.0,
+   "ins": 200.0,
+   "qty": 170,
+   "notes": null,
+   "batches": [
+    {
+     "row": 21,
+     "batch_no": "93067",
+     "expiry": "2029-06-30",
+     "expiry_sheet": "06/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Amoxicillin dry suspension 125mg"
+  },
+  {
+   "row": 22,
+   "no": "14",
+   "sheet_name": "Implanon (Etonogestrel 68mg)",
+   "strength": "68mg",
+   "cost": 350.0,
+   "sell": 1500.0,
+   "ins": 3000.0,
+   "qty": 66,
+   "notes": "42 crossed out, 66 written",
+   "batches": [
+    {
+     "row": 22,
+     "batch_no": "C125162",
+     "expiry": "2029-10-31",
+     "expiry_sheet": "10/29",
+     "expiry_problem": null,
+     "notes": "42 crossed out, 66 written"
+    }
+   ],
+   "name": "Implanon (Etonogestrel 68mg)"
+  },
+  {
+   "row": 23,
+   "no": "15",
+   "sheet_name": "Jadelle",
+   "strength": "150mg",
+   "cost": 280.0,
+   "sell": 1500.0,
+   "ins": 3000.0,
+   "qty": 30,
+   "notes": "3rd character of batch no. unclear",
+   "batches": [
+    {
+     "row": 23,
+     "batch_no": "TU?4C811",
+     "expiry": "2029-08-31",
+     "expiry_sheet": "08/29",
+     "expiry_problem": null,
+     "notes": "3rd character of batch no. unclear"
+    }
+   ],
+   "name": "Jadelle"
+  },
+  {
+   "row": 24,
+   "no": "16",
+   "sheet_name": "IUCD - Copper T 176mg",
+   "strength": null,
+   "cost": 280.0,
+   "sell": 1500.0,
+   "ins": 3000.0,
+   "qty": 7,
+   "notes": "Batch no. partly overwritten - please check",
+   "batches": [
+    {
+     "row": 24,
+     "batch_no": "NAY3209",
+     "expiry": "2032-11-30",
+     "expiry_sheet": "11/32",
+     "expiry_problem": null,
+     "notes": "Batch no. partly overwritten - please check"
+    }
+   ],
+   "name": "IUCD - Copper T 176mg"
+  },
+  {
+   "row": 25,
+   "no": "17",
+   "sheet_name": "Medroxyprogesterone acetate 104mg/0.65ml",
+   "strength": "104mg",
+   "cost": 85.0,
+   "sell": 150.0,
+   "ins": 500.0,
+   "qty": 7,
+   "notes": null,
+   "batches": [
+    {
+     "row": 25,
+     "batch_no": "ME7384",
+     "expiry": "2028-01-31",
+     "expiry_sheet": "01/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Medroxyprogesterone acetate 104mg/0.65ml"
+  },
+  {
+   "row": 26,
+   "no": "18",
+   "sheet_name": "Diclofenac gel(Rufenac)",
+   "strength": "20g",
+   "cost": 20.0,
+   "sell": 80.0,
+   "ins": 200.0,
+   "qty": 24,
+   "notes": null,
+   "batches": [
+    {
+     "row": 26,
+     "batch_no": "6130623",
+     "expiry": "2029-05-31",
+     "expiry_sheet": "05/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Diclofenac gel(Rufenac)"
+  },
+  {
+   "row": 27,
+   "no": "19",
+   "sheet_name": "Hydrocortisone cream",
+   "strength": "15g",
+   "cost": 35.0,
+   "sell": 80.0,
+   "ins": 200.0,
+   "qty": 180,
+   "notes": null,
+   "batches": [
+    {
+     "row": 27,
+     "batch_no": "2607015",
+     "expiry": "2029-06-30",
+     "expiry_sheet": "06/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Hydrocortisone cream"
+  },
+  {
+   "row": 28,
+   "no": "20",
+   "sheet_name": "Ketoconazole cream",
+   "strength": "15g",
+   "cost": 37.0,
+   "sell": 300.0,
+   "ins": 350.0,
+   "qty": 80,
+   "notes": null,
+   "batches": [
+    {
+     "row": 28,
+     "batch_no": "6130418",
+     "expiry": "2029-03-31",
+     "expiry_sheet": "03/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Ketoconazole cream"
+  },
+  {
+   "row": 29,
+   "no": "21",
+   "sheet_name": "Clozole B cream (Clotrimazole + Betamethasone)",
+   "strength": "15g",
+   "cost": 69.0,
+   "sell": 80.0,
+   "ins": 200.0,
+   "qty": 30,
+   "notes": null,
+   "batches": [
+    {
+     "row": 29,
+     "batch_no": "5374346",
+     "expiry": "2028-10-31",
+     "expiry_sheet": "10/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Clozole B cream (Clotrimazole + Betamethasone)"
+  },
+  {
+   "row": 30,
+   "no": "22",
+   "sheet_name": "Clotrine B cream",
+   "strength": "15g",
+   "cost": 80.0,
+   "sell": 300.0,
+   "ins": 350.0,
+   "qty": 50,
+   "notes": null,
+   "batches": [
+    {
+     "row": 30,
+     "batch_no": "50018",
+     "expiry": "2029-03-31",
+     "expiry_sheet": "03/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Clotrine B cream"
+  },
+  {
+   "row": 31,
+   "no": "23",
+   "sheet_name": "Mediven cream (Betamethasone)",
+   "strength": "15g",
+   "cost": 45.0,
+   "sell": 80.0,
+   "ins": 200.0,
+   "qty": 36,
+   "notes": "Brand name hard to read",
+   "batches": [
+    {
+     "row": 31,
+     "batch_no": "260107",
+     "expiry": "2028-12-31",
+     "expiry_sheet": "12/28",
+     "expiry_problem": null,
+     "notes": "Brand name hard to read"
+    }
+   ],
+   "name": "Mediven cream (Betamethasone)"
+  },
+  {
+   "row": 32,
+   "no": "24",
+   "sheet_name": "Candid B cream (Clotrimazole 1% + Beclomethasone)",
+   "strength": "15g",
+   "cost": 200.0,
+   "sell": 300.0,
+   "ins": 350.0,
+   "qty": 21,
+   "notes": null,
+   "batches": [
+    {
+     "row": 32,
+     "batch_no": "10250277",
+     "expiry": "2027-12-31",
+     "expiry_sheet": "12/27",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Candid B cream (Clotrimazole 1% + Beclomethasone)"
+  },
+  {
+   "row": 33,
+   "no": "25",
+   "sheet_name": "Paracetamol 1g effervescent",
+   "strength": "1g",
+   "cost": 41.0,
+   "sell": 100.0,
+   "ins": 100.0,
+   "qty": 96,
+   "notes": null,
+   "batches": [
+    {
+     "row": 33,
+     "batch_no": "6ID1774",
+     "expiry": "2029-08-31",
+     "expiry_sheet": "08/29",
+     "expiry_problem": null,
+     "notes": null
+    },
+    {
+     "row": 34,
+     "batch_no": "YJ6003",
+     "expiry": "2029-08-31",
+     "expiry_sheet": "08/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Paracetamol 1g effervescent"
+  },
+  {
+   "row": 35,
+   "no": "26",
+   "sheet_name": "Paracetamol 500mg effervescent",
+   "strength": "500mg",
+   "cost": 21.5,
+   "sell": 80.0,
+   "ins": 100.0,
+   "qty": 16,
+   "notes": null,
+   "batches": [
+    {
+     "row": 35,
+     "batch_no": "5ID2021",
+     "expiry": "2028-08-31",
+     "expiry_sheet": "08/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Paracetamol 500mg effervescent"
+  },
+  {
+   "row": 36,
+   "no": "27",
+   "sheet_name": "Chlorpheniramine Maleate 2mg/5ml syrup 60ml",
+   "strength": "60ml",
+   "cost": 22.0,
+   "sell": 100.0,
+   "ins": 150.0,
+   "qty": 37,
+   "notes": null,
+   "batches": [
+    {
+     "row": 36,
+     "batch_no": "2607104",
+     "expiry": "2029-06-30",
+     "expiry_sheet": "06/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Chlorpheniramine Maleate 2mg/5ml syrup 60ml"
+  },
+  {
+   "row": 37,
+   "no": "28",
+   "sheet_name": "Chlorpheniramine Maleate 2mg/5ml syrup 100ml",
+   "strength": "100ml",
+   "cost": 100.0,
+   "sell": 120.0,
+   "ins": 200.0,
+   "qty": 52,
+   "notes": null,
+   "batches": [
+    {
+     "row": 37,
+     "batch_no": "2601061",
+     "expiry": "2029-12-31",
+     "expiry_sheet": "12/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Chlorpheniramine Maleate 2mg/5ml syrup 100ml"
+  },
+  {
+   "row": 38,
+   "no": "29",
+   "sheet_name": "Salbutamol inhaler",
+   "strength": "100mcg",
+   "cost": 130.0,
+   "sell": 500.0,
+   "ins": 750.0,
+   "qty": 8,
+   "notes": null,
+   "batches": [
+    {
+     "row": 38,
+     "batch_no": "A76R",
+     "expiry": "2027-02-28",
+     "expiry_sheet": "02/27",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Salbutamol inhaler"
+  },
+  {
+   "row": 39,
+   "no": "30",
+   "sheet_name": "Ibuprofen 100mg + Paracetamol 125mg/5ml syrup",
+   "strength": "60ml",
+   "cost": 80.0,
+   "sell": 150.0,
+   "ins": 200.0,
+   "qty": 3,
+   "notes": null,
+   "batches": [
+    {
+     "row": 39,
+     "batch_no": "L26D078",
+     "expiry": "2029-03-31",
+     "expiry_sheet": "03/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Ibuprofen 100mg + Paracetamol 125mg/5ml syrup"
+  },
+  {
+   "row": 40,
+   "no": "31",
+   "sheet_name": "Ibuprofen 100mg/5ml syrup",
+   "strength": "100ml",
+   "cost": 42.0,
+   "sell": 100.0,
+   "ins": 150.0,
+   "qty": 78,
+   "notes": null,
+   "batches": [
+    {
+     "row": 40,
+     "batch_no": "0926045",
+     "expiry": "2029-08-31",
+     "expiry_sheet": "08/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Ibuprofen 100mg/5ml syrup"
+  },
+  {
+   "row": 41,
+   "no": "32",
+   "sheet_name": "Paracetamol + Pseudoephedrine + Chlorpheniramine maleate (120/15/1mg) syrup(Cold Cap Cyrup)",
+   "strength": "120ml",
+   "cost": 110.0,
+   "sell": 200.0,
+   "ins": 350.0,
+   "qty": 4,
+   "notes": null,
+   "batches": [
+    {
+     "row": 41,
+     "batch_no": "R37AC",
+     "expiry": "2028-11-30",
+     "expiry_sheet": "11/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Paracetamol + Pseudoephedrine + Chlorpheniramine maleate (120/15/1mg) syrup(Cold Cap Cyrup)"
+  },
+  {
+   "row": 42,
+   "no": "33",
+   "sheet_name": "Paracetamol 120mg/5ml syrup",
+   "strength": "100ml",
+   "cost": 40.0,
+   "sell": 100.0,
+   "ins": 150.0,
+   "qty": 44,
+   "notes": null,
+   "batches": [
+    {
+     "row": 42,
+     "batch_no": "2606242",
+     "expiry": "2029-05-31",
+     "expiry_sheet": "05/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Paracetamol 120mg/5ml syrup 100ml"
+  },
+  {
+   "row": 43,
+   "no": "34",
+   "sheet_name": "Paracetamol 120mg/5ml syrup",
+   "strength": "60ml",
+   "cost": 19.0,
+   "sell": 80.0,
+   "ins": 100.0,
+   "qty": 190,
+   "notes": null,
+   "batches": [
+    {
+     "row": 43,
+     "batch_no": "260524",
+     "expiry": "2028-07-31",
+     "expiry_sheet": "07/28",
+     "expiry_problem": null,
+     "notes": null
+    },
+    {
+     "row": 44,
+     "batch_no": "L263006",
+     "expiry": "2029-08-31",
+     "expiry_sheet": "08/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Paracetamol 120mg/5ml syrup 60ml"
+  },
+  {
+   "row": 45,
+   "no": "35",
+   "sheet_name": "Vit A, B1, B2, B6, C + Nicotinamide syrup",
+   "strength": "60ml",
+   "cost": 35.0,
+   "sell": 60.0,
+   "ins": 100.0,
+   "qty": 73,
+   "notes": null,
+   "batches": [
+    {
+     "row": 45,
+     "batch_no": "L26E045",
+     "expiry": "2028-04-30",
+     "expiry_sheet": "04/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Vit A, B1, B2, B6, C + Nicotinamide syrup"
+  },
+  {
+   "row": 46,
+   "no": "36",
+   "sheet_name": "Promethazine 5mg/5ml syrup",
+   "strength": "60ml",
+   "cost": 20.0,
+   "sell": 80.0,
+   "ins": 100.0,
+   "qty": 20,
+   "notes": null,
+   "batches": [
+    {
+     "row": 46,
+     "batch_no": "126456",
+     "expiry": "2029-07-31",
+     "expiry_sheet": "07/29",
+     "expiry_problem": null,
+     "notes": null
+    },
+    {
+     "row": 47,
+     "batch_no": "L263101",
+     "expiry": "2029-08-31",
+     "expiry_sheet": "08/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Promethazine 5mg/5ml syrup"
+  },
+  {
+   "row": 48,
+   "no": "37",
+   "sheet_name": "Carbocisteine + Promethazine (100mg/2.5mg/5ml) syrup(Thiocarb)",
+   "strength": "100ml",
+   "cost": 55.0,
+   "sell": 300.0,
+   "ins": 350.0,
+   "qty": 58,
+   "notes": null,
+   "batches": [
+    {
+     "row": 48,
+     "batch_no": "126477",
+     "expiry": "2029-07-31",
+     "expiry_sheet": "07/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Carbocisteine + Promethazine (100mg/2.5mg/5ml) syrup(Thiocarb)"
+  },
+  {
+   "row": 49,
+   "no": "38",
+   "sheet_name": "Vit A, B1, B2, B6, Nicotinamide, Vit C, Vit D3 syrup",
+   "strength": "100ml",
+   "cost": 55.0,
+   "sell": 100.0,
+   "ins": 150.0,
+   "qty": 23,
+   "notes": null,
+   "batches": [
+    {
+     "row": 49,
+     "batch_no": "01625",
+     "expiry": "2027-09-30",
+     "expiry_sheet": "09/27",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Vit A, B1, B2, B6, Nicotinamide, Vit C, Vit D3 syrup"
+  },
+  {
+   "row": 50,
+   "no": "39",
+   "sheet_name": "Cyproheptadine + Vit B complex syrup(Cypro B plus)",
+   "strength": "200ml",
+   "cost": 260.0,
+   "sell": 600.0,
+   "ins": 800.0,
+   "qty": 17,
+   "notes": null,
+   "batches": [
+    {
+     "row": 50,
+     "batch_no": "GE92287",
+     "expiry": "2028-01-31",
+     "expiry_sheet": "01/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Cyproheptadine + Vit B complex syrup(Cypro B plus)"
+  },
+  {
+   "row": 51,
+   "no": "40",
+   "sheet_name": "Insulin syringe 0.5ml",
+   "strength": "0.5ml / 6mm",
+   "cost": 0.2,
+   "sell": 25.0,
+   "ins": 35.0,
+   "qty": 70,
+   "notes": null,
+   "batches": [
+    {
+     "row": 51,
+     "batch_no": "5097143",
+     "expiry": "2030-04-30",
+     "expiry_sheet": "04/30",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Insulin syringe 0.5ml"
+  },
+  {
+   "row": 52,
+   "no": "41",
+   "sheet_name": "Sulfadoxine 500mg + Pyrimethamine 25mg tablets",
+   "strength": "525mg",
+   "cost": 28.0,
+   "sell": 50.0,
+   "ins": 100.0,
+   "qty": 150,
+   "notes": null,
+   "batches": [
+    {
+     "row": 52,
+     "batch_no": "260697",
+     "expiry": "2031-05-31",
+     "expiry_sheet": "05/31",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Sulfadoxine 500mg + Pyrimethamine 25mg tablets"
+  },
+  {
+   "row": 53,
+   "no": "42",
+   "sheet_name": "Metoclopramide injection 10mg/2ml (ampoules)",
+   "strength": "10mg / 2ml",
+   "cost": 7.0,
+   "sell": 200.0,
+   "ins": 300.0,
+   "qty": 20,
+   "notes": null,
+   "batches": [
+    {
+     "row": 53,
+     "batch_no": "250808",
+     "expiry": "2028-08-31",
+     "expiry_sheet": "08/28",
+     "expiry_problem": null,
+     "notes": null
+    },
+    {
+     "row": 54,
+     "batch_no": "598H204",
+     "expiry": "2027-10-31",
+     "expiry_sheet": "10/27",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Metoclopramide injection 10mg/2ml (ampoules)"
+  },
+  {
+   "row": 55,
+   "no": "43",
+   "sheet_name": "Ipratropium bromide 0.52mg + Salbutamol sulphate 3.01mg (combivent Vials)",
+   "strength": "2.5ml",
+   "cost": 140.0,
+   "sell": 500.0,
+   "ins": 600.0,
+   "qty": 25,
+   "notes": "No batch/expiry written",
+   "batches": [
+    {
+     "row": 55,
+     "batch_no": null,
+     "expiry": null,
+     "expiry_sheet": null,
+     "expiry_problem": "no expiry on the sheet",
+     "notes": "No batch/expiry written"
+    }
+   ],
+   "name": "Ipratropium bromide 0.52mg + Salbutamol sulphate 3.01mg (combivent Vials)"
+  },
+  {
+   "row": 56,
+   "no": "44",
+   "sheet_name": "Salbutamol nebuliser solution",
+   "strength": "2.5ml",
+   "cost": 680.0,
+   "sell": 900.0,
+   "ins": 1500.0,
+   "qty": 10,
+   "notes": "Batch no. written across two lines",
+   "batches": [
+    {
+     "row": 56,
+     "batch_no": "ITPF412 / 5004",
+     "expiry": "2027-11-30",
+     "expiry_sheet": "11/27",
+     "expiry_problem": null,
+     "notes": "Batch no. written across two lines"
+    }
+   ],
+   "name": "Salbutamol nebuliser solution"
+  },
+  {
+   "row": 57,
+   "no": "45",
+   "sheet_name": "Tranexamic acid 500mg",
+   "strength": "500mg",
+   "cost": 15.6,
+   "sell": 300.0,
+   "ins": 500.0,
+   "qty": 150,
+   "notes": "Original figure crossed out, 150 written",
+   "batches": [
+    {
+     "row": 57,
+     "batch_no": "B26045",
+     "expiry": "2028-03-31",
+     "expiry_sheet": "03/28",
+     "expiry_problem": null,
+     "notes": "Original figure crossed out, 150 written"
+    }
+   ],
+   "name": "Tranexamic acid 500mg"
+  },
+  {
+   "row": 58,
+   "no": "46",
+   "sheet_name": "Cyproheptadine 4mg + Vit B + Mineral tablets(cypro B tabs)",
+   "strength": "4mg",
+   "cost": null,
+   "sell": 30.0,
+   "ins": 35.0,
+   "qty": 120,
+   "notes": null,
+   "batches": [
+    {
+     "row": 58,
+     "batch_no": "EBD011",
+     "expiry": "2027-01-31",
+     "expiry_sheet": "01/27",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Cyproheptadine 4mg + Vit B + Mineral tablets(cypro B tabs)"
+  },
+  {
+   "row": 59,
+   "no": "47",
+   "sheet_name": "Betamethasone 0.25mg + Dexchlorpheniramine 2mg tablets(Celestamine)",
+   "strength": "2mg / 0.25mg",
+   "cost": 7.6,
+   "sell": 20.0,
+   "ins": 30.0,
+   "qty": 150,
+   "notes": "Units overwritten (150)",
+   "batches": [
+    {
+     "row": 59,
+     "batch_no": "SEGT0706",
+     "expiry": "2028-04-30",
+     "expiry_sheet": "04/28",
+     "expiry_problem": null,
+     "notes": "Units overwritten (150)"
+    }
+   ],
+   "name": "Betamethasone 0.25mg + Dexchlorpheniramine 2mg tablets(Celestamine)"
+  },
+  {
+   "row": 60,
+   "no": "48",
+   "sheet_name": "Chlorpheniramine 4mg tablets",
+   "strength": "4mg",
+   "cost": 0.33,
+   "sell": 5.0,
+   "ins": 10.0,
+   "qty": 1200,
+   "notes": null,
+   "batches": [
+    {
+     "row": 60,
+     "batch_no": "2525",
+     "expiry": "2028-09-30",
+     "expiry_sheet": "09/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Chlorpheniramine 4mg tablets"
+  },
+  {
+   "row": 61,
+   "no": "49",
+   "sheet_name": "Cetirizine hydrochloride 10mg",
+   "strength": "10mg",
+   "cost": 0.35,
+   "sell": 5.0,
+   "ins": 10.0,
+   "qty": 1000,
+   "notes": null,
+   "batches": [
+    {
+     "row": 61,
+     "batch_no": "T26E039",
+     "expiry": "2029-04-30",
+     "expiry_sheet": "04/29",
+     "expiry_problem": null,
+     "notes": null
+    },
+    {
+     "row": 62,
+     "batch_no": "T6264",
+     "expiry": "2029-06-30",
+     "expiry_sheet": "06/29",
+     "expiry_problem": null,
+     "notes": null
+    },
+    {
+     "row": 63,
+     "batch_no": "91468",
+     "expiry": "2028-12-31",
+     "expiry_sheet": "12/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Cetirizine hydrochloride 10mg"
+  },
+  {
+   "row": 64,
+   "no": "50",
+   "sheet_name": "Levocetirizine dihydrochloride 5mg",
+   "strength": "5mg",
+   "cost": 1.2,
+   "sell": 10.0,
+   "ins": 15.0,
+   "qty": 150,
+   "notes": null,
+   "batches": [
+    {
+     "row": 64,
+     "batch_no": "ET26B037",
+     "expiry": "2029-01-31",
+     "expiry_sheet": "01/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Levocetirizine dihydrochloride 5mg"
+  },
+  {
+   "row": 65,
+   "no": "51",
+   "sheet_name": "Formoterol fumarate 6mcg + Budesonide 400mcg(Foracort)",
+   "strength": "6mcg / 400mcg",
+   "cost": 950.0,
+   "sell": 1000.0,
+   "ins": 2500.0,
+   "qty": 3,
+   "notes": null,
+   "batches": [
+    {
+     "row": 65,
+     "batch_no": "6SH0015",
+     "expiry": "2028-11-30",
+     "expiry_sheet": "11/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Formoterol fumarate 6mcg + Budesonide 400mcg(Foracort)"
+  },
+  {
+   "row": 66,
+   "no": "52",
+   "sheet_name": "Salbutamol respirator solution 5mg (0.5%)",
+   "strength": "5mg",
+   "cost": 680.0,
+   "sell": 900.0,
+   "ins": 1000.0,
+   "qty": 4,
+   "notes": null,
+   "batches": [
+    {
+     "row": 66,
+     "batch_no": "CN9J",
+     "expiry": "2027-03-31",
+     "expiry_sheet": "03/27",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Salbutamol respirator solution 5mg (0.5%)"
+  },
+  {
+   "row": 67,
+   "no": "53",
+   "sheet_name": "Salbutamol tablets 4mg",
+   "strength": "4mg",
+   "cost": 1.1,
+   "sell": 5.0,
+   "ins": 10.0,
+   "qty": 200,
+   "notes": null,
+   "batches": [
+    {
+     "row": 67,
+     "batch_no": "251525",
+     "expiry": "2028-08-31",
+     "expiry_sheet": "08/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Salbutamol tablets 4mg"
+  },
+  {
+   "row": 68,
+   "no": "54",
+   "sheet_name": "Theophylline 120mg / Ephedrine 11mg",
+   "strength": "131mg",
+   "cost": 2.05,
+   "sell": 5.0,
+   "ins": 15.0,
+   "qty": 100,
+   "notes": null,
+   "batches": [
+    {
+     "row": 68,
+     "batch_no": "90123",
+     "expiry": "2028-08-31",
+     "expiry_sheet": "08/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Theophylline 120mg / Ephedrine 11mg"
+  },
+  {
+   "row": 69,
+   "no": "55",
+   "sheet_name": "Dried Ferrous sulphate 200mg + Folic acid 0.4mg",
+   "strength": null,
+   "cost": 1.0,
+   "sell": 5.0,
+   "ins": 15.0,
+   "qty": 6000,
+   "notes": null,
+   "batches": [
+    {
+     "row": 69,
+     "batch_no": "91923",
+     "expiry": "2029-01-31",
+     "expiry_sheet": "01/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Dried Ferrous sulphate 200mg + Folic acid 0.4mg"
+  },
+  {
+   "row": 70,
+   "no": "56",
+   "sheet_name": "Metoclopramide 10mg tablets",
+   "strength": "10mg",
+   "cost": 0.65,
+   "sell": 5.0,
+   "ins": 10.0,
+   "qty": 1800,
+   "notes": null,
+   "batches": [
+    {
+     "row": 70,
+     "batch_no": "92211",
+     "expiry": "2029-02-28",
+     "expiry_sheet": "02/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Metoclopramide 10mg tablets"
+  },
+  {
+   "row": 71,
+   "no": "57",
+   "sheet_name": "Zinc sulphate 20mg",
+   "strength": "20mg",
+   "cost": 0.75,
+   "sell": 15.0,
+   "ins": 20.0,
+   "qty": 500,
+   "notes": null,
+   "batches": [
+    {
+     "row": 71,
+     "batch_no": "124212",
+     "expiry": "2027-07-31",
+     "expiry_sheet": "07/27",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Zinc sulphate 20mg"
+  },
+  {
+   "row": 72,
+   "no": "58",
+   "sheet_name": "Prednisolone sodium phosphate 6.7mg syrup",
+   "strength": "60ml",
+   "cost": 75.0,
+   "sell": 200.0,
+   "ins": 500.0,
+   "qty": 6,
+   "notes": null,
+   "batches": [
+    {
+     "row": 72,
+     "batch_no": "260626",
+     "expiry": "2029-05-31",
+     "expiry_sheet": "05/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Prednisolone sodium phosphate 6.7mg syrup"
+  },
+  {
+   "row": 73,
+   "no": "59",
+   "sheet_name": "Sodium bicarbonate 300mg(sodamine)",
+   "strength": "300mg",
+   "cost": null,
+   "sell": 5.0,
+   "ins": 10.0,
+   "qty": 200,
+   "notes": null,
+   "batches": [
+    {
+     "row": 73,
+     "batch_no": "88855",
+     "expiry": "2028-04-30",
+     "expiry_sheet": "04/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Sodium bicarbonate 300mg(sodamine)"
+  },
+  {
+   "row": 74,
+   "no": "60",
+   "sheet_name": "Bisacodyl 5mg tablets",
+   "strength": "5mg",
+   "cost": 0.8,
+   "sell": 10.0,
+   "ins": 15.0,
+   "qty": 1200,
+   "notes": null,
+   "batches": [
+    {
+     "row": 74,
+     "batch_no": "91996",
+     "expiry": "2029-01-31",
+     "expiry_sheet": "01/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Bisacodyl 5mg tablets"
+  },
+  {
+   "row": 75,
+   "no": "61",
+   "sheet_name": "Diclofenac 100mg tablets",
+   "strength": "100mg",
+   "cost": 0.5,
+   "sell": 5.0,
+   "ins": 10.0,
+   "qty": 2700,
+   "notes": null,
+   "batches": [
+    {
+     "row": 75,
+     "batch_no": "T26D035",
+     "expiry": "2029-03-31",
+     "expiry_sheet": "03/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Diclofenac 100mg tablets"
+  },
+  {
+   "row": 76,
+   "no": "62",
+   "sheet_name": "Prednisolone 5mg",
+   "strength": "5mg",
+   "cost": 0.65,
+   "sell": 5.0,
+   "ins": 10.0,
+   "qty": 8900,
+   "notes": null,
+   "batches": [
+    {
+     "row": 76,
+     "batch_no": "T25123",
+     "expiry": "2028-10-31",
+     "expiry_sheet": "10/28",
+     "expiry_problem": null,
+     "notes": null
+    },
+    {
+     "row": 77,
+     "batch_no": "60628",
+     "expiry": "2029-05-31",
+     "expiry_sheet": "05/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Prednisolone 5mg"
+  },
+  {
+   "row": 78,
+   "no": "63",
+   "sheet_name": "Diclofenac 50mg + Paracetamol 325mg + Chlorzoxazone 250mg(Lobak)",
+   "strength": "575mg",
+   "cost": 9.5,
+   "sell": 25.0,
+   "ins": 35.0,
+   "qty": 6000,
+   "notes": null,
+   "batches": [
+    {
+     "row": 78,
+     "batch_no": "GL0160001",
+     "expiry": "2028-12-31",
+     "expiry_sheet": "12/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Diclofenac 50mg + Paracetamol 325mg + Chlorzoxazone 250mg(Lobak)"
+  },
+  {
+   "row": 79,
+   "no": "64",
+   "sheet_name": "Piroxicam 20mg",
+   "strength": "20mg",
+   "cost": 0.75,
+   "sell": 5.0,
+   "ins": 10.0,
+   "qty": 6200,
+   "notes": null,
+   "batches": [
+    {
+     "row": 79,
+     "batch_no": "260610",
+     "expiry": "2029-06-30",
+     "expiry_sheet": "06/29",
+     "expiry_problem": null,
+     "notes": null
+    },
+    {
+     "row": 80,
+     "batch_no": "0626010",
+     "expiry": "2029-05-31",
+     "expiry_sheet": "05/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Piroxicam 20mg"
+  },
+  {
+   "row": 81,
+   "no": "65",
+   "sheet_name": "Hyoscine butylbromide 10mg",
+   "strength": "10mg",
+   "cost": 2.35,
+   "sell": 5.0,
+   "ins": 10.0,
+   "qty": 3000,
+   "notes": null,
+   "batches": [
+    {
+     "row": 81,
+     "batch_no": "261215",
+     "expiry": "2029-05-31",
+     "expiry_sheet": "05/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Hyoscine butylbromide 10mg"
+  },
+  {
+   "row": 82,
+   "no": "66",
+   "sheet_name": "Meloxicam 7.5mg",
+   "strength": "7.5mg",
+   "cost": 3.0,
+   "sell": 10.0,
+   "ins": 15.0,
+   "qty": 3600,
+   "notes": null,
+   "batches": [
+    {
+     "row": 82,
+     "batch_no": "6F0003",
+     "expiry": "2029-05-31",
+     "expiry_sheet": "05/29",
+     "expiry_problem": null,
+     "notes": null
+    },
+    {
+     "row": 83,
+     "batch_no": "TE6126",
+     "expiry": "2029-03-31",
+     "expiry_sheet": "03/29",
+     "expiry_problem": null,
+     "notes": null
+    },
+    {
+     "row": 84,
+     "batch_no": "YC25203",
+     "expiry": "2028-12-31",
+     "expiry_sheet": "12/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Meloxicam 7.5mg"
+  },
+  {
+   "row": 85,
+   "no": "67",
+   "sheet_name": "Promethazine 2.5mg + Diphenhydramine 5mg + Ammonium 90mg + Sodium citrate 45mg + Ephedrine 7.5mg syrup(Tridex)",
+   "strength": "60ml",
+   "cost": 42.0,
+   "sell": 350.0,
+   "ins": 450.0,
+   "qty": 108,
+   "notes": null,
+   "batches": [
+    {
+     "row": 85,
+     "batch_no": "260634",
+     "expiry": "2029-04-30",
+     "expiry_sheet": "04/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Promethazine 2.5mg + Diphenhydramine 5mg + Ammonium 90mg + Sodium citrate 45mg + Ephedrine 7.5mg syrup(Tridex)"
+  },
+  {
+   "row": 86,
+   "no": "68",
+   "sheet_name": "Diphenhydramine 7mg + Citrate 28.5mg + Menthol 0.55mg syrup(Dacof)",
+   "strength": "100ml",
+   "cost": 105.0,
+   "sell": 350.0,
+   "ins": 450.0,
+   "qty": 7,
+   "notes": null,
+   "batches": [
+    {
+     "row": 86,
+     "batch_no": "2607045",
+     "expiry": "2029-06-30",
+     "expiry_sheet": "06/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Diphenhydramine 7mg + Citrate 28.5mg + Menthol 0.55mg syrup(Dacof)"
+  },
+  {
+   "row": 87,
+   "no": "69",
+   "sheet_name": "Chlorpheniramine 2mg + Pseudoephedrine 10mg + Paracetamol 120mg syrup(flugone P+)",
+   "strength": "100ml",
+   "cost": null,
+   "sell": 350.0,
+   "ins": 450.0,
+   "qty": 8,
+   "notes": null,
+   "batches": [
+    {
+     "row": 87,
+     "batch_no": "250568",
+     "expiry": "2028-02-29",
+     "expiry_sheet": "02/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Chlorpheniramine 2mg + Pseudoephedrine 10mg + Paracetamol 120mg syrup(flugone P+)"
+  },
+  {
+   "row": 88,
+   "no": "70",
+   "sheet_name": "Ringer's lactate",
+   "strength": "500ml",
+   "cost": 58.0,
+   "sell": 300.0,
+   "ins": 500.0,
+   "qty": 22,
+   "notes": null,
+   "batches": [
+    {
+     "row": 88,
+     "batch_no": "04BED526F",
+     "expiry": "2029-04-30",
+     "expiry_sheet": "04/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Ringer's lactate"
+  },
+  {
+   "row": 89,
+   "no": "71",
+   "sheet_name": "Foley catheter 18FR (30ml)",
+   "strength": "18FR",
+   "cost": null,
+   "sell": 200.0,
+   "ins": 200.0,
+   "qty": 30,
+   "notes": null,
+   "batches": [
+    {
+     "row": 89,
+     "batch_no": "20250830",
+     "expiry": "2030-07-31",
+     "expiry_sheet": "07/30",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Foley catheter 18FR (30ml)"
+  },
+  {
+   "row": 90,
+   "no": "72",
+   "sheet_name": "Foley catheter 16FR (30ml)",
+   "strength": "16FR",
+   "cost": null,
+   "sell": 200.0,
+   "ins": 200.0,
+   "qty": 10,
+   "notes": null,
+   "batches": [
+    {
+     "row": 90,
+     "batch_no": "20250630",
+     "expiry": "2030-07-31",
+     "expiry_sheet": "07/30",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Foley catheter 16FR (30ml)"
+  },
+  {
+   "row": 91,
+   "no": "73",
+   "sheet_name": "Losartan 50mg + HCTZ 12.5mg",
+   "strength": "50/12.5mg",
+   "cost": 7.5,
+   "sell": 10.0,
+   "ins": 15.0,
+   "qty": null,
+   "notes": "No units written on sheet",
+   "batches": [
+    {
+     "row": 91,
+     "batch_no": "261209",
+     "expiry": "2029-04-30",
+     "expiry_sheet": "04/29",
+     "expiry_problem": null,
+     "notes": "No units written on sheet"
+    },
+    {
+     "row": 92,
+     "batch_no": "BUW582601K",
+     "expiry": "2028-06-30",
+     "expiry_sheet": "06/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Losartan 50mg + HCTZ 12.5mg"
+  },
+  {
+   "row": 93,
+   "no": "74",
+   "sheet_name": "Lactulose solution",
+   "strength": "100ml",
+   "cost": 155.0,
+   "sell": 350.0,
+   "ins": 600.0,
+   "qty": 13,
+   "notes": null,
+   "batches": [
+    {
+     "row": 93,
+     "batch_no": "GE21264",
+     "expiry": "2027-11-30",
+     "expiry_sheet": "11/27",
+     "expiry_problem": null,
+     "notes": null
+    },
+    {
+     "row": 94,
+     "batch_no": "126F052",
+     "expiry": "2029-05-31",
+     "expiry_sheet": "05/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Lactulose solution"
+  },
+  {
+   "row": 95,
+   "no": "75",
+   "sheet_name": "Praziquantel 600mg",
+   "strength": "600mg",
+   "cost": 15.0,
+   "sell": 50.0,
+   "ins": 60.0,
+   "qty": 10,
+   "notes": null,
+   "batches": [
+    {
+     "row": 95,
+     "batch_no": "250934",
+     "expiry": "2028-05-31",
+     "expiry_sheet": "05/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Praziquantel 600mg"
+  },
+  {
+   "row": 96,
+   "no": "76",
+   "sheet_name": "Sterilised water for injection",
+   "strength": "10ml",
+   "cost": 4.5,
+   "sell": 10.0,
+   "ins": 15.0,
+   "qty": 100,
+   "notes": null,
+   "batches": [
+    {
+     "row": 96,
+     "batch_no": "KS25041",
+     "expiry": "2030-10-31",
+     "expiry_sheet": "10/30",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Sterilised water for injection"
+  },
+  {
+   "row": 97,
+   "no": "77",
+   "sheet_name": "Adhesive bandage",
+   "strength": "70mm x 1m",
+   "cost": 100.0,
+   "sell": 150.0,
+   "ins": 200.0,
+   "qty": 100,
+   "notes": "Expiry written as 1/2031",
+   "batches": [
+    {
+     "row": 97,
+     "batch_no": "20260115",
+     "expiry": "2031-01-31",
+     "expiry_sheet": "01/31",
+     "expiry_problem": null,
+     "notes": "Expiry written as 1/2031"
+    }
+   ],
+   "name": "Adhesive bandage"
+  },
+  {
+   "row": 98,
+   "no": "78",
+   "sheet_name": "Losartan potassium 50mg",
+   "strength": "50mg",
+   "cost": null,
+   "sell": 10.0,
+   "ins": 15.0,
+   "qty": 480,
+   "notes": null,
+   "batches": [
+    {
+     "row": 98,
+     "batch_no": "260564",
+     "expiry": "2029-07-31",
+     "expiry_sheet": "07/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Losartan potassium 50mg"
+  },
+  {
+   "row": 99,
+   "no": "79",
+   "sheet_name": "SevenSeas Cod Liver Oil",
+   "strength": "100ml",
+   "cost": 750.0,
+   "sell": 850.0,
+   "ins": 1200.0,
+   "qty": 10,
+   "notes": null,
+   "batches": [
+    {
+     "row": 99,
+     "batch_no": "60295",
+     "expiry": "2028-02-29",
+     "expiry_sheet": "02/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "SevenSeas Cod Liver Oil"
+  },
+  {
+   "row": 100,
+   "no": "80",
+   "sheet_name": "Multivitamin with Omega 3(Omega Vita)",
+   "strength": "200ml",
+   "cost": 365.0,
+   "sell": 850.0,
+   "ins": 1200.0,
+   "qty": 12,
+   "notes": null,
+   "batches": [
+    {
+     "row": 100,
+     "batch_no": "WF25639",
+     "expiry": "2028-08-31",
+     "expiry_sheet": "08/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Multivitamin with Omega 3(Omega Vita)"
+  },
+  {
+   "row": 101,
+   "no": "81",
+   "sheet_name": "Scott's Emulsion",
+   "strength": "200ml",
+   "cost": 500.0,
+   "sell": 850.0,
+   "ins": 1200.0,
+   "qty": 10,
+   "notes": null,
+   "batches": [
+    {
+     "row": 101,
+     "batch_no": "T013BM",
+     "expiry": "2027-10-31",
+     "expiry_sheet": "10/27",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Scott's Emulsion"
+  },
+  {
+   "row": 102,
+   "no": "82",
+   "sheet_name": "Aluminium hydroxide + Magnesium hydroxide + Simethicone + Deglycyrrhizinated liquorice(Relcer gel) 180ml",
+   "strength": "180ml",
+   "cost": 350.0,
+   "sell": 600.0,
+   "ins": 850.0,
+   "qty": 9,
+   "notes": null,
+   "batches": [
+    {
+     "row": 102,
+     "batch_no": "10252070",
+     "expiry": "2029-07-31",
+     "expiry_sheet": "07/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Aluminium hydroxide + Magnesium hydroxide + Simethicone + Deglycyrrhizinated liquorice(Relcer gel) 180ml"
+  },
+  {
+   "row": 103,
+   "no": "83",
+   "sheet_name": "Gaviscon",
+   "strength": "200ml",
+   "cost": 850.0,
+   "sell": 1500.0,
+   "ins": 2000.0,
+   "qty": 2,
+   "notes": null,
+   "batches": [
+    {
+     "row": 103,
+     "batch_no": "AHR131",
+     "expiry": "2027-11-30",
+     "expiry_sheet": "11/27",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Gaviscon"
+  },
+  {
+   "row": 104,
+   "no": "84",
+   "sheet_name": "Ibuprofen 100mg + Paracetamol 125mg syrup(Brustan)",
+   "strength": "100ml",
+   "cost": 260.0,
+   "sell": 500.0,
+   "ins": 800.0,
+   "qty": 13,
+   "notes": null,
+   "batches": [
+    {
+     "row": 104,
+     "batch_no": "AHD005",
+     "expiry": "2028-02-29",
+     "expiry_sheet": "02/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Ibuprofen 100mg + Paracetamol 125mg syrup(Brustan)"
+  },
+  {
+   "row": 105,
+   "no": "85",
+   "sheet_name": "Betadine mouthwash",
+   "strength": "125ml",
+   "cost": 350.0,
+   "sell": 500.0,
+   "ins": 800.0,
+   "qty": 1,
+   "notes": null,
+   "batches": [
+    {
+     "row": 105,
+     "batch_no": "GE04425",
+     "expiry": "2028-04-30",
+     "expiry_sheet": "04/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Betadine mouthwash"
+  },
+  {
+   "row": 106,
+   "no": "86",
+   "sheet_name": "Cetirizine hydrochloride 0.1% syrup(Zyrtec)",
+   "strength": "75ml",
+   "cost": 520.0,
+   "sell": 800.0,
+   "ins": 1500.0,
+   "qty": 3,
+   "notes": null,
+   "batches": [
+    {
+     "row": 106,
+     "batch_no": "256252",
+     "expiry": "2028-06-30",
+     "expiry_sheet": "06/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Cetirizine hydrochloride 0.1% syrup(Zyrtec)"
+  },
+  {
+   "row": 107,
+   "no": "87",
+   "sheet_name": "Calcium 160mg + Phosphorus 69mg + Vit D3 200IU syrup(Purecal)",
+   "strength": "200ml",
+   "cost": 600.0,
+   "sell": 1200.0,
+   "ins": 1500.0,
+   "qty": 2,
+   "notes": null,
+   "batches": [
+    {
+     "row": 107,
+     "batch_no": "RSD7002",
+     "expiry": "2027-04-30",
+     "expiry_sheet": "04/27",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Calcium 160mg + Phosphorus 69mg + Vit D3 200IU syrup(Purecal)"
+  },
+  {
+   "row": 108,
+   "no": "88",
+   "sheet_name": "Sodium valproate 200mg/5ml(Epilim)",
+   "strength": "300ml",
+   "cost": 1700.0,
+   "sell": 2500.0,
+   "ins": 3000.0,
+   "qty": 2,
+   "notes": null,
+   "batches": [
+    {
+     "row": 108,
+     "batch_no": "415",
+     "expiry": "2028-09-30",
+     "expiry_sheet": "09/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Sodium valproate 200mg/5ml(Epilim)"
+  },
+  {
+   "row": 109,
+   "no": "89",
+   "sheet_name": "Deep Heat spray (Methyl nicotinate, 2-hydroxyethyl salicylate, Ethyl salicylate)",
+   "strength": "150ml",
+   "cost": 830.0,
+   "sell": 1000.0,
+   "ins": 1200.0,
+   "qty": 9,
+   "notes": null,
+   "batches": [
+    {
+     "row": 109,
+     "batch_no": "03",
+     "expiry": "2027-08-31",
+     "expiry_sheet": "08/27",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Deep Heat spray (Methyl nicotinate, 2-hydroxyethyl salicylate, Ethyl salicylate)"
+  },
+  {
+   "row": 110,
+   "no": "90",
+   "sheet_name": "Deep Heat rub (Methyl nicotinate, 2-hydroxyethyl salicylate, Ethyl salicylate)",
+   "strength": "35g",
+   "cost": 320.0,
+   "sell": 450.0,
+   "ins": 750.0,
+   "qty": 6,
+   "notes": null,
+   "batches": [
+    {
+     "row": 110,
+     "batch_no": "43133",
+     "expiry": "2028-02-29",
+     "expiry_sheet": "02/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Deep Heat rub (Methyl nicotinate, 2-hydroxyethyl salicylate, Ethyl salicylate)"
+  },
+  {
+   "row": 111,
+   "no": "91",
+   "sheet_name": "Amoxicillin trihydrate + Potassium clavulanate 457mg/5ml(Augmentin)",
+   "strength": "70ml",
+   "cost": 920.0,
+   "sell": 1500.0,
+   "ins": 2000.0,
+   "qty": 2,
+   "notes": null,
+   "batches": [
+    {
+     "row": 111,
+     "batch_no": "XA9H",
+     "expiry": "2027-12-31",
+     "expiry_sheet": "12/27",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Amoxicillin trihydrate + Potassium clavulanate 457mg/5ml(Augmentin)"
+  },
+  {
+   "row": 112,
+   "no": "92",
+   "sheet_name": "Amoxicillin trihydrate + Potassium clavulanate 228mg/5ml(Augmentin)",
+   "strength": "70ml",
+   "cost": 555.0,
+   "sell": 750.0,
+   "ins": 1100.0,
+   "qty": 3,
+   "notes": "Expiry written as 8/25 - already expired, please check",
+   "batches": [
+    {
+     "row": 112,
+     "batch_no": "MMSW",
+     "expiry": "2025-08-31",
+     "expiry_sheet": "08/25",
+     "expiry_problem": null,
+     "notes": "Expiry written as 8/25 - already expired, please check"
+    }
+   ],
+   "name": "Amoxicillin trihydrate + Potassium clavulanate 228mg/5ml(Augmentin)"
+  },
+  {
+   "row": 113,
+   "no": "93",
+   "sheet_name": "Metronidazole injection 500mg",
+   "strength": "100ml",
+   "cost": 28.0,
+   "sell": 200.0,
+   "ins": 300.0,
+   "qty": 10,
+   "notes": null,
+   "batches": [
+    {
+     "row": 113,
+     "batch_no": "PIX25477",
+     "expiry": "2028-11-30",
+     "expiry_sheet": "11/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Metronidazole injection 500mg"
+  },
+  {
+   "row": 114,
+   "no": "94",
+   "sheet_name": "Zithromax 500mg",
+   "strength": "500mg",
+   "cost": null,
+   "sell": null,
+   "ins": null,
+   "qty": 2,
+   "notes": null,
+   "batches": [
+    {
+     "row": 114,
+     "batch_no": "E25500",
+     "expiry": "2027-05-31",
+     "expiry_sheet": "05/27",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Zithromax 500mg"
+  },
+  {
+   "row": 115,
+   "no": null,
+   "sheet_name": "Azithromycin 500mg",
+   "strength": "500mg",
+   "cost": 45.0,
+   "sell": 150.0,
+   "ins": 300.0,
+   "qty": 50,
+   "notes": null,
+   "batches": [
+    {
+     "row": 115,
+     "batch_no": "6372511",
+     "expiry": "2029-04-30",
+     "expiry_sheet": "04/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Azithromycin 500mg"
+  },
+  {
+   "row": 116,
+   "no": "95",
+   "sheet_name": "Diloxanide furoate 500mg + Metronidazole 400mg",
+   "strength": "900mg",
+   "cost": 17.0,
+   "sell": 30.0,
+   "ins": 40.0,
+   "qty": 60,
+   "notes": null,
+   "batches": [
+    {
+     "row": 116,
+     "batch_no": "TM0024",
+     "expiry": "2029-02-28",
+     "expiry_sheet": "02/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Diloxanide furoate 500mg + Metronidazole 400mg"
+  },
+  {
+   "row": 117,
+   "no": "96",
+   "sheet_name": "Montelukast 10mg",
+   "strength": "10mg",
+   "cost": 4.5,
+   "sell": 10.0,
+   "ins": 30.0,
+   "qty": 120,
+   "notes": null,
+   "batches": [
+    {
+     "row": 117,
+     "batch_no": "MTCK5001",
+     "expiry": "2027-01-31",
+     "expiry_sheet": "01/27",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Montelukast 10mg"
+  },
+  {
+   "row": 118,
+   "no": "97",
+   "sheet_name": "Aceclofenac 100mg + Serratiopeptidase 15mg + Paracetamol 500mg(Valus-SP)",
+   "strength": "615mg",
+   "cost": null,
+   "sell": 15.0,
+   "ins": 30.0,
+   "qty": 10,
+   "notes": null,
+   "batches": [
+    {
+     "row": 118,
+     "batch_no": "762503",
+     "expiry": "2027-10-31",
+     "expiry_sheet": "10/27",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Aceclofenac 100mg + Serratiopeptidase 15mg + Paracetamol 500mg(Valus-SP)"
+  },
+  {
+   "row": 119,
+   "no": "98",
+   "sheet_name": "Amoxicillin trihydrate + Potassium clavulanate 625mg(Augmentin 14's)",
+   "strength": "625mg",
+   "cost": 960.0,
+   "sell": 1500.0,
+   "ins": 2000.0,
+   "qty": 7,
+   "notes": null,
+   "batches": [
+    {
+     "row": 119,
+     "batch_no": "GH5A",
+     "expiry": "2028-03-31",
+     "expiry_sheet": "03/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Amoxicillin trihydrate + Potassium clavulanate 625mg(Augmentin 14's)"
+  },
+  {
+   "row": 120,
+   "no": "99",
+   "sheet_name": "Etoricoxib 60mg",
+   "strength": "60mg",
+   "cost": 27.5,
+   "sell": 35.0,
+   "ins": 50.0,
+   "qty": 80,
+   "notes": "Units overwritten (80)",
+   "batches": [
+    {
+     "row": 120,
+     "batch_no": "AMM4006",
+     "expiry": "2028-06-30",
+     "expiry_sheet": "06/28",
+     "expiry_problem": null,
+     "notes": "Units overwritten (80)"
+    }
+   ],
+   "name": "Etoricoxib 60mg"
+  },
+  {
+   "row": 121,
+   "no": "100",
+   "sheet_name": "Amlodipine 5mg + Losartan potassium 50mg + HCTZ 12.5mg(Amlozaar-H)",
+   "strength": "67.5mg",
+   "cost": 48.0,
+   "sell": 200.0,
+   "ins": 300.0,
+   "qty": 120,
+   "notes": null,
+   "batches": [
+    {
+     "row": 121,
+     "batch_no": "ZDTP0073",
+     "expiry": "2028-11-30",
+     "expiry_sheet": "11/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Amlodipine 5mg + Losartan potassium 50mg + HCTZ 12.5mg(Amlozaar-H)"
+  },
+  {
+   "row": 122,
+   "no": "101",
+   "sheet_name": "Losartan 50mg + Amlodipine 5mg",
+   "strength": null,
+   "cost": null,
+   "sell": 15.0,
+   "ins": 20.0,
+   "qty": 30,
+   "notes": "Batch no. crossed out, no expiry - please check",
+   "batches": [
+    {
+     "row": 122,
+     "batch_no": "N4AF0042",
+     "expiry": null,
+     "expiry_sheet": null,
+     "expiry_problem": "no expiry on the sheet",
+     "notes": "Batch no. crossed out, no expiry - please check"
+    }
+   ],
+   "name": "Losartan 50mg + Amlodipine 5mg"
+  },
+  {
+   "row": 123,
+   "no": "102",
+   "sheet_name": "Dexamethasone eye drops",
+   "strength": "0.1%",
+   "cost": 50.0,
+   "sell": 200.0,
+   "ins": 300.0,
+   "qty": 1,
+   "notes": null,
+   "batches": [
+    {
+     "row": 123,
+     "batch_no": "0517",
+     "expiry": "2027-06-30",
+     "expiry_sheet": "06/27",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Dexamethasone eye drops"
+  },
+  {
+   "row": 124,
+   "no": "103",
+   "sheet_name": "Dexamethasone Sodium Phosphate Injection USP 4mg/1ml",
+   "strength": "4mg/1ml",
+   "cost": 8.5,
+   "sell": 200.0,
+   "ins": 300.0,
+   "qty": 35,
+   "notes": "Units: 65 vials (overwritten)",
+   "batches": [
+    {
+     "row": 124,
+     "batch_no": "PXD1E026",
+     "expiry": "2028-11-30",
+     "expiry_sheet": "11/28",
+     "expiry_problem": null,
+     "notes": "Units: 65 vials (overwritten)"
+    }
+   ],
+   "name": "Dexamethasone Sodium Phosphate Injection USP 4mg/1ml"
+  },
+  {
+   "row": 125,
+   "no": "104",
+   "sheet_name": "Losartan 50mg + Amlodipine 5mg",
+   "strength": "50/5mg",
+   "cost": null,
+   "sell": 15.0,
+   "ins": 20.0,
+   "qty": 140,
+   "notes": null,
+   "batches": [
+    {
+     "row": 125,
+     "batch_no": "260595",
+     "expiry": "2029-11-30",
+     "expiry_sheet": "11/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Losartan 50mg + Amlodipine 5mg"
+  },
+  {
+   "row": 126,
+   "no": "105",
+   "sheet_name": "Aceclofenac 100mg + Paracetamol 500mg + Chlorzoxazone 375mg(Rilif MR)",
+   "strength": "975mg",
+   "cost": 50.0,
+   "sell": 70.0,
+   "ins": 100.0,
+   "qty": 280,
+   "notes": null,
+   "batches": [
+    {
+     "row": 126,
+     "batch_no": "2510126",
+     "expiry": "2027-09-30",
+     "expiry_sheet": "09/27",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Aceclofenac 100mg + Paracetamol 500mg + Chlorzoxazone 375mg(Rilif MR)"
+  },
+  {
+   "row": 127,
+   "no": null,
+   "sheet_name": "Aceclofenac 100mg + Paracetamol 500mg + Chlorzoxazone 500mg(Zulu MR)",
+   "strength": "975mg",
+   "cost": 35.0,
+   "sell": 70.0,
+   "ins": 100.0,
+   "qty": 280,
+   "notes": null,
+   "batches": [
+    {
+     "row": 127,
+     "batch_no": "KE24545",
+     "expiry": "2027-10-31",
+     "expiry_sheet": "10/27",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Aceclofenac 100mg + Paracetamol 500mg + Chlorzoxazone 500mg(Zulu MR)"
+  },
+  {
+   "row": 128,
+   "no": "106",
+   "sheet_name": "Fluphenazine decanoate 25mg",
+   "strength": "25mg",
+   "cost": 90.0,
+   "sell": 200.0,
+   "ins": 350.0,
+   "qty": 15,
+   "notes": null,
+   "batches": [
+    {
+     "row": 128,
+     "batch_no": "H2570",
+     "expiry": "2027-11-30",
+     "expiry_sheet": "11/27",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Fluphenazine decanoate 25mg"
+  },
+  {
+   "row": 129,
+   "no": "107",
+   "sheet_name": "Misoprostol 200mcg",
+   "strength": "200mcg",
+   "cost": 26.0,
+   "sell": 100.0,
+   "ins": 200.0,
+   "qty": 30,
+   "notes": null,
+   "batches": [
+    {
+     "row": 129,
+     "batch_no": "26034",
+     "expiry": "2028-06-30",
+     "expiry_sheet": "06/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Misoprostol 200mcg"
+  },
+  {
+   "row": 130,
+   "no": "108",
+   "sheet_name": "Pregabalin 75mg + Methylcobalamin 750mcg",
+   "strength": "75mg / 750mcg",
+   "cost": null,
+   "sell": 120.0,
+   "ins": 150.0,
+   "qty": 30,
+   "notes": null,
+   "batches": [
+    {
+     "row": 130,
+     "batch_no": "C250016",
+     "expiry": "2028-04-30",
+     "expiry_sheet": "04/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Pregabalin 75mg + Methylcobalamin 750mcg"
+  },
+  {
+   "row": 131,
+   "no": "109",
+   "sheet_name": "Methylcobalamin 750mcg + Pregabalin 75mg + Folic acid 1.5mg + Pyridoxine 3mg",
+   "strength": null,
+   "cost": null,
+   "sell": 120.0,
+   "ins": 150.0,
+   "qty": 120,
+   "notes": null,
+   "batches": [
+    {
+     "row": 131,
+     "batch_no": "52540545",
+     "expiry": "2027-07-31",
+     "expiry_sheet": "07/27",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Methylcobalamin 750mcg + Pregabalin 75mg + Folic acid 1.5mg + Pyridoxine 3mg"
+  },
+  {
+   "row": 132,
+   "no": "110",
+   "sheet_name": "Clarithromycin 500mg",
+   "strength": "500mg",
+   "cost": 20.0,
+   "sell": 50.0,
+   "ins": 80.0,
+   "qty": 60,
+   "notes": null,
+   "batches": [
+    {
+     "row": 132,
+     "batch_no": "A2R503",
+     "expiry": "2028-07-31",
+     "expiry_sheet": "07/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Clarithromycin 500mg"
+  },
+  {
+   "row": 133,
+   "no": "111",
+   "sheet_name": "Nebivolol hydrochloride 5mg",
+   "strength": "5mg",
+   "cost": 40.0,
+   "sell": 58.0,
+   "ins": 65.0,
+   "qty": 120,
+   "notes": null,
+   "batches": [
+    {
+     "row": 133,
+     "batch_no": "MLG1016",
+     "expiry": "2028-11-30",
+     "expiry_sheet": "11/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Nebivolol hydrochloride 5mg"
+  },
+  {
+   "row": 134,
+   "no": "112",
+   "sheet_name": "Vitamin B1, B6, B12 + Erythrosine(neuro-forte)",
+   "strength": "200mg / 50mg / 1000mcg",
+   "cost": 13.0,
+   "sell": 15.0,
+   "ins": 25.0,
+   "qty": 20,
+   "notes": null,
+   "batches": [
+    {
+     "row": 134,
+     "batch_no": "ABT2512",
+     "expiry": "2028-07-31",
+     "expiry_sheet": "07/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Vitamin B1, B6, B12 + Erythrosine(neuro-forte)"
+  },
+  {
+   "row": 135,
+   "no": "113",
+   "sheet_name": "Bisoprolol 5mg",
+   "strength": "5mg",
+   "cost": null,
+   "sell": 22.0,
+   "ins": 28.0,
+   "qty": 30,
+   "notes": null,
+   "batches": [
+    {
+     "row": 135,
+     "batch_no": "2404201",
+     "expiry": "2028-01-31",
+     "expiry_sheet": "01/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Bisoprolol 5mg"
+  },
+  {
+   "row": 136,
+   "no": "114",
+   "sheet_name": "Amoxicillin suspension 125mg/5ml",
+   "strength": "100ml",
+   "cost": 35.0,
+   "sell": 150.0,
+   "ins": 200.0,
+   "qty": 5,
+   "notes": "Units hard to read",
+   "batches": [
+    {
+     "row": 136,
+     "batch_no": "KAM509",
+     "expiry": "2028-11-30",
+     "expiry_sheet": "11/28",
+     "expiry_problem": null,
+     "notes": "Units hard to read"
+    }
+   ],
+   "name": "Amoxicillin suspension 125mg/5ml"
+  },
+  {
+   "row": 137,
+   "no": "115",
+   "sheet_name": "Fluticasone propionate nasal spray",
+   "strength": "120 sprays",
+   "cost": null,
+   "sell": 2000.0,
+   "ins": 2500.0,
+   "qty": 1,
+   "notes": null,
+   "batches": [
+    {
+     "row": 137,
+     "batch_no": "6A04195",
+     "expiry": "2028-12-31",
+     "expiry_sheet": "12/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Fluticasone propionate nasal spray"
+  },
+  {
+   "row": 138,
+   "no": "116",
+   "sheet_name": "Amoxicillin + Potassium clavulanate (200mg + 28.5mg)",
+   "strength": "100ml",
+   "cost": 95.0,
+   "sell": 750.0,
+   "ins": 1100.0,
+   "qty": 43,
+   "notes": null,
+   "batches": [
+    {
+     "row": 138,
+     "batch_no": "EBD260031",
+     "expiry": "2028-03-31",
+     "expiry_sheet": "03/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Amoxicillin + Potassium clavulanate (200mg + 28.5mg)"
+  },
+  {
+   "row": 139,
+   "no": "117",
+   "sheet_name": "Ampicillin 125mg + Cloxacillin 125mg",
+   "strength": "60ml",
+   "cost": null,
+   "sell": 450.0,
+   "ins": 750.0,
+   "qty": 110,
+   "notes": null,
+   "batches": [
+    {
+     "row": 139,
+     "batch_no": "92863",
+     "expiry": "2029-05-31",
+     "expiry_sheet": "05/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Ampicillin 125mg + Cloxacillin 125mg"
+  },
+  {
+   "row": 140,
+   "no": "118",
+   "sheet_name": "Sulfamethoxazole 200mg + Trimethoprim 40mg",
+   "strength": "100ml",
+   "cost": 35.0,
+   "sell": 150.0,
+   "ins": 200.0,
+   "qty": 105,
+   "notes": null,
+   "batches": [
+    {
+     "row": 140,
+     "batch_no": "2605117",
+     "expiry": "2029-04-30",
+     "expiry_sheet": "04/29",
+     "expiry_problem": null,
+     "notes": null
+    },
+    {
+     "row": 141,
+     "batch_no": "2504015",
+     "expiry": "2028-03-31",
+     "expiry_sheet": "03/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Sulfamethoxazole 200mg + Trimethoprim 40mg"
+  },
+  {
+   "row": 142,
+   "no": "119",
+   "sheet_name": "Trimethoprim 40mg + Sulfamethoxazole 200mg",
+   "strength": "50ml",
+   "cost": 26.0,
+   "sell": 150.0,
+   "ins": 200.0,
+   "qty": 108,
+   "notes": null,
+   "batches": [
+    {
+     "row": 142,
+     "batch_no": "126568",
+     "expiry": "2029-09-30",
+     "expiry_sheet": "09/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Trimethoprim 40mg + Sulfamethoxazole 200mg"
+  },
+  {
+   "row": 143,
+   "no": "120",
+   "sheet_name": "Metronidazole suspension 200mg/5ml",
+   "strength": "60ml",
+   "cost": 32.0,
+   "sell": 150.0,
+   "ins": 200.0,
+   "qty": 150,
+   "notes": null,
+   "batches": [
+    {
+     "row": 143,
+     "batch_no": "2608160",
+     "expiry": "2029-07-31",
+     "expiry_sheet": "07/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Metronidazole suspension 200mg/5ml 60ml"
+  },
+  {
+   "row": 144,
+   "no": "121",
+   "sheet_name": "Metronidazole suspension 200mg/5ml",
+   "strength": "100ml",
+   "cost": 45.0,
+   "sell": 150.0,
+   "ins": 200.0,
+   "qty": 39,
+   "notes": null,
+   "batches": [
+    {
+     "row": 144,
+     "batch_no": "2601163",
+     "expiry": "2028-12-31",
+     "expiry_sheet": "12/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Metronidazole suspension 200mg/5ml 100ml"
+  },
+  {
+   "row": 145,
+   "no": "122",
+   "sheet_name": "Metronidazole 200mg + Diloxanide furoate 250mg suspension",
+   "strength": "100ml",
+   "cost": null,
+   "sell": 300.0,
+   "ins": 450.0,
+   "qty": 25,
+   "notes": null,
+   "batches": [
+    {
+     "row": 145,
+     "batch_no": "2507274",
+     "expiry": "2028-06-30",
+     "expiry_sheet": "06/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Metronidazole 200mg + Diloxanide furoate 250mg suspension"
+  },
+  {
+   "row": 146,
+   "no": "123",
+   "sheet_name": "Ampicillin + Cloxacillin 125mg/5ml suspension",
+   "strength": "100ml",
+   "cost": 65.0,
+   "sell": 150.0,
+   "ins": 200.0,
+   "qty": 50,
+   "notes": null,
+   "batches": [
+    {
+     "row": 146,
+     "batch_no": "261400",
+     "expiry": "2028-06-30",
+     "expiry_sheet": "06/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Ampicillin + Cloxacillin 125mg/5ml suspension"
+  },
+  {
+   "row": 147,
+   "no": "124",
+   "sheet_name": "Ampicillin + Cloxacillin 90mg/0.6ml drops",
+   "strength": "10ml",
+   "cost": 50.0,
+   "sell": 200.0,
+   "ins": 300.0,
+   "qty": 27,
+   "notes": null,
+   "batches": [
+    {
+     "row": 147,
+     "batch_no": "2604146",
+     "expiry": "2029-03-31",
+     "expiry_sheet": "03/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Ampicillin + Cloxacillin 90mg/0.6ml drops"
+  },
+  {
+   "row": 148,
+   "no": "125",
+   "sheet_name": "Ampicillin + Cloxacillin 250mg/5ml suspension",
+   "strength": "60ml",
+   "cost": 46.0,
+   "sell": 150.0,
+   "ins": 200.0,
+   "qty": null,
+   "notes": "No units written",
+   "batches": [
+    {
+     "row": 148,
+     "batch_no": "2508174",
+     "expiry": "2028-07-31",
+     "expiry_sheet": "07/28",
+     "expiry_problem": null,
+     "notes": "No units written"
+    }
+   ],
+   "name": "Ampicillin + Cloxacillin 250mg/5ml suspension 60ml"
+  },
+  {
+   "row": 149,
+   "no": "126",
+   "sheet_name": "Ampicillin + Cloxacillin 250mg/5ml suspension",
+   "strength": "100ml",
+   "cost": null,
+   "sell": 150.0,
+   "ins": 200.0,
+   "qty": 9,
+   "notes": null,
+   "batches": [
+    {
+     "row": 149,
+     "batch_no": "2601160",
+     "expiry": "2028-12-31",
+     "expiry_sheet": "12/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Ampicillin + Cloxacillin 250mg/5ml suspension 100ml"
+  },
+  {
+   "row": 150,
+   "no": "127",
+   "sheet_name": "Erythromycin 125mg suspension",
+   "strength": "60ml",
+   "cost": 45.0,
+   "sell": 200.0,
+   "ins": 300.0,
+   "qty": 16,
+   "notes": null,
+   "batches": [
+    {
+     "row": 150,
+     "batch_no": "87972",
+     "expiry": "2027-12-31",
+     "expiry_sheet": "12/27",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Erythromycin 125mg suspension 60ml"
+  },
+  {
+   "row": 151,
+   "no": "128",
+   "sheet_name": "Erythromycin 125mg suspension",
+   "strength": "100ml",
+   "cost": 64.0,
+   "sell": 200.0,
+   "ins": 300.0,
+   "qty": 9,
+   "notes": null,
+   "batches": [
+    {
+     "row": 151,
+     "batch_no": "91590",
+     "expiry": "2028-12-31",
+     "expiry_sheet": "12/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Erythromycin 125mg suspension 100ml"
+  },
+  {
+   "row": 152,
+   "no": "129",
+   "sheet_name": "Flucloxacillin 125mg suspension",
+   "strength": "100ml",
+   "cost": 75.0,
+   "sell": 200.0,
+   "ins": 300.0,
+   "qty": 23,
+   "notes": null,
+   "batches": [
+    {
+     "row": 152,
+     "batch_no": "93318",
+     "expiry": "2029-01-31",
+     "expiry_sheet": "01/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Flucloxacillin 125mg suspension"
+  },
+  {
+   "row": 153,
+   "no": "130",
+   "sheet_name": "Cefalexin suspension 125mg/5ml",
+   "strength": "100ml",
+   "cost": 60.0,
+   "sell": 300.0,
+   "ins": 450.0,
+   "qty": 23,
+   "notes": null,
+   "batches": [
+    {
+     "row": 153,
+     "batch_no": "C4565048",
+     "expiry": "2027-09-30",
+     "expiry_sheet": "09/27",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Cefalexin suspension 125mg/5ml"
+  },
+  {
+   "row": 154,
+   "no": "131",
+   "sheet_name": "Paracetamol suppository 250mg",
+   "strength": "250mg",
+   "cost": 200.0,
+   "sell": 250.0,
+   "ins": 300.0,
+   "qty": 20,
+   "notes": null,
+   "batches": [
+    {
+     "row": 154,
+     "batch_no": "6G04090",
+     "expiry": "2028-06-30",
+     "expiry_sheet": "06/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Paracetamol suppository 250mg"
+  },
+  {
+   "row": 155,
+   "no": "132",
+   "sheet_name": "Paracetamol suppository 125mg",
+   "strength": "125mg",
+   "cost": 200.0,
+   "sell": 250.0,
+   "ins": 300.0,
+   "qty": 190,
+   "notes": null,
+   "batches": [
+    {
+     "row": 155,
+     "batch_no": "0160232A",
+     "expiry": "2029-05-31",
+     "expiry_sheet": "05/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Paracetamol suppository 125mg"
+  },
+  {
+   "row": 156,
+   "no": "133",
+   "sheet_name": "Glycerin suppository 1g",
+   "strength": "1g",
+   "cost": null,
+   "sell": 250.0,
+   "ins": 300.0,
+   "qty": 72,
+   "notes": null,
+   "batches": [
+    {
+     "row": 156,
+     "batch_no": "UA2402",
+     "expiry": "2027-08-31",
+     "expiry_sheet": "08/27",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Glycerin suppository 1g"
+  },
+  {
+   "row": 157,
+   "no": "134",
+   "sheet_name": "Nystatin 100,000 units suspension",
+   "strength": "30ml",
+   "cost": 52.0,
+   "sell": 150.0,
+   "ins": 200.0,
+   "qty": 22,
+   "notes": null,
+   "batches": [
+    {
+     "row": 157,
+     "batch_no": "BPL966A",
+     "expiry": "2027-11-30",
+     "expiry_sheet": "11/27",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Nystatin 100,000 units suspension"
+  },
+  {
+   "row": 158,
+   "no": "135",
+   "sheet_name": "Levonorgestrel 0.75mg tabs(ecee 2)",
+   "strength": "0.75mg",
+   "cost": 50.0,
+   "sell": 100.0,
+   "ins": 300.0,
+   "qty": 30,
+   "notes": null,
+   "batches": [
+    {
+     "row": 158,
+     "batch_no": "CCT64Z01",
+     "expiry": "2029-04-30",
+     "expiry_sheet": "04/29",
+     "expiry_problem": null,
+     "notes": null
+    },
+    {
+     "row": 159,
+     "batch_no": "ETM25053",
+     "expiry": "2028-05-31",
+     "expiry_sheet": "05/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Levonorgestrel 0.75mg tabs(ecee 2)"
+  },
+  {
+   "row": 160,
+   "no": null,
+   "sheet_name": "Postinor 2(P2)",
+   "strength": "0.75mg",
+   "cost": 145.0,
+   "sell": 250.0,
+   "ins": 350.0,
+   "qty": 7,
+   "notes": null,
+   "batches": [
+    {
+     "row": 160,
+     "batch_no": "T4A457H",
+     "expiry": "2029-10-31",
+     "expiry_sheet": "10/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Postinor 2(P2)"
+  },
+  {
+   "row": 161,
+   "no": "136",
+   "sheet_name": "Normal saline nasal drops",
+   "strength": "15ml",
+   "cost": 20.0,
+   "sell": 100.0,
+   "ins": 200.0,
+   "qty": 47,
+   "notes": null,
+   "batches": [
+    {
+     "row": 161,
+     "batch_no": "226018",
+     "expiry": "2029-05-31",
+     "expiry_sheet": "05/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Normal saline nasal drops"
+  },
+  {
+   "row": 162,
+   "no": "137",
+   "sheet_name": "Ephedrine nasal drops child 0.5%",
+   "strength": "10ml",
+   "cost": 66.0,
+   "sell": 150.0,
+   "ins": 300.0,
+   "qty": 10,
+   "notes": null,
+   "batches": [
+    {
+     "row": 162,
+     "batch_no": "1225",
+     "expiry": "2028-09-30",
+     "expiry_sheet": "09/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Ephedrine nasal drops child 0.5%"
+  },
+  {
+   "row": 163,
+   "no": "138",
+   "sheet_name": "Ephedrine nasal drops adult 1%",
+   "strength": "10ml",
+   "cost": 66.0,
+   "sell": 150.0,
+   "ins": 300.0,
+   "qty": 41,
+   "notes": null,
+   "batches": [
+    {
+     "row": 163,
+     "batch_no": "0225060",
+     "expiry": "2028-01-31",
+     "expiry_sheet": "01/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Ephedrine nasal drops adult 1%"
+  },
+  {
+   "row": 164,
+   "no": "139",
+   "sheet_name": "Tetracycline 1% eye ointment",
+   "strength": "5g / 3.5g",
+   "cost": 22.0,
+   "sell": 100.0,
+   "ins": 150.0,
+   "qty": 80,
+   "notes": null,
+   "batches": [
+    {
+     "row": 164,
+     "batch_no": "5T-09",
+     "expiry": "2028-06-30",
+     "expiry_sheet": "06/28",
+     "expiry_problem": null,
+     "notes": null
+    },
+    {
+     "row": 165,
+     "batch_no": "020526",
+     "expiry": "2028-10-31",
+     "expiry_sheet": "10/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Tetracycline 1% eye ointment"
+  },
+  {
+   "row": 166,
+   "no": "140",
+   "sheet_name": "Gentamicin eye/ear drops 0.3%",
+   "strength": "10ml",
+   "cost": 20.0,
+   "sell": 100.0,
+   "ins": 200.0,
+   "qty": null,
+   "notes": "Units crossed out (180) - please check",
+   "batches": [
+    {
+     "row": 166,
+     "batch_no": "QGEN0E003",
+     "expiry": "2029-02-28",
+     "expiry_sheet": "02/29",
+     "expiry_problem": null,
+     "notes": "Units crossed out (180) - please check"
+    }
+   ],
+   "name": "Gentamicin eye/ear drops 0.3%"
+  },
+  {
+   "row": 167,
+   "no": "141",
+   "sheet_name": "Gentamicin eye/ear drops 0.3%",
+   "strength": "10ml",
+   "cost": 20.0,
+   "sell": 100.0,
+   "ins": 200.0,
+   "qty": 310,
+   "notes": null,
+   "batches": [
+    {
+     "row": 167,
+     "batch_no": "57001426",
+     "expiry": "2029-03-31",
+     "expiry_sheet": "03/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Gentamicin eye/ear drops 0.3%"
+  },
+  {
+   "row": 168,
+   "no": "142",
+   "sheet_name": "Iron with Vitamin B12 and folic acid syrup(Ranferon)",
+   "strength": "200ml",
+   "cost": 335.0,
+   "sell": 600.0,
+   "ins": 820.0,
+   "qty": 2,
+   "notes": null,
+   "batches": [
+    {
+     "row": 168,
+     "batch_no": "ALD0118",
+     "expiry": "2028-05-31",
+     "expiry_sheet": "05/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Iron with Vitamin B12 and folic acid syrup(Ranferon)"
+  },
+  {
+   "row": 169,
+   "no": "143",
+   "sheet_name": "Sodium feredetate + Folic acid + Vitamin B12 and mineral syrup(Hemoforce)",
+   "strength": "200ml",
+   "cost": 175.0,
+   "sell": 450.0,
+   "ins": 600.0,
+   "qty": 3,
+   "notes": null,
+   "batches": [
+    {
+     "row": 169,
+     "batch_no": "6130775",
+     "expiry": "2029-06-30",
+     "expiry_sheet": "06/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Sodium feredetate + Folic acid + Vitamin B12 and mineral syrup(Hemoforce)"
+  },
+  {
+   "row": 170,
+   "no": "144",
+   "sheet_name": "Azithromycin suspension 250mg",
+   "strength": "15ml",
+   "cost": 40.0,
+   "sell": 200.0,
+   "ins": 300.0,
+   "qty": 358,
+   "notes": null,
+   "batches": [
+    {
+     "row": 170,
+     "batch_no": "25050166",
+     "expiry": "2027-02-28",
+     "expiry_sheet": "02/27",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Azithromycin suspension 250mg"
+  },
+  {
+   "row": 171,
+   "no": "145",
+   "sheet_name": "Olanzapine 5mg tabs",
+   "strength": "5mg",
+   "cost": 14.0,
+   "sell": 17.0,
+   "ins": 30.0,
+   "qty": 600,
+   "notes": null,
+   "batches": [
+    {
+     "row": 171,
+     "batch_no": "6G00012",
+     "expiry": "2028-06-30",
+     "expiry_sheet": "06/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Olanzapine 5mg tabs"
+  },
+  {
+   "row": 172,
+   "no": "146",
+   "sheet_name": "Olanzapine 10mg tabs",
+   "strength": "10mg",
+   "cost": 22.5,
+   "sell": 30.0,
+   "ins": 50.0,
+   "qty": 100,
+   "notes": null,
+   "batches": [
+    {
+     "row": 172,
+     "batch_no": "6B00005",
+     "expiry": "2028-01-31",
+     "expiry_sheet": "01/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Olanzapine 10mg tabs"
+  },
+  {
+   "row": 173,
+   "no": "147",
+   "sheet_name": "Benzhexol hydrochloride 5mg tabs",
+   "strength": "5mg",
+   "cost": 3.0,
+   "sell": 10.0,
+   "ins": 15.0,
+   "qty": 600,
+   "notes": null,
+   "batches": [
+    {
+     "row": 173,
+     "batch_no": "251552",
+     "expiry": "2028-10-31",
+     "expiry_sheet": "10/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Benzhexol hydrochloride 5mg tabs"
+  },
+  {
+   "row": 174,
+   "no": "148",
+   "sheet_name": "Diazepam 5mg tablets",
+   "strength": "5mg",
+   "cost": 2.75,
+   "sell": 10.0,
+   "ins": 15.0,
+   "qty": 100,
+   "notes": null,
+   "batches": [
+    {
+     "row": 174,
+     "batch_no": "250923",
+     "expiry": "2028-08-31",
+     "expiry_sheet": "08/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Diazepam 5mg tablets"
+  },
+  {
+   "row": 175,
+   "no": "149",
+   "sheet_name": "Haloperidol 5mg",
+   "strength": "5mg",
+   "cost": 1.95,
+   "sell": 10.0,
+   "ins": 15.0,
+   "qty": 1200,
+   "notes": null,
+   "batches": [
+    {
+     "row": 175,
+     "batch_no": "90629",
+     "expiry": "2028-09-30",
+     "expiry_sheet": "09/28",
+     "expiry_problem": null,
+     "notes": null
+    },
+    {
+     "row": 176,
+     "batch_no": "2506134",
+     "expiry": "2028-07-31",
+     "expiry_sheet": "07/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Haloperidol 5mg"
+  },
+  {
+   "row": 177,
+   "no": "150",
+   "sheet_name": "Amitriptyline hydrochloride 25mg tabs",
+   "strength": "25mg",
+   "cost": null,
+   "sell": 10.0,
+   "ins": 15.0,
+   "qty": 2600,
+   "notes": null,
+   "batches": [
+    {
+     "row": 177,
+     "batch_no": "250353",
+     "expiry": "2028-04-30",
+     "expiry_sheet": "04/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Amitriptyline hydrochloride 25mg tabs"
+  },
+  {
+   "row": 178,
+   "no": "151",
+   "sheet_name": "Carbamazepine 200mg tabs",
+   "strength": "200mg",
+   "cost": 4.9,
+   "sell": 10.0,
+   "ins": 15.0,
+   "qty": 400,
+   "notes": null,
+   "batches": [
+    {
+     "row": 178,
+     "batch_no": "58015871A",
+     "expiry": "2029-04-30",
+     "expiry_sheet": "04/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Carbamazepine 200mg tabs"
+  },
+  {
+   "row": 179,
+   "no": "152",
+   "sheet_name": "Pyridoxine hydrochloride 50mg tabs",
+   "strength": "50mg",
+   "cost": null,
+   "sell": 10.0,
+   "ins": 15.0,
+   "qty": 600,
+   "notes": null,
+   "batches": [
+    {
+     "row": 179,
+     "batch_no": "260576",
+     "expiry": "2029-03-31",
+     "expiry_sheet": "03/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Pyridoxine hydrochloride 50mg tabs"
+  },
+  {
+   "row": 180,
+   "no": "153",
+   "sheet_name": "Phenobarbital 30mg tabs",
+   "strength": "30mg",
+   "cost": 2.3,
+   "sell": 5.0,
+   "ins": 15.0,
+   "qty": 800,
+   "notes": null,
+   "batches": [
+    {
+     "row": 180,
+     "batch_no": "260778",
+     "expiry": "2029-04-30",
+     "expiry_sheet": "04/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Phenobarbital 30mg tabs"
+  },
+  {
+   "row": 181,
+   "no": "154",
+   "sheet_name": "Esomeprazole 40mg intravenous",
+   "strength": "40mg",
+   "cost": 40.0,
+   "sell": 300.0,
+   "ins": 500.0,
+   "qty": 10,
+   "notes": null,
+   "batches": [
+    {
+     "row": 181,
+     "batch_no": "(10)XD6B032",
+     "expiry": "2029-01-31",
+     "expiry_sheet": "01/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Esomeprazole 40mg intravenous"
+  },
+  {
+   "row": 182,
+   "no": "155",
+   "sheet_name": "Hydrocortisone injection 100mg",
+   "strength": "100mg",
+   "cost": 20.0,
+   "sell": 200.0,
+   "ins": 300.0,
+   "qty": 140,
+   "notes": null,
+   "batches": [
+    {
+     "row": 182,
+     "batch_no": "MG26021",
+     "expiry": "2029-02-28",
+     "expiry_sheet": "02/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Hydrocortisone injection 100mg"
+  },
+  {
+   "row": 183,
+   "no": "156",
+   "sheet_name": "Triamcinolone acetonide 40mg/ml injection",
+   "strength": "40mg/ml",
+   "cost": 59.0,
+   "sell": 1000.0,
+   "ins": 1500.0,
+   "qty": 12,
+   "notes": null,
+   "batches": [
+    {
+     "row": 183,
+     "batch_no": "1-13357",
+     "expiry": "2027-08-31",
+     "expiry_sheet": "08/27",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Triamcinolone acetonide 40mg/ml injection"
+  },
+  {
+   "row": 184,
+   "no": "157",
+   "sheet_name": "Tramadol injection 50mg/ml",
+   "strength": "50mg/ml",
+   "cost": 16.0,
+   "sell": 200.0,
+   "ins": 300.0,
+   "qty": 60,
+   "notes": null,
+   "batches": [
+    {
+     "row": 184,
+     "batch_no": "ASB02ACB",
+     "expiry": "2029-02-28",
+     "expiry_sheet": "02/29",
+     "expiry_problem": null,
+     "notes": null
+    },
+    {
+     "row": 185,
+     "batch_no": "FTDIE002",
+     "expiry": "2028-08-31",
+     "expiry_sheet": "08/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Tramadol injection 50mg/ml"
+  },
+  {
+   "row": 186,
+   "no": "158",
+   "sheet_name": "H. Pylori kit (Lansoprazole 30mg, Clarithromycin 500mg, Amoxicillin 500mg)",
+   "strength": "1030mg",
+   "cost": 950.0,
+   "sell": 3000.0,
+   "ins": 4500.0,
+   "qty": 392,
+   "notes": null,
+   "batches": [
+    {
+     "row": 186,
+     "batch_no": "6A03122",
+     "expiry": "2028-12-31",
+     "expiry_sheet": "12/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "H. Pylori kit (Lansoprazole 30mg, Clarithromycin 500mg, Amoxicillin 500mg)"
+  },
+  {
+   "row": 187,
+   "no": "159",
+   "sheet_name": "Cefalexin 500mg tabs",
+   "strength": "500mg",
+   "cost": 5.4,
+   "sell": 50.0,
+   "ins": 60.0,
+   "qty": 1000,
+   "notes": null,
+   "batches": [
+    {
+     "row": 187,
+     "batch_no": "250801",
+     "expiry": "2028-08-31",
+     "expiry_sheet": "08/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Cefalexin 500mg tabs"
+  },
+  {
+   "row": 188,
+   "no": "160",
+   "sheet_name": "Cefalexin 250mg tabs",
+   "strength": "250mg",
+   "cost": 2.7,
+   "sell": 35.0,
+   "ins": 50.0,
+   "qty": 2400,
+   "notes": null,
+   "batches": [
+    {
+     "row": 188,
+     "batch_no": "88336",
+     "expiry": "2027-08-31",
+     "expiry_sheet": "08/27",
+     "expiry_problem": null,
+     "notes": null
+    },
+    {
+     "row": 189,
+     "batch_no": "2408749",
+     "expiry": "2027-07-31",
+     "expiry_sheet": "07/27",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Cefalexin 250mg tabs"
+  },
+  {
+   "row": 190,
+   "no": "161",
+   "sheet_name": "Azithromycin 250mg tabs",
+   "strength": "250mg",
+   "cost": 55.0,
+   "sell": 100.0,
+   "ins": 150.0,
+   "qty": 60,
+   "notes": "Batch no. hard to read",
+   "batches": [
+    {
+     "row": 190,
+     "batch_no": "U1ATB001",
+     "expiry": "2028-12-31",
+     "expiry_sheet": "12/28",
+     "expiry_problem": null,
+     "notes": "Batch no. hard to read"
+    }
+   ],
+   "name": "Azithromycin 250mg tabs"
+  },
+  {
+   "row": 191,
+   "no": "162",
+   "sheet_name": "Amoxicillin + Clavulanate potassium 875mg/125mg tabs",
+   "strength": "1000mg",
+   "cost": 18.0,
+   "sell": 80.0,
+   "ins": 120.0,
+   "qty": 20,
+   "notes": null,
+   "batches": [
+    {
+     "row": 191,
+     "batch_no": "T25317",
+     "expiry": "2027-08-31",
+     "expiry_sheet": "08/27",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Amoxicillin + Clavulanate potassium 875mg/125mg tabs"
+  },
+  {
+   "row": 192,
+   "no": "163",
+   "sheet_name": "Amoxicillin + Clavulanate potassium 500mg/125mg tabs",
+   "strength": "625mg",
+   "cost": 9.6,
+   "sell": 50.0,
+   "ins": 60.0,
+   "qty": 200,
+   "notes": null,
+   "batches": [
+    {
+     "row": 192,
+     "batch_no": "EBT260052",
+     "expiry": "2028-02-29",
+     "expiry_sheet": "02/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Amoxicillin + Clavulanate potassium 500mg/125mg tabs"
+  },
+  {
+   "row": 193,
+   "no": "164",
+   "sheet_name": "Amoxicillin + Clavulanate potassium 250mg/125mg tabs",
+   "strength": "375mg",
+   "cost": 7.0,
+   "sell": 35.0,
+   "ins": 60.0,
+   "qty": 40,
+   "notes": "Units overwritten (40)",
+   "batches": [
+    {
+     "row": 193,
+     "batch_no": "SEBPT-0377",
+     "expiry": "2027-02-28",
+     "expiry_sheet": "02/27",
+     "expiry_problem": null,
+     "notes": "Units overwritten (40)"
+    },
+    {
+     "row": 194,
+     "batch_no": "T25316",
+     "expiry": "2027-02-28",
+     "expiry_sheet": "02/27",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Amoxicillin + Clavulanate potassium 250mg/125mg tabs"
+  },
+  {
+   "row": 195,
+   "no": "165",
+   "sheet_name": "Amoxicillin 500mg caps",
+   "strength": "500mg",
+   "cost": 3.0,
+   "sell": 10.0,
+   "ins": 20.0,
+   "qty": 1900,
+   "notes": null,
+   "batches": [
+    {
+     "row": 195,
+     "batch_no": "26313101",
+     "expiry": "2028-12-31",
+     "expiry_sheet": "12/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Amoxicillin 500mg caps"
+  },
+  {
+   "row": 196,
+   "no": "166",
+   "sheet_name": "Amoxicillin 250mg caps",
+   "strength": "250mg",
+   "cost": 1.45,
+   "sell": 10.0,
+   "ins": 20.0,
+   "qty": 1500,
+   "notes": null,
+   "batches": [
+    {
+     "row": 196,
+     "batch_no": "91939",
+     "expiry": "2029-01-31",
+     "expiry_sheet": "01/29",
+     "expiry_problem": null,
+     "notes": null
+    },
+    {
+     "row": 197,
+     "batch_no": "026024",
+     "expiry": "2027-12-31",
+     "expiry_sheet": "12/27",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Amoxicillin 250mg caps"
+  },
+  {
+   "row": 198,
+   "no": "167",
+   "sheet_name": "Cefixime 400mg",
+   "strength": "400mg",
+   "cost": 12.0,
+   "sell": 60.0,
+   "ins": 70.0,
+   "qty": 900,
+   "notes": null,
+   "batches": [
+    {
+     "row": 198,
+     "batch_no": "PALXTE005",
+     "expiry": "2028-07-31",
+     "expiry_sheet": "07/28",
+     "expiry_problem": null,
+     "notes": null
+    },
+    {
+     "row": 199,
+     "batch_no": "QBATTE002",
+     "expiry": "2028-05-31",
+     "expiry_sheet": "05/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Cefixime 400mg"
+  },
+  {
+   "row": 200,
+   "no": "168",
+   "sheet_name": "Cefixime 200mg",
+   "strength": "200mg",
+   "cost": 0.7,
+   "sell": 50.0,
+   "ins": 60.0,
+   "qty": 90,
+   "notes": "Units could be 90 or 96; another batch no. crossed out",
+   "batches": [
+    {
+     "row": 200,
+     "batch_no": "CT5039",
+     "expiry": "2027-08-31",
+     "expiry_sheet": "08/27",
+     "expiry_problem": null,
+     "notes": "Units could be 90 or 96; another batch no. crossed out"
+    }
+   ],
+   "name": "Cefixime 200mg"
+  },
+  {
+   "row": 201,
+   "no": "169",
+   "sheet_name": "Tinidazole 500mg tabs",
+   "strength": "500mg",
+   "cost": 7.5,
+   "sell": 50.0,
+   "ins": 80.0,
+   "qty": 96,
+   "notes": null,
+   "batches": [
+    {
+     "row": 201,
+     "batch_no": "QTINTE001",
+     "expiry": "2029-03-31",
+     "expiry_sheet": "03/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Tinidazole 500mg tabs"
+  },
+  {
+   "row": 202,
+   "no": "170",
+   "sheet_name": "Metronidazole 200mg tabs",
+   "strength": "200mg",
+   "cost": 0.6,
+   "sell": 10.0,
+   "ins": 20.0,
+   "qty": 2700,
+   "notes": "Expiry written as 16/28 (maybe 10/28); 2nd batch quantity written as 250mg - please check",
+   "batches": [
+    {
+     "row": 202,
+     "batch_no": "1125009",
+     "expiry": null,
+     "expiry_sheet": "16/28",
+     "expiry_problem": "expiry '16/28': no month 16",
+     "notes": "Expiry written as 16/28 (maybe 10/28); 2nd batch quantity written as 250mg - please check"
+    },
+    {
+     "row": 203,
+     "batch_no": "126355",
+     "expiry": "2029-09-30",
+     "expiry_sheet": "09/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Metronidazole 200mg tabs"
+  },
+  {
+   "row": 204,
+   "no": "171",
+   "sheet_name": "Metronidazole 400mg tabs",
+   "strength": "400mg",
+   "cost": 1.05,
+   "sell": 10.0,
+   "ins": 25.0,
+   "qty": 200,
+   "notes": null,
+   "batches": [
+    {
+     "row": 204,
+     "batch_no": "126287",
+     "expiry": "2029-08-31",
+     "expiry_sheet": "08/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Metronidazole 400mg tabs"
+  },
+  {
+   "row": 205,
+   "no": "172",
+   "sheet_name": "Fluconazole 200mg",
+   "strength": "200mg",
+   "cost": 15.0,
+   "sell": 30.0,
+   "ins": 40.0,
+   "qty": 2400,
+   "notes": null,
+   "batches": [
+    {
+     "row": 205,
+     "batch_no": "260569",
+     "expiry": "2029-01-31",
+     "expiry_sheet": "01/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Fluconazole 200mg"
+  },
+  {
+   "row": 206,
+   "no": "173",
+   "sheet_name": "Fluconazole 150mg",
+   "strength": "150mg",
+   "cost": 8.0,
+   "sell": 50.0,
+   "ins": 50.0,
+   "qty": 160,
+   "notes": "Units overwritten (160)",
+   "batches": [
+    {
+     "row": 206,
+     "batch_no": "PFLCCE001",
+     "expiry": "2028-04-30",
+     "expiry_sheet": "04/28",
+     "expiry_problem": null,
+     "notes": "Units overwritten (160)"
+    }
+   ],
+   "name": "Fluconazole 150mg"
+  },
+  {
+   "row": 207,
+   "no": "174",
+   "sheet_name": "Ketoconazole 200mg tabs",
+   "strength": "200mg",
+   "cost": 3.5,
+   "sell": 20.0,
+   "ins": 30.0,
+   "qty": 600,
+   "notes": null,
+   "batches": [
+    {
+     "row": 207,
+     "batch_no": "92666",
+     "expiry": "2029-04-30",
+     "expiry_sheet": "04/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Ketoconazole 200mg tabs"
+  },
+  {
+   "row": 208,
+   "no": "175",
+   "sheet_name": "Griseofulvin 500mg tabs",
+   "strength": "500mg",
+   "cost": 6.85,
+   "sell": 20.0,
+   "ins": 30.0,
+   "qty": 1500,
+   "notes": null,
+   "batches": [
+    {
+     "row": 208,
+     "batch_no": "91920",
+     "expiry": "2029-01-31",
+     "expiry_sheet": "01/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Griseofulvin 500mg tabs"
+  },
+  {
+   "row": 209,
+   "no": "176",
+   "sheet_name": "Griseofulvin 250mg tabs",
+   "strength": "250mg",
+   "cost": 4.75,
+   "sell": 20.0,
+   "ins": 30.0,
+   "qty": 1100,
+   "notes": null,
+   "batches": [
+    {
+     "row": 209,
+     "batch_no": "T25M017",
+     "expiry": "2028-11-30",
+     "expiry_sheet": "11/28",
+     "expiry_problem": null,
+     "notes": null
+    },
+    {
+     "row": 210,
+     "batch_no": "92894",
+     "expiry": "2029-05-31",
+     "expiry_sheet": "05/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Griseofulvin 250mg tabs"
+  },
+  {
+   "row": 211,
+   "no": "177",
+   "sheet_name": "Griseofulvin 125mg tabs",
+   "strength": "125mg",
+   "cost": 2.75,
+   "sell": 20.0,
+   "ins": 30.0,
+   "qty": 600,
+   "notes": null,
+   "batches": [
+    {
+     "row": 211,
+     "batch_no": "T25L059",
+     "expiry": "2028-10-31",
+     "expiry_sheet": "10/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Griseofulvin 125mg tabs"
+  },
+  {
+   "row": 212,
+   "no": "178",
+   "sheet_name": "Erythromycin 500mg tabs",
+   "strength": "500mg",
+   "cost": 6.5,
+   "sell": 50.0,
+   "ins": 60.0,
+   "qty": 500,
+   "notes": null,
+   "batches": [
+    {
+     "row": 212,
+     "batch_no": "92112",
+     "expiry": "2029-02-28",
+     "expiry_sheet": "02/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Erythromycin 500mg tabs"
+  },
+  {
+   "row": 213,
+   "no": "179",
+   "sheet_name": "Erythromycin 250mg tabs",
+   "strength": "250mg",
+   "cost": 3.5,
+   "sell": 50.0,
+   "ins": 60.0,
+   "qty": 600,
+   "notes": null,
+   "batches": [
+    {
+     "row": 213,
+     "batch_no": "2508191",
+     "expiry": "2028-07-31",
+     "expiry_sheet": "07/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Erythromycin 250mg tabs"
+  },
+  {
+   "row": 214,
+   "no": "180",
+   "sheet_name": "Levofloxacin 750mg tabs",
+   "strength": "750mg",
+   "cost": 10.0,
+   "sell": 75.0,
+   "ins": 85.0,
+   "qty": 200,
+   "notes": null,
+   "batches": [
+    {
+     "row": 214,
+     "batch_no": "TMYLF5001",
+     "expiry": "2028-06-30",
+     "expiry_sheet": "06/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Levofloxacin 750mg tabs"
+  },
+  {
+   "row": 215,
+   "no": "181",
+   "sheet_name": "Levofloxacin 500mg tabs",
+   "strength": "500mg",
+   "cost": 3.5,
+   "sell": 50.0,
+   "ins": 60.0,
+   "qty": 1000,
+   "notes": null,
+   "batches": [
+    {
+     "row": 215,
+     "batch_no": "ET26B026",
+     "expiry": "2029-01-31",
+     "expiry_sheet": "01/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Levofloxacin 500mg tabs"
+  },
+  {
+   "row": 216,
+   "no": "182",
+   "sheet_name": "Ciprofloxacin 500mg",
+   "strength": "500mg",
+   "cost": 2.5,
+   "sell": 20.0,
+   "ins": 30.0,
+   "qty": 2300,
+   "notes": null,
+   "batches": [
+    {
+     "row": 216,
+     "batch_no": "T26D005",
+     "expiry": "2029-03-31",
+     "expiry_sheet": "03/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Ciprofloxacin 500mg"
+  },
+  {
+   "row": 217,
+   "no": "183",
+   "sheet_name": "Trimethoprim 160mg + Sulfamethoxazole 800mg tabs",
+   "strength": "960mg",
+   "cost": 2.8,
+   "sell": 20.0,
+   "ins": 30.0,
+   "qty": 600,
+   "notes": null,
+   "batches": [
+    {
+     "row": 217,
+     "batch_no": "260577",
+     "expiry": "2029-02-28",
+     "expiry_sheet": "02/29",
+     "expiry_problem": null,
+     "notes": null
+    },
+    {
+     "row": 218,
+     "batch_no": "0126171",
+     "expiry": "2028-12-31",
+     "expiry_sheet": "12/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Trimethoprim 160mg + Sulfamethoxazole 800mg tabs"
+  },
+  {
+   "row": 219,
+   "no": "184",
+   "sheet_name": "Trimethoprim 80mg + Sulfamethoxazole 400mg tabs",
+   "strength": "480mg",
+   "cost": null,
+   "sell": 15.0,
+   "ins": 30.0,
+   "qty": 1000,
+   "notes": null,
+   "batches": [
+    {
+     "row": 219,
+     "batch_no": "252139",
+     "expiry": "2029-09-30",
+     "expiry_sheet": "09/29",
+     "expiry_problem": null,
+     "notes": null
+    },
+    {
+     "row": 220,
+     "batch_no": "5B77",
+     "expiry": "2029-01-31",
+     "expiry_sheet": "01/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Trimethoprim 80mg + Sulfamethoxazole 400mg tabs"
+  },
+  {
+   "row": 221,
+   "no": "185",
+   "sheet_name": "Ampicillin 250mg + Cloxacillin 250mg capsules",
+   "strength": "500mg",
+   "cost": 3.4,
+   "sell": 20.0,
+   "ins": 30.0,
+   "qty": 900,
+   "notes": null,
+   "batches": [
+    {
+     "row": 221,
+     "batch_no": "G25638",
+     "expiry": "2027-11-30",
+     "expiry_sheet": "11/27",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Ampicillin 250mg + Cloxacillin 250mg capsules"
+  },
+  {
+   "row": 222,
+   "no": "186",
+   "sheet_name": "Flucloxacillin 500mg capsules",
+   "strength": "500mg",
+   "cost": 6.6,
+   "sell": 20.0,
+   "ins": 30.0,
+   "qty": 700,
+   "notes": null,
+   "batches": [
+    {
+     "row": 222,
+     "batch_no": "BG4726006",
+     "expiry": "2029-05-31",
+     "expiry_sheet": "05/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Flucloxacillin 500mg capsules"
+  },
+  {
+   "row": 223,
+   "no": "187",
+   "sheet_name": "Flucloxacillin 250mg capsules",
+   "strength": "250mg",
+   "cost": 3.3,
+   "sell": 20.0,
+   "ins": 30.0,
+   "qty": 3500,
+   "notes": null,
+   "batches": [
+    {
+     "row": 223,
+     "batch_no": "6D54",
+     "expiry": "2028-08-31",
+     "expiry_sheet": "08/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Flucloxacillin 250mg capsules"
+  },
+  {
+   "row": 224,
+   "no": "188",
+   "sheet_name": "Vitamin E 250mg",
+   "strength": "250mg",
+   "cost": null,
+   "sell": 50.0,
+   "ins": 70.0,
+   "qty": 200,
+   "notes": null,
+   "batches": [
+    {
+     "row": 224,
+     "batch_no": "5001564",
+     "expiry": "2027-08-31",
+     "expiry_sheet": "08/27",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Vitamin E 250mg"
+  },
+  {
+   "row": 225,
+   "no": "189",
+   "sheet_name": "Secnidazole 1000mg tabs",
+   "strength": "1000mg",
+   "cost": 22.0,
+   "sell": 100.0,
+   "ins": 100.0,
+   "qty": 500,
+   "notes": null,
+   "batches": [
+    {
+     "row": 225,
+     "batch_no": "5G00026",
+     "expiry": "2027-06-30",
+     "expiry_sheet": "06/27",
+     "expiry_problem": null,
+     "notes": null
+    },
+    {
+     "row": 226,
+     "batch_no": "6A00017",
+     "expiry": "2028-01-31",
+     "expiry_sheet": "01/28",
+     "expiry_problem": null,
+     "notes": null
+    },
+    {
+     "row": 227,
+     "batch_no": "5M00016",
+     "expiry": "2027-12-31",
+     "expiry_sheet": "12/27",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Secnidazole 1000mg tabs"
+  },
+  {
+   "row": 228,
+   "no": "190",
+   "sheet_name": "Amoxicillin 125mg suspension",
+   "strength": "100ml",
+   "cost": 55.0,
+   "sell": 150.0,
+   "ins": 300.0,
+   "qty": 140,
+   "notes": null,
+   "batches": [
+    {
+     "row": 228,
+     "batch_no": "92458",
+     "expiry": "2029-03-31",
+     "expiry_sheet": "03/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Amoxicillin 125mg suspension"
+  },
+  {
+   "row": 229,
+   "no": "191",
+   "sheet_name": "Clotrimazole pessaries 500mg",
+   "strength": "500mg",
+   "cost": 120.0,
+   "sell": 200.0,
+   "ins": 350.0,
+   "qty": 10,
+   "notes": null,
+   "batches": [
+    {
+     "row": 229,
+     "batch_no": "5815668A",
+     "expiry": "2029-01-31",
+     "expiry_sheet": "01/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Clotrimazole pessaries 500mg"
+  },
+  {
+   "row": 230,
+   "no": "192",
+   "sheet_name": "Aspirin 75mg tab",
+   "strength": "75mg",
+   "cost": 3.6,
+   "sell": 15.0,
+   "ins": 30.0,
+   "qty": 3780,
+   "notes": null,
+   "batches": [
+    {
+     "row": 230,
+     "batch_no": "2606043",
+     "expiry": "2029-05-31",
+     "expiry_sheet": "05/29",
+     "expiry_problem": null,
+     "notes": null
+    },
+    {
+     "row": 231,
+     "batch_no": "ARD75M",
+     "expiry": "2029-06-30",
+     "expiry_sheet": "06/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Aspirin 75mg tab"
+  },
+  {
+   "row": 232,
+   "no": "193",
+   "sheet_name": "Nitrofurantoin 100mg tabs",
+   "strength": "100mg",
+   "cost": 1.95,
+   "sell": 15.0,
+   "ins": 20.0,
+   "qty": 700,
+   "notes": null,
+   "batches": [
+    {
+     "row": 232,
+     "batch_no": "93140",
+     "expiry": "2029-06-30",
+     "expiry_sheet": "06/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Nitrofurantoin 100mg tabs"
+  },
+  {
+   "row": 233,
+   "no": "194",
+   "sheet_name": "Atorvastatin 20mg",
+   "strength": "20mg",
+   "cost": 2.0,
+   "sell": 20.0,
+   "ins": 30.0,
+   "qty": 450,
+   "notes": null,
+   "batches": [
+    {
+     "row": 233,
+     "batch_no": "BRF12100B",
+     "expiry": "2028-11-30",
+     "expiry_sheet": "11/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Atorvastatin 20mg"
+  },
+  {
+   "row": 234,
+   "no": "195",
+   "sheet_name": "Calamine lotion 100ml",
+   "strength": "100ml",
+   "cost": 30.0,
+   "sell": 150.0,
+   "ins": 300.0,
+   "qty": 5,
+   "notes": null,
+   "batches": [
+    {
+     "row": 234,
+     "batch_no": "14526AGL",
+     "expiry": "2029-11-30",
+     "expiry_sheet": "11/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Calamine lotion 100ml"
+  },
+  {
+   "row": 235,
+   "no": "196",
+   "sheet_name": "Lidocaine 2%",
+   "strength": "35ml",
+   "cost": 22.0,
+   "sell": 200.0,
+   "ins": 300.0,
+   "qty": 10,
+   "notes": null,
+   "batches": [
+    {
+     "row": 235,
+     "batch_no": "PCURIE012",
+     "expiry": "2028-07-31",
+     "expiry_sheet": "07/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Lidocaine 2%"
+  },
+  {
+   "row": 236,
+   "no": "197",
+   "sheet_name": "Lidocaine 21.33mg + Adrenaline 0.0125mg",
+   "strength": "30ml",
+   "cost": null,
+   "sell": 200.0,
+   "ins": 300.0,
+   "qty": 5,
+   "notes": null,
+   "batches": [
+    {
+     "row": 236,
+     "batch_no": "763505",
+     "expiry": "2028-05-31",
+     "expiry_sheet": "05/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Lidocaine 21.33mg + Adrenaline 0.0125mg"
+  },
+  {
+   "row": 237,
+   "no": "198",
+   "sheet_name": "Clopidogrel bisulfate 75mg",
+   "strength": "75mg",
+   "cost": 3.0,
+   "sell": 20.0,
+   "ins": 30.0,
+   "qty": 440,
+   "notes": null,
+   "batches": [
+    {
+     "row": 237,
+     "batch_no": "251539",
+     "expiry": "2028-10-31",
+     "expiry_sheet": "10/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Clopidogrel bisulfate 75mg"
+  },
+  {
+   "row": 238,
+   "no": "199",
+   "sheet_name": "Nifedipine sustained release 20mg tabs",
+   "strength": "20mg",
+   "cost": 0.6,
+   "sell": 5.0,
+   "ins": 10.0,
+   "qty": 1000,
+   "notes": null,
+   "batches": [
+    {
+     "row": 238,
+     "batch_no": "T26G019",
+     "expiry": "2029-06-30",
+     "expiry_sheet": "06/29",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Nifedipine sustained release 20mg tabs"
+  },
+  {
+   "row": 239,
+   "no": "200",
+   "sheet_name": "Nifedipine extended release 20mg",
+   "strength": "20mg",
+   "cost": 0.6,
+   "sell": 5.0,
+   "ins": 10.0,
+   "qty": 4200,
+   "notes": null,
+   "batches": [
+    {
+     "row": 239,
+     "batch_no": "U3141T",
+     "expiry": "2028-07-31",
+     "expiry_sheet": "07/28",
+     "expiry_problem": null,
+     "notes": null
+    },
+    {
+     "row": 240,
+     "batch_no": "DL0194",
+     "expiry": "2027-11-30",
+     "expiry_sheet": "11/27",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Nifedipine extended release 20mg"
+  },
+  {
+   "row": 241,
+   "no": "201",
+   "sheet_name": "Methyldopa 250mg(Dopamac)",
+   "strength": "250mg",
+   "cost": 5.2,
+   "sell": 10.0,
+   "ins": 20.0,
+   "qty": 700,
+   "notes": null,
+   "batches": [
+    {
+     "row": 241,
+     "batch_no": "11250856A",
+     "expiry": "2028-11-30",
+     "expiry_sheet": "11/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Methyldopa 250mg(Dopamac)"
+  },
+  {
+   "row": 242,
+   "no": "202",
+   "sheet_name": "Methyldopa 250mg(Dopazen)",
+   "strength": "250mg",
+   "cost": 5.2,
+   "sell": 10.0,
+   "ins": 20.0,
+   "qty": null,
+   "notes": null,
+   "batches": [
+    {
+     "row": 242,
+     "batch_no": "T25M029",
+     "expiry": "2028-11-30",
+     "expiry_sheet": "11/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Methyldopa 250mg(Dopazen)"
+  },
+  {
+   "row": 243,
+   "no": "203",
+   "sheet_name": "Methyldopa 250mg(Hydopa)",
+   "strength": "250mg",
+   "cost": 5.2,
+   "sell": 10.0,
+   "ins": 20.0,
+   "qty": null,
+   "notes": null,
+   "batches": [
+    {
+     "row": 243,
+     "batch_no": "90646",
+     "expiry": "2028-03-31",
+     "expiry_sheet": "03/28",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Methyldopa 250mg(Hydopa)"
+  },
+  {
+   "row": 244,
+   "no": "204",
+   "sheet_name": "Methyldopa 250mg(Dawadopa)",
+   "strength": null,
+   "cost": 5.2,
+   "sell": 10.0,
+   "ins": 20.0,
+   "qty": null,
+   "notes": null,
+   "batches": [
+    {
+     "row": 244,
+     "batch_no": "2508163",
+     "expiry": "2028-07-31",
+     "expiry_sheet": "2026-07-28 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Methyldopa 250mg(Dawadopa)"
+  },
+  {
+   "row": 245,
+   "no": "205",
+   "sheet_name": "Propranolol 40mg",
+   "strength": "40mg",
+   "cost": 2.2,
+   "sell": 3.0,
+   "ins": 10.0,
+   "qty": 300,
+   "notes": null,
+   "batches": [
+    {
+     "row": 245,
+     "batch_no": "1151424",
+     "expiry": "2028-11-30",
+     "expiry_sheet": "2026-11-28 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Propranolol 40mg"
+  },
+  {
+   "row": 246,
+   "no": "206",
+   "sheet_name": "Enalapril maleate 5mg(enaril)",
+   "strength": "5mg",
+   "cost": null,
+   "sell": 7.0,
+   "ins": 15.0,
+   "qty": 400,
+   "notes": null,
+   "batches": [
+    {
+     "row": 246,
+     "batch_no": "11514671",
+     "expiry": "2027-06-30",
+     "expiry_sheet": "2026-06-27 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Enalapril maleate 5mg(enaril)"
+  },
+  {
+   "row": 247,
+   "no": "207",
+   "sheet_name": "Enalapril maleate 5mg(Dawapril)",
+   "strength": "5mg",
+   "cost": 0.95,
+   "sell": 5.0,
+   "ins": 10.0,
+   "qty": 600,
+   "notes": null,
+   "batches": [
+    {
+     "row": 247,
+     "batch_no": "2607256",
+     "expiry": "2028-06-30",
+     "expiry_sheet": "2026-06-28 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Enalapril maleate 5mg(Dawapril)"
+  },
+  {
+   "row": 248,
+   "no": "208",
+   "sheet_name": "Enalapril maleate 10mg(Dawapril)",
+   "strength": "10mg",
+   "cost": 1.1,
+   "sell": 7.0,
+   "ins": 10.0,
+   "qty": 2200,
+   "notes": null,
+   "batches": [
+    {
+     "row": 248,
+     "batch_no": "2604159",
+     "expiry": "2028-03-31",
+     "expiry_sheet": "2026-03-28 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Enalapril maleate 10mg(Dawapril)"
+  },
+  {
+   "row": 249,
+   "no": "209",
+   "sheet_name": "Enalapril maleate 10mg(Encardil)",
+   "strength": "10mg",
+   "cost": 2.0,
+   "sell": 7.0,
+   "ins": 10.0,
+   "qty": 800,
+   "notes": null,
+   "batches": [
+    {
+     "row": 249,
+     "batch_no": "E41106",
+     "expiry": "2027-06-30",
+     "expiry_sheet": "2026-06-27 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Enalapril maleate 10mg(Encardil)"
+  },
+  {
+   "row": 250,
+   "no": "210",
+   "sheet_name": "Furosemide 40mg",
+   "strength": "40mg",
+   "cost": null,
+   "sell": 5.0,
+   "ins": 10.0,
+   "qty": 1000,
+   "notes": null,
+   "batches": [
+    {
+     "row": 250,
+     "batch_no": "251568",
+     "expiry": "2028-09-30",
+     "expiry_sheet": "2026-09-28 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Furosemide 40mg"
+  },
+  {
+   "row": 251,
+   "no": "211",
+   "sheet_name": "Hydrochlorothiazide 25mg",
+   "strength": "25mg",
+   "cost": 2.0,
+   "sell": 5.0,
+   "ins": 10.0,
+   "qty": 2900,
+   "notes": null,
+   "batches": [
+    {
+     "row": 251,
+     "batch_no": "260404",
+     "expiry": "2029-07-31",
+     "expiry_sheet": "2026-07-29 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Hydrochlorothiazide 25mg"
+  },
+  {
+   "row": 252,
+   "no": "212",
+   "sheet_name": "Hydrochlorothiazide 50mg",
+   "strength": "25mg",
+   "cost": 3.0,
+   "sell": 5.0,
+   "ins": 10.0,
+   "qty": 2000,
+   "notes": null,
+   "batches": [
+    {
+     "row": 252,
+     "batch_no": "251501",
+     "expiry": "2028-07-31",
+     "expiry_sheet": "2026-07-28 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Hydrochlorothiazide 50mg"
+  },
+  {
+   "row": 253,
+   "no": "213",
+   "sheet_name": "Carvedilol 6.25mg (Vidol)",
+   "strength": "6.25mg",
+   "cost": 12.0,
+   "sell": 15.0,
+   "ins": 20.0,
+   "qty": 840,
+   "notes": null,
+   "batches": [
+    {
+     "row": 253,
+     "batch_no": "260622",
+     "expiry": "2028-07-31",
+     "expiry_sheet": "2026-07-28 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Carvedilol 6.25mg (Vidol)"
+  },
+  {
+   "row": 254,
+   "no": "214",
+   "sheet_name": "Carvedilol 12.5mg (Vidol)",
+   "strength": "12.5mg",
+   "cost": 16.5,
+   "sell": 25.0,
+   "ins": 30.0,
+   "qty": 448,
+   "notes": null,
+   "batches": [
+    {
+     "row": 254,
+     "batch_no": "251504",
+     "expiry": "2027-08-31",
+     "expiry_sheet": "2026-08-27 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Carvedilol 12.5mg (Vidol)"
+  },
+  {
+   "row": 255,
+   "no": "215",
+   "sheet_name": "Spironolactone Tablets BP 25mg(Spillar-25)",
+   "strength": "25mg",
+   "cost": null,
+   "sell": 15.0,
+   "ins": 30.0,
+   "qty": 500,
+   "notes": null,
+   "batches": [
+    {
+     "row": 255,
+     "batch_no": "SFT2604",
+     "expiry": "2029-01-31",
+     "expiry_sheet": "2026-01-29 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Spironolactone Tablets BP 25mg(Spillar-25)"
+  },
+  {
+   "row": 256,
+   "no": "216",
+   "sheet_name": "Atenolol 25mg (Cardinol)",
+   "strength": "25mg",
+   "cost": 4.5,
+   "sell": 10.0,
+   "ins": 20.0,
+   "qty": 1064,
+   "notes": null,
+   "batches": [
+    {
+     "row": 256,
+     "batch_no": "251571",
+     "expiry": "2028-08-31",
+     "expiry_sheet": "2026-08-28 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Atenolol 25mg (Cardinol)"
+  },
+  {
+   "row": 257,
+   "no": "217",
+   "sheet_name": "Losartan potassium 50mg(Carditan)",
+   "strength": "50mg",
+   "cost": 7.5,
+   "sell": 10.0,
+   "ins": 15.0,
+   "qty": 560,
+   "notes": null,
+   "batches": [
+    {
+     "row": 257,
+     "batch_no": "260562",
+     "expiry": "2029-04-30",
+     "expiry_sheet": "2026-04-29 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Losartan potassium 50mg(Carditan)"
+  },
+  {
+   "row": 258,
+   "no": "218",
+   "sheet_name": "Losartan potassium 50mg + Hydrochlorothiazide 12.5mg(Carditan H)",
+   "strength": "50/12.5mg",
+   "cost": 9.2,
+   "sell": 15.0,
+   "ins": 20.0,
+   "qty": 850,
+   "notes": null,
+   "batches": [
+    {
+     "row": 258,
+     "batch_no": "260537",
+     "expiry": "2029-06-30",
+     "expiry_sheet": "2026-06-29 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Losartan potassium 50mg + Hydrochlorothiazide 12.5mg(Carditan H)"
+  },
+  {
+   "row": 259,
+   "no": "219",
+   "sheet_name": "Losartan potassium 50mg + Hydrochlorothiazide 12.5mg tablets(Presartan H 50)",
+   "strength": "50/12.5mg",
+   "cost": 4.3,
+   "sell": 10.0,
+   "ins": 15.0,
+   "qty": 4200,
+   "notes": null,
+   "batches": [
+    {
+     "row": 259,
+     "batch_no": "BUW5826018",
+     "expiry": "2028-06-30",
+     "expiry_sheet": "2026-06-28 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Losartan potassium 50mg + Hydrochlorothiazide 12.5mg tablets(Presartan H 50)"
+  },
+  {
+   "row": 260,
+   "no": "220",
+   "sheet_name": "Amlodipine Besylate 10mg(Varinil)",
+   "strength": "10mg",
+   "cost": 9.5,
+   "sell": 15.0,
+   "ins": 20.0,
+   "qty": 850,
+   "notes": null,
+   "batches": [
+    {
+     "row": 260,
+     "batch_no": "260383",
+     "expiry": "2029-05-31",
+     "expiry_sheet": "2026-05-29 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Amlodipine Besylate 10mg(Varinil)"
+  },
+  {
+   "row": 261,
+   "no": "221",
+   "sheet_name": "Glibenclamide 5 mg + Metrformin Hydrochloride 500mg(Glucomet N)",
+   "strength": "5/500mg",
+   "cost": null,
+   "sell": 20.0,
+   "ins": 30.0,
+   "qty": 84,
+   "notes": null,
+   "batches": [
+    {
+     "row": 261,
+     "batch_no": "260593",
+     "expiry": "2029-04-30",
+     "expiry_sheet": "2026-04-29 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Glibenclamide 5 mg + Metrformin Hydrochloride 500mg(Glucomet N)"
+  },
+  {
+   "row": 262,
+   "no": "222",
+   "sheet_name": "Metformin Hydrochloride 850mg(Glucomet)",
+   "strength": "850mg",
+   "cost": 7.7,
+   "sell": 20.0,
+   "ins": 30.0,
+   "qty": 1176,
+   "notes": null,
+   "batches": [
+    {
+     "row": 262,
+     "batch_no": "260907",
+     "expiry": "2029-01-31",
+     "expiry_sheet": "2026-01-29 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Metformin Hydrochloride 850mg(Glucomet)"
+  },
+  {
+   "row": 263,
+   "no": "223",
+   "sheet_name": "Metformin Hydrochloride 850mg(Glucophage 850 mg)",
+   "strength": "850mg",
+   "cost": 8.0,
+   "sell": 20.0,
+   "ins": 30.0,
+   "qty": 240,
+   "notes": null,
+   "batches": [
+    {
+     "row": 263,
+     "batch_no": "C24088",
+     "expiry": "2027-07-31",
+     "expiry_sheet": "2026-07-27 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Metformin Hydrochloride 850mg(Glucophage 850 mg)"
+  },
+  {
+   "row": 264,
+   "no": "224",
+   "sheet_name": "Metformin Tablets BP 850mg(Genimet-850)",
+   "strength": "850mg",
+   "cost": 7.8,
+   "sell": 20.0,
+   "ins": 30.0,
+   "qty": 300,
+   "notes": null,
+   "batches": [
+    {
+     "row": 264,
+     "batch_no": "GMTT24004",
+     "expiry": "2027-07-31",
+     "expiry_sheet": "2026-07-27 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Metformin Tablets BP 850mg(Genimet-850)"
+  },
+  {
+   "row": 265,
+   "no": "225",
+   "sheet_name": "Metformin Hydrochloride 500mg(Glucomet)",
+   "strength": "500mg",
+   "cost": 4.2,
+   "sell": 20.0,
+   "ins": 30.0,
+   "qty": 1120,
+   "notes": null,
+   "batches": [
+    {
+     "row": 265,
+     "batch_no": "260516",
+     "expiry": "2029-02-28",
+     "expiry_sheet": "2029-02-01 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Metformin Hydrochloride 500mg(Glucomet)"
+  },
+  {
+   "row": 266,
+   "no": "226",
+   "sheet_name": "Metformin Hydrochloride 1000mg(Glucophage 1000 mg)",
+   "strength": "1000mg",
+   "cost": 8.4,
+   "sell": 25.0,
+   "ins": 35.0,
+   "qty": 960,
+   "notes": null,
+   "batches": [
+    {
+     "row": 266,
+     "batch_no": "C25086",
+     "expiry": "2028-08-31",
+     "expiry_sheet": "2026-08-28 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Metformin Hydrochloride 1000mg(Glucophage 1000 mg)"
+  },
+  {
+   "row": 267,
+   "no": "227",
+   "sheet_name": "Metformin Hydrochloride Extended Release 1000mg(Glucomet XR)",
+   "strength": "1000mg",
+   "cost": 15.0,
+   "sell": 20.0,
+   "ins": 30.0,
+   "qty": 1020,
+   "notes": null,
+   "batches": [
+    {
+     "row": 267,
+     "batch_no": "260701",
+     "expiry": "2029-07-31",
+     "expiry_sheet": "2026-07-29 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Metformin Hydrochloride Extended Release 1000mg(Glucomet XR)"
+  },
+  {
+   "row": 268,
+   "no": "228",
+   "sheet_name": "Gliclazide 80mg(Diagluc)",
+   "strength": "80mg",
+   "cost": 18.9,
+   "sell": 25.0,
+   "ins": 35.0,
+   "qty": 224,
+   "notes": null,
+   "batches": [
+    {
+     "row": 268,
+     "batch_no": "250906",
+     "expiry": "2028-05-31",
+     "expiry_sheet": "2026-05-28 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Gliclazide 80mg(Diagluc)"
+  },
+  {
+   "row": 269,
+   "no": "229",
+   "sheet_name": "Paracetamol Intravenous Infusion 1000mg/100ml(Fievrenil)",
+   "strength": "1000mg/100ml",
+   "cost": 45.0,
+   "sell": 300.0,
+   "ins": 500.0,
+   "qty": 58,
+   "notes": null,
+   "batches": [
+    {
+     "row": 269,
+     "batch_no": "MP5446519",
+     "expiry": "2028-05-31",
+     "expiry_sheet": "2026-05-28 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Paracetamol Intravenous Infusion 1000mg/100ml(Fievrenil)"
+  },
+  {
+   "row": 270,
+   "no": "230",
+   "sheet_name": "Gentamycin Sulphate Injection BP 80mg/2ml",
+   "strength": "80mg/2ml",
+   "cost": 5.5,
+   "sell": 200.0,
+   "ins": 300.0,
+   "qty": 40,
+   "notes": null,
+   "batches": [
+    {
+     "row": 270,
+     "batch_no": "250913",
+     "expiry": "2028-09-30",
+     "expiry_sheet": "2026-09-28 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Gentamycin Sulphate Injection BP 80mg/2ml"
+  },
+  {
+   "row": 271,
+   "no": "231",
+   "sheet_name": "Gentamycin Sulphate Injection BP 80mg/2ml",
+   "strength": "80mg/2ml",
+   "cost": 5.5,
+   "sell": 200.0,
+   "ins": 300.0,
+   "qty": 30,
+   "notes": null,
+   "batches": [
+    {
+     "row": 271,
+     "batch_no": "250101",
+     "expiry": "2027-12-31",
+     "expiry_sheet": "2026-12-27 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Gentamycin Sulphate Injection BP 80mg/2ml"
+  },
+  {
+   "row": 272,
+   "no": "232",
+   "sheet_name": "Dexamethasone Sodium Phosphate Injection USP 8mg/2ml",
+   "strength": "8mg/2ml",
+   "cost": 8.5,
+   "sell": 200.0,
+   "ins": 300.0,
+   "qty": 30,
+   "notes": null,
+   "batches": [
+    {
+     "row": 272,
+     "batch_no": "250813",
+     "expiry": "2028-08-31",
+     "expiry_sheet": "2026-08-28 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Dexamethasone Sodium Phosphate Injection USP 8mg/2ml"
+  },
+  {
+   "row": 273,
+   "no": "233",
+   "sheet_name": "VItamin B Complex Injection",
+   "strength": null,
+   "cost": 85.0,
+   "sell": 300.0,
+   "ins": 500.0,
+   "qty": 7,
+   "notes": null,
+   "batches": [
+    {
+     "row": 273,
+     "batch_no": "QVBIE002",
+     "expiry": "2028-12-31",
+     "expiry_sheet": "2026-12-28 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "VItamin B Complex Injection"
+  },
+  {
+   "row": 274,
+   "no": "234",
+   "sheet_name": "Benzathine Benzylpenicillin for injection 2.4mega(Benzapene)",
+   "strength": null,
+   "cost": 32.0,
+   "sell": 500.0,
+   "ins": 500.0,
+   "qty": 5,
+   "notes": null,
+   "batches": [
+    {
+     "row": 274,
+     "batch_no": "202512122",
+     "expiry": "2028-11-30",
+     "expiry_sheet": "2026-11-28 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Benzathine Benzylpenicillin for injection 2.4mega(Benzapene)"
+  },
+  {
+   "row": 275,
+   "no": "235",
+   "sheet_name": "Triamcinolone acetonide 40mg/ml injection",
+   "strength": "40mg/ml",
+   "cost": 59.0,
+   "sell": 1000.0,
+   "ins": 1500.0,
+   "qty": 1,
+   "notes": null,
+   "batches": [
+    {
+     "row": 275,
+     "batch_no": "5989",
+     "expiry": "2027-08-31",
+     "expiry_sheet": "2026-08-27 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Triamcinolone acetonide 40mg/ml injection"
+  },
+  {
+   "row": 276,
+   "no": "236",
+   "sheet_name": "Sitagliptin Tablets 50mg(Sitaglip 50)",
+   "strength": "50mg",
+   "cost": 21.0,
+   "sell": 30.0,
+   "ins": 40.0,
+   "qty": 60,
+   "notes": null,
+   "batches": [
+    {
+     "row": 276,
+     "batch_no": "251782002",
+     "expiry": "2028-07-31",
+     "expiry_sheet": "2026-07-28 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Sitagliptin Tablets 50mg(Sitaglip 50)"
+  },
+  {
+   "row": 277,
+   "no": "237",
+   "sheet_name": "Adrenaline Injection BP 1mg/1ml",
+   "strength": "1mg/ml",
+   "cost": 9.0,
+   "sell": 200.0,
+   "ins": 300.0,
+   "qty": 10,
+   "notes": null,
+   "batches": [
+    {
+     "row": 277,
+     "batch_no": "PAHIE003",
+     "expiry": "2028-11-30",
+     "expiry_sheet": "2026-11-28 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Adrenaline Injection BP 1mg/1ml"
+  },
+  {
+   "row": 278,
+   "no": "238",
+   "sheet_name": "Atropine Injection BP 0.6mg/ml",
+   "strength": "0.6mg/ml",
+   "cost": null,
+   "sell": 200.0,
+   "ins": 300.0,
+   "qty": 10,
+   "notes": null,
+   "batches": [
+    {
+     "row": 278,
+     "batch_no": "PASIE-001",
+     "expiry": "2027-12-31",
+     "expiry_sheet": "2026-12-27 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Atropine Injection BP 0.6mg/ml"
+  },
+  {
+   "row": 279,
+   "no": "239",
+   "sheet_name": "Omeprazole Sodium for Injection 40mg(Omescot)",
+   "strength": "40mg",
+   "cost": null,
+   "sell": 300.0,
+   "ins": 500.0,
+   "qty": 40,
+   "notes": null,
+   "batches": [
+    {
+     "row": 279,
+     "batch_no": "(10)XD6E017",
+     "expiry": "2028-04-30",
+     "expiry_sheet": "2026-04-28 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Omeprazole Sodium for Injection 40mg(Omescot)"
+  },
+  {
+   "row": 280,
+   "no": "240",
+   "sheet_name": "Omeprazole Sodium for Injection 40mg(Ompac-40)",
+   "strength": "40mg",
+   "cost": null,
+   "sell": 300.0,
+   "ins": 500.0,
+   "qty": 20,
+   "notes": null,
+   "batches": [
+    {
+     "row": 280,
+     "batch_no": "65190",
+     "expiry": "2028-07-31",
+     "expiry_sheet": "2026-07-28 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Omeprazole Sodium for Injection 40mg(Ompac-40)"
+  },
+  {
+   "row": 281,
+   "no": "241",
+   "sheet_name": "Glibenclamide 5mg(Nogluc)",
+   "strength": "5mg",
+   "cost": 4.8,
+   "sell": 10.0,
+   "ins": 15.0,
+   "qty": 1904,
+   "notes": null,
+   "batches": [
+    {
+     "row": 281,
+     "batch_no": "260268",
+     "expiry": "2029-06-30",
+     "expiry_sheet": "2026-06-29 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Glibenclamide 5mg(Nogluc)"
+  },
+  {
+   "row": 282,
+   "no": "242",
+   "sheet_name": "Metformin Hydrochloride 500mg(Gludown)",
+   "strength": "500mg",
+   "cost": 1.0,
+   "sell": 5.0,
+   "ins": 10.0,
+   "qty": 4400,
+   "notes": null,
+   "batches": [
+    {
+     "row": 282,
+     "batch_no": "91867",
+     "expiry": "2028-01-31",
+     "expiry_sheet": "2026-01-28 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Metformin Hydrochloride 500mg(Gludown)"
+  },
+  {
+   "row": 283,
+   "no": "243",
+   "sheet_name": "Azithromycin Tablets USP 500mg(Shalzin)",
+   "strength": "500mg",
+   "cost": 40.0,
+   "sell": 150.0,
+   "ins": 300.0,
+   "qty": 210,
+   "notes": null,
+   "batches": [
+    {
+     "row": 283,
+     "batch_no": "6372511",
+     "expiry": "2029-04-30",
+     "expiry_sheet": "2026-04-29 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Azithromycin Tablets USP 500mg(Shalzin)"
+  },
+  {
+   "row": 284,
+   "no": "244",
+   "sheet_name": "Amlodipin 5mg(Amolab-5)",
+   "strength": "5mg",
+   "cost": 4.5,
+   "sell": 7.0,
+   "ins": 10.0,
+   "qty": 640,
+   "notes": null,
+   "batches": [
+    {
+     "row": 284,
+     "batch_no": "91573",
+     "expiry": "2028-12-31",
+     "expiry_sheet": "2026-12-28 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Amlodipin 5mg(Amolab-5)"
+  },
+  {
+   "row": 285,
+   "no": "245",
+   "sheet_name": "Magaldrate + Simethicone Oral Suspension(Magnacid Gel)",
+   "strength": null,
+   "cost": 45.0,
+   "sell": 100.0,
+   "ins": 250.0,
+   "qty": 154,
+   "notes": null,
+   "batches": [
+    {
+     "row": 285,
+     "batch_no": "93442",
+     "expiry": "2029-08-31",
+     "expiry_sheet": "2026-08-29 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Magaldrate + Simethicone Oral Suspension(Magnacid Gel)"
+  },
+  {
+   "row": 286,
+   "no": "246",
+   "sheet_name": "Ciprofloxacin 0.3% eye/ear drops USP 5ml(Ciproken)",
+   "strength": "5ml",
+   "cost": 95.0,
+   "sell": 200.0,
+   "ins": 300.0,
+   "qty": 40,
+   "notes": null,
+   "batches": [
+    {
+     "row": 286,
+     "batch_no": "6B00784",
+     "expiry": "2028-12-31",
+     "expiry_sheet": "2026-12-28 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Ciprofloxacin 0.3% eye/ear drops USP 5ml(Ciproken)"
+  },
+  {
+   "row": 287,
+   "no": "247",
+   "sheet_name": "Dacof Dry Syrup 100ml",
+   "strength": "100ml",
+   "cost": 105.0,
+   "sell": 300.0,
+   "ins": 450.0,
+   "qty": 25,
+   "notes": null,
+   "batches": [
+    {
+     "row": 287,
+     "batch_no": "2607061",
+     "expiry": "2029-06-30",
+     "expiry_sheet": "2026-06-29 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Dacof Dry Syrup 100ml"
+  },
+  {
+   "row": 288,
+   "no": "248",
+   "sheet_name": "Aluminium hydroxide BP 120mg + Magnesium Trisilicate 250mg(Trugel) 200ml",
+   "strength": "120mg/250mg/200ml",
+   "cost": 60.0,
+   "sell": 200.0,
+   "ins": 450.0,
+   "qty": 20,
+   "notes": null,
+   "batches": [
+    {
+     "row": 288,
+     "batch_no": "126564",
+     "expiry": "2029-09-30",
+     "expiry_sheet": "2026-09-29 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Aluminium hydroxide BP 120mg + Magnesium Trisilicate 250mg(Trugel) 200ml"
+  },
+  {
+   "row": 289,
+   "no": "249",
+   "sheet_name": "Aluminium hydroxide + Magnesium hydroxide + Simethicone + Deglycyrrhizinated liquorice(Relcer gel) 100ml",
+   "strength": "100ml",
+   "cost": 265.0,
+   "sell": 350.0,
+   "ins": 600.0,
+   "qty": 24,
+   "notes": null,
+   "batches": [
+    {
+     "row": 289,
+     "batch_no": "10250040",
+     "expiry": "2028-12-31",
+     "expiry_sheet": "2026-12-28 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Aluminium hydroxide + Magnesium hydroxide + Simethicone + Deglycyrrhizinated liquorice(Relcer gel) 100ml"
+  },
+  {
+   "row": 290,
+   "no": "250",
+   "sheet_name": "Aluminium hydroxide BP 120mg + Magnesium Trisilicate 250mg(Alugel suspension) 100ml",
+   "strength": null,
+   "cost": 90.0,
+   "sell": 100.0,
+   "ins": 300.0,
+   "qty": 20,
+   "notes": null,
+   "batches": [
+    {
+     "row": 290,
+     "batch_no": "6J42",
+     "expiry": "2028-09-30",
+     "expiry_sheet": "2026-09-28 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Aluminium hydroxide BP 120mg + Magnesium Trisilicate 250mg(Alugel suspension) 100ml"
+  },
+  {
+   "row": 291,
+   "no": "251",
+   "sheet_name": "Loperamide Hydrochloride Capsules 2mg",
+   "strength": "2mg / 0.25mg",
+   "cost": 7.5,
+   "sell": 80.0,
+   "ins": 200.0,
+   "qty": 240,
+   "notes": null,
+   "batches": [
+    {
+     "row": 291,
+     "batch_no": "61015",
+     "expiry": "2029-09-30",
+     "expiry_sheet": "2026-09-29 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Loperamide Hydrochloride Capsules 2mg"
+  },
+  {
+   "row": 292,
+   "no": "252",
+   "sheet_name": "chewable montelukast Tablets 10mg(UCON-10)",
+   "strength": "10mg",
+   "cost": null,
+   "sell": 10.0,
+   "ins": 30.0,
+   "qty": 300,
+   "notes": null,
+   "batches": [
+    {
+     "row": 292,
+     "batch_no": "QUNTE002",
+     "expiry": "2029-06-30",
+     "expiry_sheet": "2026-06-29 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "chewable montelukast Tablets 10mg(UCON-10)"
+  },
+  {
+   "row": 293,
+   "no": "253",
+   "sheet_name": "Cetirizine Hydrocloride oral solution 60ml (Rinacet Syrup)",
+   "strength": "60ml",
+   "cost": 26.0,
+   "sell": 100.0,
+   "ins": 200.0,
+   "qty": 250,
+   "notes": null,
+   "batches": [
+    {
+     "row": 293,
+     "batch_no": "2610009",
+     "expiry": "2029-09-30",
+     "expiry_sheet": "2026-09-29 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Cetirizine Hydrocloride oral solution 60ml (Rinacet Syrup)"
+  },
+  {
+   "row": 294,
+   "no": "254",
+   "sheet_name": "Omeprazole tablets 20mg",
+   "strength": "20mg",
+   "cost": 1.0,
+   "sell": 5.0,
+   "ins": 10.0,
+   "qty": 2500,
+   "notes": null,
+   "batches": [
+    {
+     "row": 294,
+     "batch_no": "B26083",
+     "expiry": "2029-06-30",
+     "expiry_sheet": "2026-06-29 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Omeprazole tablets 20mg"
+  },
+  {
+   "row": 295,
+   "no": "255",
+   "sheet_name": "Esomeprazole 40mg tablets",
+   "strength": "40mg",
+   "cost": 3.6,
+   "sell": 20.0,
+   "ins": 30.0,
+   "qty": 120,
+   "notes": null,
+   "batches": [
+    {
+     "row": 295,
+     "batch_no": "HKT25005ES",
+     "expiry": "2027-09-30",
+     "expiry_sheet": "2026-09-27 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Esomeprazole 40mg tablets"
+  },
+  {
+   "row": 296,
+   "no": "256",
+   "sheet_name": "Esomeprazole 40mg tablets(Esomod-40)",
+   "strength": "40mg",
+   "cost": 3.6,
+   "sell": 20.0,
+   "ins": 30.0,
+   "qty": 600,
+   "notes": null,
+   "batches": [
+    {
+     "row": 296,
+     "batch_no": "AET26097",
+     "expiry": "2029-02-28",
+     "expiry_sheet": "2029-02-01 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Esomeprazole 40mg tablets(Esomod-40)"
+  },
+  {
+   "row": 297,
+   "no": "257",
+   "sheet_name": "Betamethasone Dipropionate + Clotrimazole + Gentamicin Sulfate Cream 30g(Trensderm cream)",
+   "strength": "30g",
+   "cost": 55.0,
+   "sell": 200.0,
+   "ins": 300.0,
+   "qty": 10,
+   "notes": null,
+   "batches": [
+    {
+     "row": 297,
+     "batch_no": "BE5L79",
+     "expiry": "2028-11-30",
+     "expiry_sheet": "2026-11-28 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Betamethasone Dipropionate + Clotrimazole + Gentamicin Sulfate Cream 30g(Trensderm cream)"
+  },
+  {
+   "row": 298,
+   "no": "258",
+   "sheet_name": "Epiderm Cream 15g",
+   "strength": "15g",
+   "cost": 50.0,
+   "sell": 80.0,
+   "ins": 200.0,
+   "qty": 10,
+   "notes": null,
+   "batches": [
+    {
+     "row": 298,
+     "batch_no": "6370922",
+     "expiry": "2029-01-31",
+     "expiry_sheet": "2026-01-29 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Epiderm Cream 15g"
+  },
+  {
+   "row": 299,
+   "no": "259",
+   "sheet_name": "Silver Sulfadiazine Cream 15gm",
+   "strength": "15mg",
+   "cost": 45.0,
+   "sell": 200.0,
+   "ins": 300.0,
+   "qty": 3,
+   "notes": null,
+   "batches": [
+    {
+     "row": 299,
+     "batch_no": "261074",
+     "expiry": "2029-04-30",
+     "expiry_sheet": "2026-04-29 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Silver Sulfadiazine Cream 15gm"
+  },
+  {
+   "row": 300,
+   "no": "260",
+   "sheet_name": "KLY lubricating Jelly 42g",
+   "strength": "42g",
+   "cost": 450.0,
+   "sell": 550.0,
+   "ins": 700.0,
+   "qty": 2,
+   "notes": null,
+   "batches": [
+    {
+     "row": 300,
+     "batch_no": "647",
+     "expiry": "2030-11-30",
+     "expiry_sheet": "2026-11-30 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "KLY lubricating Jelly 42g"
+  },
+  {
+   "row": 301,
+   "no": "261",
+   "sheet_name": "Diclofenac gel 1% w/w(Dolor Gel)",
+   "strength": null,
+   "cost": 15.0,
+   "sell": 80.0,
+   "ins": 200.0,
+   "qty": 200,
+   "notes": null,
+   "batches": [
+    {
+     "row": 301,
+     "batch_no": "50374",
+     "expiry": "2028-09-30",
+     "expiry_sheet": "2026-09-28 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Diclofenac gel 1% w/w(Dolor Gel)"
+  },
+  {
+   "row": 302,
+   "no": "262",
+   "sheet_name": "Dextromethorphan + Hydrobromide + Cetirizine 100ml(Isodex)",
+   "strength": "100ml",
+   "cost": 70.0,
+   "sell": 300.0,
+   "ins": 450.0,
+   "qty": 100,
+   "notes": null,
+   "batches": [
+    {
+     "row": 302,
+     "batch_no": "MH098",
+     "expiry": "2028-06-30",
+     "expiry_sheet": "2026-06-28 00:00:00",
+     "expiry_problem": null,
+     "notes": null
+    }
+   ],
+   "name": "Dextromethorphan + Hydrobromide + Cetirizine 100ml(Isodex)"
+  }
+ ]
+}

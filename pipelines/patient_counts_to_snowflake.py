@@ -518,7 +518,7 @@ def write_history(conn, rows: list[dict], run_id: str, refreshed_at: datetime) -
 
 
 def ensure_views(conn) -> None:
-    """Plot-ready views (recreated each run, cheap):
+    """Plot-ready views (recreated each run, cheap; TABLES with the same names on Databend):
       <SF_TABLE>_DAILY             last snapshot of each day + increase since the previous day
       AFYA_HMIS_PATIENT_GROWTH_MONTHLY        per org/facility: new + running-total patients/visits per month
       AFYA_HMIS_PATIENT_GROWTH_MONTHLY_TOTAL  whole platform: new + running-total patients/visits per month"""
@@ -549,12 +549,28 @@ def ensure_views(conn) -> None:
                    MAX(REFRESHED_AT) AS REFRESHED_AT
             FROM {hist} GROUP BY ENVIRONMENT, MONTH""",
     ]
+    from afya_backends import warehouse as afya_warehouse
+    if afya_warehouse.is_databend_connection(conn):
+        # Databend compiles a view to describe its columns (seconds per view; DBeaver/Redash ask constantly), so
+        # on Databend the same three objects are TABLES rebuilt from the same SELECTs every run.
+        statements = [_as_table(sql) for sql in statements]
     cur = conn.cursor()
     try:
         for sql in statements:
+            if afya_warehouse.is_databend_connection(conn):
+                name = sql.split(" AS", 1)[0].replace("CREATE OR REPLACE TABLE", "").strip()
+                try:                                     # a view of the same name (never on prod Databend so far)
+                    cur.execute(f"DROP VIEW IF EXISTS {name}")
+                except Exception:  # noqa: BLE001 - it's a table, or nothing
+                    pass
             cur.execute(sql)
     finally:
         cur.close()
+
+
+def _as_table(view_sql: str) -> str:
+    """'CREATE OR REPLACE VIEW x AS <select>' -> 'CREATE OR REPLACE TABLE x AS <select>'."""
+    return view_sql.replace("CREATE OR REPLACE VIEW", "CREATE OR REPLACE TABLE", 1)
 
 
 # ─── RUN ───────────────────────────────────────────────────────────────────

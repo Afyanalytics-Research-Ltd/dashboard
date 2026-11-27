@@ -165,7 +165,8 @@ TARGETS = {
         "drug_category": "Pharmaceuticals",
         "fallback_category": {"pharmacy": "Medical Supplies"},
         "sheet_prices": True,
-        "single_facility_org": True,                 # org-wide products / stores ARE the facility's
+        "insurance_factor": 2,                       # user 2026-11-27: insurance price = 2 × the cash (selling) price
+        "single_facility_org": True,                # org-wide products / stores ARE the facility's
         "never_recount": True,
         "tidy": {"renames": [], "create": [], "deactivate_stores": [], "keep_stores": ["Main", "Pharmacy"],
                  "deactivate_template_products": True},
@@ -591,7 +592,8 @@ class Run:
                     s, c = r["price"], r["cost"]
                 new[k] = {"_key": k, "_sheet": sheet, "uuid": gid(self.target, "product", k), "generic_name": r["name"][:255],
                           "code": code, "item_no": r["code"] or None, "unit_id": self.unit, "pack_size": 1,
-                          "selling_price": s or 0, "insurance_price": s or 0, "cost_price": c or 0, "trade_price": c,
+                          "selling_price": s or 0, "insurance_price": self.insurance_of(s or 0),
+                          "cost_price": c or 0, "trade_price": c,
                           "reorder_level": r.get("reorder"),
                           "is_active": 1, "track_batch": 1, "track_expiry": 1,
                           "description": f"Added from {sd['file']} ({self.cfg['label']})"}
@@ -649,10 +651,17 @@ class Run:
                                    products_new_code_suffixed=sum(1 for p in new.values() if p["code"] and p["code"].endswith(f"-F{self.fac}")))
         self.report["detail"]["new_products"] = self.new_products
 
+    def insurance_of(self, sell: float) -> float:
+        """the insurance price for a cash (selling) price: cfg insurance_factor × it, else the same"""
+        return round(num(sell) * self.cfg.get("insurance_factor", 1), 2)
+
     def run_sheet_prices(self):
         """stock-list sheet (cfg sheet_prices): a facility product the sheet matched gets the sheet's selling price,
         cost and reorder level where they differ (old values in the report). Org-wide products are never edited."""
-        upd, seen = [], set()
+        upd, seen, stock_upd = [], set(), []
+        self.stock_by_pid = defaultdict(list)
+        for s in self.stock:
+            self.stock_by_pid[s["product_id"]].append(s)
         for sheet, sd in self.data["sheets"].items():
             for r in sd["rows"]:
                 p = self.product_of.get(r["code"] or f"{sheet}:{key(r['name'])}")
@@ -660,19 +669,33 @@ class Run:
                 if not mine or not p.get("id") or p["id"] in seen or "price" not in r:
                     continue
                 seen.add(p["id"])
-                want = {"selling_price": r["price"], "cost_price": r["cost"], "reorder_level": r["reorder"]}
-                have = {"selling_price": num(p.get("selling_price")), "cost_price": num(p.get("cost_price")),
-                        "reorder_level": int(num(p.get("reorder_level")))}
+                want = {"selling_price": r["price"], "insurance_price": self.insurance_of(r["price"]),
+                        "cost_price": r["cost"], "reorder_level": r["reorder"]}
+                have = {"selling_price": num(p.get("selling_price")), "insurance_price": num(p.get("insurance_price")),
+                        "cost_price": num(p.get("cost_price")), "reorder_level": int(num(p.get("reorder_level")))}
                 diff = {f: v for f, v in want.items() if have[f] != v}
                 if diff:
                     upd.append({"_key": p["id"], "id": p["id"], "name": p.get("generic_name"), "row": r["row"],
                                 "before": {f: have[f] for f in diff}, "data": diff})
+                # the product's stock rows carry their own selling / insurance price (the stock this loader added)
+                for s in getattr(self, "stock_by_pid", {}).get(p["id"], []):
+                    sd_ = {}
+                    if s.get("selling_price") is not None and num(s.get("selling_price")) != r["price"]:
+                        sd_["selling_price"] = r["price"]
+                    if s.get("insurance_price") is not None and num(s.get("insurance_price")) != want["insurance_price"]:
+                        sd_["insurance_price"] = want["insurance_price"]
+                    if sd_:
+                        stock_upd.append({"_key": f"stock|{s['id']}", "id": s["id"], "name": p.get("generic_name"),
+                                          "before": {f: num(s.get(f)) for f in sd_}, "data": sd_})
         self.report["plan"]["product_price_updates"] = len(upd)
+        self.report["plan"]["product_price_updates_by_field"] = dict(Counter(f for u in upd for f in u["data"]))
+        self.report["plan"]["stock_row_price_updates"] = len(stock_upd)
         self.report["detail"]["product_price_updates"] = upd
-        for u in upd[:5]:
-            log.info("  price update %s row %s: %s → %s", u["name"], u["row"], u["before"], u["data"])
+        for u in upd[:5] + stock_upd[:3]:
+            log.info("  price update %s: %s → %s", u["name"], u["before"], u["data"])
         if "products" in self.steps:
             self.many("product_price_updates", upd, lambda u: self.update("inventory", "product", u["id"], u["data"]))
+            self.many("stock_row_price_updates", stock_upd, lambda u: self.update("inventory", "stock", u["id"], u["data"]))
 
     def run_products(self):
         self.plan_products()
@@ -1361,6 +1384,9 @@ class Run:
         for b in self.batches:
             bat[(b["product_id"], b["store_id"], clean(b["batch_no"]))].append(b)
         res, issues, seen, sheet_pids = Counter(), [], set(), set()
+        stock_pid = defaultdict(list)
+        for s in self.stock:
+            stock_pid[s["product_id"]].append(s)
         for sheet, sd in self.data["sheets"].items():
             store = self.cfg["sheets"][sheet]["store_id"]
             for r in sd["rows"]:
@@ -1374,11 +1400,16 @@ class Run:
                     prob.append("product inactive")
                 if k not in seen:                    # a name twice on the sheet: the first line sets the prices
                     seen.add(k)
+                    ins = self.insurance_of(r["price"])
                     if (p.get("facility_id") == self.fac or self.cfg.get("single_facility_org")) and (
-                            num(p.get("selling_price")), num(p.get("cost_price")), int(num(p.get("reorder_level")))) \
-                            != (r["price"], r["cost"], r["reorder"]):
-                        prob.append(f"prices {num(p.get('selling_price'))}/{num(p.get('cost_price'))}/"
-                                    f"{p.get('reorder_level')} ≠ sheet {r['price']}/{r['cost']}/{r['reorder']}")
+                            num(p.get("selling_price")), num(p.get("insurance_price")), num(p.get("cost_price")),
+                            int(num(p.get("reorder_level")))) != (r["price"], ins, r["cost"], r["reorder"]):
+                        prob.append(f"sell/ins/cost/reorder {num(p.get('selling_price'))}/{num(p.get('insurance_price'))}/"
+                                    f"{num(p.get('cost_price'))}/{p.get('reorder_level')} ≠ sheet "
+                                    f"{r['price']}/{ins}/{r['cost']}/{r['reorder']}")
+                    for s in stock_pid.get(p["id"], []):
+                        if s.get("insurance_price") is not None and num(s.get("insurance_price")) != ins:
+                            prob.append(f"stock row {s['id']} insurance {num(s.get('insurance_price'))} ≠ {ins}")
                 if r["qty"] > 0:
                     bno = f"{self.cfg['prefix']}-{self.data['count_date'].replace('-', '')}-{r['row']}"
                     bs = bat.get((p["id"], store, bno), [])

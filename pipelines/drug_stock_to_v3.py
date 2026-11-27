@@ -49,7 +49,7 @@ from stock_take_to_v3 import DATA_DIRS, clean, find, gid, is_drug, is_duplicate,
 
 log = logging.getLogger("drug_stock_to_v3")
 
-STEPS = ["products", "stock", "store_rows", "verify"]
+STEPS = ["products", "stock", "expiry", "store_rows", "verify"]
 
 TARGETS = {
     "chacawest_prod": {
@@ -519,7 +519,8 @@ class Run:
                          "batch": have, "rows": rows, "row": b["row"]}
                     lines.append(x)
                     if have:
-                        if before == qty and held == qty and len(rows) == 1:
+                        if before == qty and held == qty and len(rows) == 1 and (
+                                not b["expiry"] or local_date(have.get("expiry_date")) == b["expiry"]):
                             same += 1
                         else:
                             set_b.append(x)
@@ -720,6 +721,32 @@ class Run:
         if res["mismatch"] or res["no product"]:
             self.report["failures"].append({"kind": "verify", "key": "sheet", "error": f"{len(issues)} issues (see log)"})
 
+    def run_expiry(self):
+        """only the sheet's expiry dates on the store's batches (exact or misread-char batch no.) — no quantities, so it
+        is safe after the facility has started dispensing (2026-11-27: 4 batches whose count already matched kept
+        their old expiry)"""
+        sb = defaultdict(dict)
+        for b in self.batches:
+            if b["store_id"] == self.store:
+                sb[b["product_id"]].setdefault(nb(b["batch_no"]), b)
+        todo = []
+        for k, its in self.groups.items():
+            p = self.product_of.get(k)
+            if not p or not p.get("id"):
+                continue
+            want = {nb(b["batch_no"]) for it in its for b in it["batches"] if b["batch_no"]}
+            for it in its:
+                for b in it["batches"]:
+                    if not b["batch_no"] or not b["expiry"]:
+                        continue
+                    vb = sb[p["id"]].get(nb(b["batch_no"])) or near_batch(sb[p["id"]], nb(b["batch_no"]), want)
+                    if vb and local_date(vb.get("expiry_date")) != b["expiry"]:
+                        todo.append({"_key": f"{k}|{vb['batch_no']}", "id": vb["id"],
+                                     "before": local_date(vb.get("expiry_date")), "data": {"expiry_date": b["expiry"]}})
+        self.report["plan"]["expiry_updates"] = len(todo)
+        self.report["detail"]["expiry_updates"] = [f"{x['_key']}: {x['before']} → {x['data']['expiry_date']}" for x in todo]
+        self.many("expiry_updates", todo, lambda x: self.update("batch", x["id"], x["data"]))
+
     def load(self) -> dict:
         self.read_inventory()
         self.run_products()
@@ -728,6 +755,10 @@ class Run:
             self.product_of = {k: self.pid.get(p.get("id"), p) for k, p in self.product_of.items()}
         if "stock" in self.steps:
             self.run_stock()
+        if "expiry" in self.steps:
+            if not self.dry_run and "stock" in self.steps:
+                self.read_inventory()
+            self.run_expiry()
         if "store_rows" in self.steps:
             self.run_store_rows()
         if "verify" in self.steps and not self.dry_run:

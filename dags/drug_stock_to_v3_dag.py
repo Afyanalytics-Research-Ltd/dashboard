@@ -28,7 +28,7 @@ from pipelines_common import use_pipelines_dir
 log = logging.getLogger(__name__)
 
 TARGETS = ["chacawest_prod"]
-STEPS = ["products", "stock", "store_rows", "verify"]
+STEPS = ["products", "stock", "expiry", "store_rows", "verify"]
 
 
 @dag(

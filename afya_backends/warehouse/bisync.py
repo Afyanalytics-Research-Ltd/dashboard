@@ -779,6 +779,12 @@ def run(sf: Side, db: Side, state_path: Path, *, allow_shrink: bool = False, dry
     state_path = Path(state_path)
     state = json.loads(state_path.read_text()) if state_path.exists() else {}
     sf_t, db_t = sf.tables(), db.tables()
+    # Views Databend serves as refreshed tables (afya_backends.warehouse.materialize): still views in
+    # Snowflake, so the Databend table must never be copied over there.
+    from .materialize import materialized_keys
+    mat = materialized_keys(db.views())
+    if mat:
+        db_t = {k: v for k, v in db_t.items() if k not in mat}
     actions = plan(sf_t, db_t, state, allow_shrink=allow_shrink, append_keys=append_keys)
     if only:
         actions = [(k, a) for k, a in actions if ".".join(k) in only or k[1] in only]
@@ -958,10 +964,15 @@ def views_sf_to_db(sf: Side, db: Side, state: dict, report: dict, *, dry_run: bo
     import hashlib
     vstate = state.setdefault(VIEW_STATE_KEY, {})
     sf_v, db_v = sf.views(), db.views()
+    from .materialize import materialized_keys
+    mat = materialized_keys(db_v)
     todo = []
     for key in sorted(sf_v):
         name = ".".join(key)
         if only and name not in only and key[1] not in only:
+            continue
+        if key in mat:      # served as a refreshed table in Databend; its SQL lives in <NAME>__SRC (edit that)
+            report.setdefault("views_materialized", []).append(name)
             continue
         h = hashlib.md5(sf_v[key].encode()).hexdigest()
         st = vstate.get(name) or {}

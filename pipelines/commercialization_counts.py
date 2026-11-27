@@ -72,7 +72,10 @@ QUERIES: dict[str, dict] = {
         "table": "DISEASES_BY_FACILITY", "count_column": "DISTINCT_PATIENTS",
     },
     "notes": {
-        "spec": {"service": "evaluation", "model": "doctor_notes", "group_by": ["facility_id"], "distinct": "patient_id"},
+        # The team's query had no limit: the gateway then returns its default 100 groups, and prod has 283
+        # facilities with notes (2026-11-27 run: truncated). Same limit as the other two.
+        "spec": {"service": "evaluation", "model": "doctor_notes", "group_by": ["facility_id"], "distinct": "patient_id",
+                 "limit": LIMIT},
         "table": "DOCTOR_NOTES_BY_FACILITY", "count_column": "DISTINCT_PATIENTS",
     },
 }
@@ -232,8 +235,9 @@ def run(*, platform_key: str = "prod", dry_run: bool = False) -> dict:
         per_query[q] = {"ok": True, "groups": len(rows_by_query[q]), "total": data.get("total"),
                         "truncated": bool(data.get("truncated"))}
         if data.get("truncated"):
-            log.warning("%s hit the %d-group limit (groups_total=%s): some groups are missing", q, LIMIT,
-                        data.get("groups_total"))
+            log.warning("%s was truncated by the gateway (%d of %s groups returned, limit %s): some groups are "
+                        "missing", q, len(rows_by_query[q]), data.get("groups_total"),
+                        QUERIES[q]["spec"].get("limit", "gateway default"))
         log.info("%s: %d groups, total %s", q, len(rows_by_query[q]), data.get("total"))
 
     written = {}

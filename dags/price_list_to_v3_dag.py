@@ -32,7 +32,7 @@ from pipelines_common import use_pipelines_dir
 
 log = logging.getLogger(__name__)
 
-TARGETS = ["transmarigold_prod"]
+TARGETS = ["transmarigold_prod", "fairview_prod"]
 
 
 @dag(
@@ -46,7 +46,7 @@ TARGETS = ["transmarigold_prod"]
     default_args={"owner": "data-eng", "retries": 1, "retry_delay": timedelta(minutes=5)},
     params={
         "target": Param("transmarigold_prod", type="string", enum=TARGETS, title="Target",
-                        description="transmarigold_prod = Trans Marigold Hospital, production org 87 / facility 85."),
+                        description="transmarigold_prod = Trans Marigold Hospital (org 87 / facility 85); fairview_prod = Fairview Medical Centre (org 154 / facility 152)."),
         "dry_run": Param(True, type="boolean", title="Dry run", description="On: read and log the plan, post nothing."),
         "limit": Param(0, type="integer", minimum=0, title="At most N changes of each kind (0 = all; 3 = canary)"),
         "workers": Param(8, type="integer", minimum=1, maximum=32, title="Parallel V3 posts"),

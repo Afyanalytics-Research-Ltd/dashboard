@@ -1,0 +1,2766 @@
+{
+ "source": "FAIRVIEW SERVICES.xlsx",
+ "sheet": "Services",
+ "rows": [
+  {
+   "row": 1174,
+   "name": "URINALYSIS",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Biochemistry",
+   "cash": 0.0,
+   "insurance": 0.0,
+   "sha": 0.0
+  },
+  {
+   "row": 1125,
+   "name": "ABDOMINAL PELVIC ULTRA SOUND",
+   "department": "ULTRA SOUND",
+   "bill_term": "",
+   "income_category": "Radiology - X-Ray Services",
+   "cash": 3700.0,
+   "insurance": 4500.0,
+   "sha": 4500.0
+  },
+  {
+   "row": 1123,
+   "name": "ABDOMINAL ULTRA SOUND",
+   "department": "ULTRA SOUND",
+   "bill_term": "",
+   "income_category": "Radiology - X-Ray Services",
+   "cash": 2700.0,
+   "insurance": 3500.0,
+   "sha": 3500.0
+  },
+  {
+   "row": 1108,
+   "name": "ABDOMINAL XRAY",
+   "department": "X-Ray Services",
+   "bill_term": "",
+   "income_category": "Radiology - X-Ray Services",
+   "cash": 2200.0,
+   "insurance": 1700.0,
+   "sha": 2200.0
+  },
+  {
+   "row": 1003,
+   "name": "Admission Fee",
+   "department": "Inpatient",
+   "bill_term": "",
+   "income_category": "Inpatient Services",
+   "cash": 1000.0,
+   "insurance": 100.0,
+   "sha": 1000.0
+  },
+  {
+   "row": 1218,
+   "name": "Admission Fee Surgical",
+   "department": "Inpatient",
+   "bill_term": "",
+   "income_category": "Inpatient Services",
+   "cash": 15000.0,
+   "insurance": 1500.0,
+   "sha": 15000.0
+  },
+  {
+   "row": 1041,
+   "name": "ALBUMIN",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Biochemistry",
+   "cash": 300.0,
+   "insurance": 850.0,
+   "sha": 200.0
+  },
+  {
+   "row": 1027,
+   "name": "ALIKALINE PHOSPATE (ALP)",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Biochemistry",
+   "cash": 350.0,
+   "insurance": 2.0,
+   "sha": 1.0
+  },
+  {
+   "row": 1087,
+   "name": "ALL BIOPSIES",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Histology",
+   "cash": 3000.0,
+   "insurance": 3500.0,
+   "sha": 2000.0
+  },
+  {
+   "row": 1026,
+   "name": "ALT (GPT)",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Biochemistry",
+   "cash": 500.0,
+   "insurance": 1250.0,
+   "sha": 500.0
+  },
+  {
+   "row": 1156,
+   "name": "Ambulance fee",
+   "department": "Inpatient",
+   "bill_term": "",
+   "income_category": "Inpatient Services",
+   "cash": 2500.0,
+   "insurance": 3000.0,
+   "sha": 2500.0
+  },
+  {
+   "row": 1193,
+   "name": "ANC BOOK",
+   "department": "Nursing Procedures",
+   "bill_term": "",
+   "income_category": "Nursing Services",
+   "cash": 300.0,
+   "insurance": 500.0,
+   "sha": 500.0
+  },
+  {
+   "row": 1194,
+   "name": "ANC CLINIC",
+   "department": "Maternity",
+   "bill_term": "",
+   "income_category": "Nursing Services",
+   "cash": 100.0,
+   "insurance": 1000.0,
+   "sha": 500.0
+  },
+  {
+   "row": 1044,
+   "name": "ANC PROFILE",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Biochemistry",
+   "cash": 1500.0,
+   "insurance": 3000.0,
+   "sha": 2500.0
+  },
+  {
+   "row": 1271,
+   "name": "ANGEL BABY DISPOSAL FEE",
+   "department": "Maternity",
+   "bill_term": "",
+   "income_category": "Maternity Services",
+   "cash": 4000.0,
+   "insurance": 6000.0,
+   "sha": 6000.0
+  },
+  {
+   "row": 1112,
+   "name": "ANKLE AP/LAT",
+   "department": "X-Ray Services",
+   "bill_term": "",
+   "income_category": "Radiology - X-Ray Services",
+   "cash": 1000.0,
+   "insurance": 1500.0,
+   "sha": 800.0
+  },
+  {
+   "row": 1179,
+   "name": "Application of POP forearm",
+   "department": "Radiology",
+   "bill_term": "",
+   "income_category": "Radiology - CT Scan Services",
+   "cash": 800.0,
+   "insurance": 850.0,
+   "sha": 800.0
+  },
+  {
+   "row": 1089,
+   "name": "ASCETIC FLUID CYTOLOGY",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Histology",
+   "cash": 2000.0,
+   "insurance": 3000.0,
+   "sha": 2000.0
+  },
+  {
+   "row": 1233,
+   "name": "ASOT",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Microbiology",
+   "cash": 300.0,
+   "insurance": 500.0,
+   "sha": 500.0
+  },
+  {
+   "row": 1025,
+   "name": "AST (GOT)",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Biochemistry",
+   "cash": 350.0,
+   "insurance": 1200.0,
+   "sha": 250.0
+  },
+  {
+   "row": 1221,
+   "name": "Baby Care -Daily Fee",
+   "department": "Inpatient",
+   "bill_term": "",
+   "income_category": "Inpatient Services",
+   "cash": 500.0,
+   "insurance": 1500.0,
+   "sha": 500.0
+  },
+  {
+   "row": 1118,
+   "name": "Barium Meal",
+   "department": "BARIUM EXAMINATION",
+   "bill_term": "",
+   "income_category": "Radiology - X-Ray Services",
+   "cash": 2000.0,
+   "insurance": 3500.0,
+   "sha": 1000.0
+  },
+  {
+   "row": 1119,
+   "name": "Barium Swallow",
+   "department": "BARIUM EXAMINATION",
+   "bill_term": "",
+   "income_category": "Radiology - X-Ray Services",
+   "cash": 2000.0,
+   "insurance": 3500.0,
+   "sha": 1000.0
+  },
+  {
+   "row": 1120,
+   "name": "Barium swallow through",
+   "department": "BARIUM EXAMINATION",
+   "bill_term": "",
+   "income_category": "Radiology - X-Ray Services",
+   "cash": 2000.0,
+   "insurance": 3500.0,
+   "sha": 1000.0
+  },
+  {
+   "row": 1213,
+   "name": "Bed Bath",
+   "department": "Maternity",
+   "bill_term": "",
+   "income_category": "Maternity Services",
+   "cash": 400.0,
+   "insurance": 2950.0,
+   "sha": 400.0
+  },
+  {
+   "row": 1225,
+   "name": "BED CHARGES PER DAY",
+   "department": "Inpatient",
+   "bill_term": "",
+   "income_category": "Inpatient Services",
+   "cash": 600.0,
+   "insurance": 2000.0,
+   "sha": 1500.0
+  },
+  {
+   "row": 1155,
+   "name": "Bed disinfection",
+   "department": "Inpatient",
+   "bill_term": "",
+   "income_category": "Inpatient Services",
+   "cash": 200.0,
+   "insurance": 1500.0,
+   "sha": 200.0
+  },
+  {
+   "row": 1036,
+   "name": "BENCE JOHNS PROTEINS",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Biochemistry",
+   "cash": 2000.0,
+   "insurance": 1250.0,
+   "sha": 1500.0
+  },
+  {
+   "row": 1169,
+   "name": "BETA HCG",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Biochemistry",
+   "cash": 500.0,
+   "insurance": 2.0,
+   "sha": 500.0
+  },
+  {
+   "row": 1100,
+   "name": "BILATERAL HIP JOINT",
+   "department": "X-Ray Services",
+   "bill_term": "",
+   "income_category": "Radiology - X-Ray Services",
+   "cash": 1000.0,
+   "insurance": 1700.0,
+   "sha": 800.0
+  },
+  {
+   "row": 1029,
+   "name": "BILIRUBIN (Total and Direct)",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Biochemistry",
+   "cash": 600.0,
+   "insurance": 1500.0,
+   "sha": 500.0
+  },
+  {
+   "row": 1150,
+   "name": "BLOOD GROUP",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Haematology",
+   "cash": 250.0,
+   "insurance": 500.0,
+   "sha": 400.0
+  },
+  {
+   "row": 1146,
+   "name": "BLOOD PRESSURE (BP)",
+   "department": "Clinical",
+   "bill_term": "",
+   "income_category": "Nursing Services",
+   "cash": 30.0,
+   "insurance": 100.0,
+   "sha": 50.0
+  },
+  {
+   "row": 1245,
+   "name": "BRACES/ALIGNMENT (INVISALIGN)",
+   "department": "Dental",
+   "bill_term": "",
+   "income_category": "Dental Services",
+   "cash": 50000.0,
+   "insurance": 70000.0,
+   "sha": 70000.0
+  },
+  {
+   "row": 1244,
+   "name": "BRACES/ALIGNMENT (PERMANENT)",
+   "department": "Dental",
+   "bill_term": "",
+   "income_category": "Dental Services",
+   "cash": 45000.0,
+   "insurance": 55000.0,
+   "sha": 55000.0
+  },
+  {
+   "row": 1243,
+   "name": "BRACES/ALIGNMENT (REMOVABLE)",
+   "department": "Dental",
+   "bill_term": "",
+   "income_category": "Dental Services",
+   "cash": 30000.0,
+   "insurance": 50000.0,
+   "sha": 50000.0
+  },
+  {
+   "row": 1075,
+   "name": "BRUCELLA TEST",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Serology",
+   "cash": 300.0,
+   "insurance": 850.0,
+   "sha": 300.0
+  },
+  {
+   "row": 1019,
+   "name": "BS FOR MALARIA PARASITE",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Biochemistry",
+   "cash": 200.0,
+   "insurance": 650.0,
+   "sha": 300.0
+  },
+  {
+   "row": 1249,
+   "name": "CAESAREAN SECTION (C/S)",
+   "department": "Theatre",
+   "bill_term": "",
+   "income_category": "Theatre Services",
+   "cash": 35000.0,
+   "insurance": 50000.0,
+   "sha": 30000.0
+  },
+  {
+   "row": 1114,
+   "name": "CALCEANEUS/HEEL LAT",
+   "department": "X-Ray Services",
+   "bill_term": "",
+   "income_category": "Radiology - X-Ray Services",
+   "cash": 1000.0,
+   "insurance": 1500.0,
+   "sha": 800.0
+  },
+  {
+   "row": 1126,
+   "name": "CALCIUM LEVELS",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Biochemistry",
+   "cash": 700.0,
+   "insurance": 1000.0,
+   "sha": 1000.0
+  },
+  {
+   "row": 1167,
+   "name": "CARDIAC ENZYMES",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Biochemistry",
+   "cash": 7000.0,
+   "insurance": 2.0,
+   "sha": 7000.0
+  },
+  {
+   "row": 1181,
+   "name": "Casualty Use",
+   "department": "X-Ray Services",
+   "bill_term": "",
+   "income_category": "Radiology - X-Ray Services",
+   "cash": 500.0,
+   "insurance": 1700.0,
+   "sha": 500.0
+  },
+  {
+   "row": 1188,
+   "name": "Catheter Insertion",
+   "department": "Inpatient",
+   "bill_term": "",
+   "income_category": "Inpatient Services",
+   "cash": 450.0,
+   "insurance": 1700.0,
+   "sha": 450.0
+  },
+  {
+   "row": 1189,
+   "name": "Catheterization",
+   "department": "Inpatient",
+   "bill_term": "",
+   "income_category": "Inpatient Services",
+   "cash": 450.0,
+   "insurance": 1700.0,
+   "sha": 450.0
+  },
+  {
+   "row": 1092,
+   "name": "CERVICAL SPINE AP/LAT",
+   "department": "X-Ray Services",
+   "bill_term": "",
+   "income_category": "Radiology - X-Ray Services",
+   "cash": 1000.0,
+   "insurance": 2000.0,
+   "sha": 800.0
+  },
+  {
+   "row": 1047,
+   "name": "CHLORIDE",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Biochemistry",
+   "cash": 350.0,
+   "insurance": 1250.0,
+   "sha": 200.0
+  },
+  {
+   "row": 1039,
+   "name": "CHOLESTEROL LEVELS",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Biochemistry",
+   "cash": 1000.0,
+   "insurance": 1500.0,
+   "sha": 1500.0
+  },
+  {
+   "row": 1005,
+   "name": "Circumcision",
+   "department": "Inpatient",
+   "bill_term": "",
+   "income_category": "Inpatient Services",
+   "cash": 2500.0,
+   "insurance": 3000.0,
+   "sha": 2500.0
+  },
+  {
+   "row": 1104,
+   "name": "CLAVICLE",
+   "department": "X-Ray Services",
+   "bill_term": "",
+   "income_category": "Radiology - X-Ray Services",
+   "cash": 1000.0,
+   "insurance": 1500.0,
+   "sha": 800.0
+  },
+  {
+   "row": 1149,
+   "name": "CLINIC",
+   "department": "Clinical",
+   "bill_term": "",
+   "income_category": "Nursing Services",
+   "cash": 100.0,
+   "insurance": 1000.0,
+   "sha": 100.0
+  },
+  {
+   "row": 1097,
+   "name": "COCCYX AP/LAT",
+   "department": "X-Ray Services",
+   "bill_term": "",
+   "income_category": "Radiology - X-Ray Services",
+   "cash": 1000.0,
+   "insurance": 1700.0,
+   "sha": 800.0
+  },
+  {
+   "row": 1002,
+   "name": "CONSULTATION",
+   "department": "Consultation",
+   "bill_term": "",
+   "income_category": "General Consultation Services",
+   "cash": 100.0,
+   "insurance": 300.0,
+   "sha": 300.0
+  },
+  {
+   "row": 1255,
+   "name": "COVID 19 Ag TEST",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Serology",
+   "cash": 2000.0,
+   "insurance": 5000.0,
+   "sha": 5000.0
+  },
+  {
+   "row": 1081,
+   "name": "CRAG",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Serology",
+   "cash": 2000.0,
+   "insurance": 2500.0,
+   "sha": 2000.0
+  },
+  {
+   "row": 1034,
+   "name": "CREATINE",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Biochemistry",
+   "cash": 500.0,
+   "insurance": 1050.0,
+   "sha": 500.0
+  },
+  {
+   "row": 1162,
+   "name": "CROWNING",
+   "department": "Dental",
+   "bill_term": "",
+   "income_category": "Dental Services",
+   "cash": 1500.0,
+   "insurance": 2000.0,
+   "sha": 1500.0
+  },
+  {
+   "row": 1080,
+   "name": "CRP",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Serology",
+   "cash": 3000.0,
+   "insurance": 1700.0,
+   "sha": 3000.0
+  },
+  {
+   "row": 1061,
+   "name": "CSF ANALYSIS",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Microbiology",
+   "cash": 2000.0,
+   "insurance": 2650.0,
+   "sha": 1500.0
+  },
+  {
+   "row": 1187,
+   "name": "CT -Lower Abdomen",
+   "department": "Radiology",
+   "bill_term": "",
+   "income_category": "Radiology - CT Scan Services",
+   "cash": 14000.0,
+   "insurance": 1700.0,
+   "sha": 14000.0
+  },
+  {
+   "row": 1178,
+   "name": "CT-Chest",
+   "department": "Radiology",
+   "bill_term": "",
+   "income_category": "Radiology - CT Scan Services",
+   "cash": 11000.0,
+   "insurance": 850.0,
+   "sha": 11000.0
+  },
+  {
+   "row": 1101,
+   "name": "CXR PA",
+   "department": "X-Ray Services",
+   "bill_term": "",
+   "income_category": "Radiology - X-Ray Services",
+   "cash": 1000.0,
+   "insurance": 1500.0,
+   "sha": 800.0
+  },
+  {
+   "row": 1102,
+   "name": "CXR PA/LAT",
+   "department": "X-Ray Services",
+   "bill_term": "",
+   "income_category": "Radiology - X-Ray Services",
+   "cash": 1000.0,
+   "insurance": 2000.0,
+   "sha": 800.0
+  },
+  {
+   "row": 1231,
+   "name": "DENTAL CONSULTATION",
+   "department": "Dental",
+   "bill_term": "",
+   "income_category": "Dental Services",
+   "cash": 100.0,
+   "insurance": 1500.0,
+   "sha": 1500.0
+  },
+  {
+   "row": 1293,
+   "name": "DENTAL X-RAY (EXTRAORAL) IO",
+   "department": "Dental",
+   "bill_term": "",
+   "income_category": "Dental Services",
+   "cash": 1000.0,
+   "insurance": 2000.0,
+   "sha": 2000.0
+  },
+  {
+   "row": 1292,
+   "name": "DENTAL X-RAY (INTRAORAL) IO",
+   "department": "Dental",
+   "bill_term": "",
+   "income_category": "Dental Services",
+   "cash": 700.0,
+   "insurance": 2000.0,
+   "sha": 2000.0
+  },
+  {
+   "row": 1277,
+   "name": "DENTAL X-RAY (OPG)",
+   "department": "Dental",
+   "bill_term": "",
+   "income_category": "Dental Services",
+   "cash": 1500.0,
+   "insurance": 2000.0,
+   "sha": 2000.0
+  },
+  {
+   "row": 1239,
+   "name": "DENTURE REPAIR (PARTIAL)",
+   "department": "Dental",
+   "bill_term": "",
+   "income_category": "Dental Services",
+   "cash": 2000.0,
+   "insurance": 4000.0,
+   "sha": 4000.0
+  },
+  {
+   "row": 1289,
+   "name": "DEPOSIT IP ADMISION",
+   "department": "Outpatient Department",
+   "bill_term": "",
+   "income_category": "Out Patient Department",
+   "cash": 5000.0,
+   "insurance": 7000.0,
+   "sha": 5000.0
+  },
+  {
+   "row": 1288,
+   "name": "DEPOSIT OP ADMISION",
+   "department": "Outpatient Department",
+   "bill_term": "",
+   "income_category": "Out Patient Department",
+   "cash": 3000.0,
+   "insurance": 5000.0,
+   "sha": 3000.0
+  },
+  {
+   "row": 1006,
+   "name": "Doctors Review",
+   "department": "Inpatient",
+   "bill_term": "",
+   "income_category": "Inpatient Services",
+   "cash": 1800.0,
+   "insurance": 1500.0,
+   "sha": 1800.0
+  },
+  {
+   "row": 1296,
+   "name": "DOPPLER 1 ULTRASOUND SCAN",
+   "department": "ULTRA SOUND",
+   "bill_term": "",
+   "income_category": "Radiology - X-Ray Services",
+   "cash": 4000.0,
+   "insurance": 5000.0,
+   "sha": 5000.0
+  },
+  {
+   "row": 1300,
+   "name": "DOPPLER 2 ULTRASOUND SCAN",
+   "department": "ULTRA SOUND",
+   "bill_term": "",
+   "income_category": "Radiology - X-Ray Services",
+   "cash": 5500.0,
+   "insurance": 7000.0,
+   "sha": 7000.0
+  },
+  {
+   "row": 1009,
+   "name": "DRY SOCKET DRESSING",
+   "department": "Dental",
+   "bill_term": "",
+   "income_category": "Dental Services",
+   "cash": 500.0,
+   "insurance": 2000.0,
+   "sha": 1000.0
+  },
+  {
+   "row": 1251,
+   "name": "Du Test",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Haematology",
+   "cash": 500.0,
+   "insurance": 1000.0,
+   "sha": 1000.0
+  },
+  {
+   "row": 1196,
+   "name": "EAR SYRINGING",
+   "department": "Nursing Procedures",
+   "bill_term": "",
+   "income_category": "Nursing Services",
+   "cash": 500.0,
+   "insurance": 1500.0,
+   "sha": 1500.0
+  },
+  {
+   "row": 1121,
+   "name": "ECG",
+   "department": "BARIUM EXAMINATION",
+   "bill_term": "",
+   "income_category": "Radiology - X-Ray Services",
+   "cash": 2000.0,
+   "insurance": 3500.0,
+   "sha": 1000.0
+  },
+  {
+   "row": 1106,
+   "name": "ELBOW AP/LAT",
+   "department": "X-Ray Services",
+   "bill_term": "",
+   "income_category": "Radiology - X-Ray Services",
+   "cash": 1000.0,
+   "insurance": 1500.0,
+   "sha": 800.0
+  },
+  {
+   "row": 1302,
+   "name": "ENAMELOPLASTY (ODONTOPLASTY)",
+   "department": "Dental",
+   "bill_term": "",
+   "income_category": "Dental Services",
+   "cash": 500.0,
+   "insurance": 1000.0,
+   "sha": 1000.0
+  },
+  {
+   "row": 1290,
+   "name": "EPISIOTOMY REPAIR",
+   "department": "Inpatient",
+   "bill_term": "",
+   "income_category": "Inpatient Services",
+   "cash": 2500.0,
+   "insurance": 2500.0,
+   "sha": 2500.0
+  },
+  {
+   "row": 1021,
+   "name": "ESR (ERYTHROCYTE SEDMENTATION RATE)",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Haematology",
+   "cash": 300.0,
+   "insurance": 750.0,
+   "sha": 500.0
+  },
+  {
+   "row": 1180,
+   "name": "Evacuation of bowel-Enema",
+   "department": "Radiology",
+   "bill_term": "",
+   "income_category": "Radiology - CT Scan Services",
+   "cash": 200.0,
+   "insurance": 850.0,
+   "sha": 200.0
+  },
+  {
+   "row": 1280,
+   "name": "EYE CHECKUP CONSULTATION",
+   "department": "Consultation",
+   "bill_term": "",
+   "income_category": "General Consultation Services",
+   "cash": 100.0,
+   "insurance": 300.0,
+   "sha": 300.0
+  },
+  {
+   "row": 1212,
+   "name": "Feeding Services",
+   "department": "Maternity",
+   "bill_term": "",
+   "income_category": "Maternity Services",
+   "cash": 600.0,
+   "insurance": 2950.0,
+   "sha": 600.0
+  },
+  {
+   "row": 1154,
+   "name": "File fee inpatient",
+   "department": "Inpatient",
+   "bill_term": "",
+   "income_category": "Inpatient Services",
+   "cash": 200.0,
+   "insurance": 1500.0,
+   "sha": 200.0
+  },
+  {
+   "row": 1273,
+   "name": "FINE NEEDLE ASPIRATE (FNA)",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Histology",
+   "cash": 5000.0,
+   "insurance": 5000.0,
+   "sha": 5000.0
+  },
+  {
+   "row": 1252,
+   "name": "FIRST RESPONSE CONFIRMATORY TEST",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Serology",
+   "cash": 0.0,
+   "insurance": 0.0,
+   "sha": 0.0
+  },
+  {
+   "row": 1269,
+   "name": "FISTULECTOMY PROCEDURE",
+   "department": "Theatre",
+   "bill_term": "",
+   "income_category": "Theatre Services",
+   "cash": 60000.0,
+   "insurance": 60000.0,
+   "sha": 60000.0
+  },
+  {
+   "row": 1113,
+   "name": "FOOT DORSI-PLANTAR",
+   "department": "X-Ray Services",
+   "bill_term": "",
+   "income_category": "Radiology - X-Ray Services",
+   "cash": 1000.0,
+   "insurance": 1500.0,
+   "sha": 800.0
+  },
+  {
+   "row": 1085,
+   "name": "FT3",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Isotops",
+   "cash": 600.0,
+   "insurance": 1000.0,
+   "sha": 500.0
+  },
+  {
+   "row": 1084,
+   "name": "FT4",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Isotops",
+   "cash": 600.0,
+   "insurance": 1000.0,
+   "sha": 500.0
+  },
+  {
+   "row": 1017,
+   "name": "FULL HAEMOGRAM",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Haematology",
+   "cash": 500.0,
+   "insurance": 1000.0,
+   "sha": 1000.0
+  },
+  {
+   "row": 1020,
+   "name": "FULL HAEMOGRAM + ESR",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Biochemistry",
+   "cash": 700.0,
+   "insurance": 1500.0,
+   "sha": 700.0
+  },
+  {
+   "row": 1035,
+   "name": "FULL LIPID PROFILE",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Biochemistry",
+   "cash": 1900.0,
+   "insurance": 3450.0,
+   "sha": 1900.0
+  },
+  {
+   "row": 1109,
+   "name": "FUMUR AP/LAT",
+   "department": "X-Ray Services",
+   "bill_term": "",
+   "income_category": "Radiology - X-Ray Services",
+   "cash": 1000.0,
+   "insurance": 1500.0,
+   "sha": 800.0
+  },
+  {
+   "row": 1028,
+   "name": "GAMMA GT",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Biochemistry",
+   "cash": 350.0,
+   "insurance": 1050.0,
+   "sha": 250.0
+  },
+  {
+   "row": 1248,
+   "name": "GENERAL WARD",
+   "department": "Inpatient",
+   "bill_term": "",
+   "income_category": "Inpatient Services",
+   "cash": 1000.0,
+   "insurance": 0.0,
+   "sha": 0.0
+  },
+  {
+   "row": 1140,
+   "name": "GENERAL WARD 10",
+   "department": "Administration",
+   "bill_term": "",
+   "income_category": "Bed Charges",
+   "cash": 800.0,
+   "insurance": 0.0,
+   "sha": 0.0
+  },
+  {
+   "row": 1131,
+   "name": "GENERAL WARD 2",
+   "department": "Inpatient",
+   "bill_term": "",
+   "income_category": "Inpatient Services",
+   "cash": 800.0,
+   "insurance": 2.0,
+   "sha": 1.0
+  },
+  {
+   "row": 1132,
+   "name": "GENERAL WARD 3",
+   "department": "Inpatient",
+   "bill_term": "",
+   "income_category": "Inpatient Services",
+   "cash": 800.0,
+   "insurance": 2.0,
+   "sha": 1.0
+  },
+  {
+   "row": 1137,
+   "name": "GENERAL WARD 7",
+   "department": "Administration",
+   "bill_term": "",
+   "income_category": "Bed Charges",
+   "cash": 800.0,
+   "insurance": 0.0,
+   "sha": 0.0
+  },
+  {
+   "row": 1138,
+   "name": "GENERAL WARD 8",
+   "department": "Administration",
+   "bill_term": "",
+   "income_category": "Bed Charges",
+   "cash": 800.0,
+   "insurance": 0.0,
+   "sha": 0.0
+  },
+  {
+   "row": 1139,
+   "name": "GENERAL WARD 9",
+   "department": "Administration",
+   "bill_term": "",
+   "income_category": "Bed Charges",
+   "cash": 800.0,
+   "insurance": 0.0,
+   "sha": 0.0
+  },
+  {
+   "row": 1129,
+   "name": "GENERAL WARDS",
+   "department": "Inpatient",
+   "bill_term": "",
+   "income_category": "Inpatient Services",
+   "cash": 800.0,
+   "insurance": 2.0,
+   "sha": 1.0
+  },
+  {
+   "row": 1130,
+   "name": "GENERAL WARDS 15",
+   "department": "Inpatient",
+   "bill_term": "",
+   "income_category": "Inpatient Services",
+   "cash": 800.0,
+   "insurance": 2.0,
+   "sha": 1.0
+  },
+  {
+   "row": 1275,
+   "name": "GINGIVAL HYPERPLASIA (GUM OVERGROWTH) SURG",
+   "department": "Dental",
+   "bill_term": "",
+   "income_category": "Dental Services",
+   "cash": 500.0,
+   "insurance": 1500.0,
+   "sha": 1000.0
+  },
+  {
+   "row": 1008,
+   "name": "GYNAE-COLOGY REVIEW",
+   "department": "Consultation Outpatient",
+   "bill_term": "",
+   "income_category": "OutPatient Consultation Services",
+   "cash": 2000.0,
+   "insurance": 3000.0,
+   "sha": 2000.0
+  },
+  {
+   "row": 1076,
+   "name": "H PYROLI AB TEST",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Microbiology",
+   "cash": 400.0,
+   "insurance": 800.0,
+   "sha": 600.0
+  },
+  {
+   "row": 1279,
+   "name": "H PYROLI STOOL ANTIGEN",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Microbiology",
+   "cash": 600.0,
+   "insurance": 1500.0,
+   "sha": 1000.0
+  },
+  {
+   "row": 1278,
+   "name": "H.PYROLI STOOL ANTIGEN",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Microbiology",
+   "cash": 600.0,
+   "insurance": 1500.0,
+   "sha": 1000.0
+  },
+  {
+   "row": 1043,
+   "name": "HBA1C",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Biochemistry",
+   "cash": 2000.0,
+   "insurance": 3450.0,
+   "sha": 3000.0
+  },
+  {
+   "row": 1018,
+   "name": "HEMOGLOBIN TEST (HB)",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Biochemistry",
+   "cash": 250.0,
+   "insurance": 700.0,
+   "sha": 400.0
+  },
+  {
+   "row": 1286,
+   "name": "HEMORRHOIDECTOMY (SURGICAL)",
+   "department": "Theatre",
+   "bill_term": "",
+   "income_category": "Theatre Services",
+   "cash": 50000.0,
+   "insurance": 80000.0,
+   "sha": 80000.0
+  },
+  {
+   "row": 1050,
+   "name": "HEPATITIS A AB TEST",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Serology",
+   "cash": 300.0,
+   "insurance": 1500.0,
+   "sha": 1000.0
+  },
+  {
+   "row": 1048,
+   "name": "HEPATITIS B AB TEST",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Serology",
+   "cash": 300.0,
+   "insurance": 1500.0,
+   "sha": 1000.0
+  },
+  {
+   "row": 1049,
+   "name": "HEPATITIS C AB TEST",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Biochemistry",
+   "cash": 300.0,
+   "insurance": 1500.0,
+   "sha": 1000.0
+  },
+  {
+   "row": 1284,
+   "name": "HERNIORRHAPHY (HERNIOTOMY)",
+   "department": "Theatre",
+   "bill_term": "",
+   "income_category": "Theatre Services",
+   "cash": 50000.0,
+   "insurance": 80000.0,
+   "sha": 70000.0
+  },
+  {
+   "row": 1171,
+   "name": "HIGH VAGINAL SWAB",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Microbiology",
+   "cash": 150.0,
+   "insurance": 1500.0,
+   "sha": 150.0
+  },
+  {
+   "row": 1099,
+   "name": "HIP JOINT AP/LAT",
+   "department": "X-Ray Services",
+   "bill_term": "",
+   "income_category": "Radiology - X-Ray Services",
+   "cash": 1000.0,
+   "insurance": 1700.0,
+   "sha": 800.0
+  },
+  {
+   "row": 1072,
+   "name": "HISTOLOGY SERVICE",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Histology",
+   "cash": 2500.0,
+   "insurance": 1250.0,
+   "sha": 2500.0
+  },
+  {
+   "row": 1105,
+   "name": "HUMERUS AP/LAT",
+   "department": "X-Ray Services",
+   "bill_term": "",
+   "income_category": "Radiology - X-Ray Services",
+   "cash": 1000.0,
+   "insurance": 1500.0,
+   "sha": 800.0
+  },
+  {
+   "row": 1059,
+   "name": "HVS CULTURE AND SENSITITY",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Microbiology",
+   "cash": 800.0,
+   "insurance": 1000.0,
+   "sha": 1000.0
+  },
+  {
+   "row": 1127,
+   "name": "HVS GRAM STAIN",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Microbiology",
+   "cash": 500.0,
+   "insurance": 1000.0,
+   "sha": 1000.0
+  },
+  {
+   "row": 1192,
+   "name": "I&D",
+   "department": "Nursing Procedures",
+   "bill_term": "",
+   "income_category": "Nursing Services",
+   "cash": 300.0,
+   "insurance": 200.0,
+   "sha": 300.0
+  },
+  {
+   "row": 1207,
+   "name": "IM Drug Administration",
+   "department": "Consultation",
+   "bill_term": "",
+   "income_category": "General Consultation Services",
+   "cash": 100.0,
+   "insurance": 300.0,
+   "sha": 100.0
+  },
+  {
+   "row": 1199,
+   "name": "IMMUNIZATION",
+   "department": "Nursing Procedures",
+   "bill_term": "",
+   "income_category": "General Consultation Services",
+   "cash": 150.0,
+   "insurance": 300.0,
+   "sha": 200.0
+  },
+  {
+   "row": 1258,
+   "name": "IMPLANT INCERSION",
+   "department": "Nursing Procedures",
+   "bill_term": "",
+   "income_category": "Nursing Services",
+   "cash": 700.0,
+   "insurance": 1500.0,
+   "sha": 1000.0
+  },
+  {
+   "row": 1259,
+   "name": "IMPLANT REMOVAL",
+   "department": "Nursing Procedures",
+   "bill_term": "",
+   "income_category": "Nursing Services",
+   "cash": 500.0,
+   "insurance": 1000.0,
+   "sha": 700.0
+  },
+  {
+   "row": 1219,
+   "name": "Incubation Care -Daily Fee",
+   "department": "Inpatient",
+   "bill_term": "",
+   "income_category": "Inpatient Services",
+   "cash": 2500.0,
+   "insurance": 1500.0,
+   "sha": 2500.0
+  },
+  {
+   "row": 1172,
+   "name": "INDIRECT COOMB TEST",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Biochemistry",
+   "cash": 1300.0,
+   "insurance": 3450.0,
+   "sha": 1300.0
+  },
+  {
+   "row": 1153,
+   "name": "Infusion pump use per day",
+   "department": "Inpatient",
+   "bill_term": "",
+   "income_category": "Inpatient Services",
+   "cash": 2250.0,
+   "insurance": 2250.0,
+   "sha": 2250.0
+  },
+  {
+   "row": 1299,
+   "name": "INGUINAL SCROTAL ULTRA SOUND",
+   "department": "ULTRA SOUND",
+   "bill_term": "",
+   "income_category": "Radiology - X-Ray Services",
+   "cash": 2700.0,
+   "insurance": 3500.0,
+   "sha": 3500.0
+  },
+  {
+   "row": 1266,
+   "name": "INPATIENT SERVICES",
+   "department": "Inpatient",
+   "bill_term": "",
+   "income_category": "Inpatient Services",
+   "cash": 0.0,
+   "insurance": 0.0,
+   "sha": 2000.0
+  },
+  {
+   "row": 1185,
+   "name": "Insertion of IUD Coil",
+   "department": "Nursing Procedures",
+   "bill_term": "",
+   "income_category": "Nursing Services",
+   "cash": 500.0,
+   "insurance": 1700.0,
+   "sha": 500.0
+  },
+  {
+   "row": 1173,
+   "name": "INSULIN ASSAY",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Biochemistry",
+   "cash": 5000.0,
+   "insurance": 3450.0,
+   "sha": 5000.0
+  },
+  {
+   "row": 1261,
+   "name": "IUCD CHECK UP",
+   "department": "Nursing Procedures",
+   "bill_term": "",
+   "income_category": "Nursing Services",
+   "cash": 500.0,
+   "insurance": 1000.0,
+   "sha": 700.0
+  },
+  {
+   "row": 1260,
+   "name": "IUCD INCERTION",
+   "department": "Nursing Procedures",
+   "bill_term": "",
+   "income_category": "Nursing Services",
+   "cash": 1000.0,
+   "insurance": 2000.0,
+   "sha": 1500.0
+  },
+  {
+   "row": 1262,
+   "name": "IUCD REMOVAL",
+   "department": "Nursing Procedures",
+   "bill_term": "",
+   "income_category": "Nursing Services",
+   "cash": 700.0,
+   "insurance": 1500.0,
+   "sha": 1000.0
+  },
+  {
+   "row": 1182,
+   "name": "IV Cannulation",
+   "department": "X-Ray Services",
+   "bill_term": "",
+   "income_category": "Radiology - X-Ray Services",
+   "cash": 100.0,
+   "insurance": 1700.0,
+   "sha": 100.0
+  },
+  {
+   "row": 1116,
+   "name": "JAW XRAY",
+   "department": "X-Ray Services",
+   "bill_term": "",
+   "income_category": "Radiology - X-Ray Services",
+   "cash": 1000.0,
+   "insurance": 1700.0,
+   "sha": 800.0
+  },
+  {
+   "row": 1064,
+   "name": "JOINT ASPIRATE ANALYSIS",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Microbiology",
+   "cash": 1500.0,
+   "insurance": 2500.0,
+   "sha": 100.0
+  },
+  {
+   "row": 1110,
+   "name": "KNEE AP/LAT",
+   "department": "X-Ray Services",
+   "bill_term": "",
+   "income_category": "Radiology - X-Ray Services",
+   "cash": 1000.0,
+   "insurance": 1500.0,
+   "sha": 800.0
+  },
+  {
+   "row": 1224,
+   "name": "Labor Ward Fee",
+   "department": "Maternity",
+   "bill_term": "",
+   "income_category": "Maternity Services",
+   "cash": 2500.0,
+   "insurance": 2950.0,
+   "sha": 2500.0
+  },
+  {
+   "row": 1282,
+   "name": "LABOUR INDUCTION",
+   "department": "Maternity",
+   "bill_term": "",
+   "income_category": "Nursing Services",
+   "cash": 1000.0,
+   "insurance": 2000.0,
+   "sha": 1500.0
+  },
+  {
+   "row": 1024,
+   "name": "LIVER FUNCTION (LFT)",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Biochemistry",
+   "cash": 2500.0,
+   "insurance": 3000.0,
+   "sha": 2500.0
+  },
+  {
+   "row": 1164,
+   "name": "LIVER ULTRASOUND SCAN",
+   "department": "Radiology",
+   "bill_term": "",
+   "income_category": "Radiology - CT Scan Services",
+   "cash": 1750.0,
+   "insurance": 3000.0,
+   "sha": 1750.0
+  },
+  {
+   "row": 1215,
+   "name": "Lodger Fees -Stable Patients",
+   "department": "Inpatient",
+   "bill_term": "",
+   "income_category": "Inpatient Services",
+   "cash": 900.0,
+   "insurance": 2.0,
+   "sha": 900.0
+  },
+  {
+   "row": 1214,
+   "name": "Lodger Fees -Very Sick Patients",
+   "department": "Inpatient",
+   "bill_term": "",
+   "income_category": "Inpatient Services",
+   "cash": 750.0,
+   "insurance": 2.0,
+   "sha": 750.0
+  },
+  {
+   "row": 1209,
+   "name": "Lumbar Puncture",
+   "department": "Radiology",
+   "bill_term": "",
+   "income_category": "Radiology - X-Ray Services",
+   "cash": 400.0,
+   "insurance": 1700.0,
+   "sha": 400.0
+  },
+  {
+   "row": 1186,
+   "name": "Lumbar Spine XRAY",
+   "department": "Radiology",
+   "bill_term": "",
+   "income_category": "Radiology - X-Ray Services",
+   "cash": 3000.0,
+   "insurance": 1700.0,
+   "sha": 3000.0
+  },
+  {
+   "row": 1094,
+   "name": "LUMBER SPINE AP/LAT",
+   "department": "X-Ray Services",
+   "bill_term": "",
+   "income_category": "Radiology - X-Ray Services",
+   "cash": 1000.0,
+   "insurance": 2000.0,
+   "sha": 800.0
+  },
+  {
+   "row": 1263,
+   "name": "MARSUPIALISATION PROCEDURE",
+   "department": "Theatre",
+   "bill_term": "",
+   "income_category": "Theatre Services",
+   "cash": 25000.0,
+   "insurance": 30000.0,
+   "sha": 30000.0
+  },
+  {
+   "row": 1141,
+   "name": "MARTINITY WARD",
+   "department": "Administration",
+   "bill_term": "",
+   "income_category": "Bed Charges",
+   "cash": 800.0,
+   "insurance": 0.0,
+   "sha": 0.0
+  },
+  {
+   "row": 1135,
+   "name": "MASS U/SOUND",
+   "department": "ULTRA SOUND",
+   "bill_term": "",
+   "income_category": "Radiology - Ultrasound Services",
+   "cash": 1000.0,
+   "insurance": 100.0,
+   "sha": 100.0
+  },
+  {
+   "row": 1234,
+   "name": "MATERNITY",
+   "department": "Maternity",
+   "bill_term": "",
+   "income_category": "Maternity Services",
+   "cash": 1000.0,
+   "insurance": 0.0,
+   "sha": 0.0
+  },
+  {
+   "row": 1158,
+   "name": "MATERNITY DELIVERY SERVICES",
+   "department": "Maternity",
+   "bill_term": "",
+   "income_category": "Maternity Services",
+   "cash": 6000.0,
+   "insurance": 10000.0,
+   "sha": 10000.0
+  },
+  {
+   "row": 1001,
+   "name": "MEDICAL CARD",
+   "department": "Consultation",
+   "bill_term": "",
+   "income_category": "General Consultation Services",
+   "cash": 100.0,
+   "insurance": 300.0,
+   "sha": 300.0
+  },
+  {
+   "row": 1197,
+   "name": "MEDICAL REPORT",
+   "department": "Consultation",
+   "bill_term": "",
+   "income_category": "General Consultation Services",
+   "cash": 500.0,
+   "insurance": 1500.0,
+   "sha": 1000.0
+  },
+  {
+   "row": 1145,
+   "name": "Minor Dressing",
+   "department": "Nursing Procedures",
+   "bill_term": "",
+   "income_category": "Dressing Services",
+   "cash": 200.0,
+   "insurance": 1000.0,
+   "sha": 200.0
+  },
+  {
+   "row": 1183,
+   "name": "Minor Theatre Fee",
+   "department": "X-Ray Services",
+   "bill_term": "",
+   "income_category": "Radiology - X-Ray Services",
+   "cash": 3000.0,
+   "insurance": 1700.0,
+   "sha": 3000.0
+  },
+  {
+   "row": 1208,
+   "name": "Moderate Dressing",
+   "department": "Nursing Procedures",
+   "bill_term": "",
+   "income_category": "Dressing Services",
+   "cash": 300.0,
+   "insurance": 1000.0,
+   "sha": 300.0
+  },
+  {
+   "row": 1211,
+   "name": "Mother Care",
+   "department": "Inpatient",
+   "bill_term": "",
+   "income_category": "Inpatient Services",
+   "cash": 1000.0,
+   "insurance": 2950.0,
+   "sha": 1000.0
+  },
+  {
+   "row": 1226,
+   "name": "MRDT",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Biochemistry",
+   "cash": 200.0,
+   "insurance": 400.0,
+   "sha": 400.0
+  },
+  {
+   "row": 1202,
+   "name": "MVA",
+   "department": "Consultation",
+   "bill_term": "",
+   "income_category": "General Consultation Services",
+   "cash": 2500.0,
+   "insurance": 300.0,
+   "sha": 2500.0
+  },
+  {
+   "row": 1210,
+   "name": "Nasogastric tube insertion",
+   "department": "Nursing Procedures",
+   "bill_term": "",
+   "income_category": "Nursing Services",
+   "cash": 500.0,
+   "insurance": 1700.0,
+   "sha": 500.0
+  },
+  {
+   "row": 1203,
+   "name": "NEBULIZATION",
+   "department": "Inpatient",
+   "bill_term": "",
+   "income_category": "Inpatient Services",
+   "cash": 400.0,
+   "insurance": 3000.0,
+   "sha": 400.0
+  },
+  {
+   "row": 1168,
+   "name": "NEUTROPHIL COUNT",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Biochemistry",
+   "cash": 200.0,
+   "insurance": 2.0,
+   "sha": 200.0
+  },
+  {
+   "row": 1152,
+   "name": "Nursing Care",
+   "department": "Inpatient",
+   "bill_term": "",
+   "income_category": "Inpatient Services",
+   "cash": 500.0,
+   "insurance": 1000.0,
+   "sha": 500.0
+  },
+  {
+   "row": 1222,
+   "name": "Nursing Care - Daily Fee",
+   "department": "Inpatient",
+   "bill_term": "",
+   "income_category": "Inpatient Services",
+   "cash": 500.0,
+   "insurance": 1000.0,
+   "sha": 500.0
+  },
+  {
+   "row": 1147,
+   "name": "OBSERVATION FEE",
+   "department": "Clinical",
+   "bill_term": "",
+   "income_category": "Nursing Services",
+   "cash": 750.0,
+   "insurance": 1500.0,
+   "sha": 600.0
+  },
+  {
+   "row": 1124,
+   "name": "OBSETRIC ULTRA SOUND",
+   "department": "ULTRA SOUND",
+   "bill_term": "",
+   "income_category": "Radiology - X-Ray Services",
+   "cash": 1500.0,
+   "insurance": 3000.0,
+   "sha": 1500.0
+  },
+  {
+   "row": 1133,
+   "name": "OCCULT BLOOD",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Biochemistry",
+   "cash": 500.0,
+   "insurance": 1500.0,
+   "sha": 500.0
+  },
+  {
+   "row": 1052,
+   "name": "OCCULT BLOOD (FOB)",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Biochemistry",
+   "cash": 1000.0,
+   "insurance": 2.0,
+   "sha": 1.0
+  },
+  {
+   "row": 1295,
+   "name": "ONE STEP HIV 1/2",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Serology",
+   "cash": 200.0,
+   "insurance": 500.0,
+   "sha": 400.0
+  },
+  {
+   "row": 1303,
+   "name": "OPERCULECTOMY (EXCESS GUM REMOVAL)",
+   "department": "Dental",
+   "bill_term": "",
+   "income_category": "Dental Services",
+   "cash": 700.0,
+   "insurance": 1500.0,
+   "sha": 1500.0
+  },
+  {
+   "row": 1042,
+   "name": "ORAL CARE",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Biochemistry",
+   "cash": 400.0,
+   "insurance": 2950.0,
+   "sha": 400.0
+  },
+  {
+   "row": 1285,
+   "name": "ORCHIOPEXY (UNDESCENDED TESTICLES SURG)",
+   "department": "Theatre",
+   "bill_term": "",
+   "income_category": "Theatre Services",
+   "cash": 50000.0,
+   "insurance": 80000.0,
+   "sha": 80000.0
+  },
+  {
+   "row": 1010,
+   "name": "ORTHOPADIC TECN REVIEW",
+   "department": "Consultation Outpatient",
+   "bill_term": "",
+   "income_category": "OutPatient Consultation Services",
+   "cash": 1000.0,
+   "insurance": 2000.0,
+   "sha": 1000.0
+  },
+  {
+   "row": 1069,
+   "name": "P24 MAKERS TEST",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Serology",
+   "cash": 200.0,
+   "insurance": 500.0,
+   "sha": 400.0
+  },
+  {
+   "row": 1088,
+   "name": "PAP SMEAR",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Histology",
+   "cash": 1000.0,
+   "insurance": 3000.0,
+   "sha": 2000.0
+  },
+  {
+   "row": 1122,
+   "name": "PELVIC ULTRA SOUND",
+   "department": "ULTRA SOUND",
+   "bill_term": "",
+   "income_category": "Radiology - X-Ray Services",
+   "cash": 2000.0,
+   "insurance": 4000.0,
+   "sha": 3500.0
+  },
+  {
+   "row": 1098,
+   "name": "PELVIS AP",
+   "department": "X-Ray Services",
+   "bill_term": "",
+   "income_category": "Radiology - X-Ray Services",
+   "cash": 1000.0,
+   "insurance": 1700.0,
+   "sha": 800.0
+  },
+  {
+   "row": 1250,
+   "name": "PERIFERAL BLOOD FILM (PBF)",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Haematology",
+   "cash": 500.0,
+   "insurance": 1500.0,
+   "sha": 1000.0
+  },
+  {
+   "row": 1220,
+   "name": "Phototheraphy Daily Fee",
+   "department": "Inpatient",
+   "bill_term": "",
+   "income_category": "Inpatient Services",
+   "cash": 500.0,
+   "insurance": 1500.0,
+   "sha": 500.0
+  },
+  {
+   "row": 1016,
+   "name": "PHYSICIAN REVIEW",
+   "department": "Consultation Inpatient",
+   "bill_term": "",
+   "income_category": "Inpatient Consultation Services",
+   "cash": 2500.0,
+   "insurance": 4000.0,
+   "sha": 2500.0
+  },
+  {
+   "row": 1090,
+   "name": "PLEURAL FLUID ANALYSIS",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Histology",
+   "cash": 1500.0,
+   "insurance": 2500.0,
+   "sha": 1000.0
+  },
+  {
+   "row": 1134,
+   "name": "PLEURAL FLUID CYTOLOGY",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Histology",
+   "cash": 2000.0,
+   "insurance": 3000.0,
+   "sha": 2000.0
+  },
+  {
+   "row": 1115,
+   "name": "POST NASAL SPACE (PNS)",
+   "department": "X-Ray Services",
+   "bill_term": "",
+   "income_category": "Radiology - X-Ray Services",
+   "cash": 1000.0,
+   "insurance": 1500.0,
+   "sha": 800.0
+  },
+  {
+   "row": 1264,
+   "name": "POST OP. WARD",
+   "department": "Theatre",
+   "bill_term": "",
+   "income_category": "Theatre Services",
+   "cash": 1000.0,
+   "insurance": 0.0,
+   "sha": 0.0
+  },
+  {
+   "row": 1045,
+   "name": "POTASSIUM",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Biochemistry",
+   "cash": 350.0,
+   "insurance": 1250.0,
+   "sha": 200.0
+  },
+  {
+   "row": 1074,
+   "name": "PREGNANCY TEST",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Biochemistry",
+   "cash": 100.0,
+   "insurance": 500.0,
+   "sha": 300.0
+  },
+  {
+   "row": 1270,
+   "name": "PREGNANCY TEST (SERUM)",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Biochemistry",
+   "cash": 300.0,
+   "insurance": 1000.0,
+   "sha": 500.0
+  },
+  {
+   "row": 1254,
+   "name": "PREGNANCY TEST STRIP",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Biochemistry",
+   "cash": 50.0,
+   "insurance": 200.0,
+   "sha": 100.0
+  },
+  {
+   "row": 1063,
+   "name": "PREURAL FLUID ANALYSIS",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Microbiology",
+   "cash": 1500.0,
+   "insurance": 2.0,
+   "sha": 1.0
+  },
+  {
+   "row": 1159,
+   "name": "PRIVATE ROOM CHARGES",
+   "department": "Inpatient",
+   "bill_term": "",
+   "income_category": "Inpatient Services",
+   "cash": 4000.0,
+   "insurance": 2.0,
+   "sha": 4000.0
+  },
+  {
+   "row": 1283,
+   "name": "PROLACTIN HORMONE TEST (PRL)",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Biochemistry",
+   "cash": 2700.0,
+   "insurance": 3500.0,
+   "sha": 3000.0
+  },
+  {
+   "row": 1247,
+   "name": "PROSTATE SPECIFIC ANTIGEN TEST (PSA)",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Biochemistry",
+   "cash": 1500.0,
+   "insurance": 3000.0,
+   "sha": 2000.0
+  },
+  {
+   "row": 1276,
+   "name": "PSA QUANTATIVE",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Biochemistry",
+   "cash": 3000.0,
+   "insurance": 4000.0,
+   "sha": 4000.0
+  },
+  {
+   "row": 1022,
+   "name": "PTI/INR",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Biochemistry",
+   "cash": 1500.0,
+   "insurance": 2500.0,
+   "sha": 1000.0
+  },
+  {
+   "row": 1055,
+   "name": "PUS SWAB /CULTURE",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Microbiology",
+   "cash": 500.0,
+   "insurance": 1500.0,
+   "sha": 400.0
+  },
+  {
+   "row": 1107,
+   "name": "RADIUS /UINA AP/LAT",
+   "department": "X-Ray Services",
+   "bill_term": "",
+   "income_category": "Radiology - X-Ray Services",
+   "cash": 1000.0,
+   "insurance": 1500.0,
+   "sha": 800.0
+  },
+  {
+   "row": 1033,
+   "name": "RBS (RADOM BLOOD SUGAR)",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Biochemistry",
+   "cash": 100.0,
+   "insurance": 300.0,
+   "sha": 200.0
+  },
+  {
+   "row": 1291,
+   "name": "REGIONAL ULTRA SOUND SCAN",
+   "department": "ULTRA SOUND",
+   "bill_term": "",
+   "income_category": "Radiology - X-Ray Services",
+   "cash": 2700.0,
+   "insurance": 3000.0,
+   "sha": 3000.0
+  },
+  {
+   "row": 1298,
+   "name": "REGIVIAL ULTRA SOUND",
+   "department": "ULTRA SOUND",
+   "bill_term": "",
+   "income_category": "Radiology - X-Ray Services",
+   "cash": 2700.0,
+   "insurance": 3500.0,
+   "sha": 3500.0
+  },
+  {
+   "row": 1200,
+   "name": "Removal of Intrauterine device",
+   "department": "Nursing Procedures",
+   "bill_term": "",
+   "income_category": "Nursing Services",
+   "cash": 500.0,
+   "insurance": 1700.0,
+   "sha": 500.0
+  },
+  {
+   "row": 1184,
+   "name": "Removal of Suture",
+   "department": "Nursing Procedures",
+   "bill_term": "",
+   "income_category": "Nursing Services",
+   "cash": 200.0,
+   "insurance": 1700.0,
+   "sha": 500.0
+  },
+  {
+   "row": 1165,
+   "name": "RENAL ULTRA SOUND",
+   "department": "ULTRA SOUND",
+   "bill_term": "",
+   "income_category": "Radiology - X-Ray Services",
+   "cash": 2000.0,
+   "insurance": 3500.0,
+   "sha": 2000.0
+  },
+  {
+   "row": 1238,
+   "name": "REPLACEMENT CD",
+   "department": "Dental",
+   "bill_term": "",
+   "income_category": "Dental Services",
+   "cash": 20000.0,
+   "insurance": 30000.0,
+   "sha": 30000.0
+  },
+  {
+   "row": 1237,
+   "name": "REPLACEMENT PD ACRYLIC",
+   "department": "Dental",
+   "bill_term": "",
+   "income_category": "Dental Services",
+   "cash": 10000.0,
+   "insurance": 12000.0,
+   "sha": 12000.0
+  },
+  {
+   "row": 1236,
+   "name": "REPLACEMENT PD PORCELAIN",
+   "department": "Dental",
+   "bill_term": "",
+   "income_category": "Dental Services",
+   "cash": 8000.0,
+   "insurance": 10000.0,
+   "sha": 10000.0
+  },
+  {
+   "row": 1235,
+   "name": "REPLACEMENT TP",
+   "department": "Dental",
+   "bill_term": "",
+   "income_category": "Dental Services",
+   "cash": 3000.0,
+   "insurance": 5000.0,
+   "sha": 5000.0
+  },
+  {
+   "row": 1023,
+   "name": "RETICULOCYTE COUNT",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Biochemistry",
+   "cash": 600.0,
+   "insurance": 1500.0,
+   "sha": 450.0
+  },
+  {
+   "row": 1073,
+   "name": "RHEMATOID FACTOR",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Serology",
+   "cash": 300.0,
+   "insurance": 1000.0,
+   "sha": 1000.0
+  },
+  {
+   "row": 1161,
+   "name": "ROOT CANAL",
+   "department": "Dental",
+   "bill_term": "",
+   "income_category": "Dental Services",
+   "cash": 5000.0,
+   "insurance": 5000.0,
+   "sha": 5000.0
+  },
+  {
+   "row": 1079,
+   "name": "ROTA VIRUS /ADENO",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Serology",
+   "cash": 1500.0,
+   "insurance": 1500.0,
+   "sha": 1500.0
+  },
+  {
+   "row": 1095,
+   "name": "SACRAL /ILLAC AP/LAT",
+   "department": "X-Ray Services",
+   "bill_term": "",
+   "income_category": "Radiology - X-Ray Services",
+   "cash": 1000.0,
+   "insurance": 1700.0,
+   "sha": 800.0
+  },
+  {
+   "row": 1096,
+   "name": "SACRUM AP/LAT",
+   "department": "X-Ray Services",
+   "bill_term": "",
+   "income_category": "Radiology - X-Ray Services",
+   "cash": 1000.0,
+   "insurance": 1700.0,
+   "sha": 800.0
+  },
+  {
+   "row": 1256,
+   "name": "SALMONELLA ANTIBOBY TEST (SAT)",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Microbiology",
+   "cash": 400.0,
+   "insurance": 1000.0,
+   "sha": 700.0
+  },
+  {
+   "row": 1253,
+   "name": "SALMONELLA ANTIGEN TEST (SAT)",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Microbiology",
+   "cash": 400.0,
+   "insurance": 1000.0,
+   "sha": 700.0
+  },
+  {
+   "row": 1068,
+   "name": "SALMONELLA STOOL ANTIGEN",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Microbiology",
+   "cash": 500.0,
+   "insurance": 100.0,
+   "sha": 500.0
+  },
+  {
+   "row": 1062,
+   "name": "SEMEN ANALYSIS",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Microbiology",
+   "cash": 1000.0,
+   "insurance": 1650.0,
+   "sha": 1000.0
+  },
+  {
+   "row": 1297,
+   "name": "SEMEN ANALYSIS (SEMINALYSIS)",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Microbiology",
+   "cash": 2000.0,
+   "insurance": 3000.0,
+   "sha": 3000.0
+  },
+  {
+   "row": 1051,
+   "name": "SERUM ANALYSIS",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Biochemistry",
+   "cash": 600.0,
+   "insurance": 1500.0,
+   "sha": 500.0
+  },
+  {
+   "row": 1040,
+   "name": "SERUM PROTEIN",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Biochemistry",
+   "cash": 350.0,
+   "insurance": 1500.0,
+   "sha": 200.0
+  },
+  {
+   "row": 1217,
+   "name": "SHARED ROOM CHARGES",
+   "department": "Inpatient",
+   "bill_term": "",
+   "income_category": "Inpatient Services",
+   "cash": 1500.0,
+   "insurance": 2.0,
+   "sha": 1500.0
+  },
+  {
+   "row": 1103,
+   "name": "SHOULDER AP/LAT",
+   "department": "X-Ray Services",
+   "bill_term": "",
+   "income_category": "Radiology - X-Ray Services",
+   "cash": 1000.0,
+   "insurance": 1500.0,
+   "sha": 800.0
+  },
+  {
+   "row": 1257,
+   "name": "SICKLE CELL TEST (PPB)",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Haematology",
+   "cash": 500.0,
+   "insurance": 1000.0,
+   "sha": 1000.0
+  },
+  {
+   "row": 1091,
+   "name": "SKULL AP/LAT",
+   "department": "X-Ray Services",
+   "bill_term": "",
+   "income_category": "Radiology - X-Ray Services",
+   "cash": 1000.0,
+   "insurance": 1700.0,
+   "sha": 800.0
+  },
+  {
+   "row": 1065,
+   "name": "SPUTUM FOR CULTURE & SENSITIVITY",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Microbiology",
+   "cash": 600.0,
+   "insurance": 2550.0,
+   "sha": 600.0
+  },
+  {
+   "row": 1058,
+   "name": "SPUTUM ZNX3",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Microbiology",
+   "cash": 500.0,
+   "insurance": 1200.0,
+   "sha": 1000.0
+  },
+  {
+   "row": 1175,
+   "name": "STOOL ANALYSIS",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Microbiology",
+   "cash": 200.0,
+   "insurance": 750.0,
+   "sha": 400.0
+  },
+  {
+   "row": 1056,
+   "name": "STOOL CULTURE SENSITIVITY",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Microbiology",
+   "cash": 800.0,
+   "insurance": 1500.0,
+   "sha": 1000.0
+  },
+  {
+   "row": 1216,
+   "name": "Sundries",
+   "department": "Inpatient",
+   "bill_term": "",
+   "income_category": "Inpatient Services",
+   "cash": 500.0,
+   "insurance": 2.0,
+   "sha": 500.0
+  },
+  {
+   "row": 1012,
+   "name": "SURGEON REVIEW",
+   "department": "Consultation Inpatient",
+   "bill_term": "",
+   "income_category": "Inpatient Consultation Services",
+   "cash": 2000.0,
+   "insurance": 3000.0,
+   "sha": 2000.0
+  },
+  {
+   "row": 1204,
+   "name": "SUTURE OF MAJOR LACERATION",
+   "department": "Inpatient",
+   "bill_term": "",
+   "income_category": "Inpatient Services",
+   "cash": 1500.0,
+   "insurance": 3000.0,
+   "sha": 1500.0
+  },
+  {
+   "row": 1206,
+   "name": "SUTURE OF MINORLACERATION",
+   "department": "Inpatient",
+   "bill_term": "",
+   "income_category": "Inpatient Services",
+   "cash": 500.0,
+   "insurance": 3000.0,
+   "sha": 500.0
+  },
+  {
+   "row": 1205,
+   "name": "SUTURE OF MODERATE LACERATION",
+   "department": "Inpatient",
+   "bill_term": "",
+   "income_category": "Inpatient Services",
+   "cash": 1000.0,
+   "insurance": 3000.0,
+   "sha": 1000.0
+  },
+  {
+   "row": 1272,
+   "name": "TB ANTIBOBY TEST",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Microbiology",
+   "cash": 500.0,
+   "insurance": 1000.0,
+   "sha": 1000.0
+  },
+  {
+   "row": 1160,
+   "name": "TEETH SCALING",
+   "department": "Dental",
+   "bill_term": "",
+   "income_category": "Dental Services",
+   "cash": 2000.0,
+   "insurance": 2000.0,
+   "sha": 3000.0
+  },
+  {
+   "row": 1136,
+   "name": "TETANUS INJECTION",
+   "department": "Nursing Procedures",
+   "bill_term": "",
+   "income_category": "Nursing Services",
+   "cash": 100.0,
+   "insurance": 300.0,
+   "sha": 200.0
+  },
+  {
+   "row": 1093,
+   "name": "THORACIC SPINE AP/LAT",
+   "department": "X-Ray Services",
+   "bill_term": "",
+   "income_category": "Radiology - X-Ray Services",
+   "cash": 1000.0,
+   "insurance": 2000.0,
+   "sha": 2000.0
+  },
+  {
+   "row": 1083,
+   "name": "THYROID FUNTION TEST (TFTS)",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Isotops",
+   "cash": 2750.0,
+   "insurance": 3000.0,
+   "sha": 2750.0
+  },
+  {
+   "row": 1111,
+   "name": "TIBIA/FIBULA AP/LAT",
+   "department": "X-Ray Services",
+   "bill_term": "",
+   "income_category": "Radiology - X-Ray Services",
+   "cash": 1000.0,
+   "insurance": 1500.0,
+   "sha": 800.0
+  },
+  {
+   "row": 1281,
+   "name": "TONGUE-TIE RELEASE (ANKYLOGLOSSIA)",
+   "department": "Nursing Procedures",
+   "bill_term": "",
+   "income_category": "Nursing Services",
+   "cash": 500.0,
+   "insurance": 2500.0,
+   "sha": 1000.0
+  },
+  {
+   "row": 1242,
+   "name": "TOOTH DISIMPACTION",
+   "department": "Dental",
+   "bill_term": "",
+   "income_category": "Dental Services",
+   "cash": 1000.0,
+   "insurance": 4000.0,
+   "sha": 4000.0
+  },
+  {
+   "row": 1163,
+   "name": "TOOTH EXTRACTION",
+   "department": "Dental",
+   "bill_term": "",
+   "income_category": "Dental Services",
+   "cash": 500.0,
+   "insurance": 1500.0,
+   "sha": 1500.0
+  },
+  {
+   "row": 1274,
+   "name": "TOOTH EXTRACTION (WISDOM)",
+   "department": "Dental",
+   "bill_term": "",
+   "income_category": "Dental Services",
+   "cash": 1000.0,
+   "insurance": 3000.0,
+   "sha": 3000.0
+  },
+  {
+   "row": 1229,
+   "name": "TOOTH FILLING",
+   "department": "Dental",
+   "bill_term": "",
+   "income_category": "Dental Services",
+   "cash": 2500.0,
+   "insurance": 4000.0,
+   "sha": 2500.0
+  },
+  {
+   "row": 1294,
+   "name": "TOOTH MASKING",
+   "department": "Dental",
+   "bill_term": "",
+   "income_category": "Dental Services",
+   "cash": 1000.0,
+   "insurance": 4000.0,
+   "sha": 3000.0
+  },
+  {
+   "row": 1246,
+   "name": "TOOTH VENNER",
+   "department": "Dental",
+   "bill_term": "",
+   "income_category": "Dental Services",
+   "cash": 12000.0,
+   "insurance": 15000.0,
+   "sha": 15000.0
+  },
+  {
+   "row": 1240,
+   "name": "TOOTH WHITENING",
+   "department": "Dental",
+   "bill_term": "",
+   "income_category": "Dental Services",
+   "cash": 1000.0,
+   "insurance": 4000.0,
+   "sha": 3000.0
+  },
+  {
+   "row": 1241,
+   "name": "TOOTH WHITENING (COMPLETE)",
+   "department": "Dental",
+   "bill_term": "",
+   "income_category": "Dental Services",
+   "cash": 15000.0,
+   "insurance": 25000.0,
+   "sha": 25000.0
+  },
+  {
+   "row": 1037,
+   "name": "TOTAL CHOLESTERAL",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Biochemistry",
+   "cash": 1500.0,
+   "insurance": 2000.0,
+   "sha": 2000.0
+  },
+  {
+   "row": 1004,
+   "name": "Total Nursing Care",
+   "department": "Inpatient",
+   "bill_term": "",
+   "income_category": "Inpatient Services",
+   "cash": 800.0,
+   "insurance": 1200.0,
+   "sha": 800.0
+  },
+  {
+   "row": 1267,
+   "name": "TREATMENT",
+   "department": "Outpatient Department",
+   "bill_term": "",
+   "income_category": "OutPatient Consultation Services",
+   "cash": 0.0,
+   "insurance": 0.0,
+   "sha": 0.0
+  },
+  {
+   "row": 1268,
+   "name": "TREATMENT AND MEDICATION",
+   "department": "Outpatient Department",
+   "bill_term": "",
+   "income_category": "OutPatient Consultation Services",
+   "cash": 1000.0,
+   "insurance": 1500.0,
+   "sha": 1500.0
+  },
+  {
+   "row": 1038,
+   "name": "TRIGLYCERIDE",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Biochemistry",
+   "cash": 600.0,
+   "insurance": 1500.0,
+   "sha": 500.0
+  },
+  {
+   "row": 1086,
+   "name": "TSH",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Isotops",
+   "cash": 600.0,
+   "insurance": 1000.0,
+   "sha": 500.0
+  },
+  {
+   "row": 1176,
+   "name": "U/E/Cs",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Biochemistry",
+   "cash": 2500.0,
+   "insurance": 3000.0,
+   "sha": 3000.0
+  },
+  {
+   "row": 1031,
+   "name": "UREA",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Biochemistry",
+   "cash": 500.0,
+   "insurance": 2.0,
+   "sha": 500.0
+  },
+  {
+   "row": 1030,
+   "name": "UREA/ ELECTROLYTES/CREATININE",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Biochemistry",
+   "cash": 2000.0,
+   "insurance": 3500.0,
+   "sha": 3000.0
+  },
+  {
+   "row": 1032,
+   "name": "URIC ACID",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Biochemistry",
+   "cash": 600.0,
+   "insurance": 1500.0,
+   "sha": 600.0
+  },
+  {
+   "row": 1301,
+   "name": "URINALYSIS",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Biochemistry",
+   "cash": 200.0,
+   "insurance": 500.0,
+   "sha": 500.0
+  },
+  {
+   "row": 1057,
+   "name": "URINE CULTURE & SENSITIVITY",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Microbiology",
+   "cash": 800.0,
+   "insurance": 1500.0,
+   "sha": 1500.0
+  },
+  {
+   "row": 1054,
+   "name": "URINE MULTIDRUG SCREENING TEST (UMDST)",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Biochemistry",
+   "cash": 1500.0,
+   "insurance": 2000.0,
+   "sha": 2000.0
+  },
+  {
+   "row": 1166,
+   "name": "URINE SODIUM",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Biochemistry",
+   "cash": 500.0,
+   "insurance": 700.0,
+   "sha": 500.0
+  },
+  {
+   "row": 1195,
+   "name": "VAGINAL EXAMINATION (VE)",
+   "department": "Nursing Procedures",
+   "bill_term": "",
+   "income_category": "Nursing Services",
+   "cash": 300.0,
+   "insurance": 500.0,
+   "sha": 500.0
+  },
+  {
+   "row": 1077,
+   "name": "VDRL (SYPHILIS) TEST",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Serology",
+   "cash": 300.0,
+   "insurance": 700.0,
+   "sha": 500.0
+  },
+  {
+   "row": 1287,
+   "name": "VIBRIO CHOLERAE STOOL TEST",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Microbiology",
+   "cash": 500.0,
+   "insurance": 1000.0,
+   "sha": 700.0
+  },
+  {
+   "row": 1265,
+   "name": "VITAMIN D",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Biochemistry",
+   "cash": 3000.0,
+   "insurance": 3500.0,
+   "sha": 3500.0
+  },
+  {
+   "row": 1151,
+   "name": "WEIGHING",
+   "department": "Clinical",
+   "bill_term": "",
+   "income_category": "Nursing Services",
+   "cash": 50.0,
+   "insurance": 200.0,
+   "sha": 50.0
+  },
+  {
+   "row": 1070,
+   "name": "WIDAL TEST",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Serology",
+   "cash": 300.0,
+   "insurance": 850.0,
+   "sha": 300.0
+  },
+  {
+   "row": 1071,
+   "name": "WIDAL TITRES",
+   "department": "Laboratory",
+   "bill_term": "",
+   "income_category": "Lab - Serology",
+   "cash": 500.0,
+   "insurance": 950.0,
+   "sha": 500.0
+  },
+  {
+   "row": 1117,
+   "name": "WRIST AP/LAT",
+   "department": "X-Ray Services",
+   "bill_term": "",
+   "income_category": "Radiology - X-Ray Services",
+   "cash": 1000.0,
+   "insurance": 1500.0,
+   "sha": 800.0
+  },
+  {
+   "row": 1190,
+   "name": "XRAY FOOT",
+   "department": "X-Ray Services",
+   "bill_term": "",
+   "income_category": "Radiology - X-Ray Services",
+   "cash": 1700.0,
+   "insurance": 1500.0,
+   "sha": 1700.0
+  },
+  {
+   "row": 1191,
+   "name": "XRAY UPPER HAND",
+   "department": "X-Ray Services",
+   "bill_term": "",
+   "income_category": "Radiology - X-Ray Services",
+   "cash": 1700.0,
+   "insurance": 1500.0,
+   "sha": 1700.0
+  }
+ ]
+}

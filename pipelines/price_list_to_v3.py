@@ -48,6 +48,20 @@ NS = uuid.UUID("5d3c1b0e-6a51-4f3e-9b8e-2f1f0b7c9a11")
 # target → what its price list needs; the V3 login is AFYA_<TARGET>_* / Airflow connection afya_v3_<target>
 TARGETS = {
     "transmarigold_prod": {"code_prefix": "TMH", "label": "Trans Marigold Hospital price list (2026-11)"},
+    # Fairview Medical Centre & Maternity, production org 154 / facility 152 — "FAIRVIEW SERVICES.xlsx" (sheet Services:
+    # Code, Name, Description, Rate, ItemCategory, Department, NHIF, Corporate), 2026-11-27. User: Rate = cash,
+    # Corporate = insurance (every insurer without its own card), NHIF = the SHA company price; load the values as is.
+    "fairview_prod": {"code_prefix": "FMC", "label": "Fairview Medical Centre services (2026-11-27)",
+                      "format": "services", "sheet": "Services", "sha_company": r"\bsha\b|social health",
+                      # sheet Department → org 154 procedure category (by name) for NEW procedures; the vote over
+                      # matched procedures put Maternity under OCCUPATIONAL THERAPY (dry run 2026-11-27)
+                      "department_category": {
+                          "administration": "Administration", "barium examination": "Radiology", "clinical": "Clinic",
+                          "consultation": "Consultation", "consultation inpatient": "Consultation",
+                          "consultation outpatient": "Consultation", "dental": "Dental", "inpatient": "Inpatient",
+                          "laboratory": "Lab", "maternity": "MATERNITY", "nursing procedures": "Nursing",
+                          "outpatient department": "OPD", "radiology": "Radiology", "theatre": "Theatre",
+                          "ultra sound": "UltraSound", "x ray services": "X-RAY"}},
 }
 # sheet department → org category name, used only when no matched row of that department shows the org's own choice
 DEPARTMENT_CATEGORY = {
@@ -88,9 +102,12 @@ def data_path(target: str) -> Path:
 # ── convert ──────────────────────────────────────────────────────────────────
 def convert(xlsx: str, target: str, sheet: str = "MASTER") -> Path:
     import openpyxl
+    sheet = TARGETS[target].get("sheet", sheet)
     ws = openpyxl.load_workbook(xlsx, data_only=True, read_only=True)[sheet]
     it = ws.iter_rows(values_only=True)
     head = [key(h) for h in next(it)]
+    if TARGETS[target].get("format") == "services":
+        return convert_services(xlsx, target, sheet, head, it)
     col = {k: head.index(k) for k in ("other service", "department", "bill term", "income category", "cash", "insurance")}
     rows = []
     for n, r in enumerate(it, start=2):
@@ -101,6 +118,37 @@ def convert(xlsx: str, target: str, sheet: str = "MASTER") -> Path:
                      "department": clean(r[col["department"]]), "bill_term": clean(r[col["bill term"]]),
                      "income_category": clean(r[col["income category"]]),
                      "cash": money(r[col["cash"]]), "insurance": money(r[col["insurance"]])})
+    out = DATA_DIRS[0] / f"{target}.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps({"source": Path(xlsx).name, "sheet": sheet, "rows": rows}, indent=1), encoding="utf-8")
+    log.info("%d rows → %s", len(rows), out)
+    return out
+
+
+def convert_services(xlsx: str, target: str, sheet: str, head: list[str], it) -> Path:
+    """Code, Name, Description, Rate, ItemCategory, Department, NHIF, Corporate (Fairview): the sheet's own item
+    code is the row key (stable uuids, procedure code <PREFIX>-<code>); a Name of "-" takes the Description."""
+    col = {k: head.index(k) for k in ("code", "name", "description", "rate", "itemcategory", "department", "nhif", "corporate")}
+    rows, seen = [], set()
+    for r in it:
+        if not r or all(v in (None, "") for v in r):
+            continue
+        code = r[col["code"]]
+        if not isinstance(code, (int, float)):
+            raise SystemExit(f"{xlsx}: code {code!r} is not a number")
+        code = int(code)
+        if code in seen:
+            raise SystemExit(f"{xlsx}: code {code} repeated")
+        seen.add(code)
+        name = clean(r[col["name"]])
+        if name in ("", "-"):
+            name = clean(r[col["description"]])
+            log.info("code %s: no Name on the sheet → Description %r", code, name)
+        if name in ("", "-"):
+            raise SystemExit(f"{xlsx}: code {code} has neither a name nor a description")
+        rows.append({"row": code, "name": name, "department": clean(r[col["department"]]), "bill_term": "",
+                     "income_category": clean(r[col["itemcategory"]]), "cash": money(r[col["rate"]]),
+                     "insurance": money(r[col["corporate"]]), "sha": money(r[col["nhif"]])})
     out = DATA_DIRS[0] / f"{target}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps({"source": Path(xlsx).name, "sheet": sheet, "rows": rows}, indent=1), encoding="utf-8")
@@ -183,9 +231,16 @@ class Run:
             if p and p.get("category"):
                 votes[key(r["department"])][p["category"]] += 1
         out = {}
+        fixed = self.cfg.get("department_category") or {}
         for d in sorted({key(r["department"]) for r in self.rows}):
-            if votes.get(d):
+            if d in fixed:                               # the target's own mapping wins
+                if not by_name.get(key(fixed[d])):
+                    raise SystemExit(f"department {d!r} → category {fixed[d]!r}: no such category in org {self.org}")
+                out[d] = by_name[key(fixed[d])]
+            elif votes.get(d):
                 out[d] = votes[d].most_common(1)[0][0]
+            elif by_name.get(d):                         # a category named like the department (Fairview: Dental)
+                out[d] = by_name[d]
             else:
                 mapped = DEPARTMENT_CATEGORY.get(d) or ("MCH Services" if d.startswith("mch") else FALLBACK_CATEGORY)
                 out[d] = by_name.get(key(mapped)) or by_name.get(key(FALLBACK_CATEGORY))
@@ -199,6 +254,7 @@ class Run:
         taken = Counter(key(p["name"]) for p in self.procs)
         sheet_names = Counter(key(r["name"]) for r in self.rows)
         new_procs, price_new, price_upd, kept, same, inactive = [], [], [], [], 0, []
+        self.row_proc = {}                                     # sheet row → its procedure (new ones: no id yet)
         for r in self.rows:
             p = matched.get(r["row"])
             cash, ins = r["cash"], r["insurance"]
@@ -217,6 +273,7 @@ class Run:
                 new_procs.append(p)
             elif not p.get("active", True):
                 inactive.append({"row": r["row"], "id": p["id"], "name": p["name"]})
+            self.row_proc[r["row"]] = p
             pr = self.prices.get(p.get("id")) if p.get("id") else None
             want = {"cash_charge": cash, "insurance_charge": ins}
             if variable:
@@ -236,10 +293,49 @@ class Run:
                 continue
             price_upd.append({"_row": r["row"], "id": pr["id"], "procedure_id": p["id"], "name": p["name"], "code": p.get("code"),
                               "before": before, "data": want})
+        sha = self.plan_sha()
         return {"matched": len(matched), "new_procedures": new_procs, "price_inserts": price_new,
                 "price_updates": price_upd, "kept_v3_price_sheet_has_none": kept, "unchanged": same,
-                "matched_but_inactive": inactive,
+                "matched_but_inactive": inactive, **sha,
                 "department_category": {d: f"{cid} {cat_name.get(cid)}" for d, cid in cat.items()}}
+
+    # ── SHA column → core company_pricing on the org's SHA company (the "Company Price" the app shows for SHA) ──
+    def plan_sha(self) -> dict:
+        rows = [r for r in self.rows if r.get("sha") is not None]
+        if not rows or not self.cfg.get("sha_company"):
+            return {}
+        cos = [c for c in self.c.read_all("core", "insurance_companies") if not c.get("deleted_at")]
+        sha = [c for c in cos if re.search(self.cfg["sha_company"], c.get("name") or "", re.I)]
+        if len(sha) != 1:
+            raise SystemExit(f"SHA company: expected exactly one insurance company matching "
+                             f"{self.cfg['sha_company']!r} in org {self.org}, found {[(c['id'], c['name']) for c in sha]} "
+                             f"(all: {[(c['id'], c['name']) for c in cos][:40]})")
+        self.sha_co = sha[0]["id"]
+        existing = {}
+        for x in sorted(self.c.read_all("core", "company_pricing"), key=lambda x: x["id"]):
+            if x.get("company_id") == self.sha_co and x.get("priceable_type") == "procedure" and not x.get("deleted_at"):
+                existing.setdefault(x.get("priceable_id"), x)
+        new, upd, same, zero = [], [], 0, []
+        for r in rows:
+            p = self.row_proc[r["row"]]
+            if not r["sha"]:                                   # 0 on the sheet = no SHA price: nothing posted
+                zero.append({"row": r["row"], "name": r["name"]})
+                continue
+            ex = existing.get(p.get("id")) if p.get("id") else None
+            if ex:
+                if money(ex.get("price")) == r["sha"] and ex.get("status") in ("active", None):
+                    same += 1
+                else:
+                    upd.append({"_row": r["row"], "id": ex["id"], "name": p["name"], "before": money(ex.get("price")),
+                                "data": {"price": r["sha"], "status": "active"}})
+                continue
+            new.append({"_row": r["row"], "_procedure_uuid": p["uuid"], "uuid": gid(self.target, "sha_price", r["row"]),
+                        "company_id": self.sha_co, "priceable_type": "procedure", "priceable_id": p.get("id"),
+                        "priceable_code": p.get("code"), "price": r["sha"], "requires_preauth": 0, "status": "active"})
+        log.info("SHA company %s %s: %d new, %d updates, %d unchanged, %d rows with SHA 0 (not posted)",
+                 self.sha_co, sha[0]["name"], len(new), len(upd), same, len(zero))
+        return {"sha_company": f"{self.sha_co} {sha[0]['name']}", "sha_inserts": new, "sha_updates": upd,
+                "sha_unchanged": same, "sha_zero_not_posted": zero}
 
     # ── posting ──
     def _ok(self, r) -> tuple[bool, str | None]:
@@ -300,7 +396,25 @@ class Run:
         out["price_inserts"] = dict(res)
         res, f3 = self._many(plan["price_updates"], lambda u: self.update("procedure_prices", u["id"], u["data"]))
         out["price_updates"] = dict(res)
-        out["failures"] = fails + f2 + f3
+        f4 = []
+        if "sha_inserts" in plan:
+            if plan["new_procedures"]:
+                for x in plan["sha_inserts"]:
+                    x["priceable_id"] = x["priceable_id"] or ids.get(x["_procedure_uuid"])
+            sha_new = [x for x in plan["sha_inserts"] if x["priceable_id"]]
+            if len(sha_new) < len(plan["sha_inserts"]) and not self.limit:
+                f4 += [{"row": x["_row"], "error": "SHA price: procedure not created"}
+                       for x in plan["sha_inserts"] if not x["priceable_id"]]
+            core = lambda d: self._ok(self.c.insert("core", "company_pricing",
+                                                    {k: v for k, v in d.items() if not k.startswith("_") and v is not None},
+                                                    match_on="uuid"))
+            res, f = self._many(sha_new, core)
+            out["sha_inserts"], f4 = dict(res), f4 + f
+            res, f = self._many(plan["sha_updates"], lambda u: self._ok(self.c.post(
+                "core", {"action": "update", "model": "company_pricing", "destination_tenant_id": self.org,
+                         "ids": [u["id"]], "data": u["data"]}, timeout=120)))
+            out["sha_updates"], f4 = dict(res), f4 + f
+        out["failures"] = fails + f2 + f3 + f4
         return out
 
 

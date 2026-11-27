@@ -145,6 +145,32 @@ TARGETS = {
                                       "type": "administrative", "status": "active", "description": "Main Store"}},
         },
     },
+    # Fairview Medical Centre & Maternity, production org 154 / facility 152 (the org's only facility), login gouma.
+    # "FAIRVIEW STOCK LIST.xls" = the old system's Stock List Report as at 2026-11-27 13:14: No., Name, Unit Cost,
+    # UnitPrice, Reorder Level, Quantity — no codes, batch numbers or expiries. User, 2026-11-27:
+    #   * everything goes into the org's Pharmacy store (333; both stores 332 Main / 333 Pharmacy are org-wide)
+    #   * counted lines → placeholder batch FMC-ST-20261127-<item No.>, no expiry (the sheet has none)
+    #   * products carry the sheet's selling price, cost and reorder level
+    #   * only the sheet's items: the 27k-product template catalogue (org-wide, 120 names in common) is switched off
+    #     (is_active 0, reversible) except products holding stock
+    #   * stock the team already entered in V3 is KEPT; the sheet's count is added on top (never_recount)
+    "fairview_prod": {
+        "label": "Fairview Medical Centre stock list 2026-11-27",
+        "count_date": "2026-11-27",
+        "prefix": "FMC-ST",
+        "facility": 152,
+        "unit": "PCS",
+        "format": "stock_list",
+        "sheets": {"pharmacy": {"file": "FAIRVIEW STOCK LIST.xls", "store_id": 333, "code": "PHARM"}},
+        "drug_category": "Pharmaceuticals",
+        "fallback_category": {"pharmacy": "Medical Supplies"},
+        "sheet_prices": True,
+        "single_facility_org": True,                 # org-wide products / stores ARE the facility's
+        "never_recount": True,
+        "tidy": {"renames": [], "create": [], "deactivate_stores": [], "keep_stores": ["Main", "Pharmacy"],
+                 "deactivate_template_products": True},
+        "base_row_stores": [333],                    # uncounted sheet items still listed in Pharmacy
+    },
 }
 
 
@@ -209,10 +235,60 @@ def find(dirs, name: str) -> Path:
 
 
 # ── convert ──────────────────────────────────────────────────────────────────
+def convert_stock_list(path: Path) -> list[dict]:
+    """A "Stock List Report" .xls (Fairview): page headers + a numbered item every other line — No. (col B), Name (E),
+    Unit Cost (H), UnitPrice (K), Reorder Level (P), Quantity (U). No codes, batches or expiries."""
+    import xlrd
+    sh = xlrd.open_workbook(str(path)).sheets()[0]
+    head = None
+    for i in range(min(sh.nrows, 40)):
+        cells = [clean(v).lower() for v in sh.row_values(i)]
+        if "name" in cells and "quantity" in cells:
+            head = {k: cells.index(k) for k in ("no.", "name", "unit cost", "unitprice", "reorder level", "quantity")}
+            start = i + 1
+            break
+    if not head:
+        raise SystemExit(f"{path.name}: header row (No. / Name / … / Quantity) not found")
+    rows = []
+    for i in range(start, sh.nrows):
+        v = sh.row_values(i)
+        no, name = v[head["no."]], clean(v[head["name"]])
+        if not isinstance(no, float) or not name:
+            continue
+        # the numbers sit one column right of their header cell on this report (Reorder Level P, Quantity U)
+        pick = lambda k: next((x for x in v[head[k]:head[k] + 2] if isinstance(x, float)), None)
+        qty = pick("quantity")
+        if qty is None:
+            raise SystemExit(f"{path.name} item {int(no)} {name}: no quantity")
+        if qty != int(qty):
+            raise SystemExit(f"{path.name} item {int(no)} {name}: quantity {qty} is fractional")
+        notes = None
+        if qty < 0:                                  # a negative stock balance is not a count: nothing loaded
+            notes, qty = f"sheet quantity {int(qty)} (negative) — loaded as 0", 0
+        rows.append({"row": int(no), "code": "", "name": name, "batch_no": None, "expiry": None, "qty": int(qty),
+                     "notes": notes, "cost": num(pick("unit cost")), "price": num(pick("unitprice")),
+                     "reorder": int(pick("reorder level") or 0)})
+    if [r["row"] for r in rows] != list(range(1, len(rows) + 1)):
+        raise SystemExit(f"{path.name}: item numbers are not 1..{len(rows)} — a line was missed")
+    return rows
+
+
 def convert(folder: str, target: str, prices_folder: str | None = None) -> Path:
     import openpyxl
     cfg, folder = TARGETS[target], Path(folder)
     out = {"count_date": cfg["count_date"], "sheets": {}}
+    if cfg.get("format") == "stock_list":
+        for name, sc in cfg["sheets"].items():
+            rows = convert_stock_list(folder / sc["file"])
+            out["sheets"][name] = {"file": sc["file"], "rows": rows}
+            dup = [n for n, k in Counter(key(r["name"]) for r in rows).items() if k > 1]
+            log.info("%s: %d rows, %d counted > 0, %d units; names twice: %s", sc["file"], len(rows),
+                     sum(r["qty"] > 0 for r in rows), sum(r["qty"] for r in rows), dup)
+        path = DATA_DIRS[0] / f"{target}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(out, indent=1), encoding="utf-8")
+        log.info("→ %s", path)
+        return path
     for name, sc in cfg["sheets"].items():
         ws = openpyxl.load_workbook(folder / sc["file"], data_only=True, read_only=True).worksheets[0]
         it = ws.iter_rows(values_only=True)
@@ -511,9 +587,12 @@ class Run:
                 if code:
                     taken_codes.add(code)
                 s, c = sell.get(r["code"]), cost.get(r["code"])
+                if "price" in r:                     # stock-list sheet: the row carries its own prices
+                    s, c = r["price"], r["cost"]
                 new[k] = {"_key": k, "_sheet": sheet, "uuid": gid(self.target, "product", k), "generic_name": r["name"][:255],
                           "code": code, "item_no": r["code"] or None, "unit_id": self.unit, "pack_size": 1,
                           "selling_price": s or 0, "insurance_price": s or 0, "cost_price": c or 0, "trade_price": c,
+                          "reorder_level": r.get("reorder"),
                           "is_active": 1, "track_batch": 1, "track_expiry": 1,
                           "description": f"Added from {sd['file']} ({self.cfg['label']})"}
                 t = twins.get(k)
@@ -570,8 +649,35 @@ class Run:
                                    products_new_code_suffixed=sum(1 for p in new.values() if p["code"] and p["code"].endswith(f"-F{self.fac}")))
         self.report["detail"]["new_products"] = self.new_products
 
+    def run_sheet_prices(self):
+        """stock-list sheet (cfg sheet_prices): a facility product the sheet matched gets the sheet's selling price,
+        cost and reorder level where they differ (old values in the report). Org-wide products are never edited."""
+        upd, seen = [], set()
+        for sheet, sd in self.data["sheets"].items():
+            for r in sd["rows"]:
+                p = self.product_of.get(r["code"] or f"{sheet}:{key(r['name'])}")
+                mine = p and (p.get("facility_id") == self.fac or self.cfg.get("single_facility_org"))
+                if not mine or not p.get("id") or p["id"] in seen or "price" not in r:
+                    continue
+                seen.add(p["id"])
+                want = {"selling_price": r["price"], "cost_price": r["cost"], "reorder_level": r["reorder"]}
+                have = {"selling_price": num(p.get("selling_price")), "cost_price": num(p.get("cost_price")),
+                        "reorder_level": int(num(p.get("reorder_level")))}
+                diff = {f: v for f, v in want.items() if have[f] != v}
+                if diff:
+                    upd.append({"_key": p["id"], "id": p["id"], "name": p.get("generic_name"), "row": r["row"],
+                                "before": {f: have[f] for f in diff}, "data": diff})
+        self.report["plan"]["product_price_updates"] = len(upd)
+        self.report["detail"]["product_price_updates"] = upd
+        for u in upd[:5]:
+            log.info("  price update %s row %s: %s → %s", u["name"], u["row"], u["before"], u["data"])
+        if "products" in self.steps:
+            self.many("product_price_updates", upd, lambda u: self.update("inventory", "product", u["id"], u["data"]))
+
     def run_products(self):
         self.plan_products()
+        if self.cfg.get("sheet_prices"):
+            self.run_sheet_prices()
         if "products" not in self.steps or not self.new_products:
             return
         ids = self.many("products", self.new_products, lambda p: self.insert("inventory", "product", p))
@@ -967,6 +1073,8 @@ class Run:
     def run_verify(self):
         """read-only, record by record: every sheet row vs the facility's stores (product once, quantity, batch no.,
         expiry, right store, nothing in the wrong store, no duplicate batch rows)."""
+        if self.cfg.get("format") == "stock_list":
+            return self.run_verify_stock_list()
         live = [p for p in self.products if p.get("is_active", True)]
         mine = [p for p in live if p.get("facility_id") == self.fac]
         dup_names = {n: k for n, k in Counter(key(p.get("generic_name")) for p in mine).items() if k > 1}
@@ -1047,9 +1155,30 @@ class Run:
         if n:
             self.report["failures"].append({"kind": "verify", "key": "stock", "error": f"{n} issues (see log)"})
 
+    def run_sheet_base_rows(self):
+        """every sheet product gets a base stock row (batch NULL, qty 0) in each cfg base_row_stores store it has no
+        row in, so items counted 0 are listed there too (the app shows a product in a store only through a row)."""
+        by_uuid = {str(p.get("uuid")).lower(): p for p in self.products if p.get("uuid")}
+        pids = set()
+        for sheet, sd in self.data["sheets"].items():
+            for r in sd["rows"]:
+                k = r["code"] or f"{sheet}:{key(r['name'])}"
+                p = by_uuid.get(gid(self.target, "product", k)) or getattr(self, "product_of", {}).get(k)
+                if p and p.get("id"):
+                    pids.add(p["id"])
+        have = {(s["product_id"], s["store_id"]) for s in self.stock}
+        rows = [{"_key": f"{pid}|{st}", "uuid": gid(self.target, "base_row", f"{pid}|{st}"), "product_id": pid,
+                 "store_id": st, "quantity": 0, "available_quantity": 0, "reserved_quantity": 0, "average_cost": 0,
+                 "total_value": 0}
+                for pid in sorted(pids) for st in self.cfg["base_row_stores"] if (pid, st) not in have]
+        self.report["plan"].update(base_row_products=len(pids), base_rows_missing=len(rows))
+        self.many("base_rows", rows, lambda r: self.insert("inventory", "stock", r))
+
     def run_store_rows(self):
         if self.cfg.get("store_scope"):              # scoped facility: each store lists only its sheet
             return self.run_store_scope()
+        if self.cfg.get("base_row_stores"):          # only the sheet's products, only in the listed stores
+            return self.run_sheet_base_rows()
         """A product shows in a store only through a base stock row (batch NULL, quantity 0) — the app makes one in
         every store when a product is created; products made through the gateway had none, so Dennis could not find
         e.g. PARACETAMOL 500MG TABS (1,030 units in Pharmacy) — 2026-11-24. Adds the missing base rows for every active
@@ -1097,6 +1226,17 @@ class Run:
                     plan["stock_in_deactivated"][f"{sid} {s['name']}"] = qty[sid]
         tpl = [p for p in self.products if p.get("facility_id") is None and p.get("is_active", True)] \
             if t.get("deactivate_template_products") else []
+        if tpl and self.cfg.get("single_facility_org"):
+            # org-wide products ARE this facility's: keep every product holding stock (the team's own entries) and
+            # every product a sheet row uses (ours by uuid, or reused because it held stock)
+            held = {s["product_id"] for s in self.stock if (s.get("quantity") or 0) > 0}
+            ours = {gid(self.target, "product", r["code"] or f"{sh}:{key(r['name'])}")
+                    for sh, sd in self.data["sheets"].items() for r in sd["rows"]}
+            used = {p["id"] for p in getattr(self, "product_of", {}).values() if p and p.get("id")}
+            kept = [p for p in tpl if p["id"] in held or p["id"] in used or str(p.get("uuid")).lower() in ours]
+            self.report["detail"]["template_products_kept"] = [(p["id"], p.get("generic_name")) for p in kept]
+            tpl = [p for p in tpl if p not in kept]
+            self.report["plan"]["tidy_template_products_kept_stocked_or_used"] = len(kept)
         if t.get("deactivate_unlisted"):             # facility products that are on none of the sheets
             names = {key(r["name"]) for sd in self.data["sheets"].values() for r in sd["rows"]}
             codes = {r["code"] for sd in self.data["sheets"].values() for r in sd["rows"] if r["code"]}
@@ -1167,8 +1307,11 @@ class Run:
             left = {s["id"] for s in self.live("inventory", "store", 1)} & {x["id"] for x in dels}
             if left:
                 self.report["failures"].append({"kind": "tidy", "key": "delete_stores", "error": f"still listed: {sorted(left)}"})
-        self.many("template_products_off", [{"_key": p["id"], "id": p["id"], "data": {"is_active": 0}} for p in tpl],
-                  upd("product"))
+        if len(tpl) > 1000:                          # 27k at Fairview: 100 ids per update call
+            self.products_off_batched([p["id"] for p in tpl])
+        else:
+            self.many("template_products_off", [{"_key": p["id"], "id": p["id"], "data": {"is_active": 0}} for p in tpl],
+                      upd("product"))
         self.many("product_renames", renames_p, upd("product"))
         if t.get("dedupe_batches"):
             self.dedupe_batches()
@@ -1178,6 +1321,93 @@ class Run:
             self.report["result"]["stores_now"] = mine
             if sorted(t["keep_stores"]) != mine:
                 self.report["failures"].append({"kind": "tidy", "key": "stores", "error": f"store list is {mine}"})
+
+    def products_off_batched(self, ids: list[int], size: int = 100):
+        """is_active 0 on many products, `size` ids per gateway update. The first call carries 3 ids and must answer
+        with those 3 rows switched off before the rest is sent."""
+        if self.dry_run:
+            log.info("  dry-run template_products_off: %d products in calls of %d", len(ids), size)
+            return
+
+        def call(chunk):
+            r = self.c.post("inventory", {"action": "update", "model": "product", "destination_tenant_id": self.org,
+                                          "ids": chunk, "data": {"is_active": 0}}, timeout=300)
+            ok, _, err = self._ok(r)
+            if not ok:
+                return False, None, err
+            rows = (r.json() or {}).get("data")
+            rows = rows if isinstance(rows, list) else []
+            off = {x.get("id") for x in rows if isinstance(x, dict) and not x.get("is_active")}
+            missing = [i for i in chunk if i not in off]
+            return (not missing), len(chunk), None if not missing else f"not switched off: {missing[:10]} ({len(missing)})"
+        ok, _, err = call(ids[:3])
+        if not ok:
+            raise SystemExit(f"multi-id product update canary failed: {err}")
+        log.info("template_products_off canary ok (3 ids in one call)")
+        chunks = [{"_key": f"chunk {i}", "ids": ids[i:i + size]} for i in range(3, len(ids), size)]
+        self.many("template_products_off", chunks, lambda x: call(x["ids"]))
+        self.report["result"]["template_products_off_ids"] = len(ids)
+
+    def run_verify_stock_list(self):
+        """read-only, Fairview-style sheet: every row → one active product with the sheet's name, prices and reorder
+        level; counted rows → batch FMC-ST-<date>-<No.> in the sheet store with exactly the counted quantity; the
+        template catalogue off; the stock the team entered still there."""
+        active = {p["id"]: p for p in self.products if p.get("is_active", True)}
+        by_uuid = {str(p.get("uuid")).lower(): p for p in self.products if p.get("uuid")}
+        by_name = defaultdict(list)
+        for p in active.values():
+            by_name[key(p.get("generic_name"))].append(p)
+        bat = defaultdict(list)
+        for b in self.batches:
+            bat[(b["product_id"], b["store_id"], clean(b["batch_no"]))].append(b)
+        res, issues, seen, sheet_pids = Counter(), [], set(), set()
+        for sheet, sd in self.data["sheets"].items():
+            store = self.cfg["sheets"][sheet]["store_id"]
+            for r in sd["rows"]:
+                k = r["code"] or f"{sheet}:{key(r['name'])}"
+                p = by_uuid.get(gid(self.target, "product", k)) or next(iter(by_name.get(key(r["name"]), [])), None)
+                prob = []
+                if not p:
+                    res["no product"] += 1; issues.append(f"row {r['row']} {r['name']}: no product"); continue
+                sheet_pids.add(p["id"])
+                if p["id"] not in active:
+                    prob.append("product inactive")
+                if k not in seen:                    # a name twice on the sheet: the first line sets the prices
+                    seen.add(k)
+                    if (p.get("facility_id") == self.fac or self.cfg.get("single_facility_org")) and (
+                            num(p.get("selling_price")), num(p.get("cost_price")), int(num(p.get("reorder_level")))) \
+                            != (r["price"], r["cost"], r["reorder"]):
+                        prob.append(f"prices {num(p.get('selling_price'))}/{num(p.get('cost_price'))}/"
+                                    f"{p.get('reorder_level')} ≠ sheet {r['price']}/{r['cost']}/{r['reorder']}")
+                if r["qty"] > 0:
+                    bno = f"{self.cfg['prefix']}-{self.data['count_date'].replace('-', '')}-{r['row']}"
+                    bs = bat.get((p["id"], store, bno), [])
+                    q = sum(int(b.get("quantity_available") or 0) for b in bs)
+                    if len(bs) != 1:
+                        prob.append(f"{len(bs)} batches {bno}")
+                    elif q > r["qty"]:
+                        prob.append(f"batch {bno} holds {q} > counted {r['qty']}")
+                    elif q < r["qty"]:
+                        res["below the count (dispensed since)"] += 1
+                if prob:
+                    res["mismatch"] += 1; issues.append(f"row {r['row']} {r['name']}: {'; '.join(prob)}")
+                else:
+                    res["ok"] += 1
+        held = {s["product_id"] for s in self.stock if (s.get("quantity") or 0) > 0}
+        tpl_on = [p for p in active.values() if p.get("facility_id") is None and p["id"] not in held
+                  and p["id"] not in sheet_pids]
+        listed = {sid: len({s["product_id"] for s in self.stock if s["store_id"] == sid and s["product_id"] in active})
+                  for sid in {sc["store_id"] for sc in self.cfg["sheets"].values()}}
+        self.report["plan"].update(verify_rows=dict(res), verify_template_products_still_active=len(tpl_on),
+                                   verify_active_products_listed_per_store=listed, verify_active_products=len(active))
+        self.report["detail"]["verify_issues"] = issues[:300]
+        log.info("verify: %s; template products still active (not stocked, not on the sheet): %d; active products "
+                 "listed per store: %s", dict(res), len(tpl_on), listed)
+        for i in issues[:100]:
+            log.warning("verify: %s", i)
+        if issues or tpl_on:
+            self.report["failures"].append({"kind": "verify", "key": "stock list",
+                                            "error": f"{len(issues)} row issues, {len(tpl_on)} template products active"})
 
     def load(self) -> dict:
         if set(self.steps) <= {"tidy", "departments", "verify"}:  # follow-ups on loaded data + the read-only check

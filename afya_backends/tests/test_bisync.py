@@ -405,3 +405,23 @@ def test_v3_sync_schema_is_never_bisynced(monkeypatch):
     monkeypatch.setenv("BISYNC_SKIP_SCHEMAS", "tenri, x")
     assert bisync.skip_schemas_from_env() == {"TENRI", "X"}
     assert set(side.tables()) == {("V3_SYNC", "FINANCE__INVOICE")}
+
+
+def test_materialized_views_are_left_to_the_materializer(monkeypatch):
+    """A view Databend serves as a table (materialize.py: <NAME> table + <NAME>__SRC view) is neither
+    recreated as a view by the view sync nor copied to Snowflake as a table."""
+    from afya_backends.warehouse import materialize
+    assert materialize.materialized_keys({("REPORTING", "RPT_X__SRC"), ("REPORTING", "V")}) == {("REPORTING", "RPT_X")}
+
+    class FakeSide:
+        def __init__(self, views):
+            self._views, self.database = views, "HOSPITALS"
+
+        def views(self):
+            return self._views
+    sf = FakeSide({("REPORTING", "RPT_X"): "create view RPT_X as select 1"})
+    db = FakeSide({("REPORTING", "RPT_X__SRC"): ""})
+    report = {"views_created": [], "views_replaced": [], "views_adopted": 0, "views_failed": []}
+    bisync.views_sf_to_db(sf, db, {}, report, log=lambda m: None)
+    assert report["views_materialized"] == ["REPORTING.RPT_X"]
+    assert report["views_created"] == [] and report["views_failed"] == []
